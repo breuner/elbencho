@@ -1,0 +1,20 @@
+Name:           __NAME__
+Version:        __VERSION__
+Release:        1
+Summary:        Storage benchmark tool
+License:        GPLv3+
+
+%description
+Storage benchmark for file/directory operations and blockdevice operations.
+Runs on single host or distributed across multiple hosts.
+
+#%prep
+#%setup
+#%build
+#%install
+
+%clean
+rm -rf %{buildroot}
+
+%files
+%{_bindir}/__NAME__

@@ -1,0 +1,1288 @@
+#include <boost/algorithm/string.hpp>
+#include <fcntl.h>
+#include <iostream>
+#include <iterator>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include "NumaTk.h"
+#include "ProgArgs.h"
+#include "ProgException.h"
+#include "Terminal.h"
+#include "UnitTk.h"
+
+
+#define MKFILE_MODE					(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
+#define DIRECTIO_MINSIZE			512 // min size in bytes for direct IO
+#define BENCHPATH_DELIMITER			",\n\r@" // delimiters for user-defined bench dir paths
+#define HOSTLIST_DELIMITERS			", \n\r" // delimiters for hosts string (comma or space)
+#define HOST_PORT_SEPARATOR			":" // separator for hostname:port
+#define ZONELIST_DELIMITERS			", " // delimiters for numa zones string (comma or space)
+
+#define ENDL						<< std::endl << // just to make help text print lines shorter
+
+/**
+ * Constructor.
+ *
+ * @param argc argument strings count as in main().
+ * @param argv argument strings vector as in main().
+ * @throw ProgException if config is invalid.
+ */
+ProgArgs::ProgArgs(int argc, char** argv) :
+	argsGenericDescription("", Terminal::getTerminalLineLength(80) )
+{
+	this->argc = argc;
+	this->argv = argv;
+
+	progPath = absolutePath(argv[0] );
+
+	defineDefaults();
+	defineAllowedArgs();
+
+	try
+	{
+		// parse user-given command line args
+
+		bpo::options_description argsDescription;
+		argsDescription.add(argsGenericDescription).add(argsHiddenDescription);
+
+		bpo::positional_options_description positionalArgsDescription;
+		positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
+
+		bpo::store(bpo::command_line_parser(argc, argv).
+			options(argsDescription).
+			positional(positionalArgsDescription).
+			run(),
+			argsVariablesMap);
+		bpo::notify(argsVariablesMap);
+	}
+	catch(bpo::too_many_positional_options_error& e)
+	{
+		throw ProgException(std::string("Too many positional options error: ") + e.what() );
+	}
+	catch(bpo::error_with_option_name& e)
+	{
+		throw ProgException(std::string("Error for option name: ") + e.what() );
+	}
+	catch(std::exception& e)
+	{
+		throw ProgException(std::string("Arguments error: ") + e.what() );
+	}
+
+	LoggerBase::setFilterLevel( (LogLevel)logLevel);
+
+	if(hasUserRequestedHelp() )
+		return;
+
+	convertUnitStrings();
+	checkArgs();
+}
+
+ProgArgs::~ProgArgs()
+{
+	for(int fd : benchPathFDsVec)
+		close(fd);
+}
+
+/**
+ * Define allowed args and description for help text.
+ */
+void ProgArgs::defineAllowedArgs()
+{
+	// paths arg is hidden, because they are set as positional arg
+    argsHiddenDescription.add_options()
+		(ARG_BENCHPATHS_LONG, bpo::value<StringVec>(),
+			"Comma-separated list of either directories, files or block devices to use for "
+			"benchmark.")
+		(ARG_HELP_LONG "," ARG_HELP_SHORT, "Print this help message.")
+		(ARG_HELPBLOCKDEV_LONG, "Print block device & large shared file help message.")
+		(ARG_HELPMULTIFILE_LONG, "Print multi-file / multi-directory help message.")
+		(ARG_HELPDISTRIBUTED_LONG, "Print distributed benchmark help message.")
+		(ARG_HELPALLOPTIONS_LONG, "Print all available options help message.")
+	;
+
+    // alphabetic order to print help in alphabetical order
+    argsGenericDescription.add_options()
+/*al*/	(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
+			"Show elapsed time to completion of each I/O worker thread.")
+/*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
+			"Number of bytes to read/write in a single operation. (Default: 1M)")
+/*D*/	(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->doDeleteDirs),
+			"Delete directories.")
+/*d*/	(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->doCreateDirs),
+			"Create directories. (Already existing dirs are not treated as error.)")
+/*di*/	(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
+			"Use direct IO.")
+/*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->doDeleteFiles),
+			"Delete files.")
+/*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
+			"When running as service, stay in foreground and connected to console instead of "
+			"detaching from console and daemonizing into backgorund.")
+/*ho*/	(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
+			"Comma-separated list of hosts in service mode for coordinated benchmark. When this "
+			"argument is used, this program instance runs in master mode to coordinate the given "
+			"service mode hosts. The given number of threads, dirs and files is per-host then."
+			"(Format: hostname[:port])")
+/*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
+			"Interrupt current benchmark phase on given service mode hosts.")
+/*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
+			"Depth of I/O queue per thread for asynchronous I/O. Setting this to 2 or higher "
+			"turns on async I/O. (Default: 1)")
+/*la*/	(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
+			"Show minimum, average and maximum latency for read/write operations and entries. "
+			"In read and write phases, entry latency includes file open, read/write and close.")
+/*la*/	(ARG_LATENCYHISTOGRAM_LONG, bpo::bool_switch(&this->showLatencyHistogram),
+			"Show latency histogram.")
+/*la*/	(ARG_LATENCYPERCENTILES_LONG, bpo::bool_switch(&this->showLatencyPercentiles),
+			"Show latency percentiles.")
+/*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
+			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
+/*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
+			"Number of files per directory. (Default: 10)")
+/*n*/	(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirsOrigStr),
+			"Number of directories per I/O worker thread. (Default: 10)")
+/*no0*/	(ARG_IGNORE0MSERR_LONG, bpo::bool_switch(&this->ignore0MSErrors),
+			"Do not abort if worker thread completion time is less than 1 millisecond.")
+/*nod*/	(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
+			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
+/*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
+			"Disable live statistics.")
+/*not*/	(ARG_PATHNOTSHARED_LONG, bpo::bool_switch(&this->isBenchPathNotShared),
+			"Benchmark paths are not shared between service hosts. Thus, each service host will"
+			"work on its own full dataset instead of a fraction of the data set.")
+/*pe*/	(ARG_PERTHREADSTATS_LONG, bpo::bool_switch(&this->showPerThreadStats),
+			"Show results per thread instead of total for all threads. (Does not apply to live "
+			"stats.)")
+/*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
+			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
+/*qu*/	(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
+			"Quit services on given service mode hosts.")
+/*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->doRead),
+			"Read files. (File paths are known, so no dir entries query in this phase.)")
+/*ra*/	(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
+			"Read/write at random offsets.")
+/*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
+			"Align random offsets to block size.")
+/*ra*/	(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmountOrigStr),
+			"Number of bytes to write/read when using random offsets. (Default: Set to file size)")
+/*ra*/	(ARG_RANKOFFSET_LONG, bpo::value(&this->rankOffset),
+			"Rank offset for worker threads. (Default: 0)")
+/*re*/	(ARG_LIVESLEEPSEC_LONG, bpo::value(&this->liveStatsSleepSec),
+			"Sleep interval between live stats console refresh in seconds. (Default: 2)")
+/*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
+			"Path to file for results. If the file exists, results will be appended.")
+/*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
+			"File size. (Default: 0)")
+/*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
+			"Run as service for distributed mode, waiting for requests from master.")
+/*st*/	(ARG_STARTTIME_LONG, bpo::value(&this->startTime),
+			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
+			"start of benchmarks on different hosts, assuming they use synchronized clocks. "
+			"(Hint: Try 'date +%s' to get seconds since the epoch.)")
+/*t*/	(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
+			"Number of I/O worker threads. (Default: 1)")
+/*ti*/	(ARG_TIMELIMITSECS_LONG, bpo::value(&this->timeLimitSecs),
+			"Time limit in seconds for each phase. If the limit is exceeded for a phase then no "
+			"further phases will run. 0 disables time limit. (Default: 0)")
+/*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
+			"Truncate files to 0 size when opening for writing.")
+/*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->doCreateFiles),
+			"Write files. Create them if they don't exist.")
+/*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
+			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
+			"given, then worker threads are bound round-robin to the zones. "
+			"(Hint: See 'lscpu' for available NUMA zones.)")
+    ;
+}
+
+/**
+ * Set default values for not provided command line args.
+ */
+void ProgArgs::defineDefaults()
+{
+	/* We define defaults here, because defining them as argsDescription will make them appear in
+		the auto-generated help output in an ugly way. */
+
+	this->numThreads = 1;
+	this->numDataSetThreads = numThreads; // internally set for service mode
+	this->numDirs = 10;
+	this->numDirsOrigStr = "10";
+	this->numFiles = 10;
+	this->numFilesOrigStr = "10";
+	this->fileSize = 0;
+	this->fileSizeOrigStr = "0";
+	this->blockSize = 1024*1024;
+	this->blockSizeOrigStr = "1M";
+	this->useDirectIO = false;
+	this->showPerThreadStats = false;
+	this->disableLiveStats = false;
+	this->ignoreDelErrors = false;
+	this->ignore0MSErrors = false;
+	this->doCreateDirs = false;
+	this->doCreateFiles = false;
+	this->doRead = false;
+	this->doDeleteFiles = false;
+	this->doDeleteDirs = false;
+	this->startTime = 0;
+	this->runAsService = false;
+	this->runServiceInForeground = false;
+	this->servicePort = ARGDEFAULT_SERVICEPORT;
+	this->interruptServices = false;
+	this->quitServices = false;
+	this->isBenchPathNotShared = false;
+	this->rankOffset = 0;
+	this->logLevel = Log_NORMAL;
+	this->showAllElapsed = false;
+	this->liveStatsSleepSec = 2;
+	this->useRandomOffsets = false;
+	this->useRandomAligned = false;
+	this->randomAmount = 0;
+	this->randomAmountOrigStr = "0";
+	this->ioDepth = 1;
+	this->showLatency = false;
+	this->showLatencyPercentiles = false;
+	this->showLatencyHistogram = false;
+	this->doTruncate = false;
+	this->timeLimitSecs = 0;
+}
+
+/**
+ * Convert human strings with units (e.g. "4K") to actual numbers.
+ */
+void ProgArgs::convertUnitStrings()
+{
+	blockSize = UnitTk::numHumanToBytesBinary(blockSizeOrigStr, false);
+	fileSize = UnitTk::numHumanToBytesBinary(fileSizeOrigStr, false);
+	numDirs = UnitTk::numHumanToBytesBinary(numDirsOrigStr, false);
+	numFiles = UnitTk::numHumanToBytesBinary(numFilesOrigStr, false);
+	randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
+}
+
+/**
+ * Check parsed args and assign internal values.
+ *
+ * @throw ProgException if a problem is found.
+ */
+void ProgArgs::checkArgs()
+{
+	// parse/apply numa zone as early as possible to have all further allocations in right zone
+	parseNumaZones();
+
+	if(runAsService)
+	{
+		numThreads = 0; // master will set the actual number, so no reason to start with high num
+		numDataSetThreads = numThreads;
+
+		// service mode and path defition are mutually exclusive
+		if(!benchPathStr.empty() )
+			throw ProgException("In service mode, benchmark path will come from master coordinator "
+				"and may not be given as argument.");
+
+		// service mode and host list for coordinated master mode are mutually exclusive
+		if(!hostsStr.empty() )
+			throw ProgException("Service mode and host list definition are mutually exclusive.");
+
+		return;
+	}
+
+	///////////// if we get here, we are not running as service...
+
+	parseHosts();
+
+	if( (interruptServices || quitServices) && hostsVec.empty() )
+		throw ProgException("Service interruption/termination requires a host list.");
+
+	if(interruptServices || quitServices)
+		return; // interruption does not require any args except for host list
+
+	parseAndCheckPaths();
+
+	if(!numThreads)
+		throw ProgException("Number of threads may not be zero.");
+
+	numDataSetThreads = numThreads;
+
+	if(fileSize && !blockSize && (doRead || doCreateFiles) )
+		throw ProgException("Block size may not be 0 if file size is given.");
+
+	if(blockSize > fileSize)
+	{
+		// only log if file size is not zero, so that we actually need block size
+		if(fileSize)
+			LOGGER(Log_VERBOSE, "NOTE: Reducing block size to not exceed file size. "
+				"Old: " << blockSize << "; " <<
+				"New: " << fileSize << std::endl);
+
+		blockSize = fileSize; // to avoid allocating large buffers if file size is small
+	}
+
+	if(fileSize && !blockSize)
+		throw ProgException("Block size may not be 0.");
+
+	if(useDirectIO && fileSize && (doCreateFiles || doRead) )
+	{
+		if(fileSize % blockSize)
+		{
+			size_t newFileSize = fileSize - (fileSize % blockSize);
+
+			LOGGER(Log_NORMAL, "NOTE: File size for direct IO is not a multiple of block size. "
+				"Reducing file size. " <<
+				"Old: " << fileSize << "; " <<
+				"New: " << newFileSize << std::endl);
+
+			fileSize = newFileSize;
+		}
+
+		if(useRandomOffsets && !useRandomAligned)
+		{
+			LOGGER(Log_NORMAL,
+				"NOTE: Direct IO requires alignment. "
+				"Enabling \"--" ARG_RANDOMALIGN_LONG "\"." << std::endl);
+
+			useRandomAligned = true;
+		}
+
+		if(useRandomOffsets && (randomAmount % blockSize) )
+		{
+			size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
+
+			LOGGER(Log_NORMAL, "NOTE: Random amount for direct IO is not a multiple of block size. "
+				"Reducing random amount. " <<
+				"Old: " << randomAmount << "; " <<
+				"New: " << newRandomAmount << std::endl);
+
+			randomAmount = newRandomAmount;
+		}
+
+		if( (blockSize % DIRECTIO_MINSIZE) != 0)
+			throw ProgException("Block size for direct IO is not a multiple of required size. "
+				"(Note that a system's actual required size for direct IO might be even higher "
+				"depending on system page size and drive sector size.) "
+				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
+	}
+
+	if(useRandomOffsets && !randomAmount)
+		randomAmount = fileSize;
+
+	if(!hostsVec.empty() )
+		return;
+
+	///////////// if we get here, we are not running in master mode...
+
+	checkPathDependentArgs();
+}
+
+/**
+ * Check arguments that depend on the bench path type. Not intended to be called in master mode.
+ *
+ * @throw ProgException if a problem is found.
+ */
+void ProgArgs::checkPathDependentArgs()
+{
+	if(benchPathType == BenchPathType_DIR)
+	{
+		if(useRandomOffsets)
+			throw ProgException("Random offsets are not allowed when benchmark path is a "
+				"directory");
+	}
+
+	if(benchPathType != BenchPathType_DIR)
+	{ // ensure that each thread has at least one block to write per file
+
+		// note: blockSize can be 0 if fileSize is 0 (see checkArgs() blockSize reduction)
+
+		size_t minFileSize = numDataSetThreads * blockSize;
+		if(fileSize < minFileSize)
+			throw ProgException("File size must be large enough so that each I/O thread can at "
+				"least read/write one block. "
+				"Current block size: " + std::to_string(blockSize) + "; "
+				"Current dataset thread count: " + std::to_string(numDataSetThreads) + "; "
+				"Current file size: " + std::to_string(fileSize) + "; "
+				"Resulting min valid file size: " + std::to_string(minFileSize) );
+
+		if(minFileSize && !useRandomOffsets && ( (fileSize % minFileSize) != 0) )
+			LOGGER(Log_NORMAL, "NOTE: File size is not a multiple of block size times number "
+				"of I/O threads, so the I/O threads write different amounts of data." << std::endl);
+
+		if(minFileSize && useRandomOffsets && ( (randomAmount % minFileSize) != 0) )
+			LOGGER(Log_NORMAL, "NOTE: Random amount is not a multiple of block size times number "
+				"of I/O threads, so the I/O threads write different amounts of data." << std::endl);
+	}
+
+	if(benchPathType == BenchPathType_FILE)
+		ignoreDelErrors = true; // multiple threads will try to delete the same files
+}
+
+/**
+ * Parse benchPathStr to vector. If this is not the master of a distributed benchmark, also check
+ * existence of paths and open them for pathFDsVec.
+ *
+ * benchPathStr will contain absolute paths afterwards.
+ *
+ * @throw ProgException if a problem is found, e.g. path not existing.
+ */
+void ProgArgs::parseAndCheckPaths()
+{
+	benchPathsVec.resize(0); // reset before reuse in service mode
+
+	/* bench paths can come in two ways:
+		1) As benchPathStr from master (using absolute paths)
+		2) As benchPathsVec from command line
+		In both cases, benchPathsVec and benchPathStr will contain the paths afterwards. */
+
+	if(getRunAsService() )
+	{ // service: take paths from benchPathStr
+		boost::split(benchPathsVec, benchPathStr, boost::is_any_of(BENCHPATH_DELIMITER),
+			boost::token_compress_on);
+
+		// delete empty string elements from pathsVec (they come from delimiter use at start/end)
+		for( ; ; )
+		{
+			StringVec::iterator iter = std::find(benchPathsVec.begin(), benchPathsVec.end(), "");
+			if(iter == benchPathsVec.end() )
+				break;
+
+			benchPathsVec.erase(iter);
+		}
+	}
+	else
+	{ // master or local: take paths from command line as vector
+		if(argsVariablesMap.count(ARG_BENCHPATHS_LONG) )
+			benchPathsVec = argsVariablesMap[ARG_BENCHPATHS_LONG].as<StringVec>();
+
+		// update benchPathStr to contain absolute paths (for distributed run & for verbose print)
+		benchPathStr = "";
+		for(std::string path : benchPathsVec)
+			benchPathStr += absolutePath(path) + std::string(BENCHPATH_DELIMITER)[0];
+	}
+
+	if(benchPathsVec.empty() || benchPathStr.empty() )
+		throw ProgException("Given benchmark path list is empty: " + benchPathStr);
+
+	// skip open of local paths if this is the master of a distributed run
+	if(!hostsStr.empty() )
+		return;
+
+	// if we get here then this is not the master of a distributed run...
+
+	prepareBenchPathFDsVec();
+}
+
+/**
+ * Fill benchPathFDsVec with open file descriptors from benchPathsVec.
+ * Closing of old FDs usually happens in ProgArgs destructor or resetBenchPath(), but this method
+ * also includes closing any previously set FDs in benchPathFDsVec.
+ *
+ * @throw ProgException on error, e.g. unable to open path.
+ */
+void ProgArgs::prepareBenchPathFDsVec()
+{
+	// close existing FDs before reuse in service mode
+	for(int fd : benchPathFDsVec)
+		close(fd);
+
+	benchPathFDsVec.resize(0); // reset before reuse in service mode
+
+	// check if each given path exists as dir and add it to pathFDsVec
+	for(std::string path : benchPathsVec)
+	{
+		BenchPathType pathType = findBenchPathType(path);
+
+		// fail if different path types are detected
+		if(benchPathFDsVec.empty() )
+			benchPathType = pathType; // init path type in first round
+		else
+		if(benchPathType != pathType)
+			throw ProgException("Conflicting path type found. All benchmark paths need to have the "
+				"same type. "
+				"Path: " + path + "; "
+				"Path of different type: " + benchPathsVec[0] );
+
+		// sanity check: user prolly doesn't want to create files in /dev
+		if( (benchPathType != BenchPathType_DIR) &&
+			!path.rfind("/dev/", 0) &&
+			!checkPathExists(path) )
+			throw ProgException("Refusing to work with not existing entry in /dev: " + path);
+
+		// sanity check: user prolly doesn't want to use /dev in dir mode
+		if( (benchPathType == BenchPathType_DIR) &&
+			( !path.rfind("/dev/", 0) || (path == "/dev") ) )
+			throw ProgException("Refusing to work with directories in /dev: " + path);
+
+		if( (benchPathType != BenchPathType_DIR) &&
+			(doCreateDirs || doDeleteDirs || doDeleteFiles) )
+			throw ProgException("Delete and directory create options are only allowed if benchmark "
+				"path is a directory.");
+
+		if( (benchPathType == BenchPathType_DIR) && !numDirs)
+			throw ProgException("Number of directories may not be zero");
+
+		int fd;
+		int openFlags = 0;
+
+		if(pathType == BenchPathType_DIR)
+			openFlags |= (O_DIRECTORY | O_RDONLY); // O_DIRECTORY only works with O_RDONLY on xfs
+		else
+		{ // file or blockdev mode
+			if(doCreateFiles || doDeleteFiles)
+				openFlags |= O_RDWR;
+			else
+				openFlags |= O_RDONLY;
+
+			if(useDirectIO)
+				openFlags |= O_DIRECT;
+
+			// note: no O_TRUNC here, because prepareFileSize() later needs original size
+			if( (pathType == BenchPathType_FILE) && doCreateFiles)
+				openFlags |= O_CREAT;
+		}
+
+		fd = open(path.c_str(), openFlags, MKFILE_MODE);
+
+		if(fd == -1)
+			throw ProgException("Unable to open benchmark path: " + path + "; "
+				"SysErr: " + strerror(errno) );
+
+		benchPathFDsVec.push_back(fd);
+
+		prepareFileSize(fd, path);
+	}
+}
+
+/**
+ * In file mode and with random writes, truncate file to full size so that reads will work
+ * afterwards across the full file size.
+ *
+ * @fd filedescriptor for file to be prepared if necessary.
+ * @path only for error messages.
+ * @throw ProgException on error.
+ */
+void ProgArgs::prepareFileSize(int fd, std::string& path)
+{
+	if(benchPathType == BenchPathType_FILE)
+	{
+		struct stat statBuf;
+
+		int statRes = fstat(fd, &statBuf);
+
+		if(statRes == -1)
+			throw ProgException("Unable to check size of file through fstat: " + path + "; "
+				"SysErr: " + strerror(errno) );
+
+		off_t currentFileSize = statBuf.st_size;
+
+		if(!fileSize)
+		{
+			LOGGER(Log_NORMAL,
+				"NOTE: Auto-setting file size. "
+				"Path: " << path << "; "
+				"Size: " << currentFileSize << std::endl);
+
+			fileSize = currentFileSize;
+		}
+
+		if( (fileSize > (uint64_t)currentFileSize) && !doCreateFiles)
+			throw ProgException("Given size to use is larger than detected size. "
+				"File: " + path + "; "
+				"Detected size: " + std::to_string(currentFileSize) + "; "
+				"Given size: " + std::to_string(fileSize) );
+
+		if(doCreateFiles)
+		{
+			// truncate file to given size in random mode, so reads will work across full length
+			if(useRandomOffsets)
+			{
+				// check if current file size is smaller than given size
+				if( (size_t)currentFileSize < fileSize)
+				{ // increase file size
+					LOGGER(Log_VERBOSE,
+						"Truncating file to full size. "
+						"Path: " << path << "; "
+						"Size: " << currentFileSize << std::endl);
+
+					int truncRes = ftruncate(fd, fileSize);
+					if(truncRes == -1)
+						throw ProgException("Unable to set file size through ftruncate. "
+							"File: " + path + "; "
+							"Size: " + std::to_string(fileSize) + "; "
+							"SysErr: " + strerror(errno) );
+				}
+			}
+
+			// truncate file to 0. (make sure to keep this after all other file size checks.)
+			if(doTruncate)
+			{
+				int truncRes = ftruncate(fd, 0);
+				if(truncRes == -1)
+					throw ProgException("Unable to ftruncate file. "
+						"File: " + path + "; "
+						"Size: " + std::to_string(0) + "; "
+						"SysErr: " + strerror(errno) );
+			}
+
+		}
+
+		if(doRead && !doCreateFiles)
+		{
+			// let user know about reading sparse/compressed files
+			// (note: statBuf.st_blocks is in 512-byte units)
+			if( (statBuf.st_blocks * 512) < currentFileSize)
+				LOGGER(Log_NORMAL,
+					"NOTE: Allocated file disk space smaller than file size. File seems sparse or "
+					"compressed. (Perform sequential write to fill sparse areas.) "
+					"Path: " << path << "; "
+					"File size: " << currentFileSize << "; "
+					"Allocated size: " << statBuf.st_blocks << std::endl);
+		}
+	}
+
+	if(benchPathType == BenchPathType_BLOCKDEV)
+	{
+		off_t blockdevSize = lseek(fd, 0, SEEK_END);
+
+		if(blockdevSize == -1)
+			throw ProgException("Unable to check size of blockdevice through lseek: " + path + "; "
+				"SysErr: " + strerror(errno) );
+
+		if(!fileSize)
+		{
+			LOGGER(Log_NORMAL,
+				"NOTE: Setting file size to block dev size: " << blockdevSize << std::endl);
+			fileSize = blockdevSize;
+		}
+
+		if(fileSize > (uint64_t)blockdevSize)
+			throw ProgException("Given size to use is larger than detected blockdevice size. "
+				"Blockdevice: " + path + "; "
+				"Detected size: " + std::to_string(blockdevSize) + "; "
+				"Given size: " + std::to_string(fileSize) );
+
+		lseek(fd, 0, SEEK_SET); // seek back to start
+	}
+}
+
+/**
+ * Parse hosts string to fill hostsVec. Do nothing if hosts string is empty.
+ *
+ * hostsVec elements will have default port appended if no port was defined.
+ *
+ * @throw ProgException if a problem is found, e.g. hosts string was not empty, but parsed result
+ * 		is empty.
+ */
+void ProgArgs::parseHosts()
+{
+	if(hostsStr.empty() )
+		return; // nothing to do
+
+	boost::split(hostsVec, hostsStr, boost::is_any_of(HOSTLIST_DELIMITERS),
+			boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(hostsVec.begin(), hostsVec.end(), "");
+		if(iter == hostsVec.end() )
+			break;
+
+		hostsVec.erase(iter);
+	}
+
+	for(std::string& host : hostsVec)
+	{
+		std::size_t findRes = host.find(HOST_PORT_SEPARATOR);
+
+		// add default port to hosts where port is not provided by user
+		if(findRes == std::string::npos)
+			host += HOST_PORT_SEPARATOR ARGDEFAULT_SERVICEPORT_STR;
+	}
+
+	if(hostsVec.empty() )
+		throw ProgException("Hosts defined, but parsing resulted in an empty list: " + hostsStr);
+
+	// check for duplicates
+	std::set<std::string> hostsSet(hostsVec.begin(), hostsVec.end() );
+	if(hostsSet.size() != hostsVec.size() )
+		throw ProgException("List of hosts contains duplicates. "
+			"Number of duplicates: " + std::to_string(hostsVec.size() - hostsSet.size() ) + "; "
+			"List: " + hostsStr);
+}
+
+/**
+ * Parse numa zones string to fill numaZonesVec. Do nothing if numa zones string is empty.
+ * Also applies the given zones to the current thread.
+ *
+ * Note: We use libnuma in NumaTk, but we don't allow libnuma's NUMA string format to build
+ * our vector that easily allows us to easily bind I/O workers round-robin to given zones.
+ *
+ * @throw ProgException if a problem is found, e.g. numa zones string was not empty, but parsed
+ * 		result is empty.
+ */
+void ProgArgs::parseNumaZones()
+{
+	if(numaZonesStr.empty() )
+		return; // nothing to do
+
+	if(!NumaTk::isNumaInfoAvailable() )
+		throw ProgException("No NUMA zone info available.");
+
+	StringVec zonesStrVec; // temporary for split()
+
+	boost::split(zonesStrVec, numaZonesStr, boost::is_any_of(ZONELIST_DELIMITERS),
+			boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(zonesStrVec.begin(), zonesStrVec.end(), "");
+		if(iter == zonesStrVec.end() )
+			break;
+
+		zonesStrVec.erase(iter);
+	}
+
+	if(zonesStrVec.empty() )
+		throw ProgException("NUMA zones defined, but parsing resulted in an empty list: " +
+			numaZonesStr);
+
+	// apply given zones to current thread
+	NumaTk::bindToNumaZone(numaZonesStr);
+
+	// convert from string vector to int vector
+	for(std::string& zoneStr : zonesStrVec)
+		numaZonesVec.push_back(std::stoi(zoneStr) );
+}
+
+/**
+ * Turn given path into an absolute path. If given path was absolute before, it is returned
+ * unmodified. Otherwise the path to the current work dir is prepended.
+ *
+ * This is intentionally not using realpath() to allow symlinks pointing to different dirs on
+ * different hosts in distributed mode. On the other hand, we need absolute paths for distributed
+ * mode to be independent of the current work dir, hence this approach.
+ *
+ * @pathStr possibly relative path, may not be empty.
+ * @return absolute path.
+ * @throw ProgException on error, e.g. pathStr empty or unable to resolve current working dir.
+ */
+std::string ProgArgs::absolutePath(std::string pathStr)
+{
+	if(pathStr.empty() )
+		throw ProgException("The absolutePath() method can't handle empty paths");
+
+	if(pathStr[0] == '/')
+		return pathStr; // pathStr was already absolute, so nothing to do
+
+	std::array<char, PATH_MAX> currentWorkDir;
+
+	char* getCWDRes = getcwd(currentWorkDir.data(), PATH_MAX);
+	if(!getCWDRes)
+		throw ProgException(std::string("Failed to resolve current work dir. ") +
+			"SysErr: " + strerror(errno) );
+
+	std::string returnPath = std::string(currentWorkDir.data() ) + "/" + pathStr;;
+
+	return returnPath;
+}
+
+/**
+ * Find out type of given path. Fail if none of BenchPathType.
+ *
+ * @pathStr path for which we want to find out the type; defaults to BenchPathType_FILE is entry
+ * 	does not exist.
+ * @throw ProgException if path type is none of BenchPathType or if stat() error occurs.
+ */
+BenchPathType ProgArgs::findBenchPathType(std::string pathStr)
+{
+	struct stat statBuf;
+
+	int statRes = stat(pathStr.c_str(), &statBuf);
+	if(statRes == -1)
+	{
+		if(errno != ENOENT)
+			throw ProgException("Unable to check type of benchmark path: " + pathStr + "; "
+				"SysErr: " + strerror(errno) );
+
+		return BenchPathType_FILE;
+	}
+
+    switch(statBuf.st_mode & S_IFMT)
+    {
+		case S_IFBLK: return BenchPathType_BLOCKDEV;
+		case S_IFDIR: return BenchPathType_DIR;
+		case S_IFREG: return BenchPathType_FILE;
+    }
+
+    throw ProgException("Invalid path type: " + pathStr);
+}
+
+/**
+ * Find out if the given path exists as dir or file.
+ *
+ * @pathStr the path to be checked for existence.
+ * @return false if not exists, true in all other cases (including errors other than not-exists).
+ */
+bool ProgArgs::checkPathExists(std::string pathStr)
+{
+	struct stat statBuf;
+
+	int statRes = stat(pathStr.c_str(), &statBuf);
+	if(statRes == -1)
+	{
+		if(errno == ENOENT)
+			return false;
+
+		return true;
+	}
+
+   return true;
+}
+
+/**
+ * Check if user gave the argument to print help. If this returns true, then the rest of the
+ * settings in this class is not initialized, so may not be used.
+ *
+ * @return true if help text was requested.
+ */
+bool ProgArgs::hasUserRequestedHelp()
+{
+	if(argsVariablesMap.count(ARG_HELP_LONG) ||
+		argsVariablesMap.count(ARG_HELP_SHORT) ||
+		argsVariablesMap.count(ARG_HELPBLOCKDEV_LONG) ||
+		argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) ||
+		argsVariablesMap.count(ARG_HELPDISTRIBUTED_LONG) ||
+		argsVariablesMap.count(ARG_HELPALLOPTIONS_LONG) )
+		return true;
+
+	return false;
+}
+
+/**
+ * Print help text based on user-given selection.
+ */
+void ProgArgs::printHelp()
+{
+	if(argsVariablesMap.count(ARG_HELP_LONG) ||
+		argsVariablesMap.count(ARG_HELP_SHORT) )
+		printHelpOverview();
+	else
+	if(argsVariablesMap.count(ARG_HELPBLOCKDEV_LONG) )
+		printHelpBlockDev();
+	else
+	if(argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) )
+		printHelpMultiFile();
+	else
+	if(argsVariablesMap.count(ARG_HELPDISTRIBUTED_LONG) )
+		printHelpDistributed();
+	else
+	if(argsVariablesMap.count(ARG_HELPALLOPTIONS_LONG) )
+		printHelpAllOptions();
+}
+
+void ProgArgs::printHelpOverview()
+{
+	std::cout <<
+		EXE_NAME " - A distributed benchmark for file systems and block devices" ENDL
+		std::endl <<
+		"Version: " EXE_VERSION ENDL
+		std::endl <<
+		"Tests include throughput, IOPS and access latency. Live statistics show how the" ENDL
+		"system behaves under load and whether it is worth waiting for the end result." ENDL
+		std::endl <<
+		"Get started by selecting what you want to test..." ENDL
+		std::endl <<
+		"Block devices or large shared files:" ENDL
+		"  $ ./" EXE_NAME " --" ARG_HELPBLOCKDEV_LONG ENDL
+		std::endl <<
+		"Many files in different directories:" ENDL
+		"  $ ./" EXE_NAME " --" ARG_HELPMULTIFILE_LONG ENDL
+		std::endl <<
+		"Multiple clients:" ENDL
+		"  $ ./" EXE_NAME " --" ARG_HELPDISTRIBUTED_LONG ENDL
+		std::endl <<
+		"See all available options:" ENDL
+		"  $ ./" EXE_NAME " --" ARG_HELPALLOPTIONS_LONG ENDL
+		std::endl <<
+		"Happy benchmarking!" << std::endl;
+}
+
+void ProgArgs::printHelpAllOptions()
+{
+	std::cout <<
+		"Overview of all available options." ENDL
+		std::endl <<
+		"Usage: ./" EXE_NAME " [OPTIONS] PATH [MORE_PATHS]" ENDL
+		std::endl;
+
+	std::cout << "All options in alphabetical order:" << std::endl;
+	std::cout << argsGenericDescription << std::endl;
+}
+
+void ProgArgs::printHelpBlockDev()
+{
+	std::cout <<
+		"Block device & large shared file testing." ENDL
+		std::endl <<
+		"Usage: ./" EXE_NAME " [OPTIONS] BLOCKDEV [MORE_BLOCKDEVS]" ENDL
+		std::endl;
+
+	bpo::options_description argsBlockdevBasicDescription(
+		"Basic Options", Terminal::getTerminalLineLength(80) );
+
+	argsBlockdevBasicDescription.add_options()
+		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->doCreateFiles),
+			"Write to given block device(s).")
+		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->doRead),
+			"Read from given block device(s).")
+		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
+			"Block device size to use. (Default: 0)")
+		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
+			"Number of bytes to read/write in a single operation. (Default: 1M)")
+		(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
+			"Number of I/O worker threads. (Default: 1)")
+    ;
+
+    std::cout << argsBlockdevBasicDescription << std::endl;
+
+	bpo::options_description argsBlockdevFrequentDescription(
+		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+
+	argsBlockdevFrequentDescription.add_options()
+		(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
+			"Use direct IO to avoid buffering/caching.")
+		(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
+			"Depth of I/O queue per thread for asynchronous read/write. Setting this to 2 or "
+			"higher turns on async I/O. (Default: 1)")
+		(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
+			"Read/write at random offsets.")
+		(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmount),
+			"Number of bytes to write/read when using random offsets. (Default: Set to file size)")
+		(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
+			"Align random offsets to block size.")
+		(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
+			"Show minimum, average and maximum latency for read/write operations.")
+	;
+
+    std::cout << argsBlockdevFrequentDescription << std::endl;
+
+	bpo::options_description argsBlockdevMiscDescription(
+		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+
+	argsBlockdevMiscDescription.add_options()
+		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
+			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
+			"given, then worker threads are bound round-robin to the zones. "
+			"(Hint: See 'lscpu' for available NUMA zones.)")
+		(ARG_LATENCYPERCENTILES_LONG, bpo::bool_switch(&this->showLatencyPercentiles),
+			"Show latency percentiles.")
+		(ARG_LATENCYHISTOGRAM_LONG, bpo::bool_switch(&this->showLatencyHistogram),
+			"Show latency histogram.")
+		(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
+			"Show elapsed time to completion of each I/O worker thread.")
+	;
+
+    std::cout << argsBlockdevMiscDescription << std::endl;
+
+    std::cout <<
+    	"Examples:" ENDL
+		"  Test 4KiB block random read latency of device /dev/nvme0n1:" ENDL
+		"    $ ./" EXE_NAME " -r -b 4K --lat --direct --rand /dev/nvme0n1" ENDL
+		std::endl <<
+		"  Test 4KiB multi-threaded write IOPS of devices /dev/nvme0n1 & /dev/nvme1n1:" ENDL
+		"    $ ./" EXE_NAME " -w -b 4K -t 16 --iodepth 16 --direct --rand \\" ENDL
+		"        /dev/nvme0n1 /dev/nvme1n1" ENDL
+		std::endl <<
+		"  Test 1MiB multi-threaded read streaming throughput of device /dev/nvme0n1:" ENDL
+		"    $ ./" EXE_NAME " -r -b 1M -t 8 --iodepth 4 --direct /dev/nvme0n1" <<
+		std::endl;
+}
+
+void ProgArgs::printHelpMultiFile()
+{
+	std::cout <<
+		"Multi-file / multi-directory testing." ENDL
+		std::endl <<
+		"Usage: ./" EXE_NAME " [OPTIONS] DIRECTORY [MORE_DIRECTORIES]" ENDL
+		std::endl;
+
+	bpo::options_description argsMultiFileBasicDescription(
+		"Basic Options", Terminal::getTerminalLineLength(80) );
+
+	argsMultiFileBasicDescription.add_options()
+		(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->doCreateDirs),
+			"Create directories. (Already existing dirs are not treated as error.)")
+		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->doCreateFiles),
+			"Write files. Create them if they don't exist.")
+		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->doRead),
+			"Read files. (File paths are known, so no dir entries query in this phase.)")
+		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->doDeleteFiles),
+			"Delete files.")
+		(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->doDeleteDirs),
+			"Delete directories.")
+		(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
+			"Number of I/O worker threads. (Default: 1)")
+		(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirs),
+			"Number of directories per I/O worker thread. (Default: 10)")
+		(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFiles),
+			"Number of files per directory. (Default: 10)")
+		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
+			"File size. (Default: 0)")
+		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
+			"Number of bytes to read/write in a single operation. (Default: 1M)")
+    ;
+
+    std::cout << argsMultiFileBasicDescription << std::endl;
+
+	bpo::options_description argsMultiFileFrequentDescription(
+		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+
+	argsMultiFileFrequentDescription.add_options()
+		(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
+			"Use direct IO.")
+		(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
+			"Depth of I/O queue per thread for asynchronous read/write. Setting this to 2 or "
+			"higher turns on async I/O. (Default: 1)")
+		(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
+			"Show minimum, average and maximum latency for read/write operations and entries. "
+			"In read and write phases, entry latency includes file open, read/write and close.")
+	;
+
+    std::cout << argsMultiFileFrequentDescription << std::endl;
+
+	bpo::options_description argsMultiFileMiscDescription(
+		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+
+	argsMultiFileMiscDescription.add_options()
+		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
+			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
+			"given, then worker threads are bound round-robin to the zones. "
+			"(Hint: See 'lscpu' for available NUMA zones.)")
+		(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
+			"Show elapsed time to completion of each I/O worker thread.")
+		(ARG_LATENCYPERCENTILES_LONG, bpo::bool_switch(&this->showLatencyPercentiles),
+			"Show latency percentiles.")
+		(ARG_LATENCYHISTOGRAM_LONG, bpo::bool_switch(&this->showLatencyHistogram),
+			"Show latency histogram.")
+		(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
+			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
+		(ARG_IGNORE0MSERR_LONG, bpo::bool_switch(&this->ignore0MSErrors),
+			"Do not abort if worker thread completion time is less than 1 millisecond.")
+	;
+
+    std::cout << argsMultiFileMiscDescription << std::endl;
+
+    std::cout <<
+    	"Examples:" ENDL
+		" Test 2 threads, each creating 3 directories with 4 1MiB files inside:" ENDL
+		"    $ ./" EXE_NAME " -t 2 -d -n 3 -w -N 4 -s 1m -b 1m /data/testdir" ENDL
+		std::endl <<
+		"  Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks:" ENDL
+		"    $ ./" EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k /data/testdir" ENDL
+		std::endl <<
+		"  Delete files and directories created by example above:" ENDL
+		"    $ ./" EXE_NAME " -t 2 -n 3 -N 4 -F -D /data/testdir" <<
+		std::endl;
+}
+
+void ProgArgs::printHelpDistributed()
+{
+	std::cout <<
+		"Distributed benchmarking with multiple clients." ENDL
+		std::endl <<
+		"Usage:" ENDL
+		"  First, start " EXE_NAME " in service mode on multiple hosts:" ENDL
+		"  $ ./" EXE_NAME " --service [OPTIONS]" ENDL
+		std::endl <<
+		"  Then run master anywhere on the network to start benchmarks on service hosts:" ENDL
+		"  $ ./" EXE_NAME " --hosts HOST_1,...,HOST_N [OPTIONS]" ENDL
+		std::endl <<
+		"  When you're done, quit all services:" ENDL
+		"  $ ./" EXE_NAME " --hosts HOST_1,...,HOST_N --quit" ENDL
+		std::endl;
+
+	bpo::options_description argsDistributedBasicDescription(
+		"Basic Options", Terminal::getTerminalLineLength(80) );
+
+	argsDistributedBasicDescription.add_options()
+		(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
+			"Comma-separated list of hosts in service mode for coordinated benchmark. When this "
+			"argument is used, this program instance runs in master mode to coordinate the given "
+			"service mode hosts. The given number of threads, dirs and files is per-service then. "
+			"(Format: hostname[:port])")
+		(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
+			"Run as service for distributed mode, waiting for requests from master.")
+		(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
+			"Quit services on given service mode hosts.")
+    ;
+
+    std::cout << argsDistributedBasicDescription << std::endl;
+
+	bpo::options_description argsDistributedFrequentDescription(
+		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+
+	argsDistributedFrequentDescription.add_options()
+		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
+			"Comma-separated list of NUMA zones to bind this service to. If multiple zones are "
+			"given, then worker threads are bound round-robin to the zones. "
+			"(Hint: See 'lscpu' for available NUMA zones.)")
+		(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
+			"TCP communication port of service. (Default: " ARGDEFAULT_SERVICEPORT_STR ") "
+			"Different ports can be  used to run multiple service instances on different NUMA "
+			"zones of a host.")
+	;
+
+    std::cout << argsDistributedFrequentDescription << std::endl;
+
+	bpo::options_description argsDistributedMiscDescription(
+		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+
+	argsDistributedMiscDescription.add_options()
+		(ARG_PATHNOTSHARED_LONG, bpo::bool_switch(&this->isBenchPathNotShared),
+			"Benchmark paths are not shared between service hosts. Thus, each service host will"
+			"work on the full given dataset instead of its own fraction of the data set.")
+		(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
+			"Interrupt current benchmark phase on given service mode hosts.")
+		(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
+			"When running as service, stay in foreground and connected to console instead of "
+			"detaching from console and daemonizing into backgorund.")
+	;
+
+    std::cout << argsDistributedMiscDescription << std::endl;
+
+    std::cout <<
+    	"Examples:" ENDL
+		"  Run service on two different NUMA zones of host node001:" ENDL
+		"    $ ./" EXE_NAME " --service --zone 0 --port 1611" ENDL
+		"    $ ./" EXE_NAME " --service --zone 1 --port 1612" ENDL
+		std::endl <<
+		"  Run master to coordinate benchmarks on node001 services, using 4 threads per" ENDL
+		"  service and creating 8 dirs per thread, each containing 16 1MiB files:" ENDL
+		"    $ ./" EXE_NAME " --hosts node001:1611,node001:1612 \\" ENDL
+		"        -t 4 -d -n 8 -w -N 16 -s 1M" ENDL
+		std::endl <<
+		"  Use master to quit local services:" ENDL
+		"    $ ./" EXE_NAME " --hosts node001:1611,node001:1612 --quit" ENDL
+		std::endl <<
+		std::endl;
+}
+
+/**
+ * Sets the arguments that are relevant for a new benchmark in service mode.
+ *
+ * @throw ProgException if configuration error is detected of bench dirs cannot be accessed.
+ */
+void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
+{
+	benchPathStr = tree.get<std::string>(ARG_BENCHPATHS_LONG);
+	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
+	numDirs = tree.get<size_t>(ARG_NUMDIRS_LONG);
+	numFiles = tree.get<size_t>(ARG_NUMFILES_LONG);
+	fileSize = tree.get<size_t>(ARG_FILESIZE_LONG);
+	blockSize = tree.get<size_t>(ARG_BLOCK_LONG);
+	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
+	showPerThreadStats = tree.get<bool>(ARG_PERTHREADSTATS_LONG);
+	ignoreDelErrors = tree.get<bool>(ARG_IGNOREDELERR_LONG);
+	ignore0MSErrors = tree.get<bool>(ARG_IGNORE0MSERR_LONG);
+	doCreateDirs = tree.get<bool>(ARG_CREATEDIRS_LONG);
+	doCreateFiles = tree.get<bool>(ARG_CREATEFILES_LONG);
+	doRead = tree.get<bool>(ARG_READ_LONG);
+	doDeleteFiles = tree.get<bool>(ARG_DELETEFILES_LONG);
+	doDeleteDirs = tree.get<bool>(ARG_DELETEDIRS_LONG);
+	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
+	useRandomAligned = tree.get<bool>(ARG_RANDOMALIGN_LONG);
+	randomAmount = tree.get<size_t>(ARG_RANDOMAMOUNT_LONG);
+	ioDepth = tree.get<size_t>(ARG_IODEPTH_LONG);
+	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
+
+	// dynamically calculated values for service hosts...
+
+	rankOffset = tree.get<size_t>(ARG_RANKOFFSET_LONG);
+
+	numDataSetThreads = tree.get<size_t>(ARG_NUMDATASETTHREADS_LONG);
+
+	// rebuild benchPathsVec/benchPathFDsVec and check if bench dirs are accessible
+	parseAndCheckPaths();
+
+	checkPathDependentArgs();
+}
+
+/**
+ * Gets the arguments that are relevant for a new benchmark in service mode.
+ *
+ * @workerRank to calc rankOffset for host (unless user requested all to work on same dataset)
+ */
+void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
+{
+	outTree.put(ARG_BENCHPATHS_LONG, benchPathStr);
+	outTree.put(ARG_NUMTHREADS_LONG, numThreads);
+	outTree.put(ARG_NUMDIRS_LONG, numDirs);
+	outTree.put(ARG_NUMFILES_LONG, numFiles);
+	outTree.put(ARG_FILESIZE_LONG, fileSize);
+	outTree.put(ARG_BLOCK_LONG, blockSize);
+	outTree.put(ARG_DIRECTIO_LONG, useDirectIO);
+	outTree.put(ARG_PERTHREADSTATS_LONG, showPerThreadStats);
+	outTree.put(ARG_IGNOREDELERR_LONG, ignoreDelErrors);
+	outTree.put(ARG_IGNORE0MSERR_LONG, ignore0MSErrors);
+	outTree.put(ARG_CREATEDIRS_LONG, doCreateDirs);
+	outTree.put(ARG_CREATEFILES_LONG, doCreateFiles);
+	outTree.put(ARG_READ_LONG, doRead);
+	outTree.put(ARG_DELETEFILES_LONG, doDeleteFiles);
+	outTree.put(ARG_DELETEDIRS_LONG, doDeleteDirs);
+	outTree.put(ARG_RANDOMOFFSETS_LONG, useRandomOffsets);
+	outTree.put(ARG_RANDOMALIGN_LONG, useRandomAligned);
+	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
+	outTree.put(ARG_IODEPTH_LONG, ioDepth);
+	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
+
+	// dynamically calculated values for service hosts...
+
+	size_t remoteRankOffset = getIsBenchPathShared() ?
+		rankOffset + (workerRank * numThreads) : rankOffset;
+
+	outTree.put(ARG_RANKOFFSET_LONG, remoteRankOffset);
+
+	size_t remoteNumDataSetThreads = getIsBenchPathShared() ?
+		numThreads * hostsVec.size() : numThreads;
+
+	outTree.put(ARG_NUMDATASETTHREADS_LONG, remoteNumDataSetThreads);
+}
+
+/**
+ * Reset benchmark path and close associated file descriptors.
+ */
+void ProgArgs::resetBenchPath()
+{
+	// close open file descriptors
+	for(int fd : benchPathFDsVec)
+		close(fd);
+
+	benchPathFDsVec.resize(0); // reset before reuse in service mode
+
+	benchPathsVec.resize(0); // reset before reuse in service mode
+	benchPathStr = "";
+}
+
+/**
+ * Supposed to be called only in master mode after benchPathType has been received from all service
+ * hosts.
+ *
+ * @benchPathType benchPathType of service hosts after having confirmed that all service hosts are
+ * 		using the same type.
+ */
+void ProgArgs::setBenchPathType(BenchPathType benchPathType)
+{
+	this->benchPathType = benchPathType;
+
+	if(!fileSize)
+	{
+		/* don't allow 0 (auto-detected) file size in file/blockdev mode, because otherwise master
+			wouldn't know random amount and total amount of IO for percent done calculation. */
+
+		if(benchPathType == BenchPathType_BLOCKDEV)
+			throw ProgException("File size must be set in master mode when benchmark path is a "
+				"block devices.");
+
+		if(benchPathType == BenchPathType_FILE)
+			throw ProgException("File size must be set in master mode when benchmark path is a "
+				"file.");
+	}
+}

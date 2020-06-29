@@ -30,3 +30,15 @@
 *.exe
 *.out
 *.app
+bin/elbencho
+bin/elbencho-unstripped
+
+# Eclipse
+.cproject
+.project
+.settings
+
+# Misc
+excluded/
+external/Simple-Web-Server/
+todo.txt
