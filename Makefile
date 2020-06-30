@@ -15,8 +15,8 @@ BIN_PATH           ?= ./bin
 EXTERNAL_PATH      ?= ./external
 PACKAGING_PATH     ?= ./packaging
 
-INST_PATH          ?= /usr/local/bin # path for "install" target
-PKG_INST_PATH      ?= /usr/bin # path for package-based install
+INST_PATH          ?= /usr/local/bin
+PKG_INST_PATH      ?= /usr/bin
 
 CXX                ?= g++
 STRIP              ?= strip
