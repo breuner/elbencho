@@ -25,7 +25,7 @@ CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBOOST_SPIRIT_T
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
 	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server -Wall \
 	-Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
-	-fno-strict-aliasing -pthread -ggdb -std=c++11
+	-fno-strict-aliasing -pthread -ggdb -std=c++14
 CXXFLAGS_RELEASE = -O3 -Wuninitialized
 CXXFLAGS_DEBUG   = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
