@@ -113,7 +113,7 @@ rpm: all
 		$(PACKAGING_PATH)/SPECS/rpm.spec
 	
 	rpmbuild $(PACKAGING_PATH)/SPECS/rpm.spec --bb --define "_topdir $(PWD)/$(PACKAGING_PATH)" \
-		--buildroot=$(PWD)/$(PACKAGING_PATH)/BUILDROOT 
+		--define "__spec_install_pre /bin/true" --buildroot=$(PWD)/$(PACKAGING_PATH)/BUILDROOT
 
 deb: all
 	# remove potential leftovers from previous rpm build
