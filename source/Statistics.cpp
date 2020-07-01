@@ -658,6 +658,12 @@ void Statistics::printPhaseResultsToStream(std::ostream& outstream)
 	// sum up total values
 	for(Worker* worker : workerVec)
 	{
+		IF_UNLIKELY(worker->getElapsedMSVec().empty() )
+		{
+			outstream << "Skipping stats print due to unavailable worker results." << std::endl;
+			return;
+		}
+
 		for(size_t elapsedMS : worker->getElapsedMSVec() )
 		{
 			elapsedMSTotal += elapsedMS;

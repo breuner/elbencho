@@ -36,6 +36,7 @@ void LocalWorker::run()
 
 		// signal coordinator that our preparations phase is done
 		incNumWorkersDone();
+		phaseFinished = true;
 
 		for( ; ; )
 		{
@@ -88,12 +89,13 @@ void LocalWorker::run()
 	catch(WorkerInterruptedException& e)
 	{
 		// whoever interrupted us will have a reason for it, so we don't print at normal level here
-
 		ErrLogger(Log_DEBUG, progArgs->getRunAsService() ) << "Interrupted exception. " <<
 			"WorkerRank: " << workerRank << std::endl;
 
-		// let coordinator know that we are done
-		finishPhase();
+		/* check if called twice. (happens on interrupted waitForNextPhase() while other workers
+			haven't finished the previous phase, i.e. during the end game of a phase.) */
+		if(!phaseFinished)
+			finishPhase(); // let coordinator know that we are done
 
 		return;
 	}
@@ -121,6 +123,8 @@ void LocalWorker::finishPhase()
 	elapsedMSVec[0] = finishElapsedMS;
 
 	incNumWorkersDone();
+
+	phaseFinished = true;
 }
 
 /**

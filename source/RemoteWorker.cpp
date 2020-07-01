@@ -33,6 +33,7 @@ void RemoteWorker::run()
 
 		// signal coordinator that our preparations phase is done (and ignore elapsed ms)
 		incNumWorkersDone();
+		phaseFinished = true;
 
 		for( ; ; )
 		{
@@ -65,7 +66,6 @@ void RemoteWorker::run()
 					catch(WorkerInterruptedException& e)
 					{
 						// whoever interrupted us will have a reason for it, so only debug log level
-
 						ErrLogger(Log_DEBUG, false, false) << "Interrupted exception. " <<
 							"Rank: " << workerRank << "; " <<
 							"Host: " << host << std::endl;
@@ -97,9 +97,12 @@ void RemoteWorker::run()
 	catch(WorkerInterruptedException& e)
 	{
 		// whoever interrupted us will have a reason for it, so only print debug level here
+		ErrLogger(Log_DEBUG, false, false) << "Interrupted exception. " <<
+			"Rank: " << workerRank << "; " <<
+			"Host: " << host << std::endl;
 
-		ErrLogger(Log_DEBUG, false, false) << "Interrupted exception. " << "Rank: " << workerRank <<
-			"; " << "Host: " << host << std::endl;
+		if(phaseFinished)
+			return;
 
 		interruptBenchPhase(false);
 	}
@@ -180,15 +183,22 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
+
+		incNumWorkersDone();
+
+		phaseFinished = true;
 	}
 	catch(Web::system_error& e)
 	{
 		THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow,
 			std::string("HTTP client error in finish benchmark phase: ") + e.what() + ". "
 			"Server: " + host);
+
+		incNumWorkersDoneWithError();
+
+		phaseFinished = true;
 	}
 
-	incNumWorkersDone();
 }
 
 

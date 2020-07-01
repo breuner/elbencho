@@ -13,4 +13,5 @@ cd Simple-Web-Server && \
 git fetch --all && \
 git checkout v3.0.2 && \
 git status && \
-echo "All done."
+echo && \
+echo "ALL DONE."

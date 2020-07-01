@@ -32,8 +32,11 @@ class Worker
 		WorkersSharedData* workersSharedData; // common data for all workers
 		const ProgArgs* progArgs; // shortcut for member of workersSharedData
 		size_t workerRank; // rank of this worker in range 0 to numWorkers-1
+
+		bool phaseFinished; /* true after finishPhase() until resetStats() to prevent finishPhase()
+								inc'ing done count twice on interrupt in waitForNextPhase() */
 		SizeTVec elapsedMSVec; /* Only valid when phase completed successfully. For LocalWorker:
-			 	 finish time of only thread; for RemoteWorker: finish of first worker on host */
+					finish time of only thread; for RemoteWorker: finish of each worker on host */
 		std::atomic_bool isInterruptionRequested{false}; // set true to request self-termination
 		AtomicLiveOps atomicLiveOps; // done in current phase
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
@@ -58,6 +61,8 @@ class Worker
 
 		virtual void resetStats()
 		{
+			phaseFinished = false;
+
 			elapsedMSVec.resize(0);
 			atomicLiveOps.setToZero();
 			oldAtomicLiveOps.setToZero();
