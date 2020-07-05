@@ -5,6 +5,21 @@
 #include "WorkerManager.h"
 #include "WorkersSharedData.h"
 
+class PhaseResults
+{
+	public:
+		size_t firstFinishMS; // stonewall: time to completion of fastest worker
+		size_t lastFinishMS; // time to completion of slowest worker
+
+		LiveOps opsTotal; // processed by all workers
+		LiveOps opsStoneWallTotal; // processed by all workers when stonewall was hit
+
+		LiveOps opsPerSec; // total per sec for all workers by last finisher
+		LiveOps opsStoneWallPerSec; // total per sec for all workers by 1st finisher
+
+		LatencyHistogram iopsLatHisto; // sum of all histograms
+		LatencyHistogram entriesLatHisto; // sum of all histograms
+};
 
 class Statistics
 {
@@ -36,10 +51,16 @@ class Statistics
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();
 
-		void printPhaseResultsTableHeaderToStream(std::ostream& outstream);
-		void printPhaseResultsToStream(std::ostream& outstream);
-		void printPhaseResultsLatency(LatencyHistogram& latHisto, std::string latTypeStr,
-			std::ostream& outstream);
+		void printISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec);
+		void printPhaseResultsTableHeaderToStream(std::ostream& outStream);
+		bool generatePhaseResults(PhaseResults& phaseResults);
+		void printPhaseResultsToStream(const PhaseResults& phaseResults, std::ostream& outStream);
+		void printPhaseResultsToStringVec(const PhaseResults& phaseResults, StringVec& outLabelsVec,
+			StringVec& outResultsVec);
+		void printPhaseResultsLatencyToStream(const LatencyHistogram& latHisto,
+			std::string latTypeStr, std::ostream& outStream);
+		void printPhaseResultsLatencyToStringVec(const LatencyHistogram& latHisto,
+			std::string latTypeStr, StringVec& outLabelsVec, StringVec& outResultsVec);
 
 		void printLiveCountdownLine(unsigned long long waittimeSec);
 

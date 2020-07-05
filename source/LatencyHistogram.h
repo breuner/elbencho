@@ -63,7 +63,7 @@ class LatencyHistogram
 		size_t getMinMicroSecLat() const { return minMicroSecLat; }
 		size_t getMaxMicroSecLat() const { return maxMicroSecLat; }
 
-		size_t getAverageMicroSec()
+		size_t getAverageMicroSec() const
 		{
 			return numStoredValues ? (numMicroSecTotal / numStoredValues) : 0;
 		}
@@ -79,7 +79,7 @@ class LatencyHistogram
 			maxMicroSecLat = 0;
 		}
 
-		std::string getHistogramStr()
+		std::string getHistogramStr() const
 		{
 			if(getHistogramExceeded() )
 				return "Histogram size exceeded";
@@ -110,7 +110,7 @@ class LatencyHistogram
 		 *
 		 * @return upper latency bound in microseconds.
 		 */
-		double getPercentile(double percentage)
+		double getPercentile(double percentage) const
 		{
 			size_t numValuesSoFar = 0;
 			double log2BucketSize = 1.0 / LATHISTO_BUCKETFRACTION;
@@ -134,7 +134,7 @@ class LatencyHistogram
 		/**
 		 * Get lat percentile as string with precision=1 for results < 10 and precision=0 otherwise.
 		 */
-		std::string getPercentileStr(double percentage)
+		std::string getPercentileStr(double percentage) const
 		{
 			double percentile = getPercentile(percentage);
 
@@ -150,7 +150,7 @@ class LatencyHistogram
 		 * In this case min/max/avg are ok to use, but histogram and percentile functions should not
 		 * be used.
 		 */
-		bool getHistogramExceeded()
+		bool getHistogramExceeded() const
 		{
 			return buckets[LATHISTO_NUMBUCKETS-1] ? true : false;
 		}

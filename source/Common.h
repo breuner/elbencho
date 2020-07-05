@@ -1,10 +1,13 @@
 #ifndef COMMON_H_
 #define COMMON_H_
 
+typedef std::vector<std::string> StringVec;
+typedef std::vector<int> IntVec;
+
 #define PHASENAME_IDLE			"IDLE"
 #define PHASENAME_TERMINATE		"QUIT"
 #define PHASENAME_CREATEDIRS	"MKDIRS"
-#define PHASENAME_CREATEFILES	"MKFILES"
+#define PHASENAME_CREATEFILES	"WRITE"
 #define PHASENAME_READFILES		"READ"
 #define PHASENAME_DELETEFILES	"RMFILES"
 #define PHASENAME_DELETEDIRS	"RMDIRS"
@@ -24,6 +27,13 @@ enum BenchPhase
 	BenchPhase_CREATEFILES,
 	BenchPhase_DELETEFILES,
 	BenchPhase_READFILES,
+};
+
+enum BenchPathType
+{
+	BenchPathType_DIR=0,
+	BenchPathType_FILE=1,
+	BenchPathType_BLOCKDEV=2,
 };
 
 

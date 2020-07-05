@@ -2,6 +2,7 @@
 #define TRANSLATORTK_H_
 
 #include <string>
+#include <vector>
 #include "Common.h"
 
 /**
@@ -15,6 +16,8 @@ class TranslatorTk
 	public:
 		static std::string benchPhaseToPhaseName(BenchPhase benchPhase);
 		static std::string benchPhaseToPhaseEntryType(BenchPhase benchPhase);
+		static std::string benchPathTypeToStr(BenchPathType pathType);
+		static std::string stringVecToString(const StringVec& vec, std::string separator);
 };
 
 

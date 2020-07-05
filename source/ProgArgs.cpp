@@ -9,6 +9,7 @@
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "Terminal.h"
+#include "TranslatorTk.h"
 #include "UnitTk.h"
 
 
@@ -107,6 +108,9 @@ void ProgArgs::defineAllowedArgs()
 			"Show elapsed time to completion of each I/O worker thread.")
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
+/*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
+			"Path to file for results in csv format. This way, result can be imported e.g. into "
+			"MS Excel. If the file exists, results will be appended.")
 /*D*/	(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->doDeleteDirs),
 			"Delete directories.")
 /*d*/	(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->doCreateDirs),
@@ -143,6 +147,8 @@ void ProgArgs::defineAllowedArgs()
 			"Number of directories per I/O worker thread. (Default: 10)")
 /*no0*/	(ARG_IGNORE0MSERR_LONG, bpo::bool_switch(&this->ignore0MSErrors),
 			"Do not abort if worker thread completion time is less than 1 millisecond.")
+/*noc*/	(ARG_NOCSVLABELS_LONG, bpo::bool_switch(&this->noCSVLabels),
+			"Do not print headline with labes to csv file.")
 /*nod*/	(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
@@ -244,6 +250,7 @@ void ProgArgs::defineDefaults()
 	this->showLatencyHistogram = false;
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;
+	this->noCSVLabels = false;
 }
 
 /**
@@ -317,7 +324,7 @@ void ProgArgs::checkArgs()
 	}
 
 	if(fileSize && !blockSize)
-		throw ProgException("Block size may not be 0.");
+		throw ProgException("Block size may not be 0 when file size is not 0.");
 
 	if(useDirectIO && fileSize && (doCreateFiles || doRead) )
 	{
@@ -1244,6 +1251,58 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 		numThreads * hostsVec.size() : numThreads;
 
 	outTree.put(ARG_NUMDATASETTHREADS_LONG, remoteNumDataSetThreads);
+}
+
+/**
+ * Get configuration as vector of strings, so that it can be used e.g. for CSV output.
+ */
+void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const
+{
+	outLabelsVec.push_back("path type");
+	outValuesVec.push_back(TranslatorTk::benchPathTypeToStr(benchPathType) );
+
+	outLabelsVec.push_back("paths");
+	outValuesVec.push_back(std::to_string(benchPathsVec.size() ) );
+
+	outLabelsVec.push_back("hosts");
+	outValuesVec.push_back(std::to_string(hostsVec.empty() ? 1 : hostsVec.size() ) );
+
+	outLabelsVec.push_back("threads");
+	outValuesVec.push_back(std::to_string(numThreads) );
+
+	outLabelsVec.push_back("dirs");
+	outValuesVec.push_back( (benchPathType != BenchPathType_DIR) ? "" : std::to_string(numDirs) );
+
+	outLabelsVec.push_back("files");
+	outValuesVec.push_back( (benchPathType != BenchPathType_DIR) ? "" : std::to_string(numFiles) );
+
+	outLabelsVec.push_back("file size");
+	outValuesVec.push_back(std::to_string(fileSize) );
+
+	outLabelsVec.push_back("block size");
+	outValuesVec.push_back(std::to_string(blockSize) );
+
+	outLabelsVec.push_back("direct IO");
+	outValuesVec.push_back(std::to_string(useDirectIO) );
+
+	outLabelsVec.push_back("random");
+	outValuesVec.push_back(std::to_string(useRandomOffsets) );
+
+	outLabelsVec.push_back("random aligned");
+	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(useRandomAligned) );
+
+	outLabelsVec.push_back("random amount");
+	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(randomAmount) );
+
+	outLabelsVec.push_back("IO depth");
+	outValuesVec.push_back(std::to_string(ioDepth) );
+
+	outLabelsVec.push_back("shared paths");
+	outValuesVec.push_back(hostsVec.empty() ? "" : std::to_string(getIsBenchPathShared() ) );
+
+	outLabelsVec.push_back("truncate");
+	outValuesVec.push_back( (benchPathType == BenchPathType_BLOCKDEV) ?
+		"" : std::to_string(doTruncate) );
 }
 
 /**

@@ -5,11 +5,9 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <time.h>
+#include "Common.h"
 #include "Logger.h"
 
-
-typedef std::vector<std::string> StringVec;
-typedef std::vector<int> IntVec;
 
 namespace bpo = boost::program_options;
 
@@ -71,6 +69,8 @@ namespace bpo = boost::program_options;
 #define ARG_TRUNCATE_LONG			"trunc"
 #define ARG_RESULTSFILE_LONG		"resfile"
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
+#define ARG_CSVFILE_LONG			"csvfile"
+#define ARG_NOCSVLABELS_LONG		"nocsvlabels"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -79,12 +79,6 @@ namespace bpo = boost::program_options;
 
 namespace bpt = boost::property_tree;
 
-enum BenchPathType
-{
-	BenchPathType_DIR=0,
-	BenchPathType_FILE=1,
-	BenchPathType_BLOCKDEV=2,
-};
 
 /**
  * Program arguments parser and central config store.
@@ -99,6 +93,7 @@ class ProgArgs
 		void printHelp();
 		void setFromPropertyTree(bpt::ptree& tree);
 		void getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const;
+		void getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const;
 		void resetBenchPath();
 		void setBenchPathType(BenchPathType benchPathType);
 
@@ -165,6 +160,8 @@ class ProgArgs
 		bool doTruncate; // truncate files to 0 size on open for writing
 		std::string resFilePath; // results output file path (or empty for no results file)
 		size_t timeLimitSecs; // time limit in seconds for each phase (0 to disable)
+		std::string csvFilePath; // results output file path for csv format (or empty for none)
+		bool noCSVLabels; // true to not print headline with labels to csv file
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -239,6 +236,8 @@ class ProgArgs
 		bool getDoTruncate() const { return doTruncate; }
 		std::string getResFilePath() const { return resFilePath; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
+		std::string getCSVFilePath() const { return csvFilePath; }
+		bool getPrintCSVLabels() const { return !noCSVLabels; }
 };
 
 

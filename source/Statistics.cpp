@@ -530,14 +530,14 @@ void Statistics::printPhaseResultsTableHeader()
 	// print to console
 	printPhaseResultsTableHeaderToStream(std::cout);
 
-	// print to results file (if specified by user)
+	// print to human-readable results file (if specified by user)
 	if(!progArgs.getResFilePath().empty() )
 	{
-		std::ofstream outfile;
+		std::ofstream fileStream;
 
-		outfile.open(progArgs.getResFilePath(), std::ofstream::app);
+		fileStream.open(progArgs.getResFilePath(), std::ofstream::app);
 
-		if(!outfile)
+		if(!fileStream)
 		{
 			std::cerr << "ERROR: Opening results file failed: " << progArgs.getResFilePath() <<
 				std::endl;
@@ -547,31 +547,83 @@ void Statistics::printPhaseResultsTableHeader()
 
 		// print current date
 
-		std::time_t currentTime = std::time(0);
+		std::time_t currentTime = std::time(NULL);
 
-		outfile << "DATE: " << std::ctime(&currentTime); // includes newline
+		fileStream << "ISO DATE: " << std::put_time(std::localtime(&currentTime), "%FT%T%z") <<
+			std::endl;
 
 		// print command line
 
-		outfile << "COMMAND LINE: ";
+		fileStream << "COMMAND LINE: ";
 
 		for(int i=0; i < progArgs.getProgArgCount(); i++)
-			outfile << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+			fileStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
 
-		outfile << std::endl;
+		fileStream << std::endl;
 
 
-		printPhaseResultsTableHeaderToStream(outfile);
-		outfile.close();
+		printPhaseResultsTableHeaderToStream(fileStream);
+		fileStream.close();
 
-		if(!outfile)
+		if(!fileStream)
 		{
 			std::cerr << "ERROR: Writing to results file failed: " << progArgs.getResFilePath() <<
 				std::endl;
 
 			return;
 		}
+	}
+
+	// print to CSV results file (if specified by user)
+	if(!progArgs.getCSVFilePath().empty() && progArgs.getPrintCSVLabels() )
+	{
+		std::ofstream fileStream;
+
+		fileStream.open(progArgs.getCSVFilePath(), std::ofstream::app);
+
+		if(!fileStream)
+		{
+			std::cerr << "ERROR: Opening CSV results file failed: " << progArgs.getCSVFilePath() <<
+				std::endl;
+
+			return;
+		}
+
+		StringVec labelsVec;
+		StringVec resultsVec;
+		PhaseResults zeroResults = {};
+
+		printISODateToStringVec(labelsVec, resultsVec);
+		progArgs.getAsStringVec(labelsVec, resultsVec);
+		printPhaseResultsToStringVec(zeroResults, labelsVec, resultsVec);
+
+		std::string labelsCSVStr = TranslatorTk::stringVecToString(labelsVec, ",");
+
+		fileStream << labelsCSVStr << std::endl;
+
+		fileStream.close();
+
+		if(!fileStream)
+		{
+			std::cerr << "ERROR: Writing to CSV results file failed: " <<
+				progArgs.getResFilePath() << std::endl;
+
+			return;
+		}
+	}
 }
+
+/**
+ * Get current ISO date & time to string vector, e.g. to later use it for CSV output.
+ */
+void Statistics::printISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec)
+{
+	time_t time = std::time(NULL);
+	std::stringstream dateStream;
+	dateStream << std::put_time(std::localtime(&time), "%FT%T%z");
+
+	outLabelsVec.push_back("ISO date");
+	outResultsVec.push_back(dateStream.str() );
 }
 
 /**
@@ -579,16 +631,16 @@ void Statistics::printPhaseResultsTableHeader()
  *
  * @outstream where to print results to.
  */
-void Statistics::printPhaseResultsTableHeaderToStream(std::ostream& outstream)
+void Statistics::printPhaseResultsTableHeaderToStream(std::ostream& outStream)
 {
-	outstream << boost::format(phaseResultsFormatStr)
+	outStream << boost::format(phaseResultsFormatStr)
 		% "OPERATION"
 		% "RESULT TYPE"
 		% ""
 		% "FIRST DONE"
 		% "LAST DONE"
 		<< std::endl;
-	outstream << boost::format(phaseResultsFormatStr)
+	outStream << boost::format(phaseResultsFormatStr)
 		% "========="
 		% "==========="
 		% ""
@@ -603,17 +655,24 @@ void Statistics::printPhaseResultsTableHeaderToStream(std::ostream& outstream)
  */
 void Statistics::printPhaseResults()
 {
-	// print to console
-	printPhaseResultsToStream(std::cout);
+	PhaseResults phaseResults = {}; // zero init
+
+	bool genRes = generatePhaseResults(phaseResults);
+
+	if(!genRes)
+		std::cout << "Skipping stats print due to unavailable worker results." << std::endl;
+	else
+		printPhaseResultsToStream(phaseResults, std::cout); // print to console
+
 
 	// print to results file (if specified by user)
 	if(!progArgs.getResFilePath().empty() )
 	{
-		std::ofstream outfile;
+		std::ofstream fileStream;
 
-		outfile.open(progArgs.getResFilePath(), std::ofstream::app);
+		fileStream.open(progArgs.getResFilePath(), std::ofstream::app);
 
-		if(!outfile)
+		if(!fileStream)
 		{
 			std::cerr << "ERROR: Opening results file failed: " << progArgs.getResFilePath() <<
 				std::endl;
@@ -621,82 +680,100 @@ void Statistics::printPhaseResults()
 			return;
 		}
 
-		printPhaseResultsToStream(outfile);
+		if(!genRes)
+			fileStream << "Skipping stats print due to unavailable worker results." << std::endl;
+		else
+			printPhaseResultsToStream(phaseResults, fileStream);
 	}
+
+	// print to results CSV file (if specified by user)
+	if(!progArgs.getCSVFilePath().empty() )
+	{
+		std::ofstream fileStream;
+
+		fileStream.open(progArgs.getCSVFilePath(), std::ofstream::app);
+
+		if(!fileStream)
+		{
+			std::cerr << "ERROR: Opening results CSV file failed: " << progArgs.getResFilePath() <<
+				std::endl;
+
+			return;
+		}
+
+		if(!genRes)
+			fileStream << "Skipping stats print due to unavailable worker results." << std::endl;
+		else
+		{
+			StringVec labelsVec;
+			StringVec resultsVec;
+
+			printISODateToStringVec(labelsVec, resultsVec);
+			progArgs.getAsStringVec(labelsVec, resultsVec);
+			printPhaseResultsToStringVec(phaseResults, labelsVec, resultsVec);
+
+			std::string resultsCSVStr = TranslatorTk::stringVecToString(resultsVec, ",");
+
+			fileStream << resultsCSVStr << std::endl;
+		}
+	}
+
 }
 
 /**
- * Gather and print statistics after all workers completed a phase.
+ * Gather statistics after all workers completed a phase.
  *
- * @outstream where to print results to.
+ * @phaseResults will contain gathered phase results if true is returned.
+ * @return false if stats couldn't be generated due to unavailable worker results.
  */
-void Statistics::printPhaseResultsToStream(std::ostream& outstream)
+bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 {
-	std::string phaseName =
-		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
-	size_t elapsedMSTotal = 0; // sum of elapsed time of all workers (for average calculation)
-	LiveOps opsTotal = {}; // processed by all workers
-	LiveOps opsStoneWallTotal = {}; // processed by all workers when stonewall was hit
-	size_t numIOWorkersTotal = 0; /* sum of all I/O threads (for local: all workers; for remote:
-		all workers on the remote hosts) */
-	LatencyHistogram iopsLatHisto; // sum of all histograms
-	LatencyHistogram entriesLatHisto; // sum of all histograms
-
-	// check if results initialized. uninitialized can happen if called through HTTP before 1st run
+	// check if results uninitialized. can happen if called in service mode before 1st run.
 	IF_UNLIKELY(workerVec.empty() || workerVec[0]->getElapsedMSVec().empty() )
-	{
-		outstream << "Skipping stats print due to unavailable worker results." << std::endl;
-		return;
-	}
+		return false;
 
-	// init first/last elapsed milliseconds (note: at() as sanity check here).
-	size_t firstFinishMS =
+	// init first/last elapsed milliseconds
+	phaseResults.firstFinishMS =
 		workerVec[0]->getElapsedMSVec()[0]; // stonewall: time to completion of fastest worker
-	size_t lastFinishMS =
+	phaseResults.lastFinishMS =
 		workerVec[0]->getElapsedMSVec()[0]; // time to completion of slowest worker
 
 	// sum up total values
 	for(Worker* worker : workerVec)
 	{
 		IF_UNLIKELY(worker->getElapsedMSVec().empty() )
-		{
-			outstream << "Skipping stats print due to unavailable worker results." << std::endl;
-			return;
-		}
+			return false;
 
 		for(size_t elapsedMS : worker->getElapsedMSVec() )
 		{
-			elapsedMSTotal += elapsedMS;
-			numIOWorkersTotal++;
+			if(elapsedMS < phaseResults.firstFinishMS)
+				phaseResults.firstFinishMS = elapsedMS;
 
-			if(elapsedMS < firstFinishMS)
-				firstFinishMS = elapsedMS;
-
-			if(elapsedMS > lastFinishMS)
-				lastFinishMS = elapsedMS;
+			if(elapsedMS > phaseResults.lastFinishMS)
+				phaseResults.lastFinishMS = elapsedMS;
 		}
 
-		worker->getAndAddLiveOps(opsTotal);
-		worker->getAndAddStoneWallOps(opsStoneWallTotal);
-		iopsLatHisto += worker->getIOPSLatencyHistogram();
-		entriesLatHisto += worker->getEntriesLatencyHistogram();
+		worker->getAndAddLiveOps(phaseResults.opsTotal);
+		worker->getAndAddStoneWallOps(phaseResults.opsStoneWallTotal);
+		phaseResults.iopsLatHisto += worker->getIOPSLatencyHistogram();
+		phaseResults.entriesLatHisto += worker->getEntriesLatencyHistogram();
 
 	} // end of for loop
 
-	LiveOps opsStoneWallPerSec = {}; // total per sec for all workers by 1st finisher
-	if(firstFinishMS)
+	// total per sec for all workers by 1st finisher
+	if(phaseResults.firstFinishMS)
 	{
-		opsStoneWallPerSec = opsStoneWallTotal;
-		opsStoneWallPerSec *= 1000;
-		opsStoneWallPerSec /= firstFinishMS;
+		phaseResults.opsStoneWallPerSec = phaseResults.opsStoneWallTotal;
+		phaseResults.opsStoneWallPerSec *= 1000;
+		phaseResults.opsStoneWallPerSec /= phaseResults.firstFinishMS;
 	}
 
-	LiveOps opsPerSec = {}; // total per sec for all workers by last finisher
-	if(lastFinishMS)
+	// total per sec for all workers by last finisher
+	if(phaseResults.lastFinishMS)
 	{
-		opsPerSec = opsTotal;
-		opsPerSec *= 1000;
-		opsPerSec /= lastFinishMS;
+		phaseResults.opsPerSec = phaseResults.opsTotal;
+		phaseResults.opsPerSec *= 1000;
+		phaseResults.opsPerSec /= phaseResults.lastFinishMS;
 	}
 
 	// convert to per-worker values depending on user setting
@@ -704,80 +781,93 @@ void Statistics::printPhaseResultsToStream(std::ostream& outstream)
 	{
 		/* note: service hosts are aware of per-thread value and provide their local per-thread
 			result. that's why we div by workerVec.size() instead of by numIOWorkersTotal. */
-		opsStoneWallPerSec /= workerVec.size();
-		opsPerSec /= workerVec.size();
-		opsStoneWallTotal /= workerVec.size();
-		opsTotal /= workerVec.size();
+		phaseResults.opsStoneWallPerSec /= workerVec.size();
+		phaseResults.opsPerSec /= workerVec.size();
+		phaseResults.opsStoneWallTotal /= workerVec.size();
+		phaseResults.opsTotal /= workerVec.size();
 	}
 
+	return true;
+}
+
+/**
+ * Print phase result statistics to given stream.
+ *
+ * @outStream where to print results to.
+ */
+void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
+	std::ostream& outStream)
+{
+	std::string phaseName =
+		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
 
 	// elapsed time
-	outstream << boost::format(Statistics::phaseResultsFormatStr)
+	outStream << boost::format(Statistics::phaseResultsFormatStr)
 		% phaseName
 		% "time ms"
 		% ":"
-		% firstFinishMS
-		% lastFinishMS
+		% phaseResults.firstFinishMS
+		% phaseResults.lastFinishMS
 		<< std::endl;
 
 	// entries per second
-	if(opsTotal.numEntriesDone)
+	if(phaseResults.opsTotal.numEntriesDone)
 	{
-		outstream << boost::format(Statistics::phaseResultsFormatStr)
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% phaseName
 			% "entries/s"
 			% ":"
-			% opsStoneWallPerSec.numEntriesDone
-			% opsPerSec.numEntriesDone
+			% phaseResults.opsStoneWallPerSec.numEntriesDone
+			% phaseResults.opsPerSec.numEntriesDone
 			<< std::endl;
 
-		outstream << boost::format(Statistics::phaseResultsFormatStr)
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% phaseName
 			% "entries"
 			% ":"
-			% opsStoneWallTotal.numEntriesDone
-			% opsTotal.numEntriesDone
+			% phaseResults.opsStoneWallTotal.numEntriesDone
+			% phaseResults.opsTotal.numEntriesDone
 			<< std::endl;
 	}
 
 	// IOPS
-	if(opsTotal.numIOPSDone)
+	if(phaseResults.opsTotal.numIOPSDone)
 	{
-		outstream << boost::format(Statistics::phaseResultsFormatStr)
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% phaseName
 			% "IOPS"
 			% ":"
-			% opsStoneWallPerSec.numIOPSDone
-			% opsPerSec.numIOPSDone
+			% phaseResults.opsStoneWallPerSec.numIOPSDone
+			% phaseResults.opsPerSec.numIOPSDone
 			<< std::endl;
 
-		outstream << boost::format(Statistics::phaseResultsFormatStr)
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% phaseName
 			% "I/Os"
 			% ":"
-			% opsStoneWallTotal.numIOPSDone
-			% opsTotal.numIOPSDone
+			% phaseResults.opsStoneWallTotal.numIOPSDone
+			% phaseResults.opsTotal.numIOPSDone
 			<< std::endl;
 	}
 
 	// bytes per second total for all workers
 	// (only show in phases where data has been written/read)
-	if(opsTotal.numBytesDone)
+	if(phaseResults.opsTotal.numBytesDone)
 	{
-		outstream << boost::format(Statistics::phaseResultsFormatStr)
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% phaseName
 			% "MiB/s"
 			% ":"
-			% (opsStoneWallPerSec.numBytesDone / (1024*1024) )
-			% (opsPerSec.numBytesDone / (1024*1024) )
+			% (phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) )
+			% (phaseResults.opsPerSec.numBytesDone / (1024*1024) )
 			<< std::endl;
 
-		outstream << boost::format(Statistics::phaseResultsFormatStr)
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% phaseName
 			% "MiB"
 			% ":"
-			% (opsStoneWallTotal.numBytesDone / (1024*1024) )
-			% (opsTotal.numBytesDone / (1024*1024) )
+			% (phaseResults.opsStoneWallTotal.numBytesDone / (1024*1024) )
+			% (phaseResults.opsTotal.numBytesDone / (1024*1024) )
 			<< std::endl;
 	}
 
@@ -785,38 +875,129 @@ void Statistics::printPhaseResultsToStream(std::ostream& outstream)
 	if(progArgs.getShowAllElapsed() )
 	{
 		// individual results header (note: keep format in sync with general table format string)
-		outstream << boost::format(Statistics::phaseResultsLeftFormatStr)
+		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% phaseName
 			% "time ms each"
 			% ":";
 
-		outstream << "[ ";
+		outStream << "[ ";
 
 		// print elapsed milliseconds of each I/O thread
 		for(Worker* worker : workerVec)
 		{
 			for(size_t elapsedMS : worker->getElapsedMSVec() )
-				outstream << elapsedMS << " ";
+				outStream << elapsedMS << " ";
 		}
 
-		outstream << "]" << std::endl;
+		outStream << "]" << std::endl;
 	}
 
 	// entries & iops latency results
-	printPhaseResultsLatency(entriesLatHisto, "Ent", outstream);
-	printPhaseResultsLatency(iopsLatHisto, "IO", outstream);
+	printPhaseResultsLatencyToStream(phaseResults.entriesLatHisto, "Ent", outStream);
+	printPhaseResultsLatencyToStream(phaseResults.iopsLatHisto, "IO", outStream);
 
 	// warn in case of invalid results
-	if( (firstFinishMS == 0) && !progArgs.getIgnore0MSErrors() )
+	if( (phaseResults.firstFinishMS == 0) && !progArgs.getIgnore0MSErrors() )
 	{
 		/* very fast completion, so notify user about possibly useless results (due to accuracy,
 			but also because we show 0 op/s to avoid division by 0 */
 
-		LOGGER(Log_NORMAL, "WARNING: Fastest worker thread completed in less than 1 millisecond, "
+		outStream << "WARNING: Fastest worker thread completed in less than 1 millisecond, "
 			"so results might not be useful (some op/s are shown as 0). You might want to try a "
 			"larger data set. Otherwise, option '--" ARG_IGNORE0MSERR_LONG "' disables this "
-			"check.)" << std::endl);
+			"message.)" << std::endl;
 	}
+}
+
+/**
+ * Print phase result statistics to StringVec, e.g. for the StringVec to be turned into CSV.
+ *
+ * This can be called with all phaseResults set to 0 if caller is only interested in outLabelsVec.
+ */
+void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
+	StringVec& outLabelsVec, StringVec& outResultsVec)
+{
+	std::string phaseName =
+		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
+
+	outLabelsVec.push_back("operation");
+	outResultsVec.push_back(phaseName);
+
+	// elapsed time
+
+	outLabelsVec.push_back("time ms [first]");
+	outResultsVec.push_back(std::to_string(phaseResults.firstFinishMS) );
+
+	outLabelsVec.push_back("time ms [last]");
+	outResultsVec.push_back(std::to_string(phaseResults.lastFinishMS) );
+
+	// entries per second
+
+	outLabelsVec.push_back("entries/s [first]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
+		"" : std::to_string(phaseResults.opsStoneWallPerSec.numEntriesDone) );
+
+	outLabelsVec.push_back("entries/s [last]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
+		"" : std::to_string(phaseResults.opsPerSec.numEntriesDone) );
+
+	// entries
+
+	outLabelsVec.push_back("entries [first]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
+		"" : std::to_string(phaseResults.opsStoneWallTotal.numEntriesDone) );
+
+	outLabelsVec.push_back("entries [last]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
+		"" : std::to_string(phaseResults.opsTotal.numEntriesDone) );
+
+	// IOPS
+
+	outLabelsVec.push_back("IOPS [first]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numIOPSDone ?
+		"" : std::to_string(phaseResults.opsStoneWallPerSec.numIOPSDone) );
+
+	outLabelsVec.push_back("IOPS [last]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numIOPSDone ?
+		"" : std::to_string(phaseResults.opsPerSec.numIOPSDone) );
+
+	// I/Os
+
+	outLabelsVec.push_back("I/Os [first]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numIOPSDone ?
+		"" : std::to_string(phaseResults.opsStoneWallTotal.numIOPSDone) );
+
+	outLabelsVec.push_back("I/Os [last]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numIOPSDone ?
+		"" : std::to_string(phaseResults.opsTotal.numIOPSDone) );
+
+	// MiB/s
+
+	outLabelsVec.push_back("MiB/s [first]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numBytesDone ?
+		"" : std::to_string(phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) ) );
+
+	outLabelsVec.push_back("MiB/s [last]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numBytesDone ?
+		"" : std::to_string(phaseResults.opsPerSec.numBytesDone / (1024*1024) ) );
+
+	// MiB
+
+	outLabelsVec.push_back("MiB [first]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numBytesDone ?
+		"" : std::to_string(phaseResults.opsStoneWallTotal.numBytesDone / (1024*1024) ) );
+
+	outLabelsVec.push_back("MiB [last]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numBytesDone ?
+		"" : std::to_string(phaseResults.opsTotal.numBytesDone / (1024*1024) ) );
+
+
+	// entries & iops latency results
+
+	printPhaseResultsLatencyToStringVec(phaseResults.entriesLatHisto, "Ent",
+		outLabelsVec, outResultsVec);
+	printPhaseResultsLatencyToStringVec(phaseResults.iopsLatHisto, "IO",
+		outLabelsVec, outResultsVec);
 }
 
 /**
@@ -826,8 +1007,8 @@ void Statistics::printPhaseResultsToStream(std::ostream& outstream)
  * @latTypeStr short latency type description, e.g. for entries or iops.
  * @outstream where to print results to.
  */
-void Statistics::printPhaseResultsLatency(LatencyHistogram& latHisto, std::string latTypeStr,
-	std::ostream& outstream)
+void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHisto,
+	std::string latTypeStr, std::ostream& outStream)
 {
 	std::string phaseName =
 		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
@@ -836,12 +1017,12 @@ void Statistics::printPhaseResultsLatency(LatencyHistogram& latHisto, std::strin
 	if(progArgs.getShowLatency() && latHisto.getNumStoredValues() )
 	{
 		// individual results header (note: keep format in sync with general table format string)
-		outstream << boost::format(Statistics::phaseResultsLeftFormatStr)
+		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% phaseName
 			% (latTypeStr + " lat us")
 			% ":";
 
-		outstream <<
+		outStream <<
 			"[ " <<
 			"min=" << latHisto.getMinMicroSecLat() << " "
 			"avg=" << latHisto.getAverageMicroSec() << " "
@@ -853,44 +1034,70 @@ void Statistics::printPhaseResultsLatency(LatencyHistogram& latHisto, std::strin
 	if(progArgs.getShowLatencyPercentiles() && latHisto.getNumStoredValues() )
 	{
 		// individual results header (note: keep format in sync with general table format string)
-		outstream << boost::format(Statistics::phaseResultsLeftFormatStr)
+		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% phaseName
 			% (latTypeStr + " lat %ile")
 			% ":";
 
-		outstream << "[ ";
+		outStream << "[ ";
 
 		if(latHisto.getHistogramExceeded() )
-			outstream << "Histogram exceeded";
+			outStream << "Histogram exceeded";
 		else
-			outstream <<
+			outStream <<
 				"1%<=" << latHisto.getPercentileStr(1) << " "
 				"50%<=" << latHisto.getPercentileStr(50) << " "
 				"75%<=" << latHisto.getPercentileStr(75) << " "
 				"99%<=" << latHisto.getPercentileStr(99);
 
-		outstream << " ]" << std::endl;
+		outStream << " ]" << std::endl;
 	}
 
 	// print IO latency histogram
 	if(progArgs.getShowLatencyHistogram() && latHisto.getNumStoredValues() )
 	{
 		// individual results header (note: keep format in sync with general table format string)
-		outstream << boost::format(Statistics::phaseResultsLeftFormatStr)
+		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% phaseName
 			% (latTypeStr + " lat histo")
 			% ":";
 
-		outstream << "[ ";
+		outStream << "[ ";
 
-		outstream << latHisto.getHistogramStr();
+		outStream << latHisto.getHistogramStr();
 
-		outstream << " ]" << std::endl;
+		outStream << " ]" << std::endl;
 	}
 }
 
 /**
- * @usePerThreadValues true to div numEntriesDone/numBytesDone by number of workers.
+ * Print latency results to StringVec, e.g. for the StringVec to be turned into CSV.
+ *
+ * This can be called with all latHisto set to 0 if caller is only interested in outLabelsVec.
+ *
+ * @latHisto the latency histogram for which to print the results.
+ * @latTypeStr short latency type description, e.g. for entries or iops.
+ */
+void Statistics::printPhaseResultsLatencyToStringVec(const LatencyHistogram& latHisto,
+	std::string latTypeStr, StringVec& outLabelsVec, StringVec& outResultsVec)
+{
+	// latency min/avg/max
+
+	outLabelsVec.push_back(latTypeStr + " lat us [min]");
+	outResultsVec.push_back(!latHisto.getNumStoredValues() ?
+		"" : std::to_string(latHisto.getMinMicroSecLat() ) );
+
+	outLabelsVec.push_back(latTypeStr + " lat us [avg]");
+	outResultsVec.push_back(!latHisto.getNumStoredValues() ?
+		"" : std::to_string(latHisto.getAverageMicroSec() ) );
+
+	outLabelsVec.push_back(latTypeStr + " lat us [max]");
+	outResultsVec.push_back(!latHisto.getNumStoredValues() ?
+		"" : std::to_string(latHisto.getMaxMicroSecLat() ) );
+}
+
+/**
+ * Get results of a completed benchmark phase.
  */
 void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 {
