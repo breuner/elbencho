@@ -56,9 +56,6 @@ bool WorkerManager::checkWorkersDoneUnlocked(size_t* outNumWorkersDone)
 	*outNumWorkersDone =
 		workersSharedData.numWorkersDone + workersSharedData.numWorkersDoneWithError;
 
-	if(*outNumWorkersDone == workerVec.size() )
-		return true; // all workers done
-
 	IF_UNLIKELY(workersSharedData.numWorkersDoneWithError)
 	{ // worker encountered error, so notify others and cancel
 		interruptAndNotifyWorkersUnlocked();
@@ -67,6 +64,9 @@ bool WorkerManager::checkWorkersDoneUnlocked(size_t* outNumWorkersDone)
 
 	IF_UNLIKELY(WorkersSharedData::gotUserInterruptSignal)
 		interruptAndNotifyWorkersUnlocked();
+
+	if(*outNumWorkersDone == workerVec.size() )
+		return true; // all workers done
 
 	return false;
 }
