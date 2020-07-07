@@ -377,12 +377,38 @@ void LocalWorker::iterateDirs()
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
 
+	// create rank dir inside each pathFD
+	if(benchPhase == BenchPhase_CREATEDIRS)
+	{
+		for(unsigned pathFDsIndex = 0; pathFDsIndex < pathFDs.size(); pathFDsIndex++)
+		{
+			// create rank dir for current pathFD...
+
+			checkInterruptionRequest();
+
+			// generate path
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerRank);
+			if(printRes >= PATH_BUF_LEN)
+				throw WorkerException("mkdir path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) );
+
+			int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+
+			if( (mkdirRes == -1) && (errno != EEXIST) )
+				throw WorkerException(std::string("Rank directory creation failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+					"SysErr: " + strerror(errno) );
+		}
+	}
+
+	// create user-specified number of directories round-robin across all given bench paths
 	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
 	{
 		checkInterruptionRequest();
 
 		// generate current dir path
-		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zud%zu",
+		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu",
 			workerRank, dirIndex);
 		if(printRes >= PATH_BUF_LEN)
 			throw WorkerException("mkdir path too long for static buffer. "
@@ -396,8 +422,7 @@ void LocalWorker::iterateDirs()
 
 		if(benchPhase == BenchPhase_CREATEDIRS)
 		{ // create dir
-			int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(),
-				MKDIR_MODE);
+			int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
 
 			if( (mkdirRes == -1) && (errno != EEXIST) )
 				throw WorkerException(std::string("Directory creation failed. ") +
@@ -407,8 +432,7 @@ void LocalWorker::iterateDirs()
 
 		if(benchPhase == BenchPhase_DELETEDIRS)
 		{ // remove dir
-			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(),
-				AT_REMOVEDIR);
+			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
 
 			if( (rmdirRes == -1) && ( (errno != ENOENT) || !progArgs->getIgnoreDelErrors() ) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
@@ -426,6 +450,33 @@ void LocalWorker::iterateDirs()
 
 		atomicLiveOps.numEntriesDone++;
 	} // end of for loop
+
+
+	// delete rank dir inside each pathFD
+	if(benchPhase == BenchPhase_DELETEDIRS)
+	{
+		for(unsigned pathFDsIndex = 0; pathFDsIndex < pathFDs.size(); pathFDsIndex++)
+		{
+			// delete rank dir for current pathFD...
+
+			checkInterruptionRequest();
+
+			// generate path
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerRank);
+			if(printRes >= PATH_BUF_LEN)
+				throw WorkerException("mkdir path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) );
+
+			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+
+			if( (rmdirRes == -1) && ( (errno != ENOENT) || !progArgs->getIgnoreDelErrors() ) )
+				throw WorkerException(std::string("Directory deletion failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+					"SysErr: " + strerror(errno) );
+		}
+	}
+
 }
 
 /**
@@ -462,7 +513,7 @@ void LocalWorker::dirModeIterateFiles()
 				checkInterruptionRequest();
 
 			// generate current dir path
-			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zud%zu/f%zu",
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/f%zu",
 				workerRank, dirIndex, fileIndex);
 			if(printRes >= PATH_BUF_LEN)
 				throw WorkerException("mkdir path too long for static buffer. "
