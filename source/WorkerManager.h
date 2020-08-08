@@ -8,7 +8,7 @@
 class WorkerManager
 {
 	public:
-		explicit WorkerManager(const ProgArgs& progArgs) : progArgs(progArgs) {}
+		explicit WorkerManager(ProgArgs& progArgs) : progArgs(progArgs) {}
 		~WorkerManager();
 
 		void prepareThreads();
@@ -23,12 +23,12 @@ class WorkerManager
 		void startNextPhase(BenchPhase newBenchPhase, std::string* benchID = NULL);
 
 		void getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerThread,
-			size_t& outNumBytesPerThread);
+			uint64_t& outNumBytesPerThread);
 		BenchPathType getBenchPathType();
 
 
 	private:
-		const ProgArgs& progArgs;
+		ProgArgs& progArgs;
 		ThreadGroup threadGroup;
 		WorkerVec workerVec;
 		WorkersSharedData workersSharedData;

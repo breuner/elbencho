@@ -103,7 +103,7 @@ void HTTPService::startServer()
 			std::stringstream stream;
 			stream << e.what();
 			response->write(Web::StatusCode::client_error_bad_request, stream);
-			std::cerr << stream.str() << std::endl; // todo remove
+			std::cerr << stream.str() << std::endl;
 		}
 	};
 
@@ -165,7 +165,7 @@ void HTTPService::startServer()
 			std::stringstream stream;
 			stream << e.what();
 			response->write(Web::StatusCode::client_error_bad_request, stream);
-			std::cerr << stream.str() << std::endl; // todo remove
+			std::cerr << stream.str() << std::endl;
 		}
 	};
 

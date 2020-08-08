@@ -30,7 +30,7 @@ class Worker
 
 	protected:
 		WorkersSharedData* workersSharedData; // common data for all workers
-		const ProgArgs* progArgs; // shortcut for member of workersSharedData
+		ProgArgs* progArgs; // shortcut for member of workersSharedData
 		size_t workerRank; // rank of this worker in range 0 to numWorkers-1
 
 		bool phaseFinished; /* true after finishPhase() until resetStats() to prevent finishPhase()

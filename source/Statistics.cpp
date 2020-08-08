@@ -284,7 +284,7 @@ void Statistics::printWholeScreenLiveStats()
 	int numFixedHeaderLines = 3; // to calc how many lines are left to show per-worker stats
 	size_t maxNumWorkerLines; // how many lines we have to show per-worker stats
 	size_t numEntriesPerWorker; // total number for this phase
-	size_t numBytesPerWorker; // total number for this phase
+	uint64_t numBytesPerWorker; // total number for this phase
 
 	workerManager.getPhaseNumEntriesAndBytes(numEntriesPerWorker, numBytesPerWorker);
 

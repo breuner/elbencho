@@ -4,7 +4,7 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
-EXE_VER_MINOR      ?= 0
+EXE_VER_MINOR      ?= 1
 EXE_VER_PATCHLEVEL ?= 0
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
@@ -39,7 +39,7 @@ OBJECTS          = $(SOURCES:.cpp=.o)
 OBJECTS_CLEANUP  = $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean after C file rename
 DEPENDENCY_FILES = $(shell find $(SOURCE_PATH) -name '*.d')
 
-# Set release/debug flags for compiler and linker
+# Release & debug flags for compiler and linker
 ifeq ($(BUILD_DEBUG),)
 CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_RELEASE) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
@@ -47,6 +47,15 @@ else
 CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_DEBUG) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_DEBUG) $(LDFLAGS_EXTRA)
 endif
+
+# CUDA includes and paths
+ifeq ($(CUDA_SUPPORT),1)
+CUDA_PATH   ?= /usr/local/cuda
+CXXFLAGS    += -I $(CUDA_PATH)/include/ -DCUDA_SUPPORT
+CUDA_LIB    := -L $(CUDA_PATH)/lib64/ -lcuda -L $(CUDA_PATH)/lib64/ -lcudart
+LDFLAGS     +=  $(CUDA_LIB) -ldl
+endif
+
 
 all: $(SOURCES) $(EXE)
 
@@ -80,6 +89,15 @@ else
 	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -o $(@)
 endif
 
+$(OBJECTS): | externals
+
+externals:
+ifdef BUILD_VERBOSE
+	$(EXTERNAL_PATH)/prepare-external.sh
+else
+	@$(EXTERNAL_PATH)/prepare-external.sh
+endif
+
 clean:
 ifdef BUILD_VERBOSE
 	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED) \
@@ -92,6 +110,16 @@ else
 		$(PACKAGING_PATH)/BUILDROOT/* $(PACKAGING_PATH)/$(EXE_NAME)_$(EXE_VERSION).deb \
 		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec 
 endif
+
+clean-all: clean
+ifdef BUILD_VERBOSE
+	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
+else
+	@echo "[DELETE] EXTERNALS"
+	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
+endif
+	
+
 
 install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
@@ -141,18 +169,20 @@ help:
 	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags'
 	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags'
 	@echo '   BUILD_VERBOSE=1         - Verbose build output'
+	@echo '   CUDA_SUPPORT=1          - Add support for CUDA to work with GPU memory.'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
 	@echo '   debug             - Build executable with debug info'
 	@echo '   clean             - Remove build artifacts'
+	@echo '   clean-all         - Remove build artifacts and external sources'
 	@echo '   install           - Install executable to /usr/local/bin'
 	@echo '   uninstall         - Uninstall executable from /usr/local/bin'
 	@echo '   rpm               - Create RPM package file'
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
 
-.PHONY: clean rpm deb help
+.PHONY: externals clean clean-all rpm deb help
 
 
 # Include dependency files

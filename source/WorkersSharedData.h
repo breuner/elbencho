@@ -12,13 +12,14 @@
 #include <thread>
 #include <vector>
 #include "Common.h"
-#include "ProgArgs.h"
 
 
 class Worker; // forward declaration for WorkerVec;
 typedef std::vector<Worker*> WorkerVec;
 typedef std::vector<std::thread*> ThreadGroup;
 typedef std::vector<size_t> SizeTVec;
+
+class ProgArgs; // forward declaration to avoid including ProgArgs.h here
 
 namespace buuids = boost::uuids;
 
@@ -39,7 +40,7 @@ class WorkersSharedData
 		static bool isPhaseTimeExpired; // expired progArgs::timeLimitSecs sets this to true
 
 		ThreadGroup* threadGroup;
-		const ProgArgs* progArgs;
+		ProgArgs* progArgs;
 		WorkerVec* workerVec;
 
 		std::chrono::steady_clock::time_point phaseStartT; // time when main thread starts phase

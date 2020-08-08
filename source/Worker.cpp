@@ -38,7 +38,7 @@ void Worker::incNumWorkersDone()
 void Worker::incNumWorkersDoneWithError()
 {
 	ErrLogger(Log_DEBUG) << "Increasing done with error counter. " <<
-		"WorkerRank: " << this->workerRank << std::endl; // todo remove debug output
+		"WorkerRank: " << this->workerRank << std::endl;
 
 	workersSharedData->incNumWorkersDoneWithError();
 }

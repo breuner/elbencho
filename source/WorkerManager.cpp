@@ -290,7 +290,7 @@ void WorkerManager::startNextPhase(BenchPhase newBenchPhase, std::string* benchI
  * is the master of a distributed benchmark then they are per RemoteWorker.
  */
 void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
-	size_t& outNumBytesPerWorker)
+	uint64_t& outNumBytesPerWorker)
 {
 	if(progArgs.getBenchPathType() == BenchPathType_DIR)
 	{
@@ -327,7 +327,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 	else
 	{ // file/blockdev mode
 		outNumEntriesPerWorker = progArgs.getBenchPaths().size();
-		size_t numBytesPerFile = progArgs.getUseRandomOffsets() ?
+		uint64_t numBytesPerFile = progArgs.getUseRandomOffsets() ?
 			progArgs.getRandomAmount() : progArgs.getFileSize();
 
 		switch(workersSharedData.currentBenchPhase)

@@ -6,6 +6,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <time.h>
 #include "Common.h"
+#include "CuFileHandleData.h"
 #include "Logger.h"
 
 
@@ -71,6 +72,12 @@ namespace bpo = boost::program_options;
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
 #define ARG_CSVFILE_LONG			"csvfile"
 #define ARG_NOCSVLABELS_LONG		"nocsvlabels"
+#define ARG_GPUIDS_LONG				"gpuids"
+#define ARG_GPUPERSERVICE_LONG		"gpuperservice"
+#define ARG_CUFILE_LONG				"cufile"
+#define ARG_GPUBUFREG_LONG			"gpubufreg"
+#define ARG_CUFILEDRIVEROPEN_LONG	"cufiledriveropen"
+#define ARG_CUHOSTBUFREG_LONG		"cuhostbufreg"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -78,6 +85,9 @@ namespace bpo = boost::program_options;
 
 
 namespace bpt = boost::property_tree;
+
+
+typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
 
 
 /**
@@ -103,6 +113,8 @@ class ProgArgs
 		bpo::options_description argsHiddenDescription;
 		bpo::variables_map argsVariablesMap;
 
+		bool isCuFileDriverOpen{false}; // to ensure cuFileDriverOpen/-Close is only called once
+
 		int argc; // command line argument count (as in main(argc, argv) ).
 		char** argv; // command line arg vector (as in main(argc, argv) ).
 
@@ -119,7 +131,7 @@ class ProgArgs
 		std::string numDirsOrigStr; // original numDirs str from user with unit
 		size_t numFiles; // files per directory
 		std::string numFilesOrigStr; // original numDirs str from user with unit
-		size_t fileSize; // size per file
+		uint64_t fileSize; // size per file
 		std::string fileSizeOrigStr; // original fileSize str from user with unit
 		size_t blockSize; // number of bytes to read/write in a single read()/write() call
 		std::string blockSizeOrigStr; // original blockSize str from user with unit
@@ -138,7 +150,7 @@ class ProgArgs
 		bool runAsService; // run as service for remote coordination by master
 		bool runServiceInForeground; // true to not daemonize service process into background
 		unsigned short servicePort; // HTTP/TCP port for service
-		std::string hostsStr; // list of service hosts, separated by "@" character, hostname[:port]
+		std::string hostsStr; // list of service hosts, element format is hostname[:port]
 		StringVec hostsVec; // service hosts broken down into individual hostname[:port]
 		bool interruptServices; // send interrupt msg to given hosts to stop current phase
 		bool quitServices; // send quit (via interrupt msg) to given hosts to exit service
@@ -162,6 +174,16 @@ class ProgArgs
 		size_t timeLimitSecs; // time limit in seconds for each phase (0 to disable)
 		std::string csvFilePath; // results output file path for csv format (or empty for none)
 		bool noCSVLabels; // true to not print headline with labels to csv file
+		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
+		IntVec gpuIDsVec; // gpuIDsStr broken down into individual GPU IDs
+		bool assignGPUPerService; // assign GPUs from gpuIDsVec round robin per service
+		bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
+		bool useGPUBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
+		CuFileHandleDataVec cuFileHandleDataVec; /* registered cuFile handles in file/bdev mode;
+			vec will also be filled (with unreg'ed handles) if cuFile API is not selected to make
+			things easier for localworkers */
+		bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
+		bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -169,9 +191,11 @@ class ProgArgs
 		void checkPathDependentArgs();
 		void parseAndCheckPaths();
 		void prepareBenchPathFDsVec();
+		void prepareCuFileHandleDataVec();
 		void prepareFileSize(int fd, std::string& path);
 		void parseHosts();
 		void parseNumaZones();
+		void parseGPUIDs();
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
@@ -197,7 +221,7 @@ class ProgArgs
 		size_t getNumFiles() const { return numFiles; }
 		size_t getNumThreads() const { return numThreads; }
 		size_t getNumDataSetThreads() const { return numDataSetThreads; }
-		size_t getFileSize() const { return fileSize; }
+		uint64_t getFileSize() const { return fileSize; }
 		size_t getBlockSize() const { return blockSize; }
 		bool getUseDirectIO() const { return useDirectIO; }
 		bool getShowPerThreadStats() const { return showPerThreadStats; }
@@ -238,6 +262,14 @@ class ProgArgs
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		std::string getCSVFilePath() const { return csvFilePath; }
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
+		std::string getGPUIDsStr() const { return gpuIDsStr; }
+		const IntVec& getGPUIDsVec() const { return gpuIDsVec; }
+		bool getAssignGPUPerService() const { return assignGPUPerService; }
+		bool getUseCuFile() const { return useCuFile; }
+		bool getUseGPUBufReg() const { return useGPUBufReg; }
+		CuFileHandleDataVec& getCuFileHandleDataVec() { return cuFileHandleDataVec; }
+		bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
+		bool getUseCuHostBufReg() const { return useCuHostBufReg; }
 };
 
 

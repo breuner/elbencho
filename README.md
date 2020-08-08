@@ -42,17 +42,18 @@ git clone https://github.com/breuner/elbencho.git
 cd elbencho
 ```
 
-### Clone the Embedded HTTP Server Repository
-
-The [embedded HTTP server](https://gitlab.com/eidheim/Simple-Web-Server) is used for communication in distributed benchmark mode.
-
-```sh
-external/prepare-external.sh
-```
-
 ### Finally, the actual Build...
+
+`make help` will show you all build, install and rpm/deb package build options. This is the standard build command:
+
 ```sh
-make -j8
+make -j8  # "-j8" for 8 parallel build threads
 ```
 
-There you go. Happy benchmarking!
+To benchmark GPU data transfers via CUDA:
+
+```sh
+make -j8 CUDA_SUPPORT=1  # requires Nvidia CUDA to be installed
+```
+
+**There you go. Happy benchmarking!**

@@ -16,7 +16,29 @@ typedef std::vector<int> IntVec;
 #define PHASEENTRYTYPE_DIRS		"dirs"
 #define PHASEENTRYTYPE_FILES	"files"
 
-#define HTTP_PROTOCOLVERSION	"1.0.0" // exchanged between client & server to check compatibility
+#define HTTP_PROTOCOLVERSION	"1.1.0" // exchanged between client & server to check compatibility
+
+
+#define SAFE_DELETE(objectPointer) \
+	do \
+	{ \
+		if(objectPointer) \
+		{ \
+			delete(objectPointer); \
+			objectPointer = NULL; \
+		}  \
+	} while(0)
+
+#define SAFE_FREE(pointer) \
+	do \
+	{ \
+		if(pointer) \
+		{ \
+			free(pointer); \
+			pointer = NULL; \
+		}  \
+	} while(0)
+
 
 enum BenchPhase
 {

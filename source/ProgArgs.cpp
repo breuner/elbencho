@@ -12,13 +12,13 @@
 #include "TranslatorTk.h"
 #include "UnitTk.h"
 
-
 #define MKFILE_MODE					(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 #define DIRECTIO_MINSIZE			512 // min size in bytes for direct IO
 #define BENCHPATH_DELIMITER			",\n\r@" // delimiters for user-defined bench dir paths
 #define HOSTLIST_DELIMITERS			", \n\r" // delimiters for hosts string (comma or space)
 #define HOST_PORT_SEPARATOR			":" // separator for hostname:port
 #define ZONELIST_DELIMITERS			", " // delimiters for numa zones string (comma or space)
+#define GPULIST_DELIMITERS			", \n\r" // delimiters for gpuIDs string (comma or space)
 
 #define ENDL						<< std::endl << // just to make help text print lines shorter
 
@@ -83,6 +83,10 @@ ProgArgs::~ProgArgs()
 {
 	for(int fd : benchPathFDsVec)
 		close(fd);
+
+	// note: dereg won't hurt if never reg'ed, because CuFileHandleData can handle that case.
+	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
+			cuFileHandleData.deregisterHandle();
 }
 
 /**
@@ -111,6 +115,10 @@ void ProgArgs::defineAllowedArgs()
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
 			"Path to file for results in csv format. This way, result can be imported e.g. into "
 			"MS Excel. If the file exists, results will be appended.")
+#ifdef CUDA_SUPPORT
+/*cu*/	(ARG_CUHOSTBUFREG_LONG, bpo::bool_switch(&this->useCuHostBufReg),
+			"Pin host memory buffers and register with CUDA for faster transfer to/from GPU.")
+#endif
 /*D*/	(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->doDeleteDirs),
 			"Delete directories.")
 /*d*/	(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->doCreateDirs),
@@ -122,6 +130,16 @@ void ProgArgs::defineAllowedArgs()
 /*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
 			"detaching from console and daemonizing into backgorund.")
+#ifdef CUDA_SUPPORT
+/*gp*/	(ARG_GPUIDS_LONG, bpo::value(&this->gpuIDsStr),
+			"Comma-separated list of CUDA GPU IDs to use for buffer allocation. If no other "
+			"option for GPU buffers is selected, then read/write timings will include copy "
+			"to/from GPU buffers. GPU IDs will be assigned round robin to different threads. "
+			"(Hint: CUDA GPU IDs are 0-based.)")
+/*gp*/	(ARG_GPUPERSERVICE_LONG, bpo::bool_switch(&this->assignGPUPerService),
+			"Assign GPUs round robin to service instances (i.e. one GPU per service) instead of "
+			"default round robin to threads (i.e. multiple GPUs per service, if multiple given).")
+#endif
 /*ho*/	(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
 			"Comma-separated list of hosts in service mode for coordinated benchmark. When this "
 			"argument is used, this program instance runs in master mode to coordinate the given "
@@ -251,6 +269,11 @@ void ProgArgs::defineDefaults()
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;
 	this->noCSVLabels = false;
+	this->assignGPUPerService = false;
+	this->useCuFile = false;
+	this->useGPUBufReg = false;
+	this->useCuFileDriverOpen = false;
+	this->useCuHostBufReg = false;
 }
 
 /**
@@ -295,6 +318,7 @@ void ProgArgs::checkArgs()
 	///////////// if we get here, we are not running as service...
 
 	parseHosts();
+	parseGPUIDs();
 
 	if( (interruptServices || quitServices) && hostsVec.empty() )
 		throw ProgException("Service interruption/termination requires a host list.");
@@ -325,6 +349,18 @@ void ProgArgs::checkArgs()
 
 	if(fileSize && !blockSize)
 		throw ProgException("Block size may not be 0 when file size is not 0.");
+
+	if(useCuFile && (ioDepth > 1) )
+		throw ProgException("cuFile API does not support \"IO depth > 1\"");
+
+	if(useCuFile && !useDirectIO)
+	{
+		LOGGER(Log_NORMAL,
+			"NOTE: cuFile API requires direct IO. "
+			"Enabling \"--" ARG_DIRECTIO_LONG "\"." << std::endl);
+
+		useDirectIO = true;
+	}
 
 	if(useDirectIO && fileSize && (doCreateFiles || doRead) )
 	{
@@ -426,6 +462,8 @@ void ProgArgs::checkPathDependentArgs()
  *
  * benchPathStr will contain absolute paths afterwards.
  *
+ * This also includes initialization of benchPathsVec and cuFileHandleDataVec.
+ *
  * @throw ProgException if a problem is found, e.g. path not existing.
  */
 void ProgArgs::parseAndCheckPaths()
@@ -464,7 +502,7 @@ void ProgArgs::parseAndCheckPaths()
 	}
 
 	if(benchPathsVec.empty() || benchPathStr.empty() )
-		throw ProgException("Given benchmark path list is empty: " + benchPathStr);
+		throw ProgException("Missing benchmark path list.");
 
 	// skip open of local paths if this is the master of a distributed run
 	if(!hostsStr.empty() )
@@ -473,6 +511,7 @@ void ProgArgs::parseAndCheckPaths()
 	// if we get here then this is not the master of a distributed run...
 
 	prepareBenchPathFDsVec();
+	prepareCuFileHandleDataVec();
 }
 
 /**
@@ -553,6 +592,44 @@ void ProgArgs::prepareBenchPathFDsVec()
 		benchPathFDsVec.push_back(fd);
 
 		prepareFileSize(fd, path);
+	}
+}
+
+/**
+ * In file or blockdev mode, fill cuFileHandleDataVec with registered file descriptors from
+ * benchPathFDsVec. This is required for use of cuFile API.
+ *
+ * Deregistration usually happens in ProgArgs destructor or resetBenchPath(), but this method
+ * also includes deregistration of any previously set FDs in cuFileHandleDataVec.
+ *
+ * cuFileHandleDataVec will be initialized (with unregistered handles) even if cuFile API is not
+ * selected to make things easier for localworkers.
+ *
+ * @throw ProgException on error, e.g. registration failed.
+ */
+void ProgArgs::prepareCuFileHandleDataVec()
+{
+	// cleanup old registrations before vec reuse in service mode
+	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
+		cuFileHandleData.deregisterHandle();
+
+	cuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
+
+	if(benchPathType == BenchPathType_DIR)
+		return; // nothing to do in dir mode, because localworkers will do registration then
+
+	for(int fd : benchPathFDsVec)
+	{
+		// add new element to vec and reference it
+		cuFileHandleDataVec.resize(cuFileHandleDataVec.size() + 1);
+		CuFileHandleData& cuFileHandleData = cuFileHandleDataVec[cuFileHandleDataVec.size() - 1];
+
+		// note: cleanup won't be a problem if reg no done, as CuFileHandleData can handle that case
+
+		if(!useCuFile)
+			continue; // no registration to be done if cuFile API is not used
+
+		cuFileHandleData.registerHandle<ProgException>(fd);
 	}
 }
 
@@ -760,6 +837,52 @@ void ProgArgs::parseNumaZones()
 }
 
 /**
+ * Parse GPU IDs string to fill gpuIDsVec. Do nothing if gpuIDsStr is empty.
+ *
+ * @throw ProgException if a problem is found, e.g. gpuIDsStr string was not empty, but parsed
+ * 		result is empty.
+ */
+void ProgArgs::parseGPUIDs()
+{
+	if(useCuFile && gpuIDsStr.empty() )
+		throw ProgException("cuFile API requested, but no GPU specified.");
+
+	if(gpuIDsStr.empty() )
+		return; // nothing to do
+
+	#ifndef CUDA_SUPPORT
+		throw ProgException("GPU IDs defined, but built without CUDA support.");
+	#endif
+
+	StringVec gpuIDsStrVec; // temporary for split()
+
+	boost::split(gpuIDsStrVec, gpuIDsStr, boost::is_any_of(GPULIST_DELIMITERS),
+		boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(gpuIDsStrVec.begin(), gpuIDsStrVec.end(), "");
+		if(iter == gpuIDsStrVec.end() )
+			break;
+
+		gpuIDsStrVec.erase(iter);
+	}
+
+	if(gpuIDsStrVec.empty() )
+		throw ProgException("GPU IDs defined, but parsing resulted in an empty list: " +
+			gpuIDsStr);
+
+	// convert from string vector to int vector
+	for(std::string& gpuIDStr : gpuIDsStrVec)
+		gpuIDsVec.push_back(std::stoi(gpuIDStr) );
+
+	if(useCuFile)
+		throw ProgException("cuFile API requested, but this executable was not built with "
+			"cuFile support.");
+}
+
+/**
  * Turn given path into an absolute path. If given path was absolute before, it is returned
  * unmodified. Otherwise the path to the current work dir is prepended.
  *
@@ -898,16 +1021,16 @@ void ProgArgs::printHelpOverview()
 		"Get started by selecting what you want to test..." ENDL
 		std::endl <<
 		"Block devices or large shared files:" ENDL
-		"  $ ./" EXE_NAME " --" ARG_HELPBLOCKDEV_LONG ENDL
+		"  $ " EXE_NAME " --" ARG_HELPBLOCKDEV_LONG ENDL
 		std::endl <<
 		"Many files in different directories:" ENDL
-		"  $ ./" EXE_NAME " --" ARG_HELPMULTIFILE_LONG ENDL
+		"  $ " EXE_NAME " --" ARG_HELPMULTIFILE_LONG ENDL
 		std::endl <<
 		"Multiple clients:" ENDL
-		"  $ ./" EXE_NAME " --" ARG_HELPDISTRIBUTED_LONG ENDL
+		"  $ " EXE_NAME " --" ARG_HELPDISTRIBUTED_LONG ENDL
 		std::endl <<
 		"See all available options:" ENDL
-		"  $ ./" EXE_NAME " --" ARG_HELPALLOPTIONS_LONG ENDL
+		"  $ " EXE_NAME " --" ARG_HELPALLOPTIONS_LONG ENDL
 		std::endl <<
 		"Happy benchmarking!" << std::endl;
 }
@@ -992,14 +1115,14 @@ void ProgArgs::printHelpBlockDev()
     std::cout <<
     	"Examples:" ENDL
 		"  Test 4KiB block random read latency of device /dev/nvme0n1:" ENDL
-		"    $ ./" EXE_NAME " -r -b 4K --lat --direct --rand /dev/nvme0n1" ENDL
+		"    $ " EXE_NAME " -r -b 4K --lat --direct --rand /dev/nvme0n1" ENDL
 		std::endl <<
 		"  Test 4KiB multi-threaded write IOPS of devices /dev/nvme0n1 & /dev/nvme1n1:" ENDL
-		"    $ ./" EXE_NAME " -w -b 4K -t 16 --iodepth 16 --direct --rand \\" ENDL
+		"    $ " EXE_NAME " -w -b 4K -t 16 --iodepth 16 --direct --rand \\" ENDL
 		"        /dev/nvme0n1 /dev/nvme1n1" ENDL
 		std::endl <<
 		"  Test 1MiB multi-threaded read streaming throughput of device /dev/nvme0n1:" ENDL
-		"    $ ./" EXE_NAME " -r -b 1M -t 8 --iodepth 4 --direct /dev/nvme0n1" <<
+		"    $ " EXE_NAME " -r -b 1M -t 8 --iodepth 4 --direct /dev/nvme0n1" <<
 		std::endl;
 }
 
@@ -1079,14 +1202,20 @@ void ProgArgs::printHelpMultiFile()
 
     std::cout <<
     	"Examples:" ENDL
-		" Test 2 threads, each creating 3 directories with 4 1MiB files inside:" ENDL
-		"    $ ./" EXE_NAME " -t 2 -d -n 3 -w -N 4 -s 1m -b 1m /data/testdir" ENDL
+		"  Test 2 threads, each creating 3 directories with 4 1MiB files inside:" ENDL
+		"    $ " EXE_NAME " -t 2 -d -n 3 -w -N 4 -s 1m -b 1m /data/testdir" ENDL
 		std::endl <<
 		"  Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks:" ENDL
-		"    $ ./" EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k /data/testdir" ENDL
+		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k /data/testdir" ENDL
 		std::endl <<
+#ifdef CUDA_SUPPORT
+		"  As above, but also copy data into memory of first 2 GPUs via CUDA:" ENDL
+		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
+		"      --gpuids 0,1 --cuhostbufreg /data/testdir" ENDL
+		std::endl <<
+#endif
 		"  Delete files and directories created by example above:" ENDL
-		"    $ ./" EXE_NAME " -t 2 -n 3 -N 4 -F -D /data/testdir" <<
+		"    $ " EXE_NAME " -t 2 -n 3 -N 4 -F -D /data/testdir" <<
 		std::endl;
 }
 
@@ -1097,13 +1226,13 @@ void ProgArgs::printHelpDistributed()
 		std::endl <<
 		"Usage:" ENDL
 		"  First, start " EXE_NAME " in service mode on multiple hosts:" ENDL
-		"  $ ./" EXE_NAME " --service [OPTIONS]" ENDL
+		"  $ " EXE_NAME " --service [OPTIONS]" ENDL
 		std::endl <<
 		"  Then run master anywhere on the network to start benchmarks on service hosts:" ENDL
-		"  $ ./" EXE_NAME " --hosts HOST_1,...,HOST_N [OPTIONS]" ENDL
+		"  $ " EXE_NAME " --hosts HOST_1,...,HOST_N [OPTIONS]" ENDL
 		std::endl <<
 		"  When you're done, quit all services:" ENDL
-		"  $ ./" EXE_NAME " --hosts HOST_1,...,HOST_N --quit" ENDL
+		"  $ " EXE_NAME " --hosts HOST_1,...,HOST_N --quit" ENDL
 		std::endl;
 
 	bpo::options_description argsDistributedBasicDescription(
@@ -1158,16 +1287,16 @@ void ProgArgs::printHelpDistributed()
     std::cout <<
     	"Examples:" ENDL
 		"  Run service on two different NUMA zones of host node001:" ENDL
-		"    $ ./" EXE_NAME " --service --zone 0 --port 1611" ENDL
-		"    $ ./" EXE_NAME " --service --zone 1 --port 1612" ENDL
+		"    $ " EXE_NAME " --service --zone 0 --port 1611" ENDL
+		"    $ " EXE_NAME " --service --zone 1 --port 1612" ENDL
 		std::endl <<
 		"  Run master to coordinate benchmarks on node001 services, using 4 threads per" ENDL
 		"  service and creating 8 dirs per thread, each containing 16 1MiB files:" ENDL
-		"    $ ./" EXE_NAME " --hosts node001:1611,node001:1612 \\" ENDL
+		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 \\" ENDL
 		"        -t 4 -d -n 8 -w -N 16 -s 1M" ENDL
 		std::endl <<
-		"  Use master to quit local services:" ENDL
-		"    $ ./" EXE_NAME " --hosts node001:1611,node001:1612 --quit" ENDL
+		"  Quit services on host node001:" ENDL
+		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 --quit" ENDL
 		std::endl <<
 		std::endl;
 }
@@ -1199,6 +1328,11 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	randomAmount = tree.get<size_t>(ARG_RANDOMAMOUNT_LONG);
 	ioDepth = tree.get<size_t>(ARG_IODEPTH_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
+	gpuIDsStr = tree.get<std::string>(ARG_GPUIDS_LONG);
+	useCuFile = tree.get<bool>(ARG_CUFILE_LONG);
+	useGPUBufReg = tree.get<bool>(ARG_GPUBUFREG_LONG);
+	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
+	useCuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1210,6 +1344,8 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	parseAndCheckPaths();
 
 	checkPathDependentArgs();
+
+	parseGPUIDs();
 }
 
 /**
@@ -1239,6 +1375,11 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
 	outTree.put(ARG_IODEPTH_LONG, ioDepth);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
+	outTree.put(ARG_CUFILE_LONG, useCuFile);
+	outTree.put(ARG_GPUBUFREG_LONG, useGPUBufReg);
+	outTree.put(ARG_CUFILEDRIVEROPEN_LONG, useCuFileDriverOpen);
+	outTree.put(ARG_CUHOSTBUFREG_LONG, useCuHostBufReg);
+
 
 	// dynamically calculated values for service hosts...
 
@@ -1251,6 +1392,15 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 		numThreads * hostsVec.size() : numThreads;
 
 	outTree.put(ARG_NUMDATASETTHREADS_LONG, remoteNumDataSetThreads);
+
+	if(!assignGPUPerService || gpuIDsVec.empty() )
+		outTree.put(ARG_GPUIDS_LONG, gpuIDsStr);
+	else
+	{ // assign one GPU per service instance
+		size_t gpuIndex = workerRank % gpuIDsVec.size();
+		outTree.put(ARG_GPUIDS_LONG, std::to_string(gpuIDsVec[gpuIndex] ) );
+	}
+
 }
 
 /**
@@ -1306,7 +1456,7 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 }
 
 /**
- * Reset benchmark path and close associated file descriptors.
+ * Reset benchmark path and close associated file descriptors (incl. cuFile driver).
  */
 void ProgArgs::resetBenchPath()
 {
@@ -1318,6 +1468,12 @@ void ProgArgs::resetBenchPath()
 
 	benchPathsVec.resize(0); // reset before reuse in service mode
 	benchPathStr = "";
+
+	// dereg prev registered handles. (CuFileHandleData can handle the case of entries not reg'ed.)
+	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
+			cuFileHandleData.deregisterHandle();
+
+	cuFileHandleDataVec.resize(0); // reset before reuse in service mode
 }
 
 /**

@@ -19,6 +19,7 @@ class FileOffsetGenerator
 	public:
 		virtual ~FileOffsetGenerator() {}
 
+		virtual void reset() = 0; // reset for reuse of object with next file
 		virtual size_t getNextOffset() = 0;
 		virtual size_t getNextBlockSizeToSubmit() const = 0;
 		virtual size_t getNumBytesTotal() const = 0;
@@ -38,7 +39,8 @@ class FileOffsetGenSequential : public FileOffsetGenerator
 {
 	public:
 		FileOffsetGenSequential(size_t len, size_t offset, size_t blockSize) :
-			numBytesTotal(len), numBytesLeft(len), currentOffset(offset), blockSize(blockSize)
+			numBytesTotal(len), numBytesLeft(len), startOffset(offset), currentOffset(offset),
+			blockSize(blockSize)
 		{ }
 
 		virtual ~FileOffsetGenSequential() {}
@@ -46,11 +48,18 @@ class FileOffsetGenSequential : public FileOffsetGenerator
 	protected:
 		const size_t numBytesTotal;
 		size_t numBytesLeft;
+		const size_t startOffset;
 		size_t currentOffset;
-		size_t blockSize;
+		const size_t blockSize;
 
 	// inliners
 	public:
+		virtual void reset() override
+		{
+			numBytesLeft = numBytesTotal;
+			currentOffset = startOffset;
+		}
+
 		virtual size_t getNextOffset() override
 			{ return currentOffset; }
 
@@ -97,10 +106,13 @@ class FileOffsetGenRandom : public FileOffsetGenerator
 
 		size_t numBytesTotal;
 		size_t numBytesLeft;
-		size_t blockSize;
+		const size_t blockSize;
 
 	// inliners
 	public:
+		virtual void reset() override
+		{ numBytesLeft = numBytesTotal; }
+
 		virtual size_t getNextOffset() override
 			{ return randDist(randGen); }
 
@@ -145,10 +157,16 @@ class FileOffsetGenRandomAligned : public FileOffsetGenerator
 
 		size_t numBytesTotal;
 		size_t numBytesLeft;
-		size_t blockSize;
+		const size_t blockSize;
 
 		// inliners
 	public:
+		virtual void reset() override
+		{
+			// "- (numBytesTotal % blockSize)" ensures that we don't submit partial blocks
+			numBytesLeft = numBytesTotal - (numBytesTotal % blockSize);
+		}
+
 		virtual size_t getNextOffset() override
 			{ return randDist(randGen) * blockSize; }
 
