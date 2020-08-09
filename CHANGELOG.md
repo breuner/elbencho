@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v1.5 (TBD)
+
+### New Features & Enhancements
+* New support for Nvidia GPUDirect Storage (GDS) via cuFile API (--cufile & --gdsbufreg).
+
 ## v1.4-3 (Oct 30, 2020)
 
 ### New Features & Enhancements

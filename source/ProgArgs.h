@@ -75,7 +75,7 @@ namespace bpo = boost::program_options;
 #define ARG_GPUIDS_LONG				"gpuids"
 #define ARG_GPUPERSERVICE_LONG		"gpuperservice"
 #define ARG_CUFILE_LONG				"cufile"
-#define ARG_GPUBUFREG_LONG			"gpubufreg"
+#define ARG_GDSBUFREG_LONG			"gdsbufreg"
 #define ARG_CUFILEDRIVEROPEN_LONG	"cufiledriveropen"
 #define ARG_CUHOSTBUFREG_LONG		"cuhostbufreg"
 #define ARG_INTEGRITYCHECK_LONG		"verify"
@@ -188,7 +188,7 @@ class ProgArgs
 		IntVec gpuIDsVec; // gpuIDsStr broken down into individual GPU IDs
 		bool assignGPUPerService; // assign GPUs from gpuIDsVec round robin per service
 		bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
-		bool useGPUBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
+		bool useGDSBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
 		CuFileHandleDataVec cuFileHandleDataVec; /* registered cuFile handles in file/bdev mode;
 			vec will also be filled (with unreg'ed handles) if cuFile API is not selected to make
 			things easier for localworkers */
@@ -283,7 +283,7 @@ class ProgArgs
 		const IntVec& getGPUIDsVec() const { return gpuIDsVec; }
 		bool getAssignGPUPerService() const { return assignGPUPerService; }
 		bool getUseCuFile() const { return useCuFile; }
-		bool getUseGPUBufReg() const { return useGPUBufReg; }
+		bool getUseGPUBufReg() const { return useGDSBufReg; }
 		CuFileHandleDataVec& getCuFileHandleDataVec() { return cuFileHandleDataVec; }
 		bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
 		bool getUseCuHostBufReg() const { return useCuHostBufReg; }

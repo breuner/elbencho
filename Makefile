@@ -4,8 +4,8 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
-EXE_VER_MINOR      ?= 4
-EXE_VER_PATCHLEVEL ?= 3
+EXE_VER_MINOR      ?= 5
+EXE_VER_PATCHLEVEL ?= 0
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -98,6 +98,13 @@ else
 endif
 
 features-info:
+ifeq ($(CUFILE_SUPPORT),1)
+ ifdef BUILD_VERBOSE
+	$(info [OPT] CUFILE (GDS) support enabled (CUFILE_PATH: $(CUFILE_PATH)))
+ else
+	$(info [OPT] CUFILE (GDS) support enabled)
+ endif
+endif
 ifeq ($(CUDA_SUPPORT),1)
  ifdef BUILD_VERBOSE
 	$(info [OPT] CUDA support enabled (CUDA_PATH: $(CUDA_PATH)))
@@ -198,6 +205,10 @@ help:
 	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
 	@echo '                             CUDA to work with GPU memory. By default, CUDA'
 	@echo '                             support will be enabled when CUDA is installed.'
+	@echo '   CUFILE_SUPPORT=0|1      - Manually enable (=1) or disable (=0) support for'
+	@echo '                             GPUDirect Storage (GDS) through the cuFile API.'
+	@echo '                             By default, GDS support will be enabled when GDS'
+	@echo '                             is installed.'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'

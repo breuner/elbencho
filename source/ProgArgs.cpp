@@ -12,6 +12,10 @@
 #include "TranslatorTk.h"
 #include "UnitTk.h"
 
+#ifdef CUFILE_SUPPORT
+	#include <cufile.h>
+#endif
+
 #define MKFILE_MODE					(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 #define DIRECTIO_MINSIZE			512 // min size in bytes for direct IO
 #define BENCHPATH_DELIMITER			",\n\r@" // delimiters for user-defined bench dir paths
@@ -87,6 +91,11 @@ ProgArgs::~ProgArgs()
 	// note: dereg won't hurt if never reg'ed, because CuFileHandleData can handle that case.
 	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
 			cuFileHandleData.deregisterHandle();
+
+#ifdef CUFILE_SUPPORT
+	if(isCuFileDriverOpen)
+		cuFileDriverClose();
+#endif
 }
 
 /**
@@ -117,6 +126,12 @@ void ProgArgs::defineAllowedArgs()
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
 			"Path to file for results in csv format. This way, result can be imported e.g. into "
 			"MS Excel. If the file exists, results will be appended.")
+#ifdef CUFILE_SUPPORT
+/*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
+			"Use cuFile API for reads/writes to/from GPU memory.")
+/*cu*/	(ARG_CUFILEDRIVEROPEN_LONG, bpo::bool_switch(&this->useCuFileDriverOpen),
+			"Explicitly initialize cuFile lib and open the nvida-fs driver.")
+#endif
 #ifdef CUDA_SUPPORT
 /*cu*/	(ARG_CUHOSTBUFREG_LONG, bpo::bool_switch(&this->useCuHostBufReg),
 			"Pin host memory buffers and register with CUDA for faster transfer to/from GPU.")
@@ -138,6 +153,10 @@ void ProgArgs::defineAllowedArgs()
 /*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
 			"detaching from console and daemonizing into backgorund.")
+#ifdef CUFILE_SUPPORT
+/*gd*/	(ARG_GDSBUFREG_LONG, bpo::bool_switch(&this->useGDSBufReg),
+			"Register GPU buffers for GPUDirect Storage (GDS) when using cuFile API.")
+#endif
 #ifdef CUDA_SUPPORT
 /*gp*/	(ARG_GPUIDS_LONG, bpo::value(&this->gpuIDsStr),
 			"Comma-separated list of CUDA GPU IDs to use for buffer allocation. If no other "
@@ -296,7 +315,7 @@ void ProgArgs::defineDefaults()
 	this->noCSVLabels = false;
 	this->assignGPUPerService = false;
 	this->useCuFile = false;
-	this->useGPUBufReg = false;
+	this->useGDSBufReg = false;
 	this->useCuFileDriverOpen = false;
 	this->useCuHostBufReg = false;
 	this->integrityCheckSalt = 0;
@@ -934,9 +953,22 @@ void ProgArgs::parseGPUIDs()
 	for(std::string& gpuIDStr : gpuIDsStrVec)
 		gpuIDsVec.push_back(std::stoi(gpuIDStr) );
 
-	if(useCuFile)
-		throw ProgException("cuFile API requested, but this executable was not built with "
-			"cuFile support.");
+	#ifndef CUFILE_SUPPORT
+		if(useCuFile)
+			throw ProgException("cuFile API requested, but this executable was not built with "
+				"cuFile support.");
+	#else
+		if(useCuFile && useCuFileDriverOpen)
+		{
+			CUfileError_t driverOpenRes = cuFileDriverOpen();
+
+			if(driverOpenRes.err != CU_FILE_SUCCESS)
+				throw ProgException(std::string("cuFileDriverOpen failed. cuFile Error: ") +
+					CUFILE_ERRSTR(driverOpenRes.err) );
+
+			isCuFileDriverOpen = true;
+		}
+	#endif
 }
 
 /**
@@ -1184,7 +1216,19 @@ void ProgArgs::printHelpBlockDev()
 		"  Create large file and test random read IOPS for max 20 seconds:" ENDL
 		"    $ " EXE_NAME " -w -b 4M --direct --size 20g /mnt/myfs/file1" ENDL
 		"    $ " EXE_NAME " -r -b 4k -t 16 --iodepth 16 --direct --rand --timelimit 20 \\" ENDL
-		"        /mnt/myfs/file1" <<
+		"        /mnt/myfs/file1" ENDL
+#ifdef CUDA_SUPPORT
+		std::endl <<
+		"  Stream data from large file into memory of first 2 GPUs via CUDA:" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --cuhostbufreg \\" ENDL
+		"        /mnt/myfs/file1" ENDL
+#endif
+#ifdef CUFILE_SUPPORT
+		std::endl <<
+		"  Stream data from large file into memory of first 2 GPUs via GPUDirect Storage:" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --cufile --gdsbufreg --direct \\" ENDL
+		"        /mnt/myfs/file1" ENDL
+#endif
 		std::endl;
 }
 
@@ -1267,13 +1311,19 @@ void ProgArgs::printHelpMultiFile()
 		std::endl <<
 		"  Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks:" ENDL
 		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k /data/testdir" ENDL
-		std::endl <<
 #ifdef CUDA_SUPPORT
+		std::endl <<
 		"  As above, but also copy data into memory of first 2 GPUs via CUDA:" ENDL
 		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
 		"        --gpuids 0,1 --cuhostbufreg /data/testdir" ENDL
-		std::endl <<
 #endif
+#ifdef CUFILE_SUPPORT
+		std::endl <<
+		"  As above, but read data into memory of first 2 GPUs via GPUDirect Storage:" ENDL
+		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
+		"        --gpuids 0,1 --cufile --gdsbufreg --direct /data/testdir" ENDL
+#endif
+		std::endl <<
 		"  Delete files and directories created by example above:" ENDL
 		"    $ " EXE_NAME " -t 2 -n 3 -N 4 -F -D /data/testdir" <<
 		std::endl;
@@ -1393,6 +1443,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cuda ";
 #endif
 
+#ifdef CUFILE_SUPPORT
+	includedStream << "cufile/gds ";
+#else
+	notIncludedStream << "cufile/gds ";
+#endif
+
 	std::cout << "Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
 	std::cout << "Excluded optional build features: " <<
@@ -1428,7 +1484,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	gpuIDsStr = tree.get<std::string>(ARG_GPUIDS_LONG);
 	useCuFile = tree.get<bool>(ARG_CUFILE_LONG);
-	useGPUBufReg = tree.get<bool>(ARG_GPUBUFREG_LONG);
+	useGDSBufReg = tree.get<bool>(ARG_GDSBUFREG_LONG);
 	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
 	useCuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
 	integrityCheckSalt = tree.get<uint64_t>(ARG_INTEGRITYCHECK_LONG);
@@ -1478,7 +1534,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_IODEPTH_LONG, ioDepth);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_CUFILE_LONG, useCuFile);
-	outTree.put(ARG_GPUBUFREG_LONG, useGPUBufReg);
+	outTree.put(ARG_GDSBUFREG_LONG, useGDSBufReg);
 	outTree.put(ARG_CUFILEDRIVEROPEN_LONG, useCuFileDriverOpen);
 	outTree.put(ARG_CUHOSTBUFREG_LONG, useCuHostBufReg);
 	outTree.put(ARG_INTEGRITYCHECK_LONG, integrityCheckSalt);
@@ -1566,6 +1622,12 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
  */
 void ProgArgs::resetBenchPath()
 {
+	// dereg prev registered handles. (CuFileHandleData can handle the case of entries not reg'ed.)
+	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
+			cuFileHandleData.deregisterHandle();
+
+	cuFileHandleDataVec.resize(0); // reset before reuse in service mode
+
 	// close open file descriptors
 	for(int fd : benchPathFDsVec)
 		close(fd);
@@ -1575,11 +1637,12 @@ void ProgArgs::resetBenchPath()
 	benchPathsVec.resize(0); // reset before reuse in service mode
 	benchPathStr = "";
 
-	// dereg prev registered handles. (CuFileHandleData can handle the case of entries not reg'ed.)
-	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
-			cuFileHandleData.deregisterHandle();
+#ifdef CUFILE_SUPPORT
+	if(isCuFileDriverOpen)
+		cuFileDriverClose();
 
-	cuFileHandleDataVec.resize(0); // reset before reuse in service mode
+	isCuFileDriverOpen = false;
+#endif
 }
 
 /**

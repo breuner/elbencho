@@ -20,6 +20,27 @@ LocalWorker::~LocalWorker()
 {
 	SAFE_DELETE(offsetGen);
 
+#ifdef CUFILE_SUPPORT
+	// cleanup in case of exception in file/bdev mode.
+	// note: calling this is ok even if already deregistered or never registered.
+	// note: we call this directly to not rely on funcCuFileHandleDereg being initialized.
+	cuFileHandleData.deregisterHandle();
+
+	// deregister GPU buffers for DMA
+	for(char* gpuIOBuf : gpuIOBufVec)
+	{
+		if(!progArgs->getUseCuFile() || !gpuIOBuf ||!progArgs->getUseGPUBufReg() )
+			continue;
+
+		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
+
+		if(deregRes.err != CU_FILE_SUCCESS)
+			std::cerr << "ERROR: GPU DMA buffer deregistration via cuFileBufDeregister failed. "
+				"GPU ID: " << gpuID << "; "
+				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl;
+	}
+#endif
+
 #ifdef CUDA_SUPPORT
 	// cuda-free gpu memory buffers
 	for(char* gpuIOBuf : gpuIOBufVec)
@@ -283,6 +304,9 @@ void LocalWorker::initPhaseFunctionPointers()
 			&LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
 		funcPostReadCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
 
+		if(useCuFileAPI && integrityCheckEnabled)
+			funcPreWriteCudaMemcpy = &LocalWorker::cudaMemcpyHostToGPU;
+
 		funcPreWriteIntegrityCheck = integrityCheckEnabled ?
 			&LocalWorker::preWriteIntegrityCheckFillBuf : &LocalWorker::noOpIntegrityCheck;
 		funcPostReadIntegrityCheck = &LocalWorker::noOpIntegrityCheck;
@@ -299,6 +323,9 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcPreWriteCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
 		funcPostReadCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
 			&LocalWorker::cudaMemcpyHostToGPU : &LocalWorker::noOpCudaMemcpy;
+
+		if(useCuFileAPI && integrityCheckEnabled)
+			funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 
 		funcPreWriteIntegrityCheck = &LocalWorker::noOpIntegrityCheck;
 		funcPostReadIntegrityCheck = integrityCheckEnabled ?
@@ -431,6 +458,31 @@ void LocalWorker::allocGPUIOBuffer()
 	}
 
 #endif // CUDA_SUPPORT
+
+#ifndef CUFILE_SUPPORT
+
+	if(progArgs->getUseCuFile() )
+		throw WorkerException("cuFile API requested, but this executable was built without cuFile "
+			"support.");
+
+#else // CUFILE_SUPPORT
+
+	// register GPU buffer for DMA
+	for(char* gpuIOBuf : gpuIOBufVec)
+	{
+		if(!progArgs->getUseCuFile() || !gpuIOBuf || !progArgs->getUseGPUBufReg() )
+			continue;
+
+		CUfileError_t registerRes = cuFileBufRegister(gpuIOBuf, progArgs->getBlockSize(), 0);
+
+		if(registerRes.err != CU_FILE_SUCCESS)
+			throw WorkerException(std::string(
+				"GPU DMA buffer registration via cuFileBufRegister failed. ") +
+				"GPU ID: " + std::to_string(gpuID) + "; "
+				"cuFile Error: " + CUFILE_ERRSTR(registerRes.err) );
+	}
+
+#endif // CUFILE_SUPPORT
 }
 
 /**
@@ -895,24 +947,32 @@ ssize_t LocalWorker::pwriteWrapper(int fd, void* buf, size_t nbytes, off_t offse
  * Wrapper for positional sync cuFile read.
  *
  * @fd ignored, using cuFileHandleData.cfr_handle instead.
- * @buf ignored, using gpuIOBuf instead.
+ * @buf ignored, using gpuIOBufVec[0] instead.
  */
 ssize_t LocalWorker::cuFileReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
 {
+#ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileReadWrapper called, but this executable was built without cuFile "
 		"API support");
+#else
+	return cuFileRead(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+#endif
 }
 
 /**
  * Wrapper for positional sync cuFile write.
  *
  * @fd ignored, using cuFileHandleData.cfr_handle instead.
- * @buf ignored, using gpuIOBuf instead.
+ * @buf ignored, using gpuIOBufVec[0] instead.
  */
 ssize_t LocalWorker::cuFileWriteWrapper(int fd, void* buf, size_t nbytes, off_t offset)
 {
+#ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileWriteWrapper called, but this executable was built without cuFile "
 		"API support");
+#else
+	return cuFileWrite(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+#endif
 }
 
 /**

@@ -9,7 +9,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 * Unified latency, throughput, IOPS benchmark for file and block storage
 * Supports local and shared storage through service mode
 * For modern NVMe storage or classic spinning disk storage, on-prem and in the cloud
-* CUDA-enabled transfer of data into GPU memory (Nvidia GPUDirect Storage support upcoming)
+* GPU storage access performance testing through Nvidia CUDA or GPUDirect Storage (GDS)
 * Live statistics show how the system behaves under load
 * Multi-threaded and async I/O support through libaio
 * Results by first and by last finished thread
@@ -78,6 +78,8 @@ sudo apt install ./packaging/elbencho*.deb
 ### Optional Build Features
 
 Nvidia CUDA support for GPU data transfers will automatically be enabled when CUDA development files (`cuda_runtime.h` and `libcudart.so`) are installed on the build system. Alternatively, elbencho CUDA support can be manually enabled or disabled. See `make help` for details.
+
+Nvidia GPUDirect Storage (GDS) support through the cuFile API will automatically be enabled when GDS development files (`cufile.h` and `libcufile.so`) are installed on the build system. Alternatively, elbencho GDS support can be manually enabled or disabled. See `make help` for details.
 
 ## Now what?
 
