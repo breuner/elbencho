@@ -123,6 +123,9 @@ endif
 
 install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
+	@echo "PAY ATTENTION - elbencho executable is located under /usr/local/bin"
+	@echo "		sudo is dropping /usr/local/bin from PATH."
+	@echo "		In case sudo is needed, the absolute path can be used"
 	
 uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
