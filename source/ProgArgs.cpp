@@ -145,12 +145,6 @@ void ProgArgs::defineAllowedArgs()
 			"argument is used, this program instance runs in master mode to coordinate the given "
 			"service mode hosts. The given number of threads, dirs and files is per-host then."
 			"(Format: hostname[:port])")
-/*in*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
-			"Enable data integrity check. Writes sum of given 64bit salt plus current 64bit offset "
-			"as file or block device content, which can afterwards be verified in a read phase "
-			"using the same salt (e.g. \"1\"). Different salt values can be used to ensure "
-			"different contents when running multiple consecutive write and read verifications. "
-			"(Default: 0 for disabled)")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -216,6 +210,12 @@ void ProgArgs::defineAllowedArgs()
 			"further phases will run. 0 disables time limit. (Default: 0)")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
+/*ve*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
+			"Enable data integrity check. Writes sum of given 64bit salt plus current 64bit offset "
+			"as file or block device content, which can afterwards be verified in a read phase "
+			"using the same salt (e.g. \"1\"). Different salt values can be used to ensure "
+			"different contents when running multiple consecutive write and read verifications. "
+			"(Default: 0 for disabled)")
 /*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->doCreateFiles),
 			"Write files. Create them if they don't exist.")
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
