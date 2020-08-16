@@ -44,7 +44,9 @@ cd elbencho
 
 ### Finally, the actual Build...
 
-`make help` will show you all build, install and rpm/deb package build options. This is the standard build command:
+`make help` will show you all build, install and rpm/deb packaging options.
+
+This is the standard build command:
 
 ```sh
 make -j8  # "-j8" for 8 parallel build threads
@@ -57,3 +59,7 @@ make -j8 CUDA_SUPPORT=1  # requires Nvidia CUDA to be installed
 ```
 
 **There you go. Happy benchmarking!**
+
+## Questions or Comments
+
+Contact me at sven.breuner[at]gmail.com
