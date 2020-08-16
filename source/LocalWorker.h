@@ -24,16 +24,20 @@ typedef void (*AIO_RW_PREPPER)(struct iocb* iocb, int fd, void* buf, size_t coun
 typedef ssize_t (LocalWorker::*POSITIONAL_RW)(int fd, void* buf, size_t nbytes, off_t offset);
 
 // function pointer for GPU memcpy before write or after read
-typedef void (LocalWorker::*GPU_MEMCPY_RW)(size_t count);
+typedef void (LocalWorker::*GPU_MEMCPY_RW)(void* hostIOBuf, void* gpuIOBuf, size_t count);
 
 // function pointer for sync or async IO
-typedef ssize_t (LocalWorker::*RW_BLOCKSIZED)(int fd);
+typedef int64_t (LocalWorker::*RW_BLOCKSIZED)(int fd);
 
 // function pointer for cuFile handle register
 typedef void (LocalWorker::*CUFILE_HANDLE_REGISTER)(int fd, CuFileHandleData& handleData);
 
 // function pointer for cuFile handle deregister
 typedef void (LocalWorker::*CUFILE_HANDLE_DEREGISTER)(CuFileHandleData& handleData);
+
+// preWriteIntegrityCheckFillBuf/postReadIntegrityCheckVerifyBuf
+typedef void (LocalWorker::*INTEGRITY_CHECKER)(char* buf, size_t bufLen, off_t fileOffset);
+
 
 
 /**
@@ -51,9 +55,9 @@ class LocalWorker : public Worker
 	private:
 	    std::mt19937_64 randGen{std::random_device()() }; // random_device is just for random seed
 
-		void* ioBuf{NULL}; // buffer used for block-sized read()/write()
+		BufferVec ioBufVec; // host buffers used for block-sized read/write (count matches iodepth)
 
-		void* gpuIOBuf{NULL}; // gpu memory buffer for read/write via cuda
+		BufferVec gpuIOBufVec; // gpu memory buffers for read/write via cuda (count matches iodepth)
 		int gpuID{-1}; // GPU ID for this worker, initialized in allocGPUIOBuffer
 		CuFileHandleData cuFileHandleData; // cuFile handle for current file in dir mode
 		CuFileHandleData* cuFileHandleDataPtr{NULL}; // for cuFileRead/WriteWrapper
@@ -62,6 +66,8 @@ class LocalWorker : public Worker
 		RW_BLOCKSIZED funcRWBlockSized; // pointer to sync or async read/write
 		POSITIONAL_RW funcPositionalRW; // pread/write, cuFileRead/Write for sync read/write
 		AIO_RW_PREPPER funcAioRwPrepper; // io_prep_pwrite/io_prep_read for async read/write
+		INTEGRITY_CHECKER funcPreWriteIntegrityCheck; // fill integrity check buf pre write
+		INTEGRITY_CHECKER funcPostReadIntegrityCheck; // verify integrity check buf post read
 		GPU_MEMCPY_RW funcPreWriteCudaMemcpy; // copy from GPU memory
 		GPU_MEMCPY_RW funcPostReadCudaMemcpy; // copy to GPU memory
 		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
@@ -79,8 +85,8 @@ class LocalWorker : public Worker
 		void allocIOBuffer();
 		void allocGPUIOBuffer();
 
-		ssize_t rwBlockSized(int fd);
-		ssize_t aioBlockSized(int fd);
+		int64_t rwBlockSized(int fd);
+		int64_t aioBlockSized(int fd);
 
 		void iterateDirs();
 		void dirModeIterateFiles();
@@ -90,9 +96,9 @@ class LocalWorker : public Worker
 
 		// for phase function pointers...
 
-		void noOpCudaMemcpy(size_t count);
-		void preWriteCudaMemcpy(size_t count);
-		void postReadCudaMemcpy(size_t count);
+		void noOpCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count);
+		void cudaMemcpyGPUToHost(void* hostIOBuf, void* gpuIOBuf, size_t count);
+		void cudaMemcpyHostToGPU(void* hostIOBuf, void* gpuIOBuf, size_t count);
 
 		void noOpCuFileHandleReg(int fd, CuFileHandleData& handleData);
 		void noOpCuFileHandleDereg(CuFileHandleData& handleData);
@@ -105,6 +111,10 @@ class LocalWorker : public Worker
 		ssize_t pwriteWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileWriteWrapper(int fd, void* buf, size_t nbytes, off_t offset);
+
+		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
+		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);
+		void postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset);
 };
 
 

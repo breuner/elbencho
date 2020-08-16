@@ -21,21 +21,34 @@ LocalWorker::~LocalWorker()
 	SAFE_DELETE(offsetGen);
 
 #ifdef CUDA_SUPPORT
-	if(gpuIOBuf)
-		cudaFree(gpuIOBuf);
-
-	if(progArgs->getUseCuHostBufReg() && ioBuf && !progArgs->getGPUIDsVec().empty() )
+	// cuda-free gpu memory buffers
+	for(char* gpuIOBuf : gpuIOBufVec)
 	{
-		cudaError_t unregRes = cudaHostUnregister(ioBuf);
+		if(gpuIOBuf)
+			cudaFree(gpuIOBuf);
+	}
 
-		if(unregRes != cudaSuccess)
-			std::cerr << "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
-				"GPU ID: " << gpuID << "; "
-				"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl;
+	// cuda-unregister host buffers
+	if(progArgs->getUseCuHostBufReg() && !progArgs->getGPUIDsVec().empty() )
+	{
+		for(char* ioBuf : ioBufVec)
+		{
+			if(!ioBuf)
+				continue;
+
+			cudaError_t unregRes = cudaHostUnregister(ioBuf);
+
+			if(unregRes != cudaSuccess)
+				std::cerr << "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
+					"GPU ID: " << gpuID << "; "
+					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl;
+		}
 	}
 #endif
 
-	SAFE_FREE(ioBuf);
+	// free host memory buffers
+	for(char* ioBuf : ioBufVec)
+		SAFE_FREE(ioBuf);
 }
 
 
@@ -245,6 +258,8 @@ void LocalWorker::initPhaseFunctionPointers()
 	const size_t ioDepth = progArgs->getIODepth();
 	const bool useCuFileAPI = progArgs->getUseCuFile();
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
+	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
+	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
 
 	if(benchPhase == BenchPhase_CREATEFILES)
 	{
@@ -255,9 +270,13 @@ void LocalWorker::initPhaseFunctionPointers()
 			&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
 		funcAioRwPrepper = &io_prep_pwrite;
 
-		funcPreWriteCudaMemcpy = (gpuIOBuf && !useCuFileAPI) ?
-			&LocalWorker::preWriteCudaMemcpy : &LocalWorker::noOpCudaMemcpy;
+		funcPreWriteCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
+			&LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
 		funcPostReadCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
+
+		funcPreWriteIntegrityCheck = integrityCheckEnabled ?
+			&LocalWorker::preWriteIntegrityCheckFillBuf : &LocalWorker::noOpIntegrityCheck;
+		funcPostReadIntegrityCheck = &LocalWorker::noOpIntegrityCheck;
 	}
 	else // BenchPhase_READFILES (and others which don't use these function pointers)
 	{
@@ -269,8 +288,12 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcAioRwPrepper = &io_prep_pread;
 
 		funcPreWriteCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
-		funcPostReadCudaMemcpy = (gpuIOBuf && !useCuFileAPI) ?
-			&LocalWorker::postReadCudaMemcpy : &LocalWorker::noOpCudaMemcpy;
+		funcPostReadCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
+			&LocalWorker::cudaMemcpyHostToGPU : &LocalWorker::noOpCudaMemcpy;
+
+		funcPreWriteIntegrityCheck = &LocalWorker::noOpIntegrityCheck;
+		funcPostReadIntegrityCheck = integrityCheckEnabled ?
+			&LocalWorker::postReadIntegrityCheckVerifyBuf : &LocalWorker::noOpIntegrityCheck;
 	}
 
 	// independent of whether current phase is read or write...
@@ -297,25 +320,31 @@ void LocalWorker::initPhaseFunctionPointers()
 void LocalWorker::allocIOBuffer()
 {
 	if(!progArgs->getBlockSize() )
+		return; // nothing to do here
+
+	// alloc number of IO buffers matching iodepth
+	for(size_t i=0; i < progArgs->getIODepth(); i++)
 	{
-		ioBuf = NULL;
-		return;
+		char* ioBuf;
+
+		// alloc I/O buffer appropriately aligned for O_DIRECT
+		int allocAlignedRes = posix_memalign( (void**)&ioBuf, sysconf(_SC_PAGESIZE),
+			progArgs->getBlockSize() );
+
+		if(allocAlignedRes)
+			throw WorkerException("Aligned memory allocation failed. "
+				"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
+				"Page size: " + std::to_string(sysconf(_SC_PAGESIZE) ) + "; "
+				"SysErr: " + strerror(allocAlignedRes) ); // yes, not errno here
+
+		ioBufVec.push_back(ioBuf);
+
+		// fill buffer with random data to ensure it's really alloc'ed (and not "sparse")
+		unsigned seed = 0;
+		int* intIOBuf = (int*)ioBuf;
+		for(size_t i=0; i < (progArgs->getBlockSize() / sizeof(unsigned) ); i++)
+			intIOBuf[i] = rand_r(&seed);
 	}
-
-	// alloc I/O buffer appropriately aligned for O_DIRECT
-	int allocAlignedRes = posix_memalign(&ioBuf, sysconf(_SC_PAGESIZE), progArgs->getBlockSize() );
-
-	if(allocAlignedRes)
-		throw WorkerException("Aligned memory allocation failed. "
-			"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-			"Page size: " + std::to_string(sysconf(_SC_PAGESIZE) ) + "; "
-			"SysErr: " + strerror(allocAlignedRes) ); // yes, not errno here
-
-	// fill buffer with random data
-	unsigned seed = 0;
-	int* intIOBuf = (int*)ioBuf;
-	for(size_t i=0; i < (progArgs->getBlockSize() / sizeof(unsigned) ); i++)
-		intIOBuf[i] = rand_r(&seed);
 }
 
 /**
@@ -325,9 +354,13 @@ void LocalWorker::allocIOBuffer()
  */
 void LocalWorker::allocGPUIOBuffer()
 {
-	if(!progArgs->getBlockSize() || progArgs->getGPUIDsVec().empty() )
+	if(!progArgs->getBlockSize() )
+		return; // nothing to do here
+
+	if(progArgs->getGPUIDsVec().empty() )
 	{
-		gpuIOBuf = NULL;
+		// gpu bufs won't be accessed, but vec elems might be passed e.g. to noOpCudaMemcpy
+		gpuIOBufVec.resize(progArgs->getIODepth(), NULL);
 		return;
 	}
 
@@ -344,6 +377,7 @@ void LocalWorker::allocGPUIOBuffer()
 		"Rank: " << workerRank << "; "
 		"GPU ID: " << gpuID << std::endl);
 
+	// set the GPU that this worker thread will use
 	cudaError_t setDevRes = cudaSetDevice(gpuID);
 
 	if(setDevRes != cudaSuccess)
@@ -351,33 +385,41 @@ void LocalWorker::allocGPUIOBuffer()
 			"GPU ID: " + std::to_string(gpuID) + "; "
 			"CUDA Error: " + cudaGetErrorString(setDevRes) );
 
-	cudaError_t allocRes = cudaMalloc(&gpuIOBuf, progArgs->getBlockSize() );
-
-	if(allocRes != cudaSuccess)
-		throw WorkerException("GPU memory allocation failed. "
-			"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-			"GPU ID: " + std::to_string(gpuID) + "; "
-			"CUDA Error: " + cudaGetErrorString(allocRes) );
-
-	if(progArgs->getUseCuHostBufReg() )
+	// alloc number of GPU IO buffers matching iodepth
+	for(size_t i=0; i < progArgs->getIODepth(); i++)
 	{
-		cudaError_t regRes = cudaHostRegister(ioBuf, progArgs->getBlockSize(),
-			cudaHostRegisterDefault);
+		void* gpuIOBuf;
 
-		if(regRes != cudaSuccess)
-			throw WorkerException("Registration of host buffer via cudaHostRegister failed. "
+		cudaError_t allocRes = cudaMalloc(&gpuIOBuf, progArgs->getBlockSize() );
+
+		if(allocRes != cudaSuccess)
+			throw WorkerException("GPU memory allocation failed. "
 				"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-				"CUDA Error: " + cudaGetErrorString(regRes) );
+				"GPU ID: " + std::to_string(gpuID) + "; "
+				"CUDA Error: " + cudaGetErrorString(allocRes) );
+
+		gpuIOBufVec.push_back( (char*)gpuIOBuf);
+
+		if(progArgs->getUseCuHostBufReg() )
+		{
+			cudaError_t regRes = cudaHostRegister(ioBufVec[i], progArgs->getBlockSize(),
+				cudaHostRegisterDefault);
+
+			if(regRes != cudaSuccess)
+				throw WorkerException("Registration of host buffer via cudaHostRegister failed. "
+					"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
+					"CUDA Error: " + cudaGetErrorString(regRes) );
+		}
+
+		cudaError_t copyRes = cudaMemcpy(gpuIOBuf, ioBufVec[i], progArgs->getBlockSize(),
+			cudaMemcpyHostToDevice);
+
+		if(copyRes != cudaSuccess)
+			throw WorkerException("Initialization of GPU buffer via cudaMemcpy failed. "
+				"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
+				"GPU ID: " + std::to_string(gpuID) + "; "
+				"CUDA Error: " + cudaGetErrorString(copyRes) );
 	}
-
-	cudaError_t copyRes = cudaMemcpy(gpuIOBuf, ioBuf, progArgs->getBlockSize(),
-		cudaMemcpyHostToDevice);
-
-	if(copyRes != cudaSuccess)
-		throw WorkerException("Initialization of GPU buffer via memcpy failed. "
-			"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-			"GPU ID: " + std::to_string(gpuID) + "; "
-			"CUDA Error: " + cudaGetErrorString(copyRes) );
 
 #endif // CUDA_SUPPORT
 }
@@ -390,18 +432,19 @@ void LocalWorker::allocGPUIOBuffer()
  * 		file/blockdev mode, so pwrite/pread for offset.
  * @return similar to pread/pwrite.
  */
-ssize_t LocalWorker::rwBlockSized(int fd)
+int64_t LocalWorker::rwBlockSized(int fd)
 {
 	while(offsetGen->getNumBytesLeftToSubmit() )
 	{
-		size_t currentOffset = offsetGen->getNextOffset();
+		uint64_t currentOffset = offsetGen->getNextOffset();
 		size_t blockSize = offsetGen->getNextBlockSizeToSubmit();
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteCudaMemcpy)(blockSize); // noop for reads or depending on settings
+		((*this).*funcPreWriteIntegrityCheck)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
-		ssize_t rwRes = ((*this).*funcPositionalRW)(fd, ioBuf, blockSize, currentOffset);
+		ssize_t rwRes = ((*this).*funcPositionalRW)(fd, ioBufVec[0], blockSize, currentOffset);
 
 		IF_UNLIKELY(rwRes <= 0)
 		{ // unexpected result
@@ -415,7 +458,8 @@ ssize_t LocalWorker::rwBlockSized(int fd)
 				(offsetGen->getNumBytesTotal() - offsetGen->getNumBytesLeftToSubmit() );
 		}
 
-		((*this).*funcPostReadCudaMemcpy)(blockSize); // noop for writes or depending on settings
+		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+		((*this).*funcPostReadIntegrityCheck)(ioBufVec[0], blockSize, currentOffset); // verify buf
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -441,9 +485,9 @@ ssize_t LocalWorker::rwBlockSized(int fd)
  * Reads/writes the pre-allocated ioBuf. Uses iodepth from progArgs.
  *
  * @aio_rw_prepper io_prep_pwrite or io_prep_read from libaio.
- * @return similar to pwrite()
+ * @return similar to pread/pwrite.
  */
-ssize_t LocalWorker::aioBlockSized(int fd)
+int64_t LocalWorker::aioBlockSized(int fd)
 {
 	size_t maxIODepth = progArgs->getIODepth();
 
@@ -466,18 +510,19 @@ ssize_t LocalWorker::aioBlockSized(int fd)
 	while(offsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
 	{
 		size_t blockSize = offsetGen->getNextBlockSizeToSubmit();
-		size_t currentOffset = offsetGen->getNextOffset();
+		uint64_t currentOffset = offsetGen->getNextOffset();
 		size_t vecIdx = numPending;
 
 		iocbPointerVec[vecIdx] = &iocbVec[vecIdx];
 
-		funcAioRwPrepper(&iocbVec[vecIdx], fd, ioBuf, blockSize, currentOffset);
+		funcAioRwPrepper(&iocbVec[vecIdx], fd, ioBufVec[vecIdx], blockSize, currentOffset);
 		iocbVec[vecIdx].data = (void*)vecIdx; /* the vec index of this request; ioctl.data
 						is caller's private data returned after io_getevents as ioEvents[].data */
 
 		ioStartTimeVec[vecIdx] = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteCudaMemcpy)(blockSize); // noop for reads or depending on settings
+		((*this).*funcPreWriteIntegrityCheck)(ioBufVec[vecIdx], blockSize, currentOffset); // fill
+		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx], blockSize);
 
 		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[vecIdx] );
 		IF_UNLIKELY(submitRes != 1)
@@ -536,9 +581,12 @@ ssize_t LocalWorker::aioBlockSized(int fd)
 					(numBytesDone + ioEvents[eventIdx].obj->u.c.nbytes);
 			}
 
-			((*this).*funcPostReadCudaMemcpy)(ioEvents[eventIdx].res); // might be a noop
-
 			size_t vecIdx = (size_t)ioEvents[eventIdx].data; // caller's private data is vec index
+
+			((*this).*funcPostReadCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx],
+				ioEvents[eventIdx].obj->u.c.nbytes);
+			((*this).*funcPostReadIntegrityCheck)( (char*)ioEvents[eventIdx].obj->u.c.buf,
+				ioEvents[eventIdx].obj->u.c.nbytes, ioEvents[eventIdx].obj->u.c.offset); // verify
 
 			// calc io operation latency
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -563,12 +611,16 @@ ssize_t LocalWorker::aioBlockSized(int fd)
 			// request complete, so reuse iocb for the next request...
 
 			size_t blockSize = offsetGen->getNextBlockSizeToSubmit();
-			size_t currentOffset = offsetGen->getNextOffset();
+			uint64_t currentOffset = offsetGen->getNextOffset();
+
+			funcAioRwPrepper(ioEvents[eventIdx].obj, fd, ioBufVec[vecIdx], blockSize,
+				currentOffset);
+			ioEvents[eventIdx].obj->data = (void*)vecIdx; // caller's private data
 
 			ioStartTimeVec[vecIdx] = std::chrono::steady_clock::now();
 
-			funcAioRwPrepper(ioEvents[eventIdx].obj, fd, ioBuf, blockSize, currentOffset);
-			ioEvents[eventIdx].obj->data = (void*)vecIdx; // caller's private data
+			((*this).*funcPreWriteIntegrityCheck)(ioBufVec[vecIdx], blockSize, currentOffset);
+			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx], blockSize);
 
 			int submitRes = io_submit(
 				ioContext, 1, &iocbPointerVec[vecIdx] );
@@ -594,25 +646,124 @@ ssize_t LocalWorker::aioBlockSized(int fd)
 }
 
 /**
- * Noop for cases where preWriteCudaMemcpy & postReadCudaMemcpy are not appropriate.
+ * Noop for the case when no integrity check selected by user.
  */
-void LocalWorker::noOpCudaMemcpy(size_t count)
+void LocalWorker::noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset)
 {
 	return; // noop
 }
 
 /**
- * Copy ioBuf to gpuIOBuf if gpuIOBuf is set, otherwise a noop. This is to simulate transfer of
- * file contents to GPU buffer after a file read.
+ * Fill buf with 64bit values made of offset plus integrityCheckBase.
+ *
+ * @bufLen buf len to fill with checksums
+ * @fileOffset file offset for buf
+ */
+void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset)
+{
+	const size_t checkSumLen = sizeof(uint64_t);
+	const uint64_t checkSumSalt = progArgs->getIntegrityCheckSalt();
+
+	size_t numBytesDone = 0;
+	size_t numBytesLeft = bufLen;
+	off_t currentOffset = fileOffset;
+
+	/* note: offset and nbytes are not guaranteed to be a multiple of uint64_t (e.g. if blocksize is
+	   1B), so to allow reading with different blocksize later, we only copy the relevant part of
+	   the uint64_t. */
+
+	while(numBytesLeft)
+	{
+		/* checksum value is always calculated aligned to 8 byte block size, even if we only copy a
+		   partial block. */
+
+		// (note: after the 1st loop pass, the remaining offsets will be 8 byte aligned.)
+
+		// 8 byte aligned offset for checksum value calculation
+		off_t checkSumStartOffset = currentOffset - (currentOffset % checkSumLen);
+
+		uint64_t checkSum = checkSumStartOffset + checkSumSalt;
+
+		char* checkSumArray = (char*)&checkSum; // byte-addressable array for checksum value
+		off_t checkSumArrayStartIdx = currentOffset - checkSumStartOffset;
+		size_t checkSumCopyLen = std::min(numBytesLeft, checkSumLen - checkSumArrayStartIdx);
+
+		memcpy(&buf[numBytesDone], &checkSumArray[checkSumArrayStartIdx], checkSumCopyLen);
+
+		numBytesDone += checkSumCopyLen;
+		numBytesLeft -= checkSumCopyLen;
+		currentOffset += checkSumCopyLen;
+	}
+}
+
+/**
+ * Verify buffer contents are according to preWriteIntegrityCheckFullBuf.
+ *
+ * @bufLen buf len to fill with checksums
+ * @fileOffset file offset for buf
+ * @throw WorkerException if verification fails.
+ */
+void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset)
+{
+	char* verifyBuf = (char*)malloc(bufLen);
+
+	IF_UNLIKELY(!verifyBuf)
+		throw WorkerException("Buffer alloc for verification buffer failed. "
+			"Size: " + std::to_string(bufLen) );
+
+	// fill verifyBuf with the correct data
+	preWriteIntegrityCheckFillBuf(verifyBuf, bufLen, fileOffset);
+
+	// compare correct data to actual data
+	int compareRes = memcmp(buf, verifyBuf, bufLen);
+
+	if(!compareRes)
+	{ // buffers are equal, so all good
+		free(verifyBuf);
+		return;
+	}
+
+	// verification failed, find exact mismatch offset
+	for(size_t i=0; i < bufLen; i++)
+	{
+		if(verifyBuf[i] == buf[i])
+			continue;
+
+		// we found the exact offset for mismatch
+
+		unsigned expectedVal = (unsigned char)verifyBuf[i];
+		unsigned actualVal = (unsigned char)buf[i];
+
+		free(verifyBuf);
+
+		throw WorkerException("Data verification failed. "
+			"Offset: " + std::to_string(fileOffset + i) + "; "
+			"Expected value: " + std::to_string(expectedVal) + "; "
+			"Actual value: " + std::to_string(actualVal) );
+	}
+}
+
+
+/**
+ * Noop for cases where preWriteCudaMemcpy & postReadCudaMemcpy are not appropriate.
+ */
+void LocalWorker::noOpCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
+{
+	return; // noop
+}
+
+/**
+ * Copy hostIOBuf to gpuIOBuf. This is e.g. to simulate transfer of file contents to GPU buffer
+ * after file read.
  *
  * @count number of bytes to copy.
  * @throw WorkerException if buffer copy fails.
  */
-void LocalWorker::preWriteCudaMemcpy(size_t count)
+void LocalWorker::cudaMemcpyGPUToHost(void* hostIOBuf, void* gpuIOBuf, size_t count)
 {
 #ifdef CUDA_SUPPORT
 
-	cudaError_t copyRes = cudaMemcpy(ioBuf, gpuIOBuf, count, cudaMemcpyDeviceToHost);
+	cudaError_t copyRes = cudaMemcpy(hostIOBuf, gpuIOBuf, count, cudaMemcpyDeviceToHost);
 
 	IF_UNLIKELY(copyRes != cudaSuccess)
 		throw WorkerException("Initialization of GPU buffer via memcpy failed. "
@@ -625,17 +776,17 @@ void LocalWorker::preWriteCudaMemcpy(size_t count)
 }
 
 /**
- * Copy ioBuf to gpuIOBuf if gpuIOBuf is set, otherwise a noop. This is to simulate transfer of
- * file contents to GPU buffer after a file read.
+ * Copy hostIOBuf to gpuIOBuf. This is e.g. to simulate transfer of file contents to GPU buffer
+ * after a file read.
  *
  * @count number of bytes to copy.
  * @throw WorkerException if buffer copy fails.
  */
-void LocalWorker::postReadCudaMemcpy(size_t count)
+void LocalWorker::cudaMemcpyHostToGPU(void* hostIOBuf, void* gpuIOBuf, size_t count)
 {
 #ifdef CUDA_SUPPORT
 
-	cudaError_t copyRes = cudaMemcpy(gpuIOBuf, ioBuf, count, cudaMemcpyHostToDevice);
+	cudaError_t copyRes = cudaMemcpy(gpuIOBuf, hostIOBuf, count, cudaMemcpyHostToDevice);
 
 	IF_UNLIKELY(copyRes != cudaSuccess)
 		throw WorkerException("Initialization of GPU buffer via memcpy failed. "
@@ -939,7 +1090,7 @@ void LocalWorker::dirModeIterateFiles()
 
 					if(benchPhase == BenchPhase_CREATEFILES)
 					{
-						ssize_t writeRes = ((*this).*funcRWBlockSized)(fd);
+						int64_t writeRes = ((*this).*funcRWBlockSized)(fd);
 
 						IF_UNLIKELY(writeRes == -1)
 							throw WorkerException(std::string("File write failed. ") +

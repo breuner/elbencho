@@ -145,6 +145,12 @@ void ProgArgs::defineAllowedArgs()
 			"argument is used, this program instance runs in master mode to coordinate the given "
 			"service mode hosts. The given number of threads, dirs and files is per-host then."
 			"(Format: hostname[:port])")
+/*in*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
+			"Enable data integrity check. Writes sum of given 64bit salt plus current 64bit offset "
+			"as file or block device content, which can afterwards be verified in a read phase "
+			"using the same salt (e.g. \"1\"). Different salt values can be used to ensure "
+			"different contents when running multiple consecutive write and read verifications. "
+			"(Default: 0 for disabled)")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -166,7 +172,7 @@ void ProgArgs::defineAllowedArgs()
 /*no0*/	(ARG_IGNORE0MSERR_LONG, bpo::bool_switch(&this->ignore0MSErrors),
 			"Do not abort if worker thread completion time is less than 1 millisecond.")
 /*noc*/	(ARG_NOCSVLABELS_LONG, bpo::bool_switch(&this->noCSVLabels),
-			"Do not print headline with labes to csv file.")
+			"Do not print headline with labels to csv file.")
 /*nod*/	(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
@@ -274,6 +280,7 @@ void ProgArgs::defineDefaults()
 	this->useGPUBufReg = false;
 	this->useCuFileDriverOpen = false;
 	this->useCuHostBufReg = false;
+	this->integrityCheckSalt = 0;
 }
 
 /**
@@ -303,7 +310,7 @@ void ProgArgs::checkArgs()
 		numThreads = 0; // master will set the actual number, so no reason to start with high num
 		numDataSetThreads = numThreads;
 
-		// service mode and path defition are mutually exclusive
+		// service mode and path definition are mutually exclusive
 		if(!benchPathStr.empty() )
 			throw ProgException("In service mode, benchmark path will come from master coordinator "
 				"and may not be given as argument.");
@@ -406,6 +413,10 @@ void ProgArgs::checkArgs()
 
 	if(useRandomOffsets && !randomAmount)
 		randomAmount = fileSize;
+
+	if(integrityCheckSalt && doCreateFiles && useRandomOffsets)
+		throw ProgException("Integrity check writes not supported in combination with random "
+				"offsets.");
 
 	if(!hostsVec.empty() )
 		return;
@@ -1312,7 +1323,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
 	numDirs = tree.get<size_t>(ARG_NUMDIRS_LONG);
 	numFiles = tree.get<size_t>(ARG_NUMFILES_LONG);
-	fileSize = tree.get<size_t>(ARG_FILESIZE_LONG);
+	fileSize = tree.get<uint64_t>(ARG_FILESIZE_LONG);
 	blockSize = tree.get<size_t>(ARG_BLOCK_LONG);
 	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
 	showPerThreadStats = tree.get<bool>(ARG_PERTHREADSTATS_LONG);
@@ -1333,6 +1344,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	useGPUBufReg = tree.get<bool>(ARG_GPUBUFREG_LONG);
 	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
 	useCuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
+	integrityCheckSalt = tree.get<uint64_t>(ARG_INTEGRITYCHECK_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1379,6 +1391,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_GPUBUFREG_LONG, useGPUBufReg);
 	outTree.put(ARG_CUFILEDRIVEROPEN_LONG, useCuFileDriverOpen);
 	outTree.put(ARG_CUHOSTBUFREG_LONG, useCuHostBufReg);
+	outTree.put(ARG_INTEGRITYCHECK_LONG, integrityCheckSalt);
 
 
 	// dynamically calculated values for service hosts...

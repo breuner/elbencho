@@ -78,6 +78,8 @@ namespace bpo = boost::program_options;
 #define ARG_GPUBUFREG_LONG			"gpubufreg"
 #define ARG_CUFILEDRIVEROPEN_LONG	"cufiledriveropen"
 #define ARG_CUHOSTBUFREG_LONG		"cuhostbufreg"
+//#define ARG_INTEGRITYCHECK_LONG		"integritycheck"
+#define ARG_INTEGRITYCHECK_LONG         "verify"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -184,6 +186,7 @@ class ProgArgs
 			things easier for localworkers */
 		bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
 		bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
+		uint64_t integrityCheckSalt; // salt to add to data integrity checksum (0 disables check)
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -270,6 +273,7 @@ class ProgArgs
 		CuFileHandleDataVec& getCuFileHandleDataVec() { return cuFileHandleDataVec; }
 		bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
 		bool getUseCuHostBufReg() const { return useCuHostBufReg; }
+		uint64_t getIntegrityCheckSalt() const { return integrityCheckSalt; }
 };
 
 

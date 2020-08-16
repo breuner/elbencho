@@ -20,7 +20,8 @@ unset BASE_DIR # user-defined base dir for benchmarks
 usage()
 {
   echo "About:"
-  echo "  Test a few simple benchmark cases."
+  echo "  Test a few simple benchmark cases in the given directory, which usually"
+  echo "  complete within less than one minute."
   echo "  This requires root privileges to setup a loopback block device for testing."
   echo
   echo "Usage:"
@@ -216,7 +217,7 @@ test_loopdev_read_stream()
 # Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR
 test_multifile_create()
 {
-  cmd="${EXE_PATH} -t 2 -d -n 3 -w -N 4 -s 1m -b 1m --no0mserr $BASE_DIR"
+  cmd="${EXE_PATH} -t 2 -d -n 3 -w -N 4 -s 1m -b 1m --verify 1 --no0mserr $BASE_DIR"
   
   echo "Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -233,7 +234,7 @@ test_multifile_create()
 # Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks inside $BASE_DIR
 test_multifile_read()
 {
-  cmd="${EXE_PATH} -t 2 -n 3 -r -N 4 -s 1m -b 128k --no0mserr $BASE_DIR"
+  cmd="${EXE_PATH} -t 2 -n 3 -r -N 4 -s 1m -b 128k --verify 1 --no0mserr $BASE_DIR"
   
   echo "Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -314,7 +315,7 @@ start_distributed_services()
 test_distributed_master()
 {
   cmd="${EXE_PATH} --hosts localhost,localhost:1612 "
-  cmd+="-t 4 -d -n 8 -w -N 16 -s 4k -F -D --no0mserr $BASE_DIR"
+  cmd+="-t 4 -d -n 8 -w -r -N 16 -s 4k -F -D --verify 1 --no0mserr $BASE_DIR"
   
   echo "Run master to coordinate benchmarks on localhost services, using 4 threads per"
   echo "service and creating 8 dirs per thread, each containing 16 4KiB files:"

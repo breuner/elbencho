@@ -20,10 +20,10 @@ class FileOffsetGenerator
 		virtual ~FileOffsetGenerator() {}
 
 		virtual void reset() = 0; // reset for reuse of object with next file
-		virtual size_t getNextOffset() = 0;
+		virtual uint64_t getNextOffset() = 0;
 		virtual size_t getNextBlockSizeToSubmit() const = 0;
-		virtual size_t getNumBytesTotal() const = 0;
-		virtual size_t getNumBytesLeftToSubmit() const = 0;
+		virtual uint64_t getNumBytesTotal() const = 0;
+		virtual uint64_t getNumBytesLeftToSubmit() const = 0;
 		virtual void addBytesSubmitted(size_t numBytes) = 0;
 
 	protected:
@@ -38,7 +38,7 @@ class FileOffsetGenerator
 class FileOffsetGenSequential : public FileOffsetGenerator
 {
 	public:
-		FileOffsetGenSequential(size_t len, size_t offset, size_t blockSize) :
+		FileOffsetGenSequential(uint64_t len, uint64_t offset, size_t blockSize) :
 			numBytesTotal(len), numBytesLeft(len), startOffset(offset), currentOffset(offset),
 			blockSize(blockSize)
 		{ }
@@ -46,10 +46,10 @@ class FileOffsetGenSequential : public FileOffsetGenerator
 		virtual ~FileOffsetGenSequential() {}
 
 	protected:
-		const size_t numBytesTotal;
-		size_t numBytesLeft;
-		const size_t startOffset;
-		size_t currentOffset;
+		const uint64_t numBytesTotal;
+		uint64_t numBytesLeft;
+		const uint64_t startOffset;
+		uint64_t currentOffset;
 		const size_t blockSize;
 
 	// inliners
@@ -60,16 +60,16 @@ class FileOffsetGenSequential : public FileOffsetGenerator
 			currentOffset = startOffset;
 		}
 
-		virtual size_t getNextOffset() override
+		virtual uint64_t getNextOffset() override
 			{ return currentOffset; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }
 
-		virtual size_t getNumBytesTotal() const override
+		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
 
-		virtual size_t getNumBytesLeftToSubmit() const override
+		virtual uint64_t getNumBytesLeftToSubmit() const override
 			{ return numBytesLeft; }
 
 		virtual void addBytesSubmitted(size_t numBytes) override
@@ -88,8 +88,8 @@ class FileOffsetGenSequential : public FileOffsetGenerator
 class FileOffsetGenRandom : public FileOffsetGenerator
 {
 	public:
-		FileOffsetGenRandom(const ProgArgs& progArgs, std::mt19937_64& randGen, size_t len,
-			size_t offset, size_t blockSize) :
+		FileOffsetGenRandom(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
+			uint64_t offset, size_t blockSize) :
 			progArgs(progArgs), randGen(randGen), randDist(offset, offset + len - blockSize),
 			blockSize(blockSize)
 		{
@@ -104,8 +104,8 @@ class FileOffsetGenRandom : public FileOffsetGenerator
 		std::mt19937_64& randGen;
 		std::uniform_int_distribution<uint64_t> randDist;
 
-		size_t numBytesTotal;
-		size_t numBytesLeft;
+		uint64_t numBytesTotal;
+		uint64_t numBytesLeft;
 		const size_t blockSize;
 
 	// inliners
@@ -113,16 +113,16 @@ class FileOffsetGenRandom : public FileOffsetGenerator
 		virtual void reset() override
 		{ numBytesLeft = numBytesTotal; }
 
-		virtual size_t getNextOffset() override
+		virtual uint64_t getNextOffset() override
 			{ return randDist(randGen); }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }
 
-		virtual size_t getNumBytesTotal() const override
+		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
 
-		virtual size_t getNumBytesLeftToSubmit() const override
+		virtual uint64_t getNumBytesLeftToSubmit() const override
 			{ return numBytesLeft; }
 
 		virtual void addBytesSubmitted(size_t numBytes) override
@@ -138,8 +138,8 @@ class FileOffsetGenRandom : public FileOffsetGenerator
 class FileOffsetGenRandomAligned : public FileOffsetGenerator
 {
 	public:
-		FileOffsetGenRandomAligned(const ProgArgs& progArgs, std::mt19937_64& randGen, size_t len,
-			size_t offset, size_t blockSize) :
+		FileOffsetGenRandomAligned(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
+				uint64_t offset, size_t blockSize) :
 			randGen(randGen), randDist(0, (offset + len - blockSize) / blockSize),
 			blockSize(blockSize)
 		{
@@ -155,8 +155,8 @@ class FileOffsetGenRandomAligned : public FileOffsetGenerator
 		std::mt19937_64& randGen;
 		std::uniform_int_distribution<uint64_t> randDist;
 
-		size_t numBytesTotal;
-		size_t numBytesLeft;
+		uint64_t numBytesTotal;
+		uint64_t numBytesLeft;
 		const size_t blockSize;
 
 		// inliners
@@ -167,16 +167,16 @@ class FileOffsetGenRandomAligned : public FileOffsetGenerator
 			numBytesLeft = numBytesTotal - (numBytesTotal % blockSize);
 		}
 
-		virtual size_t getNextOffset() override
+		virtual uint64_t getNextOffset() override
 			{ return randDist(randGen) * blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }
 
-		virtual size_t getNumBytesTotal() const override
+		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
 
-		virtual size_t getNumBytesLeftToSubmit() const override
+		virtual uint64_t getNumBytesLeftToSubmit() const override
 			{ return numBytesLeft; }
 
 		virtual void addBytesSubmitted(size_t numBytes) override

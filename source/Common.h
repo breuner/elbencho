@@ -3,6 +3,7 @@
 
 typedef std::vector<std::string> StringVec;
 typedef std::vector<int> IntVec;
+typedef std::vector<char*> BufferVec;
 
 #define PHASENAME_IDLE			"IDLE"
 #define PHASENAME_TERMINATE		"QUIT"
@@ -16,7 +17,7 @@ typedef std::vector<int> IntVec;
 #define PHASEENTRYTYPE_DIRS		"dirs"
 #define PHASEENTRYTYPE_FILES	"files"
 
-#define HTTP_PROTOCOLVERSION	"1.1.0" // exchanged between client & server to check compatibility
+#define HTTP_PROTOCOLVERSION	"1.2.0" // exchanged between client & server to check compatibility
 
 
 #define SAFE_DELETE(objectPointer) \
