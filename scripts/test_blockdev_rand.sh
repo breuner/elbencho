@@ -14,6 +14,7 @@ unset IODEPTH # iodepth for async io (set via cmd line arg)
 unset NUMJOBS # number of parallel jobs/processes (set via cmd line arg)
 unset READPERCENT # percentage of read accessed (set via cmd line arg
 unset BLOCKSIZE # block size for read/write (set via cmd line arg)
+unset RUNTIMESEC # runtime in seconds (set via cmd line arg)
 
 
 # Print usage info and exit
@@ -23,7 +24,7 @@ usage()
   echo "  Test block device direct access performance with random access."
   echo
   echo "Usage:"
-  echo "  $0 <DEVICE> <IODEPTH> <NUMJOBS> <READPERCENT> <BLOCKSIZE>"
+  echo "  $0 <DEVICE> <IODEPTH> <NUMJOBS> <READPERCENT> <BLOCKSIZE> <RUNTIMESEC>"
   echo
   echo "Mandatory Arguments:"
   echo "  DEVICE      Device name in /dev or NVMesh volume name in /dev/nvmesh."
@@ -33,14 +34,15 @@ usage()
   echo "  READPERCENT Percentage or read access. \"0\" means pure writing and \"100\""
   echo "              means pure reading."
   echo "  BLOCKSIZE   Block size of read/write accesses, e.g. \"4k\" or \"1m\"."
+  echo "  RUNTIMESEC  Benchmark runtime in seconds."
   echo
   echo "Examples:"
   echo "  Check read latency of NVMesh volume /dev/nvmesh/myvol:"
-  echo "    $ $0 myvol 1 1 100 4k"
+  echo "    $ $0 myvol 1 1 100 4k 20"
   echo "  Check read IOPS of device /dev/nvme0n1:"
-  echo "    $ $0 nvme0n1 16 16 100 4k"
+  echo "    $ $0 nvme0n1 16 16 100 4k 20"
   echo "  Check write throughput of volumes /dev/nvmesh/myvol1 and /dev/nvmesh/myvol2:"
-  echo "    $ $0 \"myvol1 myvol2\" 16 16 0 128k"
+  echo "    $ $0 \"myvol1 myvol2\" 16 16 0 128k 20"
 
   exit 1
 }
@@ -65,8 +67,8 @@ parse_args()
 
   shift $((OPTIND-1))
 
-  # 5 here for the 5 mandatory args: DEVICE, IODEPTH etc
-  if [ $# -ne 5 ]; then
+  # 6 here for the 6 mandatory args: DEVICE, IODEPTH etc
+  if [ $# -ne 6 ]; then
     echo "ERROR: Invalid number of arguments."
     usage
   fi
@@ -77,6 +79,7 @@ parse_args()
   NUMJOBS=$3 # number of parallel jobs/processes
   READPERCENT=$4 # percentage of read accessed
   BLOCKSIZE=$5 # block size for read/write
+  RUNTIMESEC=$6 # runtime in seconds
   
   if [ "$READPERCENT" -ne 0 ] && [ "$READPERCENT" -ne 100 ]; then
     echo "ERROR: READPERCENT must be either 0 or 100."
@@ -99,6 +102,8 @@ find_executable_or_exit()
 prepare_arg_filenames()
 {
   FILENAMES=()
+  
+  local WARN_NOT_FOUND=() # to warn only once instead of for each file
 
   for dev in $DEVICE; do
     if [ -e /dev/nvmesh/$dev ]; then
@@ -106,10 +111,15 @@ prepare_arg_filenames()
     elif [ -e /dev/$dev ]; then
       FILENAMES+=("/dev/$dev")
     else
-      echo "ERROR: Given device not found: $dev"
-      exit 1
+      FILENAMES+=("$dev")
+      WARN_NOT_FOUND+=("$dev")
     fi
   done
+  
+  if [ ${#WARN_NOT_FOUND[@]} -gt 0 ]; then
+    echo "NOTE: Some given names were not found in /dev and /dev/nvmesh. Using" \
+      "them without prefix instead: ${WARN_NOT_FOUND[@]}"
+  fi
 }
 
 # Prepare read/write args based on READPERCENT.
@@ -150,7 +160,7 @@ prepare_arg_rwmix
 check_mounted
 
 cmd="${EXE_PATH} ${FILENAMES[@]} --iodepth $IODEPTH -t $NUMJOBS $RWMIXREAD -b $BLOCKSIZE "
-cmd+=" --direct --rand --randalign --lat --latpercent --randamount 1T --timelimit 600"
+cmd+=" --direct --rand --randalign --lat --latpercent --randamount 1P --timelimit $RUNTIMESEC"
 
 echo "COMMAND: ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
 echo
