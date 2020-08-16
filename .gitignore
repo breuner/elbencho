@@ -30,8 +30,6 @@
 *.exe
 *.out
 *.app
-bin/elbencho
-bin/elbencho-unstripped
 
 # Eclipse
 .cproject
@@ -40,5 +38,4 @@ bin/elbencho-unstripped
 
 # Misc
 excluded/
-external/Simple-Web-Server/
 todo.txt
