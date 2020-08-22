@@ -1240,7 +1240,7 @@ void ProgArgs::printHelpDistributed()
 		"  $ " EXE_NAME " --service [OPTIONS]" ENDL
 		std::endl <<
 		"  Then run master anywhere on the network to start benchmarks on service hosts:" ENDL
-		"  $ " EXE_NAME " --hosts HOST_1,...,HOST_N [OPTIONS]" ENDL
+		"  $ " EXE_NAME " --hosts HOST_1,...,HOST_N [OPTIONS] PATH [MORE_PATHS]" ENDL
 		std::endl <<
 		"  When you're done, quit all services:" ENDL
 		"  $ " EXE_NAME " --hosts HOST_1,...,HOST_N --quit" ENDL
@@ -1304,7 +1304,7 @@ void ProgArgs::printHelpDistributed()
 		"  Run master to coordinate benchmarks on node001 services, using 4 threads per" ENDL
 		"  service and creating 8 dirs per thread, each containing 16 1MiB files:" ENDL
 		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 \\" ENDL
-		"        -t 4 -d -n 8 -w -N 16 -s 1M" ENDL
+		"        -t 4 -d -n 8 -w -N 16 -s 1M /data/testdir" ENDL
 		std::endl <<
 		"  Quit services on host node001:" ENDL
 		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 --quit" ENDL
