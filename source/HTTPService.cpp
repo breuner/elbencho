@@ -313,7 +313,8 @@ void HTTPService::defineServerResources(HttpServer& server)
 			LOGGER(Log_NORMAL, "Shutting down as requested by client. "
 				"Client: " << request->remote_endpoint().address().to_string() << std::endl);
 
-			exit(0);
+			// this will make the blocking server.start() call exit
+			server.stop();
 		}
 	};
 
@@ -460,6 +461,23 @@ void HTTPService::checkPortAvailable()
 	if(sockFD == -1)
 		throw ProgException(std::string("Unable to create socket to check port availability. ") +
 			"SysErr: " + strerror(errno) );
+
+	/* note: reuse option is important because http server sock will be in TIME_WAIT state for
+		quite a while after stopping the service via --quit */
+
+	int enableAddrReuse = 1;
+
+	int setOptRes = setsockopt(
+		sockFD, SOL_SOCKET, SO_REUSEADDR, &enableAddrReuse, sizeof(enableAddrReuse) );
+	if(setOptRes == -1)
+	{
+		int errnoCopy = errno; // close() below could change errno
+
+		close(sockFD);
+
+		throw ProgException(std::string("Unable to enable socket address reuse. ") +
+			"SysErr: " + strerror(errnoCopy) );
+	}
 
 	sockAddr.sin_family = AF_INET;
 	sockAddr.sin_addr.s_addr = INADDR_ANY;

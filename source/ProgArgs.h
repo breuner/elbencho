@@ -83,7 +83,7 @@ namespace bpo = boost::program_options;
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
-#define ARGDEFAULT_SERVICEPORT_STR	"1611"
+#define ARGDEFAULT_SERVICEPORT_STR	STRINGIZE(ARGDEFAULT_SERVICEPORT)
 
 
 namespace bpt = boost::property_tree;

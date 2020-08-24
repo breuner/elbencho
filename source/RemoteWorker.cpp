@@ -389,7 +389,11 @@ void RemoteWorker::interruptBenchPhase(bool allowExceptionThrow)
 			"Server: " + host;
 
 		// in case of quit request, connection_refused will be returned by client - ignore that.
-		if(!progArgs->getQuitServices() || (e.code() != boost::asio::error::connection_refused) )
+
+		bool logConnRefused = (progArgs->getLogLevel() > Log_NORMAL);
+
+		if(!progArgs->getQuitServices() ||
+			(e.code() != boost::asio::error::connection_refused) || logConnRefused)
 			THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow, errorMsg);
 	}
 

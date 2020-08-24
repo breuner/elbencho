@@ -5,6 +5,9 @@ typedef std::vector<std::string> StringVec;
 typedef std::vector<int> IntVec;
 typedef std::vector<char*> BufferVec;
 
+#define STRINGIZE(value)		_STRINGIZE(value) // 2 levels necessary for macro expansion
+#define _STRINGIZE(value)		#value
+
 #define PHASENAME_IDLE			"IDLE"
 #define PHASENAME_TERMINATE		"QUIT"
 #define PHASENAME_CREATEDIRS	"MKDIRS"

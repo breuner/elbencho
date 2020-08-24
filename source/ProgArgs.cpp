@@ -788,7 +788,7 @@ void ProgArgs::parseHosts()
 
 		// add default port to hosts where port is not provided by user
 		if(findRes == std::string::npos)
-			host += HOST_PORT_SEPARATOR ARGDEFAULT_SERVICEPORT_STR;
+			host += HOST_PORT_SEPARATOR + std::to_string(servicePort);
 	}
 
 	if(hostsVec.empty() )
