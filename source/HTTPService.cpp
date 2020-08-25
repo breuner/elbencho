@@ -1,11 +1,13 @@
+#include <pwd.h>
 #include <sys/file.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include "HTTPService.h"
 #include "ProgException.h"
 #include "RemoteWorker.h"
 
 #define SERVICE_LOG_DIR			"/tmp"
-#define SERVICE_LOG_FILEPREFIX	EXE_NAME "-service."
+#define SERVICE_LOG_FILEPREFIX	EXE_NAME
 #define SERVICE_LOG_FILEMODE	(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
 
@@ -353,8 +355,10 @@ void HTTPService::defineServerResources(HttpServer& server)
  */
 void HTTPService::daemonize()
 {
-	std::string logfile = SERVICE_LOG_DIR "/"
-		SERVICE_LOG_FILEPREFIX + std::to_string(progArgs.getServicePort() ) + ".log";
+	std::string logfile = std::string(SERVICE_LOG_DIR) + "/" + SERVICE_LOG_FILEPREFIX + "_" +
+		getLogfileUsername() + "_" +
+		"p" + std::to_string(progArgs.getServicePort() ) + "." // port
+		"log";
 
 	int logFileFD = open(logfile.c_str(), O_CREAT | O_WRONLY | O_APPEND, SERVICE_LOG_FILEMODE);
 	if(logFileFD == -1)
@@ -508,4 +512,43 @@ void HTTPService::checkPortAvailable()
 	}
 
 	close(sockFD);
+}
+
+/**
+ * Get username for daemon logfile. Will try to get the actual username, but falls back to returning
+ * the numeric user ID if this fails.
+ *
+ * @return username
+ */
+std::string HTTPService::getLogfileUsername()
+{
+	uid_t userID = geteuid();
+
+	std::string username = "u" + std::to_string(userID); // numeric user ID as fallback
+
+	// try to get username
+
+	struct passwd passwdEntry;
+	struct passwd* passwdResultPointer; // points to passwdEntry on success
+
+	long bufSize = sysconf(_SC_GETPW_R_SIZE_MAX);
+	if(bufSize == -1)
+		bufSize = (16*1024); // fallback to 16KiB if no system default is given
+
+	char* buffer = (char*)malloc(bufSize);
+	if(!buffer)
+		return username;
+
+	getpwuid_r(userID, &passwdEntry, buffer, bufSize, &passwdResultPointer);
+	if(!passwdResultPointer)
+	{ // getting username failed
+		free(buffer);
+		return username;
+	}
+
+	username = passwdEntry.pw_name;
+
+	free(buffer);
+
+	return username;
 }
