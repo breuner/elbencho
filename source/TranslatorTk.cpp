@@ -31,23 +31,26 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase)
 /**
  * Get entry type from bench phase.
  *
+ * @firstToUpper whether first character should be uppercase
  * @return PHASEENTRYTYPE_...
  * @throw ProgException on invalid benchPhase value
  */
-std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase)
+std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool firstToUpper)
 {
+	std::string retVal;
+
 	switch(benchPhase)
 	{
 		case BenchPhase_CREATEDIRS:
 		case BenchPhase_DELETEDIRS:
 		{
-			return PHASEENTRYTYPE_DIRS;
+			retVal = PHASEENTRYTYPE_DIRS;
 		} break;
 		case BenchPhase_CREATEFILES:
 		case BenchPhase_READFILES:
 		case BenchPhase_DELETEFILES:
 		{
-			return PHASEENTRYTYPE_FILES;
+			retVal = PHASEENTRYTYPE_FILES;
 		} break;
 		default:
 		{ // should never happen
@@ -55,6 +58,11 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase)
 				std::to_string(benchPhase) );
 		} break;
 	}
+
+	if(firstToUpper)
+		retVal[0] = std::toupper(retVal[0]);
+
+	return retVal;
 }
 
 /**

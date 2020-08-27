@@ -45,8 +45,9 @@ class Statistics
 		WorkersSharedData& workersSharedData;
 		WorkerVec& workerVec;
 		bool consoleBufferingDisabled{false};
-		const std::string phaseResultsFormatStr{"%|-9| %|-13| %|1| %|10| %|10|"};
-		const std::string phaseResultsLeftFormatStr{"%|-9| %|-13| %|1| "}; // left side format str
+		const std::string phaseResultsFormatStr{"%|-9| %|-16| %|1| %|10| %|10|"};
+		const std::string phaseResultsLeftFormatStr{"%|-9| %|-16| %|1| "}; // left side format str
+		const std::string phaseResultsFooterStr = std::string(3, '-');
 
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();

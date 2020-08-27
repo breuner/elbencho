@@ -277,6 +277,8 @@ void Statistics::printWholeScreenLiveStats()
 		workersSharedData.currentBenchPhase);
 	std::string phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
 		workersSharedData.currentBenchPhase);
+	std::string entryTypeUpperCase =
+		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
 	time_t startTime = time(NULL);
 	LiveOps lastLiveOps = {};
 	size_t numWorkersDone;
@@ -371,18 +373,24 @@ void Statistics::printWholeScreenLiveStats()
 
 		printWholeScreenLine(stream, winWidth, false);
 
-		const char tableHeadlineFormat[] = "%|5| %|3| %|10| %|10| %|10| %|10| %|10|";
+		const char tableHeadlineFormat[] = "%|5| %|3| %|10| %|10| %|10|";
+		const char dirModeTableHeadlineFormat[] = " %|10| %|10|"; // appended to standard table fmt
 		const char remoteTableHeadlineFormat[] = " %|4| %||"; // appended to standard table format
 
 		attron(A_STANDOUT); // highlight table headline
 		stream << boost::format(tableHeadlineFormat)
 			% "Rank"
 			% "%"
-			% "Done"
-			% "Done/s"
 			% "DoneMiB"
 			% "MiB/s"
 			% "IOPS";
+
+		if(progArgs.getBenchPathType() == BenchPathType_DIR)
+		{ // add columns for dir mode
+			stream << boost::format(dirModeTableHeadlineFormat)
+				% entryTypeUpperCase
+				% (entryTypeUpperCase + "/s");
+		}
 
 		if(!progArgs.getHostsVec().empty() )
 		{ // add columns for remote mode
@@ -397,11 +405,16 @@ void Statistics::printWholeScreenLiveStats()
 		stream << boost::format(tableHeadlineFormat)
 			% "Total"
 			% percentDone
-			% newLiveOps.numEntriesDone
-			% liveOpsPerSec.numEntriesDone
 			% (newLiveOps.numBytesDone / (1024*1024) )
 			% (liveOpsPerSec.numBytesDone / (1024*1024) )
 			% liveOpsPerSec.numIOPSDone;
+
+		if(progArgs.getBenchPathType() == BenchPathType_DIR)
+		{ // add columns for dir mode
+			stream << boost::format(dirModeTableHeadlineFormat)
+				% newLiveOps.numEntriesDone
+				% liveOpsPerSec.numEntriesDone;
+		}
 
 		if(!progArgs.getHostsVec().empty() )
 		{ // add columns for remote mode
@@ -431,11 +444,16 @@ void Statistics::printWholeScreenLiveStats()
 			stream << boost::format(tableHeadlineFormat)
 				% i
 				% workerPercentDone
-				% workerDone.numEntriesDone
-				% workerDonePerSec.numEntriesDone
 				% (workerDone.numBytesDone / (1024*1024) )
 				% (workerDonePerSec.numBytesDone / (1024*1024) )
 				% workerDonePerSec.numIOPSDone;
+
+			if(progArgs.getBenchPathType() == BenchPathType_DIR)
+			{ // add columns for dir mode
+				stream << boost::format(dirModeTableHeadlineFormat)
+					% workerDone.numEntriesDone
+					% workerDonePerSec.numEntriesDone;
+			}
 
 			if(!progArgs.getHostsVec().empty() )
 			{ // add columns for remote mode
@@ -642,7 +660,7 @@ void Statistics::printPhaseResultsTableHeaderToStream(std::ostream& outStream)
 		<< std::endl;
 	outStream << boost::format(phaseResultsFormatStr)
 		% "========="
-		% "==========="
+		% "================"
 		% ""
 		% "=========="
 		% "========="
@@ -800,71 +818,91 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 {
 	std::string phaseName =
 		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
+	std::string entryTypeUpperCase =
+		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
+	std::string entryTypeLowerCase =
+		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, false);
 
 	// elapsed time
 	outStream << boost::format(Statistics::phaseResultsFormatStr)
 		% phaseName
-		% "time ms"
+		% "Elapsed ms"
 		% ":"
 		% phaseResults.firstFinishMS
 		% phaseResults.lastFinishMS
 		<< std::endl;
 
-	// entries per second
+	// entries (dirs/files) per second
 	if(phaseResults.opsTotal.numEntriesDone)
 	{
 		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% phaseName
-			% "entries/s"
+			% ""
+			% (entryTypeUpperCase + "/s")
 			% ":"
 			% phaseResults.opsStoneWallPerSec.numEntriesDone
 			% phaseResults.opsPerSec.numEntriesDone
-			<< std::endl;
-
-		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% phaseName
-			% "entries"
-			% ":"
-			% phaseResults.opsStoneWallTotal.numEntriesDone
-			% phaseResults.opsTotal.numEntriesDone
 			<< std::endl;
 	}
 
 	// IOPS
 	if(phaseResults.opsTotal.numIOPSDone)
 	{
+		/* print iops only if path is bdev/file; or in dir mode when each file consists of more than
+		   one block read/write (because otherwise iops is equal to files/s) */
+		if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
+			(progArgs.getBlockSize() != progArgs.getFileSize() ) )
 		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% phaseName
+			% ""
 			% "IOPS"
 			% ":"
 			% phaseResults.opsStoneWallPerSec.numIOPSDone
 			% phaseResults.opsPerSec.numIOPSDone
 			<< std::endl;
+	}
 
-		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% phaseName
-			% "I/Os"
-			% ":"
-			% phaseResults.opsStoneWallTotal.numIOPSDone
-			% phaseResults.opsTotal.numIOPSDone
-			<< std::endl;
+	// IOs (number of blocks read/written)
+	if(phaseResults.opsTotal.numIOPSDone)
+	{
+		if(progArgs.getLogLevel() > Log_NORMAL)
+			outStream << boost::format(Statistics::phaseResultsFormatStr)
+				% ""
+				% "IOs total"
+				% ":"
+				% phaseResults.opsStoneWallTotal.numIOPSDone
+				% phaseResults.opsTotal.numIOPSDone
+				<< std::endl;
 	}
 
 	// bytes per second total for all workers
-	// (only show in phases where data has been written/read)
 	if(phaseResults.opsTotal.numBytesDone)
 	{
 		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% phaseName
-			% "MiB/s"
+			% ""
+			% "Throughput MiB/s"
 			% ":"
 			% (phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) )
 			% (phaseResults.opsPerSec.numBytesDone / (1024*1024) )
 			<< std::endl;
+	}
 
+	// entries (dirs/files) processed in total
+	if(phaseResults.opsTotal.numEntriesDone)
+	{
 		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% phaseName
-			% "MiB"
+			% ""
+			% ("Total " + entryTypeLowerCase)
+			% ":"
+			% phaseResults.opsStoneWallTotal.numEntriesDone
+			% phaseResults.opsTotal.numEntriesDone
+			<< std::endl;
+	}
+
+	// sum of bytes read/written
+	if(phaseResults.opsTotal.numBytesDone)
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% "Total MiB"
 			% ":"
 			% (phaseResults.opsStoneWallTotal.numBytesDone / (1024*1024) )
 			% (phaseResults.opsTotal.numBytesDone / (1024*1024) )
@@ -876,8 +914,8 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	{
 		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
-			% phaseName
-			% "time ms each"
+			% ""
+			% "Time ms each"
 			% ":";
 
 		outStream << "[ ";
@@ -893,7 +931,7 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	}
 
 	// entries & iops latency results
-	printPhaseResultsLatencyToStream(phaseResults.entriesLatHisto, "Ent", outStream);
+	printPhaseResultsLatencyToStream(phaseResults.entriesLatHisto, entryTypeUpperCase, outStream);
 	printPhaseResultsLatencyToStream(phaseResults.iopsLatHisto, "IO", outStream);
 
 	// warn in case of invalid results
@@ -907,6 +945,9 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			"larger data set. Otherwise, option '--" ARG_IGNORE0MSERR_LONG "' disables this "
 			"message.)" << std::endl;
 	}
+
+	// print horizontal separator between phases
+	outStream << "---" << std::endl;
 }
 
 /**
@@ -1018,8 +1059,8 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 	{
 		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
-			% phaseName
-			% (latTypeStr + " lat us")
+			% ""
+			% (latTypeStr + " latency us")
 			% ":";
 
 		outStream <<
@@ -1035,7 +1076,7 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 	{
 		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
-			% phaseName
+			% ""
 			% (latTypeStr + " lat %ile")
 			% ":";
 
@@ -1058,7 +1099,7 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 	{
 		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
-			% phaseName
+			% ""
 			% (latTypeStr + " lat histo")
 			% ":";
 

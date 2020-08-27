@@ -513,7 +513,7 @@ void ProgArgs::parseAndCheckPaths()
 	}
 
 	if(benchPathsVec.empty() || benchPathStr.empty() )
-		throw ProgException("Missing benchmark path list.");
+		throw ProgException("Benchmark path missing.");
 
 	// skip open of local paths if this is the master of a distributed run
 	if(!hostsStr.empty() )
