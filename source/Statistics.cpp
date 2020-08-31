@@ -747,28 +747,28 @@ void Statistics::printPhaseResults()
 bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 {
 	// check if results uninitialized. can happen if called in service mode before 1st run.
-	IF_UNLIKELY(workerVec.empty() || workerVec[0]->getElapsedMSVec().empty() )
+	IF_UNLIKELY(workerVec.empty() || workerVec[0]->getElapsedUSecVec().empty() )
 		return false;
 
 	// init first/last elapsed milliseconds
-	phaseResults.firstFinishMS =
-		workerVec[0]->getElapsedMSVec()[0]; // stonewall: time to completion of fastest worker
-	phaseResults.lastFinishMS =
-		workerVec[0]->getElapsedMSVec()[0]; // time to completion of slowest worker
+	phaseResults.firstFinishUSec =
+		workerVec[0]->getElapsedUSecVec()[0]; // stonewall: time to completion of fastest worker
+	phaseResults.lastFinishUSec =
+		workerVec[0]->getElapsedUSecVec()[0]; // time to completion of slowest worker
 
 	// sum up total values
 	for(Worker* worker : workerVec)
 	{
-		IF_UNLIKELY(worker->getElapsedMSVec().empty() )
+		IF_UNLIKELY(worker->getElapsedUSecVec().empty() )
 			return false;
 
-		for(size_t elapsedMS : worker->getElapsedMSVec() )
+		for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
 		{
-			if(elapsedMS < phaseResults.firstFinishMS)
-				phaseResults.firstFinishMS = elapsedMS;
+			if(elapsedUSec < phaseResults.firstFinishUSec)
+				phaseResults.firstFinishUSec = elapsedUSec;
 
-			if(elapsedMS > phaseResults.lastFinishMS)
-				phaseResults.lastFinishMS = elapsedMS;
+			if(elapsedUSec > phaseResults.lastFinishUSec)
+				phaseResults.lastFinishUSec = elapsedUSec;
 		}
 
 		worker->getAndAddLiveOps(phaseResults.opsTotal);
@@ -779,19 +779,17 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 	} // end of for loop
 
 	// total per sec for all workers by 1st finisher
-	if(phaseResults.firstFinishMS)
+	if(phaseResults.firstFinishUSec)
 	{
-		phaseResults.opsStoneWallPerSec = phaseResults.opsStoneWallTotal;
-		phaseResults.opsStoneWallPerSec *= 1000;
-		phaseResults.opsStoneWallPerSec /= phaseResults.firstFinishMS;
+		phaseResults.opsStoneWallTotal.getPerSecFromUSec(
+			phaseResults.firstFinishUSec, phaseResults.opsStoneWallPerSec);
 	}
 
 	// total per sec for all workers by last finisher
-	if(phaseResults.lastFinishMS)
+	if(phaseResults.lastFinishUSec)
 	{
-		phaseResults.opsPerSec = phaseResults.opsTotal;
-		phaseResults.opsPerSec *= 1000;
-		phaseResults.opsPerSec /= phaseResults.lastFinishMS;
+		phaseResults.opsTotal.getPerSecFromUSec(
+			phaseResults.lastFinishUSec, phaseResults.opsPerSec);
 	}
 
 	// convert to per-worker values depending on user setting
@@ -828,8 +826,8 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 		% phaseName
 		% "Elapsed ms"
 		% ":"
-		% phaseResults.firstFinishMS
-		% phaseResults.lastFinishMS
+		% (phaseResults.firstFinishUSec / 1000)
+		% (phaseResults.lastFinishUSec / 1000)
 		<< std::endl;
 
 	// entries (dirs/files) per second
@@ -923,8 +921,8 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 		// print elapsed milliseconds of each I/O thread
 		for(Worker* worker : workerVec)
 		{
-			for(size_t elapsedMS : worker->getElapsedMSVec() )
-				outStream << elapsedMS << " ";
+			for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
+				outStream << (elapsedUSec / 1000) << " ";
 		}
 
 		outStream << "]" << std::endl;
@@ -935,14 +933,14 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	printPhaseResultsLatencyToStream(phaseResults.iopsLatHisto, "IO", outStream);
 
 	// warn in case of invalid results
-	if( (phaseResults.firstFinishMS == 0) && !progArgs.getIgnore0MSErrors() )
+	if( (phaseResults.firstFinishUSec == 0) && !progArgs.getIgnore0USecErrors() )
 	{
 		/* very fast completion, so notify user about possibly useless results (due to accuracy,
 			but also because we show 0 op/s to avoid division by 0 */
 
-		outStream << "WARNING: Fastest worker thread completed in less than 1 millisecond, "
+		outStream << "WARNING: Fastest worker thread completed in less than 1 microsecond, "
 			"so results might not be useful (some op/s are shown as 0). You might want to try a "
-			"larger data set. Otherwise, option '--" ARG_IGNORE0MSERR_LONG "' disables this "
+			"larger data set. Otherwise, option '--" ARG_IGNORE0USECERR_LONG "' disables this "
 			"message.)" << std::endl;
 	}
 
@@ -967,10 +965,10 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 	// elapsed time
 
 	outLabelsVec.push_back("time ms [first]");
-	outResultsVec.push_back(std::to_string(phaseResults.firstFinishMS) );
+	outResultsVec.push_back(std::to_string(phaseResults.firstFinishUSec / 1000) );
 
 	outLabelsVec.push_back("time ms [last]");
-	outResultsVec.push_back(std::to_string(phaseResults.lastFinishMS) );
+	outResultsVec.push_back(std::to_string(phaseResults.lastFinishUSec / 1000) );
 
 	// entries per second
 
@@ -1163,9 +1161,9 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 
 	for(Worker* worker : workerVec)
 	{
-		// add finishElapsedMS of each worker
-		for(size_t elapsedMS : worker->getElapsedMSVec() )
-			outTree.add(XFER_STATS_ELAPSEDMSLIST_ITEM, elapsedMS);
+		// add finishElapsedUSec of each worker
+		for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
+			outTree.add(XFER_STATS_ELAPSEDUSECLIST_ITEM, elapsedUSec);
 
 		iopsLatHisto += worker->getIOPSLatencyHistogram();
 		entriesLatHisto += worker->getEntriesLatencyHistogram();

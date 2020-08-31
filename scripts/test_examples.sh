@@ -165,7 +165,7 @@ cleanup_loopdev()
 # Test 4KiB block random read latency of device ${LOOPDEV_PATH[0]}
 test_loopdev_read_lat()
 {
-  cmd="${EXE_PATH} -r -b 4K --lat --direct --rand --no0mserr ${LOOPDEV_PATH[0]}"
+  cmd="${EXE_PATH} -r -b 4K --lat --direct --rand --no0usecerr ${LOOPDEV_PATH[0]}"
   
   echo "Test 4KiB block random read latency of device ${LOOPDEV_PATH[0]}:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -182,7 +182,7 @@ test_loopdev_read_lat()
 # Test 4KiB multi-threaded write IOPS of devices ${LOOPDEV_PATH[0]} & ${LOOPDEV_PATH[1]}
 test_loopdev_write_iops()
 {
-  cmd="${EXE_PATH} -w -b 4K -t 16 --iodepth 16 --direct --rand --no0mserr "
+  cmd="${EXE_PATH} -w -b 4K -t 16 --iodepth 16 --direct --rand --no0usecerr "
   cmd+="${LOOPDEV_PATH[0]} ${LOOPDEV_PATH[1]}"
   
   echo "Test 4KiB multi-threaded write IOPS of devices ${LOOPDEV_PATH[0]} & ${LOOPDEV_PATH[1]}:"
@@ -200,7 +200,7 @@ test_loopdev_write_iops()
 # Test 1MiB multi-threaded read streaming throughput of device ${LOOPDEV_PATH[0]}
 test_loopdev_read_stream()
 {
-  cmd="${EXE_PATH} -r -b 1M -t 8 --iodepth 4 --direct --no0mserr ${LOOPDEV_PATH[0]}"
+  cmd="${EXE_PATH} -r -b 1M -t 8 --iodepth 4 --direct --no0usecerr ${LOOPDEV_PATH[0]}"
   
   echo "Test 1MiB multi-threaded read streaming throughput of device ${LOOPDEV_PATH[0]}:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -217,7 +217,7 @@ test_loopdev_read_stream()
 # Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR
 test_multifile_create()
 {
-  cmd="${EXE_PATH} -t 2 -d -n 3 -w -N 4 -s 1m -b 1m --verify 1 --no0mserr $BASE_DIR"
+  cmd="${EXE_PATH} -t 2 -d -n 3 -w -N 4 -s 1m -b 1m --verify 1 --no0usecerr $BASE_DIR"
   
   echo "Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -234,7 +234,7 @@ test_multifile_create()
 # Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks inside $BASE_DIR
 test_multifile_read()
 {
-  cmd="${EXE_PATH} -t 2 -n 3 -r -N 4 -s 1m -b 128k --verify 1 --no0mserr $BASE_DIR"
+  cmd="${EXE_PATH} -t 2 -n 3 -r -N 4 -s 1m -b 128k --verify 1 --no0usecerr $BASE_DIR"
   
   echo "Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -251,7 +251,7 @@ test_multifile_read()
 # Delete files and directories created by test_multifile_create() inside $BASE_DIR
 test_multifile_delete()
 {
-  cmd="${EXE_PATH} -t 2 -n 3 -N 4 -F -D --no0mserr $BASE_DIR"
+  cmd="${EXE_PATH} -t 2 -n 3 -N 4 -F -D --no0usecerr $BASE_DIR"
   
   echo "Delete files and directories created by previous test inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -268,7 +268,7 @@ test_multifile_delete()
 # Delete files and directories previously created inside $BASE_DIR
 cleanup_multifile()
 {
-  cmd="${EXE_PATH} -t 2 -n 3 -N 4 -F -D --no0mserr --nodelerr $BASE_DIR"
+  cmd="${EXE_PATH} -t 2 -n 3 -N 4 -F -D --no0usecerr --nodelerr $BASE_DIR"
   
   echo "Cleaning up any files and directories left inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -315,7 +315,7 @@ start_distributed_services()
 test_distributed_master()
 {
   cmd="${EXE_PATH} --hosts localhost,localhost:1612 "
-  cmd+="-t 4 -d -n 8 -w -r -N 16 -s 4k -F -D --verify 1 --no0mserr $BASE_DIR"
+  cmd+="-t 4 -d -n 8 -w -r -N 16 -s 4k -F -D --verify 1 --no0usecerr $BASE_DIR"
   
   echo "Run master to coordinate benchmarks on localhost services, using 4 threads per"
   echo "service and creating 8 dirs per thread, each containing 16 4KiB files:"

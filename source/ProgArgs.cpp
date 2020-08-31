@@ -160,11 +160,11 @@ void ProgArgs::defineAllowedArgs()
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
-			"Number of files per directory. (Default: 10)")
+			"Number of files per directory. (Default: 1)")
 /*n*/	(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirsOrigStr),
-			"Number of directories per I/O worker thread. (Default: 10)")
-/*no0*/	(ARG_IGNORE0MSERR_LONG, bpo::bool_switch(&this->ignore0MSErrors),
-			"Do not abort if worker thread completion time is less than 1 millisecond.")
+			"Number of directories per I/O worker thread. (Default: 1)")
+/*no0*/	(ARG_IGNORE0USECERR_LONG, bpo::bool_switch(&this->ignore0USecErrors),
+			"Do not warn if worker thread completion time is less than 1 microsecond.")
 /*noc*/	(ARG_NOCSVLABELS_LONG, bpo::bool_switch(&this->noCSVLabels),
 			"Do not print headline with labels to csv file.")
 /*nod*/	(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
@@ -235,10 +235,10 @@ void ProgArgs::defineDefaults()
 
 	this->numThreads = 1;
 	this->numDataSetThreads = numThreads; // internally set for service mode
-	this->numDirs = 10;
-	this->numDirsOrigStr = "10";
-	this->numFiles = 10;
-	this->numFilesOrigStr = "10";
+	this->numDirs = 1;
+	this->numDirsOrigStr = "1";
+	this->numFiles = 1;
+	this->numFilesOrigStr = "1";
 	this->fileSize = 0;
 	this->fileSizeOrigStr = "0";
 	this->blockSize = 1024*1024;
@@ -247,7 +247,7 @@ void ProgArgs::defineDefaults()
 	this->showPerThreadStats = false;
 	this->disableLiveStats = false;
 	this->ignoreDelErrors = false;
-	this->ignore0MSErrors = false;
+	this->ignore0USecErrors = false;
 	this->doCreateDirs = false;
 	this->doCreateFiles = false;
 	this->doRead = false;
@@ -1162,9 +1162,9 @@ void ProgArgs::printHelpMultiFile()
 		(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
 			"Number of I/O worker threads. (Default: 1)")
 		(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirs),
-			"Number of directories per I/O worker thread. (Default: 10)")
+			"Number of directories per I/O worker thread. (Default: 1)")
 		(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFiles),
-			"Number of files per directory. (Default: 10)")
+			"Number of files per directory. (Default: 1)")
 		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
 			"File size. (Default: 0)")
 		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
@@ -1205,8 +1205,8 @@ void ProgArgs::printHelpMultiFile()
 			"Show latency histogram.")
 		(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
-		(ARG_IGNORE0MSERR_LONG, bpo::bool_switch(&this->ignore0MSErrors),
-			"Do not abort if worker thread completion time is less than 1 millisecond.")
+		(ARG_IGNORE0USECERR_LONG, bpo::bool_switch(&this->ignore0USecErrors),
+			"Do not warn if worker thread completion time is less than 1 microsecond.")
 	;
 
     std::cout << argsMultiFileMiscDescription << std::endl;
@@ -1328,7 +1328,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
 	showPerThreadStats = tree.get<bool>(ARG_PERTHREADSTATS_LONG);
 	ignoreDelErrors = tree.get<bool>(ARG_IGNOREDELERR_LONG);
-	ignore0MSErrors = tree.get<bool>(ARG_IGNORE0MSERR_LONG);
+	ignore0USecErrors = tree.get<bool>(ARG_IGNORE0USECERR_LONG);
 	doCreateDirs = tree.get<bool>(ARG_CREATEDIRS_LONG);
 	doCreateFiles = tree.get<bool>(ARG_CREATEFILES_LONG);
 	doRead = tree.get<bool>(ARG_READ_LONG);
@@ -1376,7 +1376,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_DIRECTIO_LONG, useDirectIO);
 	outTree.put(ARG_PERTHREADSTATS_LONG, showPerThreadStats);
 	outTree.put(ARG_IGNOREDELERR_LONG, ignoreDelErrors);
-	outTree.put(ARG_IGNORE0MSERR_LONG, ignore0MSErrors);
+	outTree.put(ARG_IGNORE0USECERR_LONG, ignore0USecErrors);
 	outTree.put(ARG_CREATEDIRS_LONG, doCreateDirs);
 	outTree.put(ARG_CREATEFILES_LONG, doCreateFiles);
 	outTree.put(ARG_READ_LONG, doRead);

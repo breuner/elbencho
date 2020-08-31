@@ -151,13 +151,13 @@ void LocalWorker::finishPhase()
 {
 	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-	std::chrono::milliseconds elapsedDurationMS =
-		std::chrono::duration_cast<std::chrono::milliseconds>
+	std::chrono::microseconds elapsedDurationUSec =
+		std::chrono::duration_cast<std::chrono::microseconds>
 		(now - workersSharedData->phaseStartT);
-	size_t finishElapsedMS = elapsedDurationMS.count();
+	uint64_t finishElapsedUSec = elapsedDurationUSec.count();
 
-	elapsedMSVec.resize(1);
-	elapsedMSVec[0] = finishElapsedMS;
+	elapsedUSecVec.resize(1);
+	elapsedUSecVec[0] = finishElapsedUSec;
 
 	incNumWorkersDone();
 

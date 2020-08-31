@@ -2,6 +2,7 @@
 #define LIVEOPS_H_
 
 #include <atomic>
+#include "UnitTk.h"
 
 /**
  * Struct for live stats variables.
@@ -17,6 +18,19 @@ struct LiveOps
 		numEntriesDone = 0;
 		numBytesDone = 0;
 		numIOPSDone = 0;
+	}
+
+	/**
+	 * Calculate per second values from total values based on given elapsed time.
+	 *
+	 * @elapsedUSec elapsed time as basis for per-sec calculation.
+	 * @outLiveOps per-sec values.
+	 */
+	void getPerSecFromUSec(uint64_t elapsedUsec, LiveOps& outLiveOps)
+	{
+		outLiveOps.numEntriesDone = UnitTk::getPerSecFromUSec(numEntriesDone, elapsedUsec);
+		outLiveOps.numBytesDone = UnitTk::getPerSecFromUSec(numBytesDone, elapsedUsec);
+		outLiveOps.numIOPSDone = UnitTk::getPerSecFromUSec(numIOPSDone, elapsedUsec);
 	}
 
 	LiveOps operator-(const LiveOps& other) const

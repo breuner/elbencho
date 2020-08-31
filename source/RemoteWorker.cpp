@@ -175,11 +175,12 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		atomicLiveOps.numBytesDone = resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 		atomicLiveOps.numIOPSDone = resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 
-		elapsedMSVec.resize(0);
-		elapsedMSVec.reserve(progArgs->getNumThreads() );
+		elapsedUSecVec.resize(0);
+		elapsedUSecVec.reserve(progArgs->getNumThreads() );
 
-		for(bpt::ptree::value_type& elapsedMSItem : resultTree.get_child(XFER_STATS_ELAPSEDMSLIST) )
-			elapsedMSVec.push_back(elapsedMSItem.second.get_value<size_t>() );
+		for(bpt::ptree::value_type& elapsedUSecItem :
+			resultTree.get_child(XFER_STATS_ELAPSEDUSECLIST) )
+			elapsedUSecVec.push_back(elapsedUSecItem.second.get_value<uint64_t>() );
 
 		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);

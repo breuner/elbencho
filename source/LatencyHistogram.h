@@ -32,15 +32,15 @@ class LatencyHistogram
 		void setFromPropertyTree(bpt::ptree& tree, std::string prefixStr);
 
 	private:
-		size_t numStoredValues{0}; // number of all values stored in all buckets
-		size_t numMicroSecTotal{0}; // sum of all values stored in all buckets in microseconds
-		size_t minMicroSecLat{(size_t)~0}; // min measured lat val (~0 so any 1st value is smaller)
-		size_t maxMicroSecLat{0}; // max measured latency value
-		std::vector<size_t> buckets; // buckets represent counters for latency categories
+		uint64_t numStoredValues{0}; // number of all values stored in all buckets
+		uint64_t numMicroSecTotal{0}; // sum of all values stored in all buckets in microseconds
+		uint64_t minMicroSecLat{(size_t)~0}; // min measured lat val (~0 so any 1st val is smaller)
+		uint64_t maxMicroSecLat{0}; // max measured latency value
+		std::vector<uint64_t> buckets; // buckets represent counters for latency categories
 
 		// inliners
 	public:
-		void addLatency(size_t latencyMicroSec)
+		void addLatency(uint64_t latencyMicroSec)
 		{
 			numStoredValues++;
 			numMicroSecTotal += latencyMicroSec;
@@ -51,7 +51,13 @@ class LatencyHistogram
 			IF_UNLIKELY(latencyMicroSec > maxMicroSecLat)
 				maxMicroSecLat = latencyMicroSec;
 
-			size_t bucketIndex = std::log2(latencyMicroSec) * LATHISTO_BUCKETFRACTION;
+			size_t bucketIndex;
+
+			// log2(0) does not exist, so special case
+			IF_UNLIKELY(!latencyMicroSec)
+				bucketIndex = 0;
+			else
+				bucketIndex = std::log2(latencyMicroSec) * LATHISTO_BUCKETFRACTION;
 
 			IF_UNLIKELY(bucketIndex >= LATHISTO_NUMBUCKETS)
 				bucketIndex = LATHISTO_NUMBUCKETS-1;

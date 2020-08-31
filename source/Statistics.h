@@ -8,8 +8,8 @@
 class PhaseResults
 {
 	public:
-		size_t firstFinishMS; // stonewall: time to completion of fastest worker
-		size_t lastFinishMS; // time to completion of slowest worker
+		uint64_t firstFinishUSec; // stonewall: time to completion of fastest worker
+		uint64_t lastFinishUSec; // time to completion of slowest worker
 
 		LiveOps opsTotal; // processed by all workers
 		LiveOps opsStoneWallTotal; // processed by all workers when stonewall was hit

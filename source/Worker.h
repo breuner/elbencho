@@ -35,8 +35,8 @@ class Worker
 
 		bool phaseFinished; /* true after finishPhase() until resetStats() to prevent finishPhase()
 								inc'ing done count twice on interrupt in waitForNextPhase() */
-		SizeTVec elapsedMSVec; /* Only valid when phase completed successfully. For LocalWorker:
-					finish time of only thread; for RemoteWorker: finish of each worker on host */
+		UInt64Vec elapsedUSecVec; /* Microsecs. Only valid when phase completed successfully. For
+			LocalWorker: finish of only thread; for RemoteWorker: finish of each worker on host */
 		std::atomic_bool isInterruptionRequested{false}; // set true to request self-termination
 		AtomicLiveOps atomicLiveOps; // done in current phase
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
@@ -55,7 +55,7 @@ class Worker
 
 	// inliners
 	public:
-		const SizeTVec& getElapsedMSVec() const { return elapsedMSVec; }
+		const SizeTVec& getElapsedUSecVec() const { return elapsedUSecVec; }
 		const LatencyHistogram& getIOPSLatencyHistogram() const { return iopsLatHisto; }
 		const LatencyHistogram& getEntriesLatencyHistogram() const { return entriesLatHisto; }
 
@@ -63,7 +63,7 @@ class Worker
 		{
 			phaseFinished = false;
 
-			elapsedMSVec.resize(0);
+			elapsedUSecVec.resize(0);
 			atomicLiveOps.setToZero();
 			oldAtomicLiveOps.setToZero();
 			stoneWallTriggered = false;

@@ -18,6 +18,7 @@ class Worker; // forward declaration for WorkerVec;
 typedef std::vector<Worker*> WorkerVec;
 typedef std::vector<std::thread*> ThreadGroup;
 typedef std::vector<size_t> SizeTVec;
+typedef std::vector<uint64_t> UInt64Vec;
 
 class ProgArgs; // forward declaration to avoid including ProgArgs.h here
 

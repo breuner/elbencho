@@ -34,7 +34,7 @@ namespace bpo = boost::program_options;
 #define ARG_PERTHREADSTATS_LONG 	"perthread"
 #define ARG_NOLIVESTATS_LONG 		"nolive"
 #define ARG_IGNOREDELERR_LONG		"nodelerr"
-#define ARG_IGNORE0MSERR_LONG		"no0mserr"
+#define ARG_IGNORE0USECERR_LONG		"no0usecerr"
 #define ARG_CREATEDIRS_LONG			"mkdirs"
 #define ARG_CREATEDIRS_SHORT		"d"
 #define ARG_CREATEFILES_LONG		"write"
@@ -141,7 +141,7 @@ class ProgArgs
 		bool showPerThreadStats; // show stats per thread instead of total status for all threads
 		bool disableLiveStats; // disable live stats
 		bool ignoreDelErrors; // ignore ENOENT errors on file/dir deletion
-		bool ignore0MSErrors; // ignore worker completion in less than 1 millisecond
+		bool ignore0USecErrors; // ignore worker completion in less than 1 millisecond
 		bool doCreateDirs; // create directories
 		bool doCreateFiles; // create files
 		bool doRead; // read files
@@ -231,7 +231,7 @@ class ProgArgs
 		bool getDisableLiveStats() const { return disableLiveStats; }
 		bool getIgnoreDelErrors() const { return ignoreDelErrors; }
 		void setIgnoreDelErrors(bool ignoreDelErrors) { this->ignoreDelErrors = ignoreDelErrors; }
-		bool getIgnore0MSErrors() const { return ignore0MSErrors; }
+		bool getIgnore0USecErrors() const { return ignore0USecErrors; }
 		bool getDoCreateDirs() const { return doCreateDirs; }
 		bool getDoCreateFiles() const { return doCreateFiles; }
 		bool getDoRead() const { return doRead; }

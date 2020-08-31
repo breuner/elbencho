@@ -20,7 +20,7 @@ typedef std::vector<char*> BufferVec;
 #define PHASEENTRYTYPE_DIRS		"dirs"
 #define PHASEENTRYTYPE_FILES	"files"
 
-#define HTTP_PROTOCOLVERSION	"1.2.0" // exchanged between client & server to check compatibility
+#define HTTP_PROTOCOLVERSION	"1.2.1" // exchanged between client & server to check compatibility
 
 
 #define SAFE_DELETE(objectPointer) \
