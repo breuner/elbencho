@@ -5,8 +5,8 @@ Summary:        Storage benchmark tool
 License:        GPLv3+
 
 %description
-Storage benchmark for file/directory operations and blockdevice operations.
-Runs on single host or distributed across multiple hosts.
+Unified storage benchmark for file, directory and block device operations.
+Runs on single host or distributed across multiple hosts and supports GPUs.
 
 #%prep
 #%setup

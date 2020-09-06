@@ -14,13 +14,13 @@ Building requires a C++14 compatible compiler, such as gcc version 5.x or higher
 ### Install Dependencies for Debian/Ubuntu
 
 ```sh
-apt install git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev
+apt install build-essential debhelper devscripts git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian
 ```
- 
+
 ### Install Dependencies for RHEL/CentOS 
 
 ```sh
-yum install boost-devel git libaio-devel ncurses-devel numactl-devel
+yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel rpm-build
 ```
 
 #### On RHEL / CentOS 7.x: Prepare Environment with newer gcc Version

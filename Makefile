@@ -98,42 +98,49 @@ else
 	@$(EXTERNAL_PATH)/prepare-external.sh
 endif
 
-clean:
+clean: clean-packaging
 ifdef BUILD_VERBOSE
-	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED) \
-		$(PACKAGING_PATH)/$(PKG_INST_PATH) $(PACKAGING_PATH)/DEBIAN/control \
-		$(PACKAGING_PATH)/$(EXE_NAME)_$(EXE_VERSION).deb $(PACKAGING_PATH)/RPMS/* \
-		$(PACKAGING_PATH)/SPECS/rpm.spec
+	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED)
 else
-	@echo "[DELETE] OBJECTS, DEPENDENCY_FILES, EXECUTABLES, PACKAGES"
-	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED) \
-		$(PACKAGING_PATH)/BUILDROOT/* $(PACKAGING_PATH)/$(EXE_NAME)_$(EXE_VERSION).deb \
-		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec 
+	@echo "[DELETE] OBJECTS, DEPENDENCY_FILES, EXECUTABLES"
+	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED)
 endif
 
-clean-all: clean
+clean-externals:
 ifdef BUILD_VERBOSE
 	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
 endif
-	
 
+clean-packaging:
+ifdef BUILD_VERBOSE
+	rm -rf \
+		$(PACKAGING_PATH)/BUILDROOT \
+		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
+	bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
+else
+	@echo "[DELETE] PACKAGING_FILES"
+	@rm -rf \
+		$(PACKAGING_PATH)/BUILDROOT \
+		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
+	@bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
+endif
+
+clean-all: clean clean-externals clean-packaging
 
 install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
-	@echo "PAY ATTENTION - elbencho executable is located under /usr/local/bin"
-	@echo "		sudo is dropping /usr/local/bin from PATH."
-	@echo "		In case sudo is needed, the absolute path can be used"
-	
+	@echo
+	@echo "NOTE: The $(EXE_NAME) executable was installed to $(INST_PATH). The sudo"
+	@echo "  command might drop /usr/local/bin from PATH. In case sudo is needed, the"
+	@echo "  absolute path can be used. Or alternatively use a rpm/deb package."
+
 uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
 
-rpm: all
-	# remove potential leftovers from previous deb build
-	rm -rf $(PACKAGING_PATH)/BUILDROOT/* 
-	
+rpm: all clean-packaging
 	mkdir -p $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 
 	cp --preserve $(EXE) $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
@@ -145,26 +152,34 @@ rpm: all
 	
 	rpmbuild $(PACKAGING_PATH)/SPECS/rpm.spec --bb --define "_topdir $(PWD)/$(PACKAGING_PATH)" \
 		--define "__spec_install_pre /bin/true" --buildroot=$(PWD)/$(PACKAGING_PATH)/BUILDROOT
-
-deb: all
-	# remove potential leftovers from previous rpm build
-	rm -rf $(PACKAGING_PATH)/BUILDROOT/* 
 	
+	@echo
+	@echo "All done. Your package is here:"
+	@find $(PACKAGING_PATH)/RPMS -name $(EXE_NAME)*.rpm
+
+deb: all clean-packaging
 	mkdir -p $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 	
-	cp -r $(PACKAGING_PATH)/DEBIAN $(PACKAGING_PATH)/BUILDROOT
+	cp -r $(PACKAGING_PATH)/debian $(PACKAGING_PATH)/BUILDROOT
 	
 	cp --preserve $(EXE) $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 	
-	cp $(PACKAGING_PATH)/BUILDROOT/DEBIAN/control.template \
-		$(PACKAGING_PATH)/BUILDROOT/DEBIAN/control
-	sed -i "s/__NAME__/$(EXE_NAME)/" $(PACKAGING_PATH)/BUILDROOT/DEBIAN/control
-	sed -i "s/__VERSION__/$(EXE_VERSION)/" $(PACKAGING_PATH)/BUILDROOT/DEBIAN/control
-	sed -i "s/__ARCH__/$$(dpkg-architecture -q DEB_HOST_ARCH)/" \
-		$(PACKAGING_PATH)/BUILDROOT/DEBIAN/control
+	cp $(PACKAGING_PATH)/BUILDROOT/debian/control.template \
+		$(PACKAGING_PATH)/BUILDROOT/debian/control
+
+	sed -i "s/__NAME__/$(EXE_NAME)/" $(PACKAGING_PATH)/BUILDROOT/debian/control
 	
-	dpkg-deb --root-owner-group --build $(PACKAGING_PATH)/BUILDROOT \
-		$(PACKAGING_PATH)/$(EXE_NAME)_$(EXE_VERSION).deb
+	cd $(PACKAGING_PATH)/BUILDROOT && \
+		EDITOR=/bin/true VISUAL=/bin/true debchange --create --package elbencho --urgency low \
+			--noquery --newversion "$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)" \
+			"Custom package build."
+	
+	cd $(PACKAGING_PATH)/BUILDROOT && \
+		debuild -b -us -uc
+	
+	@echo
+	@echo "All done. Your package is here:"
+	@find $(PACKAGING_PATH) -name $(EXE_NAME)*.deb
 
 help:
 	@echo 'Optional Arguments:'
@@ -185,7 +200,7 @@ help:
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
 
-.PHONY: externals clean clean-all rpm deb help
+.PHONY: externals clean clean-externals clean-packaging clean-all rpm deb help
 
 
 # Include dependency files

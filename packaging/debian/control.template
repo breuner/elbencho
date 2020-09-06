@@ -1,0 +1,14 @@
+Source: __NAME__
+Maintainer: Sven Breuner <sven.breuner@gmail.com>
+Build-Depends: debhelper (>= 8.0.0)
+Standards-Version: 3.9.3
+Section: utils
+
+Package: __NAME__
+Priority: optional
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Storage benchmark tool
+ Storage benchmark for file, directory operations and block device operations.
+ Runs on single host or distributed across multiple hosts and supports GPUs.
+
