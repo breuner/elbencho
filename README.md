@@ -1,65 +1,94 @@
 # elbencho
-A distributed benchmark for file systems and block devices
 
-elbencho was inspired by other wide-spread storage benchmark tools like [fio](https://github.com/axboe/fio), [mdtest](https://github.com/hpc/ior) and [ior](https://github.com/hpc/ior) and combines their better parts into a single unified tool with some extra sugar on top. Test options include throughput, IOPS and access latency, ranging from low level block device performance up to lots of small file performance with multiple clients. Live statistics show how the system behaves under load and whether it is worth waiting for the end result.
+**A distributed storage benchmark for file systems and block devices with support for GPUs**
+
+elbencho was inspired by traditional storage benchmark tools like [fio](https://github.com/axboe/fio), [mdtest](https://github.com/hpc/ior) and [ior](https://github.com/hpc/ior), but was written from scratch to replace them with a modern and easy to use unified tool for file systems and block devices.
+
+## Features
+
+* Unified latency, throughput, IOPS benchmark for file and block storage
+* Supports local and shared storage through service mode
+* For modern NVMe storage or classic spinning disk storage, on-prem and in the cloud
+* CUDA-enabled transfer of data into GPU memory (Nvidia GPUDirect Storage support upcoming)
+* Live statistics show how the system behaves under load
+* Multi-threaded and async I/O support through libaio
+* Results by first and by last finished thread
+* CSV file output to easily create graphs in spreadsheet applications
+* Data integrity verification option
 
 ## Usage
 
-`bin/elbencho --help` provides the general overview, from which you can select the type of benchmarks you would like to run and see simple examples to get started.
+The built-in help (`elbencho --help`) provides simple examples to get started.
 
-## Building
+## Prerequisites
 
-Building requires a C++14 compatible compiler, such as gcc version 5.x or higher.
+Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
 
 ### Install Dependencies for Debian/Ubuntu
 
-```sh
-apt install build-essential debhelper devscripts git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian
+```bash
+sudo apt install build-essential debhelper devscripts git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian
 ```
 
 ### Install Dependencies for RHEL/CentOS 
 
-```sh
-yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel rpm-build
+```bash
+sudo yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel rpm-build
 ```
 
 #### On RHEL / CentOS 7.x: Prepare Environment with newer gcc Version
 
 Skip these steps on RHEL / CentOS 8.0 or newer.
 
-```sh
-yum install centos-release-scl
+```bash
+sudo yum install centos-release-scl # for CentOS
 # ...or alternatively for RHEL: yum-config-manager --enable rhel-server-rhscl-7-rpms
-yum install devtoolset-7
-scl enable devtoolset-7 bash
+sudo yum install devtoolset-7
+scl enable devtoolset-7 bash # alternatively: source /opt/rh/devtoolset-7/enable
 ```
-The last command enters a shell in which the environment variables are pointing to a newer gcc version. (The standard gcc version of the system remains unchanged.) Use this shell to run ```make``` later. The resulting executable can run outside of this shell.
 
-### Clone the Main Repository
+The `scl enable` command enters a shell in which the environment variables are pointing to a newer gcc version. (The standard gcc version of the system remains unchanged.) Use this shell to run `make` later. The resulting executable can run outside of this shell.
 
-```sh
+## Build & Install
+
+Start by cloning the main repository.
+
+```bash
 git clone https://github.com/breuner/elbencho.git
 cd elbencho
 ```
 
-### Finally, the actual Build...
-
 `make help` will show you all build, install and rpm/deb packaging options.
 
-This is the standard build command:
+<u>This is the standard build command</u> ("`-j8`" for 8 parallel build threads):
 
-```sh
-make -j8  # "-j8" for 8 parallel build threads
+```bash
+make -j8
 ```
 
-To benchmark GPU data transfers via CUDA:
+<u>Alternatively, to enable GPU data transfers via CUDA</u> (requires Nvidia CUDA to be installed):
 
-```sh
-make -j8 CUDA_SUPPORT=1  # requires Nvidia CUDA to be installed
+```bash
+make -j8 CUDA_SUPPORT=1
+```
+
+You can run elbencho directly from the bin subdir (`bin/elbencho`), but you probably want to run `make rpm` or `make deb` now to build a package and install it. On Ubuntu, run this:
+
+```bash
+make deb
+sudo apt install ./packaging/elbencho*.deb
 ```
 
 **There you go. Happy benchmarking!**
 
-## Questions or Comments
+## Now what?
 
-Contact me at sven.breuner[at]gmail.com
+Now comes the fun part. It's time to find out what your system can deliver, so that you know if you got what you expected and for how long this system will be able to support your plans for the future.
+
+The built-in help (`elbencho --help`) provides many examples. You will be interested in access latency, IOPS and throughput.
+
+If GPU data transfer performance is critical for you, e.g. because you are running DeepLearning applications, you will also want to include GPUs in your read/write benchmarks.
+
+## Questions & Comments
+
+In case of questions, comments, if something is missing to make elbencho more useful or if you would just like to share your thoughts, please feel free to contact sven.breuner[at]gmail.com
