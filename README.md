@@ -27,7 +27,7 @@ Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x 
 ### Install Dependencies for Debian/Ubuntu
 
 ```bash
-sudo apt install build-essential debhelper devscripts git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian
+sudo apt install build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian
 ```
 
 ### Install Dependencies for RHEL/CentOS 
