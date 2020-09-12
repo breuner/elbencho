@@ -593,7 +593,7 @@ void Statistics::printPhaseResultsTableHeader()
 	}
 
 	// print to CSV results file (if specified by user)
-	if(!progArgs.getCSVFilePath().empty() && progArgs.getPrintCSVLabels() )
+	if(!progArgs.getCSVFilePath().empty() && progArgs.getPrintCSVLabels() && checkCSVFileEmpty() )
 	{
 		std::ofstream fileStream;
 
@@ -1173,4 +1173,30 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 	entriesLatHisto.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );
+}
+
+/**
+ * Check if CSV file is empty or not existing yet.
+ *
+ * @return true if not exists or empty (or if size could not be retrieved), false otherwise
+ */
+bool Statistics::checkCSVFileEmpty()
+{
+	struct stat statBuf;
+	std::string csvFilePath = progArgs.getCSVFilePath();
+
+	int statRes = stat(csvFilePath.c_str(), &statBuf);
+	if(statRes == -1)
+	{
+		if(errno == ENOENT)
+			return true;
+
+		std::cerr << "ERROR: Getting CSV file size failed. "
+			"Path: " << csvFilePath <<
+			"SysErr: " << strerror(errno) << std::endl;
+
+		return true;
+	}
+
+	return (statBuf.st_size == 0);
 }

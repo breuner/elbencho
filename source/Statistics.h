@@ -74,6 +74,8 @@ class Statistics
 		void printWholeScreenLine(std::ostringstream& stream, unsigned lineLength,
 			bool fillIfShorter);
 		void printWholeScreenLiveStats();
+
+		bool checkCSVFileEmpty();
 };
 
 #endif /* STATISTICS_H_ */
