@@ -98,16 +98,25 @@ void LocalWorker::run()
 						throw WorkerException("Directory creation and deletion are not available "
 							"in file and block device mode.");
 
-					iterateDirs();
+					dirModeIterateDirs();
 				} break;
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				case BenchPhase_DELETEFILES:
+				case BenchPhase_STATFILES:
 				{
 					if(progArgs->getBenchPathType() == BenchPathType_DIR)
 						dirModeIterateFiles();
 					else
 						fileModeIterateFiles();
+				} break;
+				case BenchPhase_SYNC:
+				{
+					anyModeSync();
+				} break;
+				case BenchPhase_DROPCACHES:
+				{
+					anyModeDropCaches();
 				} break;
 				default:
 				{ // should never happen
@@ -913,7 +922,7 @@ ssize_t LocalWorker::cuFileWriteWrapper(int fd, void* buf, size_t nbytes, off_t 
  * @doRmdir true to remove dirs.
  * @throw WorkerException on error.
  */
-void LocalWorker::iterateDirs()
+void LocalWorker::dirModeIterateDirs()
 {
 	std::array<char, PATH_BUF_LEN> currentPath;
 	BenchPhase benchPhase = workersSharedData->currentBenchPhase;
@@ -1139,6 +1148,18 @@ void LocalWorker::dirModeIterateFiles()
 						"SysErr: " + strerror(errno) );
 			}
 
+			if(benchPhase == BenchPhase_STATFILES)
+			{
+				struct stat statBuf;
+
+				int statRes = fstatat(pathFDs[pathFDsIndex], currentPath.data(), &statBuf, 0);
+
+				if(statRes == -1)
+					throw WorkerException(std::string("File stat failed. ") +
+						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+						"SysErr: " + strerror(errno) );
+			}
+
 			if(benchPhase == BenchPhase_DELETEFILES)
 			{
 				int unlinkRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), 0);
@@ -1291,4 +1312,55 @@ int LocalWorker::getDirModeOpenFlags(BenchPhase benchPhase)
 		openFlags |= O_DIRECT;
 
 	return openFlags;
+}
+
+/**
+ * Calls the general sync() command to commit dirty pages from the linux page cache to stable
+ * storage.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::anyModeSync()
+{
+	const IntVec& pathFDs = progArgs->getBenchPathFDs();
+	const StringVec& pathVec = progArgs->getBenchPaths();
+
+	for(size_t i=0; i < pathFDs.size(); i++)
+	{
+		// (workerRank offset is to let different workers sync different file systems in parallel)
+		size_t currentIdx = (i + workerRank) % pathFDs.size();
+		int currentFD = pathFDs[currentIdx];
+
+		int syncRes = syncfs(currentFD);
+
+		if(syncRes == -1)
+			throw WorkerException(std::string("Cache sync failed. ") +
+				"Path: " + pathVec[currentIdx] + "; "
+				"SysErr: " + strerror(errno) );
+	}
+}
+
+/**
+ * Prints 3 to /proc/sys/vm/drop_caches to drop cached data from the Linux page cache.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::anyModeDropCaches()
+{
+	std::string dropCachesPath = "/proc/sys/vm/drop_caches";
+	std::string dropCachesValStr = "3"; // "3" to drop page cache, dentries and inodes
+
+	int fd = open(dropCachesPath.c_str(), O_WRONLY);
+
+	if(fd == -1)
+		throw WorkerException(std::string("Opening cache drop command file failed. ") +
+			"Path: " + dropCachesPath + "; "
+			"SysErr: " + strerror(errno) );
+
+	ssize_t writeRes = write(fd, dropCachesValStr.c_str(), dropCachesValStr.size() );
+
+	if(writeRes == -1)
+		throw WorkerException(std::string("Writing to cache drop command file failed. ") +
+			"Path: " + dropCachesPath + "; "
+			"SysErr: " + strerror(errno) );
 }

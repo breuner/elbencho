@@ -119,13 +119,19 @@ void ProgArgs::defineAllowedArgs()
 /*cu*/	(ARG_CUHOSTBUFREG_LONG, bpo::bool_switch(&this->useCuHostBufReg),
 			"Pin host memory buffers and register with CUDA for faster transfer to/from GPU.")
 #endif
-/*D*/	(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->doDeleteDirs),
+/*D*/	(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
 			"Delete directories.")
-/*d*/	(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->doCreateDirs),
+/*d*/	(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
 			"Create directories. (Already existing dirs are not treated as error.)")
 /*di*/	(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
 			"Use direct IO.")
-/*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->doDeleteFiles),
+/*sy*/	(ARG_DROPCACHESPHASE_LONG, bpo::bool_switch(&this->runDropCachesPhase),
+			"Drop linux file system page cache, dentry cache and inode cache before/after each "
+			"benchmark phase. Requires root privileges. This should be used together with \"--"
+			ARG_SYNCPHASE_LONG "\", because only data on stable storage can be dropped from cache. "
+			"Note for distributed file systems that this only drops caches on the clients where "
+			"elbencho runs, but there might still be cached data on the server.")
+/*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
 /*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
@@ -181,7 +187,7 @@ void ProgArgs::defineAllowedArgs()
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qu*/	(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
 			"Quit services on given service mode hosts.")
-/*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->doRead),
+/*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read files. (File paths are known, so no dir entries query in this phase.)")
 /*ra*/	(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
@@ -194,15 +200,20 @@ void ProgArgs::defineAllowedArgs()
 /*re*/	(ARG_LIVESLEEPSEC_LONG, bpo::value(&this->liveStatsSleepSec),
 			"Sleep interval between live stats console refresh in seconds. (Default: 2)")
 /*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
-			"Path to file for results. If the file exists, results will be appended.")
+			"Path to file for human-readable results, similar to console output. If the file "
+			"exists, new results will be appended.")
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0)")
 /*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
 			"Run as service for distributed mode, waiting for requests from master.")
+/*st*/	(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
+			"Run file stat benchmark phase.")
 /*st*/	(ARG_STARTTIME_LONG, bpo::value(&this->startTime),
 			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
 			"start of benchmarks on different hosts, assuming they use synchronized clocks. "
 			"(Hint: Try 'date +%s' to get seconds since the epoch.)")
+/*sy*/	(ARG_SYNCPHASE_LONG, bpo::bool_switch(&this->runSyncPhase),
+			"Sync Linux kernel page cache to stable storage before/after each phase.")
 /*t*/	(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
 			"Number of I/O worker threads. (Default: 1)")
 /*ti*/	(ARG_TIMELIMITSECS_LONG, bpo::value(&this->timeLimitSecs),
@@ -216,7 +227,7 @@ void ProgArgs::defineAllowedArgs()
 			"using the same salt (e.g. \"1\"). Different salt values can be used to ensure "
 			"different contents when running multiple consecutive write and read verifications. "
 			"(Default: 0 for disabled)")
-/*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->doCreateFiles),
+/*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
@@ -248,11 +259,11 @@ void ProgArgs::defineDefaults()
 	this->disableLiveStats = false;
 	this->ignoreDelErrors = false;
 	this->ignore0USecErrors = false;
-	this->doCreateDirs = false;
-	this->doCreateFiles = false;
-	this->doRead = false;
-	this->doDeleteFiles = false;
-	this->doDeleteDirs = false;
+	this->runCreateDirsPhase = false;
+	this->runCreateFilesPhase = false;
+	this->runReadPhase = false;
+	this->runDeleteFilesPhase = false;
+	this->runDeleteDirsPhase = false;
 	this->startTime = 0;
 	this->runAsService = false;
 	this->runServiceInForeground = false;
@@ -281,6 +292,9 @@ void ProgArgs::defineDefaults()
 	this->useCuFileDriverOpen = false;
 	this->useCuHostBufReg = false;
 	this->integrityCheckSalt = 0;
+	this->runSyncPhase = false;
+	this->runDropCachesPhase = false;
+	this->runStatFilesPhase = false;
 }
 
 /**
@@ -340,7 +354,7 @@ void ProgArgs::checkArgs()
 
 	numDataSetThreads = numThreads;
 
-	if(fileSize && !blockSize && (doRead || doCreateFiles) )
+	if(fileSize && !blockSize && (runReadPhase || runCreateFilesPhase) )
 		throw ProgException("Block size may not be 0 if file size is given.");
 
 	if(blockSize > fileSize)
@@ -369,7 +383,7 @@ void ProgArgs::checkArgs()
 		useDirectIO = true;
 	}
 
-	if(useDirectIO && fileSize && (doCreateFiles || doRead) )
+	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
 	{
 		if(fileSize % blockSize)
 		{
@@ -414,7 +428,7 @@ void ProgArgs::checkArgs()
 	if(useRandomOffsets && !randomAmount)
 		randomAmount = fileSize;
 
-	if(integrityCheckSalt && doCreateFiles && useRandomOffsets)
+	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
 		throw ProgException("Integrity check writes not supported in combination with random "
 				"offsets.");
 
@@ -461,6 +475,10 @@ void ProgArgs::checkPathDependentArgs()
 		if(minFileSize && useRandomOffsets && ( (randomAmount % minFileSize) != 0) )
 			LOGGER(Log_NORMAL, "NOTE: Random amount is not a multiple of block size times number "
 				"of I/O threads, so the I/O threads write different amounts of data." << std::endl);
+
+		if(runStatFilesPhase)
+			throw ProgException("File stat phase can only be used when benchmark path is a "
+				"directory");
 	}
 
 	if(benchPathType == BenchPathType_FILE)
@@ -567,7 +585,7 @@ void ProgArgs::prepareBenchPathFDsVec()
 			throw ProgException("Refusing to work with directories in /dev: " + path);
 
 		if( (benchPathType != BenchPathType_DIR) &&
-			(doCreateDirs || doDeleteDirs || doDeleteFiles) )
+			(runCreateDirsPhase || runDeleteDirsPhase || runDeleteFilesPhase) )
 			throw ProgException("Delete and directory create options are only allowed if benchmark "
 				"path is a directory.");
 
@@ -581,7 +599,7 @@ void ProgArgs::prepareBenchPathFDsVec()
 			openFlags |= (O_DIRECTORY | O_RDONLY); // O_DIRECTORY only works with O_RDONLY on xfs
 		else
 		{ // file or blockdev mode
-			if(doCreateFiles || doDeleteFiles)
+			if(runCreateFilesPhase || runDeleteFilesPhase)
 				openFlags |= O_RDWR;
 			else
 				openFlags |= O_RDONLY;
@@ -590,7 +608,7 @@ void ProgArgs::prepareBenchPathFDsVec()
 				openFlags |= O_DIRECT;
 
 			// note: no O_TRUNC here, because prepareFileSize() later needs original size
-			if( (pathType == BenchPathType_FILE) && doCreateFiles)
+			if( (pathType == BenchPathType_FILE) && runCreateFilesPhase)
 				openFlags |= O_CREAT;
 		}
 
@@ -676,13 +694,13 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			fileSize = currentFileSize;
 		}
 
-		if( (fileSize > (uint64_t)currentFileSize) && !doCreateFiles)
+		if( (fileSize > (uint64_t)currentFileSize) && !runCreateFilesPhase)
 			throw ProgException("Given size to use is larger than detected size. "
 				"File: " + path + "; "
 				"Detected size: " + std::to_string(currentFileSize) + "; "
 				"Given size: " + std::to_string(fileSize) );
 
-		if(doCreateFiles)
+		if(runCreateFilesPhase)
 		{
 			// truncate file to given size in random mode, so reads will work across full length
 			if(useRandomOffsets)
@@ -717,7 +735,7 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 
 		}
 
-		if(doRead && !doCreateFiles)
+		if(runReadPhase && !runCreateFilesPhase)
 		{
 			// let user know about reading sparse/compressed files
 			// (note: statBuf.st_blocks is in 512-byte units)
@@ -1070,9 +1088,9 @@ void ProgArgs::printHelpBlockDev()
 		"Basic Options", Terminal::getTerminalLineLength(80) );
 
 	argsBlockdevBasicDescription.add_options()
-		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->doCreateFiles),
+		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write to given block device(s).")
-		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->doRead),
+		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read from given block device(s).")
 		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
 			"Block device size to use. (Default: 0)")
@@ -1149,15 +1167,15 @@ void ProgArgs::printHelpMultiFile()
 		"Basic Options", Terminal::getTerminalLineLength(80) );
 
 	argsMultiFileBasicDescription.add_options()
-		(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->doCreateDirs),
+		(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
 			"Create directories. (Already existing dirs are not treated as error.)")
-		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->doCreateFiles),
+		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
-		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->doRead),
+		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read files. (File paths are known, so no dir entries query in this phase.)")
-		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->doDeleteFiles),
+		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
-		(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->doDeleteDirs),
+		(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
 			"Delete directories.")
 		(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
 			"Number of I/O worker threads. (Default: 1)")
@@ -1329,11 +1347,11 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	showPerThreadStats = tree.get<bool>(ARG_PERTHREADSTATS_LONG);
 	ignoreDelErrors = tree.get<bool>(ARG_IGNOREDELERR_LONG);
 	ignore0USecErrors = tree.get<bool>(ARG_IGNORE0USECERR_LONG);
-	doCreateDirs = tree.get<bool>(ARG_CREATEDIRS_LONG);
-	doCreateFiles = tree.get<bool>(ARG_CREATEFILES_LONG);
-	doRead = tree.get<bool>(ARG_READ_LONG);
-	doDeleteFiles = tree.get<bool>(ARG_DELETEFILES_LONG);
-	doDeleteDirs = tree.get<bool>(ARG_DELETEDIRS_LONG);
+	runCreateDirsPhase = tree.get<bool>(ARG_CREATEDIRS_LONG);
+	runCreateFilesPhase = tree.get<bool>(ARG_CREATEFILES_LONG);
+	runReadPhase = tree.get<bool>(ARG_READ_LONG);
+	runDeleteFilesPhase = tree.get<bool>(ARG_DELETEFILES_LONG);
+	runDeleteDirsPhase = tree.get<bool>(ARG_DELETEDIRS_LONG);
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useRandomAligned = tree.get<bool>(ARG_RANDOMALIGN_LONG);
 	randomAmount = tree.get<size_t>(ARG_RANDOMAMOUNT_LONG);
@@ -1345,6 +1363,9 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
 	useCuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
 	integrityCheckSalt = tree.get<uint64_t>(ARG_INTEGRITYCHECK_LONG);
+	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);
+	runDropCachesPhase = tree.get<bool>(ARG_DROPCACHESPHASE_LONG);
+	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1377,11 +1398,11 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_PERTHREADSTATS_LONG, showPerThreadStats);
 	outTree.put(ARG_IGNOREDELERR_LONG, ignoreDelErrors);
 	outTree.put(ARG_IGNORE0USECERR_LONG, ignore0USecErrors);
-	outTree.put(ARG_CREATEDIRS_LONG, doCreateDirs);
-	outTree.put(ARG_CREATEFILES_LONG, doCreateFiles);
-	outTree.put(ARG_READ_LONG, doRead);
-	outTree.put(ARG_DELETEFILES_LONG, doDeleteFiles);
-	outTree.put(ARG_DELETEDIRS_LONG, doDeleteDirs);
+	outTree.put(ARG_CREATEDIRS_LONG, runCreateDirsPhase);
+	outTree.put(ARG_CREATEFILES_LONG, runCreateFilesPhase);
+	outTree.put(ARG_READ_LONG, runReadPhase);
+	outTree.put(ARG_DELETEFILES_LONG, runDeleteFilesPhase);
+	outTree.put(ARG_DELETEDIRS_LONG, runDeleteDirsPhase);
 	outTree.put(ARG_RANDOMOFFSETS_LONG, useRandomOffsets);
 	outTree.put(ARG_RANDOMALIGN_LONG, useRandomAligned);
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
@@ -1392,6 +1413,9 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_CUFILEDRIVEROPEN_LONG, useCuFileDriverOpen);
 	outTree.put(ARG_CUHOSTBUFREG_LONG, useCuHostBufReg);
 	outTree.put(ARG_INTEGRITYCHECK_LONG, integrityCheckSalt);
+	outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
+	outTree.put(ARG_DROPCACHESPHASE_LONG, runDropCachesPhase);
+	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 
 
 	// dynamically calculated values for service hosts...

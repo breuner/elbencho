@@ -154,6 +154,19 @@ void Coordinator::runBenchmarkPhase(BenchPhase newBenchPhase)
 	// check again for interrupted or timeout (might be last phase and we want to return an error)
 	checkInterruptionBetweenPhases();
 }
+
+/**
+ * Run sync and drop caches phases if selected by user.
+ */
+void Coordinator::runSyncAndDropCaches()
+{
+	if(progArgs.getRunSyncPhase() )
+		runBenchmarkPhase(BenchPhase_SYNC);
+
+	if(progArgs.getRunDropCachesPhase() )
+		runBenchmarkPhase(BenchPhase_DROPCACHES);
+}
+
 /**
  * Run coordinated benchmarks through workers according to user selection.
  *
@@ -163,20 +176,43 @@ void Coordinator::runBenchmarks()
 {
 	statistics.printPhaseResultsTableHeader();
 
-	if(progArgs.getDoCreateDirs() )
+	runSyncAndDropCaches();
+
+	if(progArgs.getRunCreateDirsPhase() )
+	{
 		runBenchmarkPhase(BenchPhase_CREATEDIRS);
+		runSyncAndDropCaches();
+	}
 
-	if(progArgs.getDoCreateFiles() )
+	if(progArgs.getRunCreateFilesPhase() )
+	{
 		runBenchmarkPhase(BenchPhase_CREATEFILES);
+		runSyncAndDropCaches();
+	}
 
-	if(progArgs.getDoRead() )
+	if(progArgs.getRunStatFilesPhase() )
+	{
+		runBenchmarkPhase(BenchPhase_STATFILES);
+		runSyncAndDropCaches();
+	}
+
+	if(progArgs.getRunReadPhase() )
+	{
 		runBenchmarkPhase(BenchPhase_READFILES);
+		runSyncAndDropCaches();
+	}
 
-	if(progArgs.getDoDeleteFiles() )
+	if(progArgs.getRunDeleteFilesPhase() )
+	{
 		runBenchmarkPhase(BenchPhase_DELETEFILES);
+		runSyncAndDropCaches();
+	}
 
-	if(progArgs.getDoDeleteDirs() )
+	if(progArgs.getRunDeleteDirsPhase() )
+	{
 		runBenchmarkPhase(BenchPhase_DELETEDIRS);
+		runSyncAndDropCaches();
+	}
 }
 
 /**

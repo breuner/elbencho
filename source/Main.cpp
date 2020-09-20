@@ -40,11 +40,11 @@ int main(int argc, char** argv)
 			"files: " << progArgs.getNumFiles() << "; "
 			"benchPath: " << progArgs.getBenchPathStr() << "; " <<
 			"hosts: " << progArgs.getHostsStr() << "; " <<
-			"mkdi: " << progArgs.getDoCreateDirs() << "; " <<
-			"mkfi: " << progArgs.getDoCreateFiles() << "; " <<
-			"read: " << progArgs.getDoRead() << "; " <<
-			"rmfi: " << progArgs.getDoDeleteFiles() << "; " <<
-			"rmdi: " << progArgs.getDoDeleteDirs() << "; " <<
+			"mkdi: " << progArgs.getRunCreateDirsPhase() << "; " <<
+			"mkfi: " << progArgs.getRunCreateFilesPhase() << "; " <<
+			"read: " << progArgs.getRunReadPhase() << "; " <<
+			"rmfi: " << progArgs.getRunDeleteFilesPhase() << "; " <<
+			"rmdi: " << progArgs.getRunDeleteDirsPhase() << "; " <<
 			"starttime: " << progArgs.getStartTime() << "; " <<
 			"waittime: " << waittimeSec << std::endl);
 

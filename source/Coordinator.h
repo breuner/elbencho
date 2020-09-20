@@ -26,6 +26,7 @@ class Coordinator
 		void waitForUserDefinedStartTime();
 		void checkInterruptionBetweenPhases();
 		void runBenchmarkPhase(BenchPhase newBenchPhase);
+		void runSyncAndDropCaches();
 		void runBenchmarks();
 		void registerSignalHandlers();
 };

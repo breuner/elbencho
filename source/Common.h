@@ -15,12 +15,15 @@ typedef std::vector<char*> BufferVec;
 #define PHASENAME_READFILES		"READ"
 #define PHASENAME_DELETEFILES	"RMFILES"
 #define PHASENAME_DELETEDIRS	"RMDIRS"
+#define PHASENAME_SYNC			"SYNC"
+#define PHASENAME_DROPCACHES	"DROPCACHE"
+#define PHASENAME_STATFILES		"STAT"
 
 
 #define PHASEENTRYTYPE_DIRS		"dirs"
 #define PHASEENTRYTYPE_FILES	"files"
 
-#define HTTP_PROTOCOLVERSION	"1.3.0" // exchanged between client & server to check compatibility
+#define HTTP_PROTOCOLVERSION	"1.4.0" // exchanged between client & server to check compatibility
 
 
 #define SAFE_DELETE(objectPointer) \
@@ -53,6 +56,9 @@ enum BenchPhase
 	BenchPhase_CREATEFILES,
 	BenchPhase_DELETEFILES,
 	BenchPhase_READFILES,
+	BenchPhase_SYNC,
+	BenchPhase_DROPCACHES,
+	BenchPhase_STATFILES,
 };
 
 enum BenchPathType

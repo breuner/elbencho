@@ -78,8 +78,10 @@ namespace bpo = boost::program_options;
 #define ARG_GPUBUFREG_LONG			"gpubufreg"
 #define ARG_CUFILEDRIVEROPEN_LONG	"cufiledriveropen"
 #define ARG_CUHOSTBUFREG_LONG		"cuhostbufreg"
-//#define ARG_INTEGRITYCHECK_LONG		"integritycheck"
-#define ARG_INTEGRITYCHECK_LONG         "verify"
+#define ARG_INTEGRITYCHECK_LONG		"verify"
+#define ARG_SYNCPHASE_LONG			"sync"
+#define ARG_DROPCACHESPHASE_LONG	"dropcache"
+#define ARG_STATFILES_LONG			"stat"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -142,11 +144,11 @@ class ProgArgs
 		bool disableLiveStats; // disable live stats
 		bool ignoreDelErrors; // ignore ENOENT errors on file/dir deletion
 		bool ignore0USecErrors; // ignore worker completion in less than 1 millisecond
-		bool doCreateDirs; // create directories
-		bool doCreateFiles; // create files
-		bool doRead; // read files
-		bool doDeleteFiles; // delete files
-		bool doDeleteDirs; // delete dirs
+		bool runCreateDirsPhase; // create directories
+		bool runCreateFilesPhase; // create files
+		bool runReadPhase; // read files
+		bool runDeleteFilesPhase; // delete files
+		bool runDeleteDirsPhase; // delete dirs
 		time_t startTime; /* UTC start time to coordinate multiple benchmarks, in seconds since the,
 								epoch. 0 means immediate start. */
 		bool runAsService; // run as service for remote coordination by master
@@ -187,6 +189,9 @@ class ProgArgs
 		bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
 		bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
 		uint64_t integrityCheckSalt; // salt to add to data integrity checksum (0 disables check)
+		bool runSyncPhase; // run the sync() phase to commit all dirty page cache buffers
+		bool runDropCachesPhase; // run "echo 3>drop_caches" phase to drop kernel page cache
+		bool runStatFilesPhase; // stat files
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -232,11 +237,11 @@ class ProgArgs
 		bool getIgnoreDelErrors() const { return ignoreDelErrors; }
 		void setIgnoreDelErrors(bool ignoreDelErrors) { this->ignoreDelErrors = ignoreDelErrors; }
 		bool getIgnore0USecErrors() const { return ignore0USecErrors; }
-		bool getDoCreateDirs() const { return doCreateDirs; }
-		bool getDoCreateFiles() const { return doCreateFiles; }
-		bool getDoRead() const { return doRead; }
-		bool getDoDeleteFiles() const { return doDeleteFiles; }
-		bool getDoDeleteDirs() const { return doDeleteDirs; }
+		bool getRunCreateDirsPhase() const { return runCreateDirsPhase; }
+		bool getRunCreateFilesPhase() const { return runCreateFilesPhase; }
+		bool getRunReadPhase() const { return runReadPhase; }
+		bool getRunDeleteFilesPhase() const { return runDeleteFilesPhase; }
+		bool getRunDeleteDirsPhase() const { return runDeleteDirsPhase; }
 		time_t getStartTime() const { return startTime; }
 		bool getRunAsService() const { return runAsService; }
 		bool getRunServiceInForeground() const { return runServiceInForeground; }
@@ -274,6 +279,9 @@ class ProgArgs
 		bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
 		bool getUseCuHostBufReg() const { return useCuHostBufReg; }
 		uint64_t getIntegrityCheckSalt() const { return integrityCheckSalt; }
+		bool getRunSyncPhase() const { return runSyncPhase; }
+		bool getRunDropCachesPhase() const { return runDropCachesPhase; }
+		bool getRunStatFilesPhase() const { return runStatFilesPhase; }
 };
 
 

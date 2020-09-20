@@ -88,9 +88,12 @@ class LocalWorker : public Worker
 		int64_t rwBlockSized(int fd);
 		int64_t aioBlockSized(int fd);
 
-		void iterateDirs();
+		void dirModeIterateDirs();
 		void dirModeIterateFiles();
 		void fileModeIterateFiles();
+
+		void anyModeSync();
+		void anyModeDropCaches();
 
 		int getDirModeOpenFlags(BenchPhase benchPhase);
 

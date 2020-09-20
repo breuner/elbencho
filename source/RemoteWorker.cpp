@@ -56,6 +56,9 @@ void RemoteWorker::run()
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				case BenchPhase_DELETEFILES:
+				case BenchPhase_SYNC:
+				case BenchPhase_DROPCACHES:
+				case BenchPhase_STATFILES:
 				{
 					startBenchPhase();
 
