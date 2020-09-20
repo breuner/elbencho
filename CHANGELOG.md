@@ -1,5 +1,15 @@
 # Changelog of elbencho
 
+## v1.4
+
+### New Features & Enhancements
+* Added new phase to sync write buffers to stable storage (--sync).
+* Added new phase to drop linux kernel page cache, dentry cache and inode cache (--dropcache).
+* Added new phase stat files (--stat).
+
+### Contributors
+* Thanks to first time contributor Salvador Martin (HPCnow) for helpful comments.
+
 ## v1.3 (Sep 8, 2020)
 
 ### New Features & Enhancements
