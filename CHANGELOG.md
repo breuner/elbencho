@@ -1,14 +1,16 @@
 # Changelog of elbencho
 
-## v1.4
+## v1.4 (TBD)
 
 ### New Features & Enhancements
 * Added new phase to sync write buffers to stable storage (--sync).
 * Added new phase to drop linux kernel page cache, dentry cache and inode cache (--dropcache).
 * Added new phase stat files (--stat).
+* Print CSV headers only to first line of CSV file.
+* Added option to read service hosts from file (--hostsfile)
 
 ### Contributors
-* Thanks to first time contributor Salvador Martin (HPCnow) for helpful comments.
+* Thanks to first time contributor Salvador Martin (HPCNow) for helpful comments.
 
 ## v1.3 (Sep 8, 2020)
 

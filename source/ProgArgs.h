@@ -82,6 +82,7 @@ namespace bpo = boost::program_options;
 #define ARG_SYNCPHASE_LONG			"sync"
 #define ARG_DROPCACHESPHASE_LONG	"dropcache"
 #define ARG_STATFILES_LONG			"stat"
+#define ARG_HOSTSFILE_LONG			"hostsfile"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -192,6 +193,7 @@ class ProgArgs
 		bool runSyncPhase; // run the sync() phase to commit all dirty page cache buffers
 		bool runDropCachesPhase; // run "echo 3>drop_caches" phase to drop kernel page cache
 		bool runStatFilesPhase; // stat files
+		std::string hostsFilePath; // path to file for service hosts
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -282,6 +284,7 @@ class ProgArgs
 		bool getRunSyncPhase() const { return runSyncPhase; }
 		bool getRunDropCachesPhase() const { return runDropCachesPhase; }
 		bool getRunStatFilesPhase() const { return runStatFilesPhase; }
+		std::string getHostsFilePath() const { return hostsFilePath; }
 };
 
 

@@ -125,7 +125,7 @@ void ProgArgs::defineAllowedArgs()
 			"Create directories. (Already existing dirs are not treated as error.)")
 /*di*/	(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
 			"Use direct IO.")
-/*sy*/	(ARG_DROPCACHESPHASE_LONG, bpo::bool_switch(&this->runDropCachesPhase),
+/*dr*/	(ARG_DROPCACHESPHASE_LONG, bpo::bool_switch(&this->runDropCachesPhase),
 			"Drop linux file system page cache, dentry cache and inode cache before/after each "
 			"benchmark phase. Requires root privileges. This should be used together with \"--"
 			ARG_SYNCPHASE_LONG "\", because only data on stable storage can be dropped from cache. "
@@ -151,6 +151,9 @@ void ProgArgs::defineAllowedArgs()
 			"argument is used, this program instance runs in master mode to coordinate the given "
 			"service mode hosts. The given number of threads, dirs and files is per-host then."
 			"(Format: hostname[:port])")
+/*ho*/	(ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
+			"Path to file containing line-separated service hosts to use for benchmark. (Format: "
+			"hostname[:port])")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -784,8 +787,26 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
  */
 void ProgArgs::parseHosts()
 {
-	if(hostsStr.empty() )
+	if(hostsStr.empty() && hostsFilePath.empty() )
 		return; // nothing to do
+
+	// read service hosts from file and add to hostsStr
+	if(!hostsFilePath.empty() )
+	{
+		std::ifstream hostsFile(hostsFilePath);
+
+		if(!hostsFile)
+			throw ProgException("Unable to read hosts file, Path: " + hostsFilePath);
+
+		hostsStr += " "; // add separator to existing hosts
+
+		std::string lineStr;
+
+		while(std::getline(hostsFile, lineStr) )
+			hostsStr += lineStr + ",";
+
+		hostsFile.close();
+	}
 
 	boost::split(hostsVec, hostsStr, boost::is_any_of(HOSTLIST_DELIMITERS),
 			boost::token_compress_on);
