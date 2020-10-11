@@ -84,6 +84,7 @@ namespace bpo = boost::program_options;
 #define ARG_STATFILES_LONG			"stat"
 #define ARG_HOSTSFILE_LONG			"hostsfile"
 #define ARG_CPUUTIL_LONG			"cpu"
+#define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -196,6 +197,7 @@ class ProgArgs
 		bool runStatFilesPhase; // stat files
 		std::string hostsFilePath; // path to file for service hosts
 		bool showCPUUtilization; // show cpu utilization in phase stats results
+		size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -288,6 +290,7 @@ class ProgArgs
 		bool getRunStatFilesPhase() const { return runStatFilesPhase; }
 		std::string getHostsFilePath() const { return hostsFilePath; }
 		bool getShowCPUUtilization() const { return showCPUUtilization; }
+		size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
 };
 
 

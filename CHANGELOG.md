@@ -8,6 +8,7 @@
 * New phase to stat files (--stat).
 * New option to read service hosts from file (--hostsfile).
 * New CPU utilization info in live stats and phase results (--cpu).
+* New option to configure service host update retrieval interval (--svcupint).
 * Print CSV headers only to first line of CSV file.
 * Reorder CSV file columns for better readability and add CPU utilization info.
 

@@ -298,9 +298,9 @@ void RemoteWorker::startBenchPhase()
 void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 {
 	bool firstRound = true;
-	size_t firstRoundSleepUS = 500000; /* sleep half sec in first round to have first result when
-		live stats get printed for the first time after 1 sec */
-	size_t sleepUS = 1000000; // 1 second as normal sleep time before stats update
+	size_t sleepUS = progArgs->getSvcUpdateIntervalMS() * 1000;
+	size_t firstRoundSleepUS = std::min( (size_t)500000, sleepUS/2); /* sleep half sec in first
+		round to have first result when live stats get printed for the first time after 1 sec */
 
 	while(numWorkersDone < progArgs->getNumThreads() )
 	{

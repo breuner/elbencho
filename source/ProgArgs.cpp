@@ -217,6 +217,8 @@ void ProgArgs::defineAllowedArgs()
 			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
 			"start of benchmarks on different hosts, assuming they use synchronized clocks. "
 			"(Hint: Try 'date +%s' to get seconds since the epoch.)")
+/*sv*/	(ARG_SVCUPDATEINTERVAL_LONG, bpo::value(&this->svcUpdateIntervalMS),
+			"Update retrieval interval for service hosts in milliseconds. (Default: 500)")
 /*sy*/	(ARG_SYNCPHASE_LONG, bpo::bool_switch(&this->runSyncPhase),
 			"Sync Linux kernel page cache to stable storage before/after each phase.")
 /*t*/	(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
@@ -301,6 +303,7 @@ void ProgArgs::defineDefaults()
 	this->runDropCachesPhase = false;
 	this->runStatFilesPhase = false;
 	this->showCPUUtilization = false;
+	this->svcUpdateIntervalMS = 500;
 }
 
 /**
