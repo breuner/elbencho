@@ -11,14 +11,13 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include "CPUUtil.h"
 #include "Common.h"
 
 
 class Worker; // forward declaration for WorkerVec;
 typedef std::vector<Worker*> WorkerVec;
 typedef std::vector<std::thread*> ThreadGroup;
-typedef std::vector<size_t> SizeTVec;
-typedef std::vector<uint64_t> UInt64Vec;
 
 class ProgArgs; // forward declaration to avoid including ProgArgs.h here
 
@@ -55,6 +54,10 @@ class WorkersSharedData
 			(protected by mutex, change signaled by condition) */
 		size_t numWorkersDoneWithError{0}; /* number of threads that failed the current phase
 			(protected by mutex, change signaled by condition) */
+		CPUUtil cpuUtilFirstDone; // 1st update() by WorkerManager, 2nd update() by first finisher
+		CPUUtil cpuUtilLastDone; // 1st update() by WorkerManager, 2nd update() by last finisher
+
+		void incNumWorkersDoneUnlocked();
 
 	// inliners
 	public:
@@ -72,12 +75,6 @@ class WorkersSharedData
 		{
 			std::unique_lock<std::mutex> lock(mutex); // L O C K (scoped)
 			resetNumWorkersDoneUnlocked();
-		}
-
-		void incNumWorkersDoneUnlocked()
-		{
-			numWorkersDone++;
-			condition.notify_all();
 		}
 
 		/**

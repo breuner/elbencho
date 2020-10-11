@@ -277,6 +277,8 @@ void WorkerManager::startNextPhase(BenchPhase newBenchPhase, std::string* benchI
 
 	workersSharedData.currentBenchPhase = newBenchPhase;
 
+	workersSharedData.cpuUtilFirstDone.update();
+	workersSharedData.cpuUtilLastDone.update();
 	workersSharedData.phaseStartT = std::chrono::steady_clock::now();
 
 	workersSharedData.condition.notify_all();

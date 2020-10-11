@@ -148,6 +148,8 @@ void HTTPService::defineServerResources(HttpServer& server)
 
 		bpt::ptree tree;
 
+		statistics.updateLiveCPUUtil();
+
 		statistics.getLiveStatsAsPropertyTree(tree);
 
 		bpt::write_json(stream, tree, true);
@@ -274,6 +276,8 @@ void HTTPService::defineServerResources(HttpServer& server)
 		iter = query_fields.find(XFER_START_BENCHID);
 		if(iter != query_fields.end() )
 			benchID = iter->second;
+
+		statistics.updateLiveCPUUtil();
 
 		workerManager.startNextPhase(benchPhase, benchID.empty() ? NULL : &benchID);
 

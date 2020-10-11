@@ -35,6 +35,8 @@
 #define XFER_STATS_LATMAXMICROSEC			"LatMaxMicroSec"
 #define XFER_STATS_LATHISTOLIST				"LatHistoList"
 #define XFER_STATS_LATHISTOLIST_ITEM		"LatHistoList.item"
+#define XFER_STATS_CPUUTIL_STONEWALL		"CPUUtilStoneWall"
+#define XFER_STATS_CPUUTIL					"CPUUtil"
 
 #define XFER_START_BENCHID					XFER_STATS_BENCHID
 #define XFER_START_BENCHPHASECODE			XFER_STATS_BENCHPHASECODE
@@ -90,6 +92,13 @@ class RemoteWorker : public Worker
 
 		BenchPathType benchPathType; // set as result of preparation phase
 
+		struct CPUUtil
+		{
+			unsigned live = 0;
+			unsigned stoneWall = 0;
+			unsigned lastDone = 0;
+		} cpuUtil; // all values are percent
+
 		virtual void run() override;
 
 		void finishPhase(bool allowExceptionThrow);
@@ -106,6 +115,9 @@ class RemoteWorker : public Worker
 		size_t getNumWorkersDoneWithError() const { return numWorkersDoneWithError; }
 		BenchPathType getBenchPathType() const { return benchPathType; }
 		std::string getHost() const { return host; }
+		unsigned getCPUUtilStoneWall() const { return cpuUtil.stoneWall; }
+		unsigned getCPUUtilLastDone() const { return cpuUtil.lastDone; }
+		unsigned getCPUUtilLive() const { return cpuUtil.live; }
 
 		virtual void resetStats() override
 		{

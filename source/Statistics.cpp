@@ -14,6 +14,7 @@
 
 #define CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN	"\x1B[2K\r" /* "\x1B[2K" is the VT100 code to
 										clear the line. "\r" moves cursor to beginning of line. */
+#define WHOLESCREEN_GLOBALINFO_NUMLINES		1 // lines for global info (to calc per-worker lines)
 
 
 /**
@@ -111,7 +112,7 @@ void Statistics::printLiveCountdownLine(unsigned long long waittimeSec)
  * @elapsedSec elapsed seconds since beginning of current benchmark phase.
  */
 void Statistics::printSingleLineLiveStatsLine(const char* phaseName, const char* phaseEntryType,
-	LiveOps& liveOpsPerSec, LiveOps& liveOps, unsigned long long numWorkersLeft,
+	LiveOps& liveOpsPerSec, LiveOps& liveOps, unsigned long long numWorkersLeft, size_t cpuUtil,
 	unsigned long long elapsedSec)
 {
 	const size_t hiddenControlCharsLen = strlen(CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN);
@@ -127,6 +128,7 @@ void Statistics::printSingleLineLiveStatsLine(const char* phaseName, const char*
 			liveOps.numEntriesDone << " " << phaseEntryType << "; " <<
 			liveOps.numBytesDone / (1024*1024) << " MiB; " <<
 			numWorkersLeft << " threads; " <<
+			cpuUtil << "% CPU; " <<
 			elapsedSec << "s";
 	else // show IOPS instead of files/dirs per sec
 		stream << CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN <<
@@ -135,6 +137,7 @@ void Statistics::printSingleLineLiveStatsLine(const char* phaseName, const char*
 			liveOpsPerSec.numBytesDone / (1024*1024) << " MiB/s; " <<
 			liveOps.numBytesDone / (1024*1024) << " MiB; " <<
 			numWorkersLeft << " threads; " <<
+			cpuUtil << "% CPU; " <<
 			elapsedSec << "s";
 
 	std::string lineStr(stream.str() );
@@ -177,6 +180,8 @@ void Statistics::printSingleLineLiveStats()
 	LiveOps lastLiveOps = {};
 	size_t numWorkersDone;
 
+	liveCpuUtil.update();
+
 	disableConsoleBuffering();
 
 	while(true)
@@ -194,11 +199,13 @@ void Statistics::printSingleLineLiveStats()
 		workerManager.checkPhaseTimeLimit();
 
 		unsigned long long numWorkersLeft;
+		size_t cpuUtil = 0;
 
-		// calc numWorkersLeft
+		// calc numWorkersLeft & cpu util
 		if(progArgs.getHostsVec().empty() )
 		{ // local mode
 			numWorkersLeft = workerVec.size() - numWorkersDone;
+			cpuUtil = liveCpuUtil.getCPUUtilPercent();
 		}
 		else
 		{ // remote mode
@@ -209,7 +216,10 @@ void Statistics::printSingleLineLiveStats()
 				RemoteWorker* remoteWorker =  static_cast<RemoteWorker*>(worker);
 				numWorkersLeft -= remoteWorker->getNumWorkersDone();
 				numWorkersLeft -= remoteWorker->getNumWorkersDoneWithError();
+				cpuUtil = remoteWorker->getCPUUtilLive();
 			}
+
+			cpuUtil /= workerVec.size();
 		}
 
 		LiveOps newLiveOps;
@@ -224,7 +234,7 @@ void Statistics::printSingleLineLiveStats()
 		time_t elapsedSec = time(NULL) - startTime;
 
 		printSingleLineLiveStatsLine(phaseName.c_str(), phaseEntryType.c_str(),
-			opsPerSec, newLiveOps, numWorkersLeft, elapsedSec);
+			opsPerSec, newLiveOps, numWorkersLeft, cpuUtil, elapsedSec);
 	}
 
 workers_done:
@@ -273,22 +283,21 @@ void Statistics::printWholeScreenLine(std::ostringstream& stream, unsigned lineL
 void Statistics::printWholeScreenLiveStats()
 {
 	bool ncursesInitialized = false;
-	std::string phaseName = TranslatorTk::benchPhaseToPhaseName(
-		workersSharedData.currentBenchPhase);
-	std::string phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
-		workersSharedData.currentBenchPhase);
-	std::string entryTypeUpperCase =
-		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
-	time_t startTime = time(NULL);
-	LiveOps lastLiveOps = {};
-	size_t numWorkersDone;
-	int winHeight, winWidth;
-	int numFixedHeaderLines = 3; // to calc how many lines are left to show per-worker stats
-	size_t maxNumWorkerLines; // how many lines we have to show per-worker stats
-	size_t numEntriesPerWorker; // total number for this phase
-	uint64_t numBytesPerWorker; // total number for this phase
 
-	workerManager.getPhaseNumEntriesAndBytes(numEntriesPerWorker, numBytesPerWorker);
+	LiveResults liveResults;
+
+	liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
+		workersSharedData.currentBenchPhase);
+	liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
+		workersSharedData.currentBenchPhase);
+	liveResults.entryTypeUpperCase =
+		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
+	liveResults.startTime = time(NULL);
+
+	workerManager.getPhaseNumEntriesAndBytes(
+		liveResults.numEntriesPerWorker, liveResults.numBytesPerWorker);
+
+	liveCpuUtil.update(); // further updates per round in printWholeScreenLiveStatsGlobalInfo()
 
 	while(true)
 	{
@@ -298,7 +307,8 @@ void Statistics::printWholeScreenLiveStats()
 		{
 			bool workersDone = workersSharedData.condition.wait_for(
 				lock, std::chrono::seconds(progArgs.getLiveStatsSleepSec() ),
-				[&, this]{ return workerManager.checkWorkersDoneUnlocked(&numWorkersDone); } );
+				[&, this]
+				{ return workerManager.checkWorkersDoneUnlocked(&liveResults.numWorkersDone); } );
 			if(workersDone)
 				goto workers_done;
 		}
@@ -327,147 +337,22 @@ void Statistics::printWholeScreenLiveStats()
 			ncursesInitialized = true;
 		}
 
-		workerManager.checkPhaseTimeLimit();
+		workerManager.checkPhaseTimeLimit(); // (interrupts workers if time limit exceeded)
 
-		size_t numRemoteThreadsLeft; // only set in remote mode
+		wholeScreenLiveStatsUpdateRemoteInfo(liveResults); // update info for master mode
+		wholeScreenLiveStatsUpdateLiveOps(liveResults); // update live ops and percent done
 
-		if(!progArgs.getHostsVec().empty() )
-		{ // remote mode
-			size_t numRemoteThreadsTotal = workerVec.size() * progArgs.getNumThreads();
-			numRemoteThreadsLeft = numRemoteThreadsTotal;
+		getmaxyx(stdscr, liveResults.winHeight, liveResults.winWidth); // update screen dimensions
 
-			for(Worker* worker : workerVec)
-				numRemoteThreadsLeft -= static_cast<RemoteWorker*>(worker)->getNumWorkersDone();
-		}
+		clear(); // clear screen buffer. (actual screen clear/repaint when refresh() called.)
 
-		LiveOps newLiveOps;
+		// print global info...
+		printWholeScreenLiveStatsGlobalInfo(liveResults);
 
-		getLiveOps(newLiveOps);
+		// print table of per-worker results
+		printWholeScreenLiveStatsWorkerTable(liveResults);
 
-		LiveOps liveOpsPerSec = newLiveOps - lastLiveOps;
-		liveOpsPerSec /= progArgs.getLiveStatsSleepSec();
-
-		lastLiveOps = newLiveOps;
-
-		// if we have bytes in this phase, use them for percent done; otherwise use num entries
-		size_t percentDone = numBytesPerWorker ?
-			(100 * newLiveOps.numBytesDone) / (numBytesPerWorker * workerVec.size() ) :
-			(100 * newLiveOps.numEntriesDone) / (numEntriesPerWorker * workerVec.size() );
-
-		time_t elapsedSec = time(NULL) - startTime;
-
-		getmaxyx(stdscr, winHeight, winWidth); // get current screen dimensions
-
-		maxNumWorkerLines = winHeight - numFixedHeaderLines;
-
-		// clear screen buffer and screen. (screen will be cleared when refresh() is called.)
-		clear();
-
-		// fill curses buffer...
-		std::ostringstream stream;
-
-		stream << boost::format("Phase: %||  Active: %||  Elapsed: %||s")
-			% phaseName
-			% (workerVec.size() - numWorkersDone)
-			% elapsedSec;
-
-		printWholeScreenLine(stream, winWidth, false);
-
-		const char tableHeadlineFormat[] = "%|5| %|3| %|10| %|10| %|10|";
-		const char dirModeTableHeadlineFormat[] = " %|10| %|10|"; // appended to standard table fmt
-		const char remoteTableHeadlineFormat[] = " %|4| %||"; // appended to standard table format
-
-		attron(A_STANDOUT); // highlight table headline
-		stream << boost::format(tableHeadlineFormat)
-			% "Rank"
-			% "%"
-			% "DoneMiB"
-			% "MiB/s"
-			% "IOPS";
-
-		if(progArgs.getBenchPathType() == BenchPathType_DIR)
-		{ // add columns for dir mode
-			stream << boost::format(dirModeTableHeadlineFormat)
-				% entryTypeUpperCase
-				% (entryTypeUpperCase + "/s");
-		}
-
-		if(!progArgs.getHostsVec().empty() )
-		{ // add columns for remote mode
-			stream << boost::format(remoteTableHeadlineFormat)
-				% "Act"
-				% "Service";
-		}
-
-		printWholeScreenLine(stream, winWidth, true);
-		attroff(A_STANDOUT); // disable highlighting
-
-		stream << boost::format(tableHeadlineFormat)
-			% "Total"
-			% percentDone
-			% (newLiveOps.numBytesDone / (1024*1024) )
-			% (liveOpsPerSec.numBytesDone / (1024*1024) )
-			% liveOpsPerSec.numIOPSDone;
-
-		if(progArgs.getBenchPathType() == BenchPathType_DIR)
-		{ // add columns for dir mode
-			stream << boost::format(dirModeTableHeadlineFormat)
-				% newLiveOps.numEntriesDone
-				% liveOpsPerSec.numEntriesDone;
-		}
-
-		if(!progArgs.getHostsVec().empty() )
-		{ // add columns for remote mode
-			stream << boost::format(remoteTableHeadlineFormat)
-				% numRemoteThreadsLeft
-				% "";
-		}
-
-		printWholeScreenLine(stream, winWidth, true);
-
-		// print line for each worker
-		for(size_t i=0; i < std::min(workerVec.size(), maxNumWorkerLines); i++)
-		{
-			LiveOps workerDone; // total numbers
-			LiveOps workerDonePerSec; // difference to last round
-
-			workerVec[i]->getLiveOps(workerDone);
-			workerVec[i]->getAndResetDiffStats(workerDonePerSec);
-
-			workerDonePerSec /= progArgs.getLiveStatsSleepSec();
-
-			// if we have bytes in this phase, use them for percent done; otherwise use num entries
-			size_t workerPercentDone = numBytesPerWorker ?
-				(100 * workerDone.numBytesDone) / numBytesPerWorker :
-				(100 * workerDone.numEntriesDone) / numEntriesPerWorker;
-
-			stream << boost::format(tableHeadlineFormat)
-				% i
-				% workerPercentDone
-				% (workerDone.numBytesDone / (1024*1024) )
-				% (workerDonePerSec.numBytesDone / (1024*1024) )
-				% workerDonePerSec.numIOPSDone;
-
-			if(progArgs.getBenchPathType() == BenchPathType_DIR)
-			{ // add columns for dir mode
-				stream << boost::format(dirModeTableHeadlineFormat)
-					% workerDone.numEntriesDone
-					% workerDonePerSec.numEntriesDone;
-			}
-
-			if(!progArgs.getHostsVec().empty() )
-			{ // add columns for remote mode
-				stream << boost::format(remoteTableHeadlineFormat)
-					% (progArgs.getNumThreads() -
-						static_cast<RemoteWorker*>(workerVec[i])->getNumWorkersDone() )
-					% progArgs.getHostsVec()[i];
-			}
-
-			printWholeScreenLine(stream, winWidth, true);
-		}
-
-		// print prepared buffer to screen
-		refresh();
+		refresh(); // clear and repaint screen
 	}
 
 
@@ -475,6 +360,184 @@ workers_done:
 
 	if(ncursesInitialized)
 		endwin(); // end curses mode
+}
+
+/**
+ * In master mode, update number of remote threads left in liveResults and avg cpu; otherwise do
+ * nothing.
+ */
+void Statistics::wholeScreenLiveStatsUpdateRemoteInfo(LiveResults& liveResults)
+{
+	if(progArgs.getHostsVec().empty() )
+		return; // nothing to do if not in master mode
+
+	size_t numRemoteThreadsTotal = workerVec.size() * progArgs.getNumThreads();
+	liveResults.numRemoteThreadsLeft = numRemoteThreadsTotal;
+
+	liveResults.percentRemoteCPU = 0;
+
+	for(Worker* worker : workerVec)
+	{
+		RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
+		liveResults.numRemoteThreadsLeft -= remoteWorker->getNumWorkersDone();
+		liveResults.percentRemoteCPU += remoteWorker->getCPUUtilLive();
+	}
+
+	liveResults.percentRemoteCPU /= workerVec.size();
+}
+
+/**
+ * Update liveOps and percentDone of liveResults for current round of live stats.
+ */
+void Statistics::wholeScreenLiveStatsUpdateLiveOps(LiveResults& liveResults)
+{
+	getLiveOps(liveResults.newLiveOps);
+
+	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
+	liveResults.liveOpsPerSec /= progArgs.getLiveStatsSleepSec();
+
+	liveResults.lastLiveOps = liveResults.newLiveOps;
+
+	// if we have bytes in this phase, use them for percent done; otherwise use num entries
+	liveResults.percentDone = liveResults.numBytesPerWorker ?
+		(100 * liveResults.newLiveOps.numBytesDone) /
+			(liveResults.numBytesPerWorker * workerVec.size() ) :
+		(100 * liveResults.newLiveOps.numEntriesDone) /
+			(liveResults.numEntriesPerWorker * workerVec.size() );
+}
+
+/**
+ * Print global info lines of whole screen live stats.
+ */
+void Statistics::printWholeScreenLiveStatsGlobalInfo(LiveResults& liveResults)
+{
+	time_t elapsedSec = time(NULL) - liveResults.startTime;
+
+	// update cpu util
+
+	liveCpuUtil.update();
+
+	std::ostringstream stream;
+
+	stream << boost::format("Phase: %||  CPU: %|3|%%  Active: %||  Elapsed: %||s")
+		% liveResults.phaseName
+		% (unsigned) liveCpuUtil.getCPUUtilPercent()
+		% (workerVec.size() - liveResults.numWorkersDone)
+		% elapsedSec;
+
+	printWholeScreenLine(stream, liveResults.winWidth, false);
+}
+
+/**
+ * Print table of per-worker results for whole screen live stats (plus headline and total line).
+ */
+void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
+{
+	const char tableHeadlineFormat[] = "%|5| %|3| %|10| %|10| %|10|";
+	const char dirModeTableHeadlineFormat[] = " %|10| %|10|"; // appended to standard table fmt
+	const char remoteTableHeadlineFormat[] = " %|4| %|3| %||"; // appended to standard table format
+
+	// how many lines we have to show per-worker stats ("+2" for table header and total line)
+	size_t maxNumWorkerLines = liveResults.winHeight - (WHOLESCREEN_GLOBALINFO_NUMLINES + 2);
+
+	std::ostringstream stream;
+
+	// print table headline...
+
+	attron(A_STANDOUT); // highlight table headline
+	stream << boost::format(tableHeadlineFormat)
+		% "Rank"
+		% "%"
+		% "DoneMiB"
+		% "MiB/s"
+		% "IOPS";
+
+	if(progArgs.getBenchPathType() == BenchPathType_DIR)
+	{ // add columns for dir mode
+		stream << boost::format(dirModeTableHeadlineFormat)
+			% liveResults.entryTypeUpperCase
+			% (liveResults.entryTypeUpperCase + "/s");
+	}
+
+	if(!progArgs.getHostsVec().empty() )
+	{ // add columns for remote mode
+		stream << boost::format(remoteTableHeadlineFormat)
+			% "Act"
+			% "CPU"
+			% "Service";
+	}
+
+	printWholeScreenLine(stream, liveResults.winWidth, true);
+	attroff(A_STANDOUT); // disable highlighting
+
+	// print total for all workers...
+
+	stream << boost::format(tableHeadlineFormat)
+		% "Total"
+		% liveResults.percentDone
+		% (liveResults.newLiveOps.numBytesDone / (1024*1024) )
+		% (liveResults.liveOpsPerSec.numBytesDone / (1024*1024) )
+		% liveResults.liveOpsPerSec.numIOPSDone;
+
+	if(progArgs.getBenchPathType() == BenchPathType_DIR)
+	{ // add columns for dir mode
+		stream << boost::format(dirModeTableHeadlineFormat)
+			% liveResults.newLiveOps.numEntriesDone
+			% liveResults.liveOpsPerSec.numEntriesDone;
+	}
+
+	if(!progArgs.getHostsVec().empty() )
+	{ // add columns for remote mode
+		stream << boost::format(remoteTableHeadlineFormat)
+			% liveResults.numRemoteThreadsLeft
+			% liveResults.percentRemoteCPU
+			% "";
+	}
+
+	printWholeScreenLine(stream, liveResults.winWidth, true);
+
+	// print individual worker result lines...
+
+	for(size_t i=0; i < std::min(workerVec.size(), maxNumWorkerLines); i++)
+	{
+		LiveOps workerDone; // total numbers
+		LiveOps workerDonePerSec; // difference to last round
+
+		workerVec[i]->getLiveOps(workerDone);
+		workerVec[i]->getAndResetDiffStats(workerDonePerSec);
+
+		workerDonePerSec /= progArgs.getLiveStatsSleepSec();
+
+		// if we have bytes in this phase, use them for percent done; otherwise use num entries
+		size_t workerPercentDone = liveResults.numBytesPerWorker ?
+			(100 * workerDone.numBytesDone) / liveResults.numBytesPerWorker :
+			(100 * workerDone.numEntriesDone) / liveResults.numEntriesPerWorker;
+
+		stream << boost::format(tableHeadlineFormat)
+			% i
+			% workerPercentDone
+			% (workerDone.numBytesDone / (1024*1024) )
+			% (workerDonePerSec.numBytesDone / (1024*1024) )
+			% workerDonePerSec.numIOPSDone;
+
+		if(progArgs.getBenchPathType() == BenchPathType_DIR)
+		{ // add columns for dir mode
+			stream << boost::format(dirModeTableHeadlineFormat)
+				% workerDone.numEntriesDone
+				% workerDonePerSec.numEntriesDone;
+		}
+
+		if(!progArgs.getHostsVec().empty() )
+		{ // add columns for remote mode
+			RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(workerVec[i]);
+			stream << boost::format(remoteTableHeadlineFormat)
+				% (progArgs.getNumThreads() - remoteWorker->getNumWorkersDone() )
+				% remoteWorker->getCPUUtilLive()
+				% progArgs.getHostsVec()[i];
+		}
+
+		printWholeScreenLine(stream, liveResults.winWidth, true);
+	}
 }
 
 /**
@@ -534,6 +597,7 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_NUMENTRIESDONE, liveOps.numEntriesDone);
 	outTree.put(XFER_STATS_NUMBYTESDONE, liveOps.numBytesDone);
 	outTree.put(XFER_STATS_NUMIOPSDONE, liveOps.numIOPSDone);
+	outTree.put(XFER_STATS_CPUUTIL, (unsigned) liveCpuUtil.getCPUUtilPercent() );
 	outTree.put(XFER_STATS_ELAPSEDSECS, elapsedSecs);
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );
 }
@@ -803,6 +867,30 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 		phaseResults.opsTotal /= workerVec.size();
 	}
 
+	// cpu utilization
+	if(progArgs.getHostsVec().empty() )
+	{ // local mode => use vals from workersSharedData
+		phaseResults.cpuUtilStoneWallPercent =
+			workersSharedData.cpuUtilFirstDone.getCPUUtilPercent();
+		phaseResults.cpuUtilPercent =
+			workersSharedData.cpuUtilLastDone.getCPUUtilPercent();
+	}
+	else
+	{ // master mode => calc average from remote values
+		phaseResults.cpuUtilStoneWallPercent = 0;
+		phaseResults.cpuUtilPercent = 0;
+
+		for(Worker* worker : workerVec)
+		{
+			RemoteWorker* remoteWorker =  static_cast<RemoteWorker*>(worker);
+			phaseResults.cpuUtilStoneWallPercent += remoteWorker->getCPUUtilStoneWall();
+			phaseResults.cpuUtilPercent += remoteWorker->getCPUUtilLastDone();
+		}
+
+		phaseResults.cpuUtilStoneWallPercent /= workerVec.size();
+		phaseResults.cpuUtilPercent /= workerVec.size();
+	}
+
 	return true;
 }
 
@@ -858,19 +946,6 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
-	// IOs (number of blocks read/written)
-	if(phaseResults.opsTotal.numIOPSDone)
-	{
-		if(progArgs.getLogLevel() > Log_NORMAL)
-			outStream << boost::format(Statistics::phaseResultsFormatStr)
-				% ""
-				% "IOs total"
-				% ":"
-				% phaseResults.opsStoneWallTotal.numIOPSDone
-				% phaseResults.opsTotal.numIOPSDone
-				<< std::endl;
-	}
-
 	// bytes per second total for all workers
 	if(phaseResults.opsTotal.numBytesDone)
 	{
@@ -880,6 +955,18 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			% ":"
 			% (phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) )
 			% (phaseResults.opsPerSec.numBytesDone / (1024*1024) )
+			<< std::endl;
+	}
+
+	// cpu utilization
+	if(progArgs.getShowCPUUtilization() )
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% "CPU util %"
+			% ":"
+			% std::to_string( (unsigned) phaseResults.cpuUtilStoneWallPercent)
+			% std::to_string( (unsigned) phaseResults.cpuUtilPercent)
 			<< std::endl;
 	}
 
@@ -905,6 +992,19 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			% (phaseResults.opsStoneWallTotal.numBytesDone / (1024*1024) )
 			% (phaseResults.opsTotal.numBytesDone / (1024*1024) )
 			<< std::endl;
+	}
+
+	// IOs (number of blocks read/written)
+	if(phaseResults.opsTotal.numIOPSDone)
+	{
+		if(progArgs.getLogLevel() > Log_NORMAL)
+			outStream << boost::format(Statistics::phaseResultsFormatStr)
+				% ""
+				% "IOs total"
+				% ":"
+				% phaseResults.opsStoneWallTotal.numIOPSDone
+				% phaseResults.opsTotal.numIOPSDone
+				<< std::endl;
 	}
 
 	// print individual elapsed time results for each worker
@@ -980,16 +1080,6 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
 		"" : std::to_string(phaseResults.opsPerSec.numEntriesDone) );
 
-	// entries
-
-	outLabelsVec.push_back("entries [first]");
-	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
-		"" : std::to_string(phaseResults.opsStoneWallTotal.numEntriesDone) );
-
-	outLabelsVec.push_back("entries [last]");
-	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
-		"" : std::to_string(phaseResults.opsTotal.numEntriesDone) );
-
 	// IOPS
 
 	outLabelsVec.push_back("IOPS [first]");
@@ -1000,16 +1090,6 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 	outResultsVec.push_back(!phaseResults.opsTotal.numIOPSDone ?
 		"" : std::to_string(phaseResults.opsPerSec.numIOPSDone) );
 
-	// I/Os
-
-	outLabelsVec.push_back("I/Os [first]");
-	outResultsVec.push_back(!phaseResults.opsTotal.numIOPSDone ?
-		"" : std::to_string(phaseResults.opsStoneWallTotal.numIOPSDone) );
-
-	outLabelsVec.push_back("I/Os [last]");
-	outResultsVec.push_back(!phaseResults.opsTotal.numIOPSDone ?
-		"" : std::to_string(phaseResults.opsTotal.numIOPSDone) );
-
 	// MiB/s
 
 	outLabelsVec.push_back("MiB/s [first]");
@@ -1019,6 +1099,24 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 	outLabelsVec.push_back("MiB/s [last]");
 	outResultsVec.push_back(!phaseResults.opsTotal.numBytesDone ?
 		"" : std::to_string(phaseResults.opsPerSec.numBytesDone / (1024*1024) ) );
+
+	// cpu utilization
+
+	outLabelsVec.push_back("CPU% [first]");
+	outResultsVec.push_back(std::to_string( (unsigned)phaseResults.cpuUtilStoneWallPercent) );
+
+	outLabelsVec.push_back("CPU% [last]");
+	outResultsVec.push_back(std::to_string( (unsigned)phaseResults.cpuUtilPercent) );
+
+	// entries
+
+	outLabelsVec.push_back("entries [first]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
+		"" : std::to_string(phaseResults.opsStoneWallTotal.numEntriesDone) );
+
+	outLabelsVec.push_back("entries [last]");
+	outResultsVec.push_back(!phaseResults.opsTotal.numEntriesDone ?
+		"" : std::to_string(phaseResults.opsTotal.numEntriesDone) );
 
 	// MiB
 
@@ -1158,6 +1256,10 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_NUMENTRIESDONE, liveOps.numEntriesDone);
 	outTree.put(XFER_STATS_NUMBYTESDONE, liveOps.numBytesDone);
 	outTree.put(XFER_STATS_NUMIOPSDONE, liveOps.numIOPSDone);
+	outTree.put(XFER_STATS_CPUUTIL_STONEWALL,
+		(unsigned) workersSharedData.cpuUtilFirstDone.getCPUUtilPercent() );
+	outTree.put(XFER_STATS_CPUUTIL,
+		(unsigned) workersSharedData.cpuUtilLastDone.getCPUUtilPercent() );
 
 	for(Worker* worker : workerVec)
 	{

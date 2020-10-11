@@ -112,6 +112,8 @@ void ProgArgs::defineAllowedArgs()
 			"Show elapsed time to completion of each I/O worker thread.")
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
+/*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
+			"Show CPU utilization in phase stats results.")
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
 			"Path to file for results in csv format. This way, result can be imported e.g. into "
 			"MS Excel. If the file exists, results will be appended.")
@@ -181,7 +183,7 @@ void ProgArgs::defineAllowedArgs()
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
 			"Disable live statistics.")
 /*not*/	(ARG_PATHNOTSHARED_LONG, bpo::bool_switch(&this->isBenchPathNotShared),
-			"Benchmark paths are not shared between service hosts. Thus, each service host will"
+			"Benchmark paths are not shared between service hosts. Thus, each service host will "
 			"work on its own full dataset instead of a fraction of the data set.")
 /*pe*/	(ARG_PERTHREADSTATS_LONG, bpo::bool_switch(&this->showPerThreadStats),
 			"Show results per thread instead of total for all threads. (Does not apply to live "
@@ -191,7 +193,7 @@ void ProgArgs::defineAllowedArgs()
 /*qu*/	(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
 			"Quit services on given service mode hosts.")
 /*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
-			"Read files. (File paths are known, so no dir entries query in this phase.)")
+			"Read files.")
 /*ra*/	(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
 /*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
@@ -221,7 +223,7 @@ void ProgArgs::defineAllowedArgs()
 			"Number of I/O worker threads. (Default: 1)")
 /*ti*/	(ARG_TIMELIMITSECS_LONG, bpo::value(&this->timeLimitSecs),
 			"Time limit in seconds for each phase. If the limit is exceeded for a phase then no "
-			"further phases will run. 0 disables time limit. (Default: 0)")
+			"further phases will run. (Default: 0 for disabled)")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
 /*ve*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
@@ -298,6 +300,7 @@ void ProgArgs::defineDefaults()
 	this->runSyncPhase = false;
 	this->runDropCachesPhase = false;
 	this->runStatFilesPhase = false;
+	this->showCPUUtilization = false;
 }
 
 /**
@@ -796,7 +799,7 @@ void ProgArgs::parseHosts()
 		std::ifstream hostsFile(hostsFilePath);
 
 		if(!hostsFile)
-			throw ProgException("Unable to read hosts file, Path: " + hostsFilePath);
+			throw ProgException("Unable to read hosts file. Path: " + hostsFilePath);
 
 		hostsStr += " "; // add separator to existing hosts
 
@@ -1079,7 +1082,7 @@ void ProgArgs::printHelpOverview()
 		"Multiple clients:" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPDISTRIBUTED_LONG ENDL
 		std::endl <<
-		"See all available options:" ENDL
+		"See all available options (e.g. csv file output):" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPALLOPTIONS_LONG ENDL
 		std::endl <<
 		"Happy benchmarking!" << std::endl;
@@ -1102,7 +1105,7 @@ void ProgArgs::printHelpBlockDev()
 	std::cout <<
 		"Block device & large shared file testing." ENDL
 		std::endl <<
-		"Usage: ./" EXE_NAME " [OPTIONS] BLOCKDEV [MORE_BLOCKDEVS]" ENDL
+		"Usage: ./" EXE_NAME " [OPTIONS] PATH [MORE_PATHS]" ENDL
 		std::endl;
 
 	bpo::options_description argsBlockdevBasicDescription(
@@ -1110,11 +1113,11 @@ void ProgArgs::printHelpBlockDev()
 
 	argsBlockdevBasicDescription.add_options()
 		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
-			"Write to given block device(s).")
+			"Write to given block device(s) or file(s).")
 		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
-			"Read from given block device(s).")
+			"Read from given block device(s) or file(s).")
 		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
-			"Block device size to use. (Default: 0)")
+			"Block device or file size to use. (Default: 0)")
 		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
 		(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
@@ -1171,8 +1174,13 @@ void ProgArgs::printHelpBlockDev()
 		"    $ " EXE_NAME " -w -b 4K -t 16 --iodepth 16 --direct --rand \\" ENDL
 		"        /dev/nvme0n1 /dev/nvme1n1" ENDL
 		std::endl <<
-		"  Test 1MiB multi-threaded read streaming throughput of device /dev/nvme0n1:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --iodepth 4 --direct /dev/nvme0n1" <<
+		"  Test 1MiB multi-threaded sequential read throughput of device /dev/nvme0n1:" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --iodepth 4 --direct /dev/nvme0n1" ENDL
+		std::endl <<
+		"  Create large file and test random read IOPS for max 20 seconds:" ENDL
+		"    $ " EXE_NAME " -w -b 4M --direct --size 20g /mnt/myfs/file1" ENDL
+		"    $ " EXE_NAME " -r -b 4k -t 16 --iodepth 16 --direct --rand --timelimit 20 \\" ENDL
+		"        /mnt/myfs/file1" <<
 		std::endl;
 }
 
@@ -1193,7 +1201,9 @@ void ProgArgs::printHelpMultiFile()
 		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
 		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
-			"Read files. (File paths are known, so no dir entries query in this phase.)")
+			"Read files.")
+		(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
+			"Stat files.")
 		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
 		(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
@@ -1236,16 +1246,12 @@ void ProgArgs::printHelpMultiFile()
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
 			"given, then worker threads are bound round-robin to the zones. "
 			"(Hint: See 'lscpu' for available NUMA zones.)")
-		(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
-			"Show elapsed time to completion of each I/O worker thread.")
 		(ARG_LATENCYPERCENTILES_LONG, bpo::bool_switch(&this->showLatencyPercentiles),
 			"Show latency percentiles.")
 		(ARG_LATENCYHISTOGRAM_LONG, bpo::bool_switch(&this->showLatencyHistogram),
 			"Show latency histogram.")
 		(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
-		(ARG_IGNORE0USECERR_LONG, bpo::bool_switch(&this->ignore0USecErrors),
-			"Do not warn if worker thread completion time is less than 1 microsecond.")
 	;
 
     std::cout << argsMultiFileMiscDescription << std::endl;
@@ -1261,7 +1267,7 @@ void ProgArgs::printHelpMultiFile()
 #ifdef CUDA_SUPPORT
 		"  As above, but also copy data into memory of first 2 GPUs via CUDA:" ENDL
 		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
-		"      --gpuids 0,1 --cuhostbufreg /data/testdir" ENDL
+		"        --gpuids 0,1 --cuhostbufreg /data/testdir" ENDL
 		std::endl <<
 #endif
 		"  Delete files and directories created by example above:" ENDL
@@ -1346,8 +1352,7 @@ void ProgArgs::printHelpDistributed()
 		"        -t 4 -d -n 8 -w -N 16 -s 1M /data/testdir" ENDL
 		std::endl <<
 		"  Quit services on host node001:" ENDL
-		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 --quit" ENDL
-		std::endl <<
+		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 --quit" <<
 		std::endl;
 }
 

@@ -178,6 +178,9 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		atomicLiveOps.numBytesDone = resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 		atomicLiveOps.numIOPSDone = resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 
+		cpuUtil.stoneWall = resultTree.get<unsigned>(XFER_STATS_CPUUTIL_STONEWALL);
+		cpuUtil.lastDone = resultTree.get<unsigned>(XFER_STATS_CPUUTIL);
+
 		elapsedUSecVec.resize(0);
 		elapsedUSecVec.reserve(progArgs->getNumThreads() );
 
@@ -334,6 +337,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			atomicLiveOps.numEntriesDone = statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE);
 			atomicLiveOps.numBytesDone = statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 			atomicLiveOps.numIOPSDone = statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
+			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
 			IF_UNLIKELY(numWorkersDoneWithError)
 			{

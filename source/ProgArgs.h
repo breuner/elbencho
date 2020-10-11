@@ -83,6 +83,7 @@ namespace bpo = boost::program_options;
 #define ARG_DROPCACHESPHASE_LONG	"dropcache"
 #define ARG_STATFILES_LONG			"stat"
 #define ARG_HOSTSFILE_LONG			"hostsfile"
+#define ARG_CPUUTIL_LONG			"cpu"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -194,6 +195,7 @@ class ProgArgs
 		bool runDropCachesPhase; // run "echo 3>drop_caches" phase to drop kernel page cache
 		bool runStatFilesPhase; // stat files
 		std::string hostsFilePath; // path to file for service hosts
+		bool showCPUUtilization; // show cpu utilization in phase stats results
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -285,6 +287,7 @@ class ProgArgs
 		bool getRunDropCachesPhase() const { return runDropCachesPhase; }
 		bool getRunStatFilesPhase() const { return runStatFilesPhase; }
 		std::string getHostsFilePath() const { return hostsFilePath; }
+		bool getShowCPUUtilization() const { return showCPUUtilization; }
 };
 
 

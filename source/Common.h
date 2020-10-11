@@ -1,9 +1,16 @@
 #ifndef COMMON_H_
 #define COMMON_H_
 
+#include <string>
+#include <unistd.h>
+#include <vector>
+
 typedef std::vector<std::string> StringVec;
 typedef std::vector<int> IntVec;
 typedef std::vector<char*> BufferVec;
+typedef std::vector<size_t> SizeTVec;
+typedef std::vector<uint64_t> UInt64Vec;
+
 
 #define STRINGIZE(value)		_STRINGIZE(value) // 2 levels necessary for macro expansion
 #define _STRINGIZE(value)		#value
@@ -23,7 +30,7 @@ typedef std::vector<char*> BufferVec;
 #define PHASEENTRYTYPE_DIRS		"dirs"
 #define PHASEENTRYTYPE_FILES	"files"
 
-#define HTTP_PROTOCOLVERSION	"1.4.0" // exchanged between client & server to check compatibility
+#define HTTP_PROTOCOLVERSION	"1.4.1" // exchanged between client & server to check compatibility
 
 
 #define SAFE_DELETE(objectPointer) \
