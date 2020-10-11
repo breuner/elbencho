@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v1.4 (TBD)
+## v1.4 (Oct 12, 2020)
 
 ### New Features & Enhancements
 * New phase to sync write buffers to stable storage (--sync).
@@ -13,7 +13,7 @@
 * Reorder CSV file columns for better readability and add CPU utilization info.
 
 ### Contributors
-* Thanks to first time contributor Salvador Martin (HPCNow) for helpful comments.
+* Thanks to first time contributors Salvador Martin (HPCNow), Joe Harlan (Excelero), Wolfgang Szoecs (HPE) for helpful comments.
 
 ## v1.3 (Sep 8, 2020)
 
