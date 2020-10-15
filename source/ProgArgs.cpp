@@ -151,7 +151,7 @@ void ProgArgs::defineAllowedArgs()
 /*ho*/	(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
 			"Comma-separated list of hosts in service mode for coordinated benchmark. When this "
 			"argument is used, this program instance runs in master mode to coordinate the given "
-			"service mode hosts. The given number of threads, dirs and files is per-host then."
+			"service mode hosts. The given number of threads, dirs and files is per-host then. "
 			"(Format: hostname[:port])")
 /*ho*/	(ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
 			"Path to file containing line-separated service hosts to use for benchmark. (Format: "
