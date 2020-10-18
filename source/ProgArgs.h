@@ -85,6 +85,7 @@ namespace bpo = boost::program_options;
 #define ARG_HOSTSFILE_LONG			"hostsfile"
 #define ARG_CPUUTIL_LONG			"cpu"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
+#define ARG_VERSION_LONG			"version"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -108,6 +109,8 @@ class ProgArgs
 		void defineAllowedArgs();
 		bool hasUserRequestedHelp();
 		void printHelp();
+		bool hasUserRequestedVersion();
+		void printVersionAndBuildInfo();
 		void setFromPropertyTree(bpt::ptree& tree);
 		void getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const;
 		void getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const;

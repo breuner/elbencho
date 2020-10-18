@@ -72,7 +72,7 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 	LoggerBase::setFilterLevel( (LogLevel)logLevel);
 
-	if(hasUserRequestedHelp() )
+	if(hasUserRequestedHelp() || hasUserRequestedVersion() )
 		return;
 
 	convertUnitStrings();
@@ -234,6 +234,7 @@ void ProgArgs::defineAllowedArgs()
 			"using the same salt (e.g. \"1\"). Different salt values can be used to ensure "
 			"different contents when running multiple consecutive write and read verifications. "
 			"(Default: 0 for disabled)")
+/*ve*/	(ARG_VERSION_LONG, "Show version and included optional build features and exit.")
 /*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
@@ -1357,6 +1358,44 @@ void ProgArgs::printHelpDistributed()
 		"  Quit services on host node001:" ENDL
 		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 --quit" <<
 		std::endl;
+}
+
+/**
+ * Check if user gave the argument to print version and build info. If this returns true, then the
+ * rest of the settings in this class is not initialized, so may not be used.
+ *
+ * @return true if version info was requested.
+ */
+bool ProgArgs::hasUserRequestedVersion()
+{
+	if(argsVariablesMap.count(ARG_VERSION_LONG) )
+		return true;
+
+	return false;
+}
+
+/**
+ * Print version and included optional build features.
+ */
+void ProgArgs::printVersionAndBuildInfo()
+{
+	std::ostringstream includedStream; // included optional build features
+	std::ostringstream notIncludedStream; // not included optional build features
+
+	std::cout << EXE_NAME << std::endl;
+	std::cout << "Version: " EXE_VERSION << std::endl;
+	std::cout << "Build date: " __DATE__ << " " << __TIME__ << std::endl;
+
+#ifdef CUDA_SUPPORT
+	includedStream << "cuda ";
+#else
+	notIncludedStream << "cuda ";
+#endif
+
+	std::cout << "Included optional build features: " <<
+		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
+	std::cout << "Excluded optional build features: " <<
+		(notIncludedStream.str().empty() ? "-" : notIncludedStream.str() ) << std::endl;
 }
 
 /**

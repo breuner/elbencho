@@ -24,13 +24,13 @@ The built-in help (`elbencho --help`) provides simple examples to get started.
 
 Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
 
-### Install Dependencies for Debian/Ubuntu
+### Dependencies for Debian/Ubuntu
 
 ```bash
 sudo apt install build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian
 ```
 
-### Install Dependencies for RHEL/CentOS 
+### Dependencies for RHEL/CentOS 
 
 ```bash
 sudo yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel rpm-build
@@ -51,7 +51,7 @@ The `scl enable` command enters a shell in which the environment variables are p
 
 ## Build & Install
 
-Start by cloning the main repository.
+Start by cloning the main repository:
 
 ```bash
 git clone https://github.com/breuner/elbencho.git
@@ -60,16 +60,10 @@ cd elbencho
 
 `make help` will show you all build, install and rpm/deb packaging options.
 
-<u>This is the standard build command</u> ("`-j8`" for 8 parallel build threads):
+This is the standard build command ("`-j8`" for 8 parallel build threads):
 
 ```bash
 make -j8
-```
-
-<u>Alternatively, to enable GPU data transfers via CUDA</u> (requires Nvidia CUDA to be installed):
-
-```bash
-make -j8 CUDA_SUPPORT=1
 ```
 
 You can run elbencho directly from the bin subdir (`bin/elbencho`), but you probably want to run `make rpm` or `make deb` now to build a package and install it. On Ubuntu, run this:
@@ -80,6 +74,10 @@ sudo apt install ./packaging/elbencho*.deb
 ```
 
 **There you go. Happy benchmarking!**
+
+### Optional Build Features
+
+Nvidia CUDA support for GPU data transfers will automatically be enabled when CUDA development files (`cuda_runtime.h` and `libcudart.so`) are installed on the build system. Alternatively, elbencho CUDA support can be manually enabled or disabled. See `make help` for details.
 
 ## Now what?
 

@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
 EXE_VER_MINOR      ?= 4
-EXE_VER_PATCHLEVEL ?= 1
+EXE_VER_PATCHLEVEL ?= 2
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -14,6 +14,7 @@ SOURCE_PATH        ?= ./source
 BIN_PATH           ?= ./bin
 EXTERNAL_PATH      ?= ./external
 PACKAGING_PATH     ?= ./packaging
+BUILD_HELPERS_PATH ?= ./build_helpers
 
 INST_PATH          ?= /usr/local/bin
 PKG_INST_PATH      ?= /usr/bin
@@ -48,13 +49,8 @@ CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_DEBUG) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_DEBUG) $(LDFLAGS_EXTRA)
 endif
 
-# CUDA includes and paths
-ifeq ($(CUDA_SUPPORT),1)
-CUDA_PATH   ?= /usr/local/cuda
-CXXFLAGS    += -I $(CUDA_PATH)/include/ -DCUDA_SUPPORT
-CUDA_LIB    := -L $(CUDA_PATH)/lib64/ -lcuda -L $(CUDA_PATH)/lib64/ -lcudart
-LDFLAGS     +=  $(CUDA_LIB) -ldl
-endif
+# Include build helpers for auto detection
+include build_helpers/AutoDetection.mk
 
 
 all: $(SOURCES) $(EXE)
@@ -89,7 +85,7 @@ else
 	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -o $(@)
 endif
 
-$(OBJECTS): | externals
+$(OBJECTS): | externals features-info
 
 externals:
 ifdef BUILD_VERBOSE
@@ -98,7 +94,16 @@ else
 	@$(EXTERNAL_PATH)/prepare-external.sh
 endif
 
-clean: clean-packaging
+features-info:
+ifeq ($(CUDA_SUPPORT),1)
+ ifdef BUILD_VERBOSE
+	$(info [OPT] CUDA support enabled (CUDA_PATH: $(CUDA_PATH)))
+ else
+	$(info [OPT] CUDA support enabled)
+ endif
+endif
+
+clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
 	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED)
 else
@@ -128,7 +133,7 @@ else
 	@bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
 endif
 
-clean-all: clean clean-externals clean-packaging
+clean-all: clean clean-externals clean-packaging clean-buildhelpers
 
 install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
@@ -183,11 +188,13 @@ deb: all clean-packaging
 
 help:
 	@echo 'Optional Arguments:'
-	@echo '   CXX=<string>            - Path to alternative C++ compiler'
-	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags'
-	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags'
-	@echo '   BUILD_VERBOSE=1         - Verbose build output'
-	@echo '   CUDA_SUPPORT=1          - Add support for CUDA to work with GPU memory.'
+	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
+	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
+	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
+	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
+	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
+	@echo '                             CUDA to work with GPU memory. By default, CUDA'
+	@echo '                             support will be enabled when CUDA is installed.'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
@@ -200,8 +207,10 @@ help:
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
 
-.PHONY: externals clean clean-externals clean-packaging clean-all rpm deb help
+.PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers externals features-info \
+rpm deb help
 
+.DEFAULT_GOAL := all
 
 # Include dependency files
 ifneq ($(DEPENDENCY_FILES),)

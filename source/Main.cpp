@@ -19,6 +19,12 @@ int main(int argc, char** argv)
 			return EXIT_SUCCESS;
 		}
 
+		if(progArgs.hasUserRequestedVersion() )
+		{
+			progArgs.printVersionAndBuildInfo();
+			return EXIT_SUCCESS;
+		}
+
 		time_t waittimeSec = progArgs.getStartTime() ? progArgs.getStartTime() - time(NULL) : 0;
 
 		// print original command line
