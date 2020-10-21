@@ -1384,6 +1384,7 @@ void ProgArgs::printVersionAndBuildInfo()
 
 	std::cout << EXE_NAME << std::endl;
 	std::cout << "Version: " EXE_VERSION << std::endl;
+	std::cout << "Net protocol version: " HTTP_PROTOCOLVERSION << std::endl;
 	std::cout << "Build date: " __DATE__ << " " << __TIME__ << std::endl;
 
 #ifdef CUDA_SUPPORT
