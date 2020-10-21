@@ -204,6 +204,8 @@ void Statistics::printSingleLineLiveStats()
 		// calc numWorkersLeft & cpu util
 		if(progArgs.getHostsVec().empty() )
 		{ // local mode
+			liveCpuUtil.update();
+
 			numWorkersLeft = workerVec.size() - numWorkersDone;
 			cpuUtil = liveCpuUtil.getCPUUtilPercent();
 		}
