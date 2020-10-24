@@ -557,7 +557,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 		int eventsRes = io_getevents(ioContext, 1, AIO_MAX_EVENTS, ioEvents, &ioTimeout);
 		IF_UNLIKELY(!eventsRes)
 		{ // timeout expired; that's ok, as we set a short timeout to check interruptions
-			checkInterruptionRequest();
+			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
 			continue;
 		}
 		else
@@ -609,7 +609,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 			atomicLiveOps.numBytesDone += ioEvents[eventIdx].res;
 			atomicLiveOps.numIOPSDone++;
 
-			checkInterruptionRequest();
+			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
 
 			if(!offsetGen->getNumBytesLeftToSubmit() )
 			{

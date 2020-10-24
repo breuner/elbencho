@@ -51,6 +51,7 @@ class Worker
 		void incNumWorkersDoneWithError();
 		void waitForNextPhase(const buuids::uuid& oldBenchID);
 		void checkInterruptionRequest();
+		void checkInterruptionRequest(std::function<void()> func);
 		void applyNumaBinding();
 
 	// inliners

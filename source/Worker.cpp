@@ -55,6 +55,22 @@ void Worker::checkInterruptionRequest()
 }
 
 /**
+ * Check if this worker has been friendly asked to interrupt itself. If it was, then call func
+ * before throwing exception.
+ *
+ * @func function to call before throwing exception if request to interrupt was detected.
+ * @throw WorkerInterruptedException if friendly ask to interrupt has been received.
+ */
+void Worker::checkInterruptionRequest(std::function<void()> func)
+{
+	IF_UNLIKELY(isInterruptionRequested)
+	{
+		func();
+		throw WorkerInterruptedException("Received friendly request to interrupt execution.");
+	}
+}
+
+/**
  * Apply configured NUMA binding to calling worker thread. Do nothing if NUMA binding is not
  * configured.
  *
