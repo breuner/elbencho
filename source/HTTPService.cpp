@@ -299,14 +299,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 		if(iter != query_fields.end() )
 			quitAfterInterrupt = true;
 
-		size_t numWorkersDone;
-
-		bool areWorkersDone = workerManager.checkWorkersDone(&numWorkersDone);
-
-		if(areWorkersDone)
-			workerManager.startNextPhase(BenchPhase_TERMINATE);
-		else
-			workerManager.interruptAndNotifyWorkers();
+		workerManager.interruptAndNotifyWorkers();
 
 		workerManager.joinAllThreads();
 

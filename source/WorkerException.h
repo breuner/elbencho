@@ -27,5 +27,15 @@ class WorkerInterruptedException : public WorkerException
 			WorkerException(errorMessage) {};
 };
 
+/**
+ * For use by class RemoteWorker when a service host worker encountered an error.
+ */
+class WorkerRemoteException : public WorkerException
+{
+	public:
+		explicit WorkerRemoteException(const std::string& errorMessage) :
+			WorkerException(errorMessage) {};
+};
+
 
 #endif /* WORKEREXCEPTION_H_ */

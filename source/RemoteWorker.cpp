@@ -82,6 +82,21 @@ void RemoteWorker::run()
 
 						return;
 					}
+					catch(WorkerRemoteException& e)
+					{ // service host worker encountered error, so try to clean up
+						// actual error is in e.what(), so only debug log level
+						ErrLogger(Log_DEBUG, false, false) << "Remote worker exception. " <<
+							"Rank: " << workerRank << "; " <<
+							"Host: " << host << std::endl;
+
+						interruptBenchPhase(false);
+
+						ErrLogger(Log_NORMAL, false, false) << e.what() << std::endl;
+
+						incNumWorkersDoneWithError();
+
+						return;
+					}
 				} break;
 				default:
 				{ // should never happen
@@ -104,10 +119,12 @@ void RemoteWorker::run()
 			"Rank: " << workerRank << "; " <<
 			"Host: " << host << std::endl;
 
+		// interrupt to free service resources even if phaseFinished==true
+		interruptBenchPhase(false);
+
+		// return here to not increase error counter if service successfully finished its phase
 		if(phaseFinished)
 			return;
-
-		interruptBenchPhase(false);
 	}
 	catch(std::exception& e)
 	{
@@ -342,7 +359,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			IF_UNLIKELY(numWorkersDoneWithError)
 			{
 				std::string errorMsg = statusTree.get<std::string>(XFER_STATS_ERRORHISTORY);
-				throw WorkerException(frameHostErrorMsg(errorMsg) );
+				throw WorkerRemoteException(frameHostErrorMsg(errorMsg) );
 			}
 
 			if(numWorkersDone && !stoneWallTriggered)
