@@ -22,7 +22,11 @@ PKG_INST_PATH      ?= /usr/bin
 CXX                ?= g++
 STRIP              ?= strip
 
-CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBOOST_SPIRIT_THREADSAFE \
+CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
+LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
+
+
+CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
 	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server -Wall \
 	-Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
@@ -30,8 +34,7 @@ CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBOOST_SPIRIT_T
 CXXFLAGS_RELEASE = -O3 -Wuninitialized
 CXXFLAGS_DEBUG   = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON   = -rdynamic -pthread -lrt -lnuma -laio -lncurses -lboost_program_options \
-	-lboost_system  -lboost_thread
+LDFLAGS_COMMON   = -rdynamic -pthread -lrt -lnuma -laio -lncurses $(LDFLAGS_BOOST)
 LDFLAGS_RELASE   = -O3
 LDFLAGS_DEBUG    = -O0
 
