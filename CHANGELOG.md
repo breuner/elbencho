@@ -1,6 +1,20 @@
 # Changelog of elbencho
 
-## v1.4 (Oct 12, 2020)
+## v1.4-2 (TBD)
+
+### New Features & Enhancements
+* Automatically detect availability of CUDA development libs on system and enable support. (Manually enable/disable still possible via Makefile options.)
+* New `--version` parameter to show executable version, network protocol version and included optional build features (such as CUDA support).
+* Move boost.org dependencies to separate Makefile variables (CXXFLAGS_BOOST, LDFLAGS_BOOST) to make it easier for users of custom boost libs.
+
+### Fixes
+* Properly release service host file descriptors and libaio context if benchmark was interrupted by I/O error or ctrl+c.
+* Properly update cpu usage info during single line live stats.
+
+### Contributors
+* Thanks to first time contributors Chin Fang (Zettar) and team for helpful comments.
+
+## v1.4-1 (Oct 12, 2020)
 
 ### New Features & Enhancements
 * New phase to sync write buffers to stable storage (--sync).
