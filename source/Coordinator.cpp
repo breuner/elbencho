@@ -67,10 +67,16 @@ int Coordinator::main()
 		   logged by workers themselves, so we don't print anything here. */
 	}
 	catch(ProgInterruptedException& e)
-	{
+	{ // interrupted by signal, e.g. user pressed ctrl+c
 		Logger() << e.what() << std::endl;
 		workerManager.interruptAndNotifyWorkers();
 		retVal = EXIT_FAILURE;
+	}
+	catch(ProgTimeLimitException& e)
+	{ // user-defined phase time limit expired
+		Logger() << e.what() << std::endl;
+		workerManager.interruptAndNotifyWorkers();
+		// this is a user-defined time limit, not an error, so no retVal=EXIT_FAILURE here.
 	}
 	catch(ProgException& e)
 	{
@@ -123,7 +129,7 @@ void Coordinator::checkInterruptionBetweenPhases()
 		throw ProgInterruptedException("Terminating due to interrupt signal.");
 
 	if(WorkersSharedData::isPhaseTimeExpired)
-		throw ProgInterruptedException("Terminating due to phase time limit.");
+		throw ProgTimeLimitException("Terminating due to phase time limit.");
 }
 
 /**

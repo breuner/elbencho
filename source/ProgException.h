@@ -24,13 +24,22 @@ class ProgException : public std::exception
 };
 
 /**
- * Separate class for different handling when this message is catched (because this is not actually
- * an error, in contrast to a ProgException).
+ * For interruption by signal in main (coordinator) thread, e.g. from user pressing ctrl+c.
  */
 class ProgInterruptedException : public ProgException
 {
 	public:
 		explicit ProgInterruptedException(const std::string& errorMessage) :
+			ProgException(errorMessage) {};
+};
+
+/**
+ * For expired phase time limit in main (coordinator) thread.
+ */
+class ProgTimeLimitException : public ProgException
+{
+	public:
+		explicit ProgTimeLimitException(const std::string& errorMessage) :
 			ProgException(errorMessage) {};
 };
 

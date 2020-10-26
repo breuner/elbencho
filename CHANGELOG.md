@@ -10,6 +10,7 @@
 ### Fixes
 * Properly release service host file descriptors and libaio context if benchmark was interrupted by I/O error or ctrl+c.
 * Properly update cpu usage info during single line live stats.
+* Do not return application error code when phase time limit exceeded.
 
 ### Contributors
 * Thanks to first time contributors Chin Fang (Zettar) and team for helpful comments.
