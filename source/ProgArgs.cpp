@@ -225,7 +225,14 @@ void ProgArgs::defineAllowedArgs()
 			"Number of I/O worker threads. (Default: 1)")
 /*ti*/	(ARG_TIMELIMITSECS_LONG, bpo::value(&this->timeLimitSecs),
 			"Time limit in seconds for each phase. If the limit is exceeded for a phase then no "
-			"further phases will run. (Default: 0 for disabled)")
+			"further phases will run. Exit code will be success (0) when this limit is hit and "
+			"result will be printed. See also --" ARG_TIMELIMITHARDSECS_LONG ". "
+			"(Default: 0 for disabled)")
+/*ti*/	(ARG_TIMELIMITHARDSECS_LONG, bpo::value(&this->timeLimitHardSecs),
+			"Time limit in seconds for each phase. If the limit is exceeded for a phase then no "
+			"further phases will run. In contrast to --" ARG_TIMELIMITSECS_LONG ", the process "
+			"will exit immediately with error return code (1) when this limit is hit and no result "
+			"will be printed. (Default: 0 for disabled)")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
 /*ve*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
@@ -293,6 +300,7 @@ void ProgArgs::defineDefaults()
 	this->showLatencyHistogram = false;
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;
+	this->timeLimitHardSecs = 0;
 	this->noCSVLabels = false;
 	this->assignGPUPerService = false;
 	this->useCuFile = false;
@@ -441,6 +449,10 @@ void ProgArgs::checkArgs()
 	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
 		throw ProgException("Integrity check writes not supported in combination with random "
 				"offsets.");
+
+	if(!hostsVec.empty() && timeLimitHardSecs)
+		throw ProgException("Hard time limit cannot be used in master mode for distributed "
+			"benchmarks.");
 
 	if(!hostsVec.empty() )
 		return;

@@ -18,7 +18,7 @@ class WorkerManager
 		bool checkWorkersDoneUnlocked(size_t* outNumWorkersDone);
 		bool checkWorkersDone(size_t* outNumWorkersDone);
 		void checkPhaseTimeLimitUnlocked();
-		void checkPhaseTimeLimit();
+		void checkPhaseTimeLimit(std::function<void()> hardLimitFunc = [](){} );
 
 		void startNextPhase(BenchPhase newBenchPhase, std::string* benchID = NULL);
 

@@ -339,7 +339,8 @@ void Statistics::printWholeScreenLiveStats()
 			ncursesInitialized = true;
 		}
 
-		workerManager.checkPhaseTimeLimit(); // (interrupts workers if time limit exceeded)
+		workerManager.checkPhaseTimeLimit(
+			[&]() { if(ncursesInitialized) endwin(); } ); // (interrupts workers if time exceeded)
 
 		wholeScreenLiveStatsUpdateRemoteInfo(liveResults); // update info for master mode
 		wholeScreenLiveStatsUpdateLiveOps(liveResults); // update live ops and percent done

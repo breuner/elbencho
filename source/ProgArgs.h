@@ -70,6 +70,7 @@ namespace bpo = boost::program_options;
 #define ARG_TRUNCATE_LONG			"trunc"
 #define ARG_RESULTSFILE_LONG		"resfile"
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
+#define ARG_TIMELIMITHARDSECS_LONG	"timelimithard"
 #define ARG_CSVFILE_LONG			"csvfile"
 #define ARG_NOCSVLABELS_LONG		"nocsvlabels"
 #define ARG_GPUIDS_LONG				"gpuids"
@@ -181,7 +182,8 @@ class ProgArgs
 		bool showLatencyHistogram; // show latency histogram
 		bool doTruncate; // truncate files to 0 size on open for writing
 		std::string resFilePath; // results output file path (or empty for no results file)
-		size_t timeLimitSecs; // time limit in seconds for each phase (0 to disable)
+		size_t timeLimitSecs; // soft time limit in seconds for each phase (0 to disable)
+		size_t timeLimitHardSecs; // hard time limit in seconds for each phase (0 to disable)
 		std::string csvFilePath; // results output file path for csv format (or empty for none)
 		bool noCSVLabels; // true to not print headline with labels to csv file
 		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
@@ -277,6 +279,7 @@ class ProgArgs
 		bool getDoTruncate() const { return doTruncate; }
 		std::string getResFilePath() const { return resFilePath; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
+		size_t getTimeLimitHardSecs() const { return timeLimitHardSecs; }
 		std::string getCSVFilePath() const { return csvFilePath; }
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
 		std::string getGPUIDsStr() const { return gpuIDsStr; }

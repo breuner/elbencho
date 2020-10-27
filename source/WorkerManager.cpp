@@ -89,10 +89,12 @@ bool WorkerManager::checkWorkersDone(size_t* outNumWorkersDone)
 /**
  * Check if the user-defined phase time limit has been exceeded and interrupt workers if it is
  * exceeded.
+ * This will exit(1) if the hard time limit is exceeded.
+ *
  */
 void WorkerManager::checkPhaseTimeLimitUnlocked()
 {
-	if(!progArgs.getTimeLimitSecs() )
+	if(!progArgs.getTimeLimitSecs() && !progArgs.getTimeLimitHardSecs() )
 		return;
 
 	std::chrono::seconds elapsedDurationSecs =
@@ -100,24 +102,37 @@ void WorkerManager::checkPhaseTimeLimitUnlocked()
 					(std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
 	size_t elapsedSecs = elapsedDurationSecs.count();
 
-	IF_UNLIKELY(elapsedSecs >= progArgs.getTimeLimitSecs() )
-	{
+	IF_UNLIKELY(progArgs.getTimeLimitSecs() &&
+		(elapsedSecs >= progArgs.getTimeLimitSecs() ) )
+	{ // soft time limit expired, so send a friendly ask to self-terminate to workers
 		workersSharedData.isPhaseTimeExpired = true;
 		interruptAndNotifyWorkersUnlocked();
+	}
+
+	IF_UNLIKELY(progArgs.getTimeLimitHardSecs() &&
+		(elapsedSecs >= progArgs.getTimeLimitHardSecs() ) )
+	{ // hard time limit expired, so shut down immediately and return error
+		workersSharedData.isPhaseTimeExpired = true;
+		interruptAndNotifyWorkersUnlocked();
+		std::cerr << std::endl << "Hard time limit exceeded." << std::endl;
+		exit(1);
 	}
 }
 
 /**
  * Check if the user-defined phase time limit has been exceeded and interrupt workers if it is
  * exceeded.
+ * This will exit(1) if the hard time limit is exceeded.
+ *
+ * @param hardLimitFunc function to call before exiting based on exceeded hard time limit
  */
-void WorkerManager::checkPhaseTimeLimit()
+void WorkerManager::checkPhaseTimeLimit(std::function<void()> hardLimitFunc)
 {
 	/* note: this does not call checkPhaseTimeLimitUnlocked because there is no reason to have the
 			workersSharedData.mutex locked every time this is called, except in the unlikely event
 			of actually exceeded time limit. */
 
-	if(!progArgs.getTimeLimitSecs() )
+	if(!progArgs.getTimeLimitSecs() && !progArgs.getTimeLimitHardSecs() )
 		return;
 
 	std::chrono::seconds elapsedDurationSecs =
@@ -125,11 +140,23 @@ void WorkerManager::checkPhaseTimeLimit()
 					(std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
 	size_t elapsedSecs = elapsedDurationSecs.count();
 
-	IF_UNLIKELY(elapsedSecs >= progArgs.getTimeLimitSecs() )
-	{
+	IF_UNLIKELY(progArgs.getTimeLimitSecs() &&
+		(elapsedSecs >= progArgs.getTimeLimitSecs() ) )
+	{ // soft time limit expired, so send a friendly ask to self-terminate to workers
 		WorkersSharedData::isPhaseTimeExpired = true;
 		interruptAndNotifyWorkers();
 	}
+
+	IF_UNLIKELY(progArgs.getTimeLimitHardSecs() &&
+		(elapsedSecs >= progArgs.getTimeLimitHardSecs() ) )
+	{ // hard time limit expired, so shut down immediately and return error
+		workersSharedData.isPhaseTimeExpired = true;
+		interruptAndNotifyWorkersUnlocked();
+		hardLimitFunc();
+		std::cerr << std::endl << "Hard time limit exceeded." << std::endl;
+		exit(1);
+	}
+
 }
 
 /**
