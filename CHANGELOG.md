@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v1.4-2 (TBD)
+## v1.4-3 (Oct 30, 2020)
 
 ### New Features & Enhancements
 * Automatically detect availability of CUDA development libs on system and enable support. (Manually enable/disable still possible via Makefile options.)
@@ -13,7 +13,7 @@
 * Do not return application error code when phase time limit exceeded.
 
 ### Contributors
-* Thanks to first time contributors Chin Fang (Zettar) and team for helpful comments.
+* Thanks to first time contributors Chin Fang (Zettar) & team, Michael Chichik (Excelero), Marco Cicala (E4) for helpful comments.
 
 ## v1.4-1 (Oct 12, 2020)
 
