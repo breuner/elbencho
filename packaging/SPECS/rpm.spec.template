@@ -18,3 +18,5 @@ rm -rf %{buildroot}
 
 %files
 %{_bindir}/__NAME__
+%{_sysconfdir}/bash_completion.d/__NAME__
+

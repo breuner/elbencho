@@ -1,0 +1,177 @@
+# elbencho bash completion
+
+# echo shortopts (incl. single dash) and longopts (incl. double dash).
+_elbencho_opts()
+{
+   local shortopts longopts
+
+   shortopts="
+        -b
+        -d
+        -D
+        -F
+        -h
+        -n
+        -N
+        -r
+        -s
+        -t
+        -w
+        "
+
+   longopts="
+        --allelapsed
+        --block
+        --cpu
+        --csvfile
+        --cufile
+        --cufiledriveropen
+        --cuhostbufreg
+        --deldirs
+        --delfiles
+        --direct
+        --dirs
+        --dropcache
+        --files
+        --foreground
+        --gdsbufreg
+        --gpuids
+        --gpuperservice
+        --help
+        --help-all
+        --help-bdev
+        --help-dist
+        --help-multi
+        --hosts
+        --hostsfile
+        --interrupt
+        --iodepth
+        --lat
+        --lathisto
+        --latpercent
+        --log
+        --mkdirs
+        --no0usecerr
+        --nocsvlabels
+        --nodelerr
+        --nodetach
+        --nolive
+        --notshared
+        --perthread
+        --port
+        --quit
+        --rand
+        --randalign
+        --randamount
+        --rankoffset
+        --read
+        --refresh
+        --resfile
+        --service
+        --size
+        --start
+        --stat
+        --svcupint
+        --sync
+        --threads
+        --timelimit
+        --trunc
+        --verify
+        --version
+        --write
+        --zones
+        "
+
+    echo "$shortopts $longopts"
+}
+
+_elbencho() 
+{
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    
+    opts="$(_elbencho_opts)"
+ 
+    case "${prev}" in
+        # options that take a string argument
+        -b)
+        ;&
+        --block)
+        ;&
+        --dirs)
+        ;&
+        --files)
+        ;&
+        --gpuids)
+        ;&
+        --iodepth)
+        ;&
+        --log)
+        ;&
+        -N)
+        ;&
+        -n)
+        ;&
+        --port)
+        ;&
+        --randamount)
+        ;&
+        --rankoffset)
+        ;&
+        --refresh)
+        ;&
+        -s)
+        ;&
+        --size)
+        ;&
+        --start)
+        ;&
+        --svcupint)
+        ;&
+        -t)
+        ;&
+        --threads)
+        ;&
+        --timelimit)
+        ;&
+        --verify)
+        ;&
+        --zones)
+            return 0
+        ;;
+
+        # options that take a file/dir argument
+        --csvfile)
+        ;&
+        --hostsfile)
+        ;&
+        --resfile)
+            compopt -o filenames 2>/dev/null
+            COMPREPLY=( $(compgen -f ${cur}) )
+            return 0
+        ;;
+
+        # options that take a hostname argument
+        --hosts)
+            compopt -o nospace 2>/dev/null
+            COMPREPLY=( $(compgen -A hostname ${cur}) )
+            return 0
+        ;;
+
+        # all others
+        *)
+        ;;
+    esac
+
+    if [[ "${cur}" = -* ]]; then
+        compopt -o filenames 2>/dev/null
+        COMPREPLY=( $(compgen -f -W "${opts}" -- ${cur}) )
+    else
+        compopt -o filenames 2>/dev/null
+        COMPREPLY=( $(compgen -f -W "" -- ${cur}) )
+    fi
+}
+
+complete -F _elbencho elbencho

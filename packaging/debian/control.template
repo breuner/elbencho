@@ -9,6 +9,6 @@ Priority: optional
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Storage benchmark tool
- Storage benchmark for file, directory operations and block device operations.
+ Unified storage benchmark for file, directory and block device operations.
  Runs on single host or distributed across multiple hosts and supports GPUs.
 

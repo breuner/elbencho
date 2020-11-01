@@ -155,11 +155,27 @@ install: all
 uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
 
-rpm: all clean-packaging
+# prepare generic part of build-root (not the .rpm or .deb specific part)
+prepare-buildroot: | all clean-packaging
+	@echo "[PACKAGING] PREPARE BUILDROOT"
+
 	mkdir -p $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 
+	# copy main executable
 	cp --preserve $(EXE) $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
-	
+
+	# copy contents of dist subdir
+	for dir in $(shell find dist/ -mindepth 1 -type d -printf "%P\n"); do \
+		mkdir -p $(PACKAGING_PATH)/BUILDROOT/$$dir; \
+	done
+
+	for file in $(shell find dist/ -mindepth 1 -type f -printf "%P\n"); do \
+		cp --preserve dist/$$file $(PACKAGING_PATH)/BUILDROOT/$$file; \
+	done
+
+rpm: | prepare-buildroot
+	@echo "[PACKAGING] PREPARE RPM PACKAGE"
+
 	cp $(PACKAGING_PATH)/SPECS/rpm.spec.template $(PACKAGING_PATH)/SPECS/rpm.spec
 	sed -i "s/__NAME__/$(EXE_NAME)/" $(PACKAGING_PATH)/SPECS/rpm.spec
 	sed -i "s/__VERSION__/$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)/" \
@@ -172,12 +188,10 @@ rpm: all clean-packaging
 	@echo "All done. Your package is here:"
 	@find $(PACKAGING_PATH)/RPMS -name $(EXE_NAME)*.rpm
 
-deb: all clean-packaging
-	mkdir -p $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
-	
+deb: | prepare-buildroot
+	@echo "[PACKAGING] PREPARE DEB PACKAGE"
+
 	cp -r $(PACKAGING_PATH)/debian $(PACKAGING_PATH)/BUILDROOT
-	
-	cp --preserve $(EXE) $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 	
 	cp $(PACKAGING_PATH)/BUILDROOT/debian/control.template \
 		$(PACKAGING_PATH)/BUILDROOT/debian/control
@@ -221,8 +235,8 @@ help:
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
 
-.PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers externals features-info \
-rpm deb help
+.PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
+features-info help prepare-buildroot rpm
 
 .DEFAULT_GOAL := all
 

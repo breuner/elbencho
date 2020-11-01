@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * New support for Nvidia GPUDirect Storage (GDS) via cuFile API (--cufile & --gdsbufreg).
+* New bash completion support in deb/rpm packages to complete parameters via tab key.
 
 ## v1.4-3 (Oct 30, 2020)
 
