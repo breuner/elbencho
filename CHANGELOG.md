@@ -6,6 +6,9 @@
 * New support for Nvidia GPUDirect Storage (GDS) via cuFile API (--cufile & --gdsbufreg).
 * New bash completion support in deb/rpm packages to complete parameters via tab key.
 
+### Fixes
+* Disable phase time limit for sync and cache drop phase, as the low level calls in these phases are blocking.
+
 ## v1.4-3 (Oct 30, 2020)
 
 ### New Features & Enhancements

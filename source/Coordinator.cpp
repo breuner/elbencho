@@ -166,11 +166,18 @@ void Coordinator::runBenchmarkPhase(BenchPhase newBenchPhase)
  */
 void Coordinator::runSyncAndDropCaches()
 {
+	// temporarily disable phase time limit, as sync and cache drop cannot be interrupted this way
+	size_t oldTimeLimitTecs = progArgs.getTimeLimitSecs();
+	progArgs.setTimeLimitSecs(0);
+
 	if(progArgs.getRunSyncPhase() )
 		runBenchmarkPhase(BenchPhase_SYNC);
 
 	if(progArgs.getRunDropCachesPhase() )
 		runBenchmarkPhase(BenchPhase_DROPCACHES);
+
+	// restore user-defined phase time limit
+	progArgs.setTimeLimitSecs(oldTimeLimitTecs);
 }
 
 /**

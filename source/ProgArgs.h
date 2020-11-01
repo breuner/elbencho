@@ -277,6 +277,7 @@ class ProgArgs
 		bool getDoTruncate() const { return doTruncate; }
 		std::string getResFilePath() const { return resFilePath; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
+		void setTimeLimitSecs(size_t timeLimitSecs) { this->timeLimitSecs = timeLimitSecs; }
 		std::string getCSVFilePath() const { return csvFilePath; }
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
 		std::string getGPUIDsStr() const { return gpuIDsStr; }
