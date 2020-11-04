@@ -401,11 +401,17 @@ void Statistics::wholeScreenLiveStatsUpdateLiveOps(LiveResults& liveResults)
 	liveResults.lastLiveOps = liveResults.newLiveOps;
 
 	// if we have bytes in this phase, use them for percent done; otherwise use num entries
-	liveResults.percentDone = liveResults.numBytesPerWorker ?
-		(100 * liveResults.newLiveOps.numBytesDone) /
-			(liveResults.numBytesPerWorker * workerVec.size() ) :
-		(100 * liveResults.newLiveOps.numEntriesDone) /
+	if(liveResults.numBytesPerWorker)
+		liveResults.percentDone =
+			(100 * liveResults.newLiveOps.numBytesDone) /
+			(liveResults.numBytesPerWorker * workerVec.size() );
+	else
+	if(liveResults.numEntriesPerWorker)
+		liveResults.percentDone =
+			(100 * liveResults.newLiveOps.numEntriesDone) /
 			(liveResults.numEntriesPerWorker * workerVec.size() );
+	else
+		liveResults.percentDone = 0; // no % available in phases like "sync" or "dropcaches"
 }
 
 /**

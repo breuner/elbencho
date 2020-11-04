@@ -8,6 +8,7 @@
 
 ### Fixes
 * Disable phase time limit for sync and cache drop phase, as the low level calls in these phases are blocking.
+* Avoid possible division by 0 with enable live stats in sync and cache drop phase.
 
 ## v1.4-3 (Oct 30, 2020)
 
