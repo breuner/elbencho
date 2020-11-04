@@ -516,10 +516,15 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 
 		workerDonePerSec /= progArgs.getLiveStatsSleepSec();
 
+		size_t workerPercentDone = 0;
+
 		// if we have bytes in this phase, use them for percent done; otherwise use num entries
-		size_t workerPercentDone = liveResults.numBytesPerWorker ?
-			(100 * workerDone.numBytesDone) / liveResults.numBytesPerWorker :
-			(100 * workerDone.numEntriesDone) / liveResults.numEntriesPerWorker;
+		// (note: phases like sync and drop_caches have neither bytes nor entries)
+		if(liveResults.numBytesPerWorker)
+			workerPercentDone = (100 * workerDone.numBytesDone) / liveResults.numBytesPerWorker;
+		else
+		if(liveResults.numEntriesPerWorker)
+			workerPercentDone = (100 * workerDone.numEntriesDone) / liveResults.numEntriesPerWorker;
 
 		stream << boost::format(tableHeadlineFormat)
 			% i
