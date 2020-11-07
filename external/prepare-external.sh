@@ -1,6 +1,6 @@
 #!/bin/bash
 
-REQUIRED_TAG="v3.1"
+REQUIRED_TAG="v3.1.1"
 
 # change to external subdir if we were called from somewhere else
 cd $(dirname $0)

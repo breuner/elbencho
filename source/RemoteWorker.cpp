@@ -269,7 +269,7 @@ void RemoteWorker::preparePhase()
 	catch(Web::system_error& e)
 	{
 		throw WorkerException(
-			std::string("HTTP client error in preparation phase: ") + e.what() + ". "
+			std::string("Communication error in preparation phase: ") + e.what() + ". "
 			"Server: " + host);
 	}
 }
