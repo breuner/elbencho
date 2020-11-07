@@ -100,17 +100,21 @@ endif
 features-info:
 ifeq ($(CUFILE_SUPPORT),1)
  ifdef BUILD_VERBOSE
-	$(info [OPT] CUFILE (GDS) support enabled (CUFILE_PATH: $(CUFILE_PATH)))
+	$(info [OPT] CUFILE (GDS) support enabled (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH)))
  else
 	$(info [OPT] CUFILE (GDS) support enabled)
  endif
+else
+	$(info [OPT] CUFILE (GDS) support disabled)
 endif
 ifeq ($(CUDA_SUPPORT),1)
  ifdef BUILD_VERBOSE
-	$(info [OPT] CUDA support enabled (CUDA_PATH: $(CUDA_PATH)))
+	$(info [OPT] CUDA support enabled (CUFILE_INCLUDE_PATH: $(CUFILE_INCLUDE_PATH)))
  else
 	$(info [OPT] CUDA support enabled)
  endif
+else
+	$(info [OPT] CUDA support disabled)
 endif
 
 clean: clean-packaging clean-buildhelpers
