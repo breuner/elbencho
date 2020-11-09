@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
 EXE_VER_MINOR      ?= 5
-EXE_VER_PATCHLEVEL ?= 1
+EXE_VER_PATCHLEVEL ?= 2
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -100,7 +100,7 @@ endif
 features-info:
 ifeq ($(CUFILE_SUPPORT),1)
  ifdef BUILD_VERBOSE
-	$(info [OPT] CUFILE (GDS) support enabled (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH)))
+	$(info [OPT] CUFILE (GDS) support enabled (CUFILE_INCLUDE_PATH: $(CUFILE_INCLUDE_PATH)))
  else
 	$(info [OPT] CUFILE (GDS) support enabled)
  endif
@@ -109,7 +109,7 @@ else
 endif
 ifeq ($(CUDA_SUPPORT),1)
  ifdef BUILD_VERBOSE
-	$(info [OPT] CUDA support enabled (CUFILE_INCLUDE_PATH: $(CUFILE_INCLUDE_PATH)))
+	$(info [OPT] CUDA support enabled (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH)))
  else
 	$(info [OPT] CUDA support enabled)
  endif
