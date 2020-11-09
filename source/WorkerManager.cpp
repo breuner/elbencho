@@ -7,18 +7,7 @@
 
 WorkerManager::~WorkerManager()
 {
-	// cleanup allocated thread objects
-	for(std::thread* thread : threadGroup)
-		delete(thread);
-
-	threadGroup.resize(0);
-
-	// cleanup allocated worker objects
-	for(Worker* worker : workerVec)
-		delete(worker);
-
-	workerVec.resize(0);
-
+	cleanupThreads();
 }
 
 /**
@@ -133,72 +122,94 @@ void WorkerManager::checkPhaseTimeLimit()
 }
 
 /**
- * Kill all old threads, wait for their termination and prepare a new set of threads according to
- * the number given in progArgs.
+ * Prepare a new set of threads according to the number given in progArgs.
  * (Also initializes basics of workersSharedData and set workersSharedData.phaseStartT to now.)
  *
- * In local or master mode, this will be called only once at the beginning. In service mode, this
- * will be called for each new bench preparation message.
+ * In local or master mode, this will be called only once at the beginning.
+ * In service mode, this will be called for each new bench preparation message. Use cleanupThreads()
+ * to delete the threads of the previous round before changing progArgs and calling this.
+ *
+ * This will return after the workers have finished their preparation phase.
+ *
+ * @throw WorkerException in case of error during worker preparation phase.
  */
 void WorkerManager::prepareThreads()
 {
-	interruptAndNotifyWorkers();
-	joinAllThreads();
-
-	// cleanup allocated thread objects
-	for(std::thread* thread : threadGroup)
-		delete(thread);
-
-	threadGroup.resize(0);
 	threadGroup.reserve(progArgs.getHostsVec().empty() ?
 			progArgs.getNumThreads() : progArgs.getHostsVec().size() );
-
-	// cleanup allocated worker objects
-	for(Worker* worker : workerVec)
-		delete(worker);
-
-	workerVec.resize(0);
 	workerVec.reserve(progArgs.getHostsVec().empty() ?
 		progArgs.getNumThreads() : progArgs.getHostsVec().size() );
 
-    workersSharedData.threadGroup = &threadGroup;
-    workersSharedData.progArgs = &progArgs;
-    workersSharedData.workerVec = &workerVec;
-    workersSharedData.phaseStartT = std::chrono::steady_clock::now();
-    workersSharedData.currentBenchID = buuids::nil_uuid(); // workers expect this as prep phase ID
+	workersSharedData.threadGroup = &threadGroup;
+	workersSharedData.progArgs = &progArgs;
+	workersSharedData.workerVec = &workerVec;
+	workersSharedData.phaseStartT = std::chrono::steady_clock::now();
+	workersSharedData.currentBenchID = buuids::nil_uuid(); // workers expect this as prep phase ID
 
 	workersSharedData.resetNumWorkersDoneUnlocked();
 
-    if(progArgs.getHostsVec().empty() )
-    { // we're running in local or service mode, so create LocalWorkers
+	if(progArgs.getHostsVec().empty() )
+	{ // we're running in local or service mode, so create LocalWorkers
 
-    	for(size_t i=0; i < progArgs.getNumThreads(); i++)
+		for(size_t i=0; i < progArgs.getNumThreads(); i++)
 		{
 			Worker* newWorker = new LocalWorker(&workersSharedData, progArgs.getRankOffset() + i);
 			workerVec.push_back(newWorker);
-
-			std::thread* thread = new std::thread(Worker::threadStart, workerVec[i] );
-			threadGroup.push_back(thread);
 		}
-    }
-    else
-    { // we're running in maser mode, so create one RemoteWorker for each host
-    	const StringVec& hostsVec = progArgs.getHostsVec();
+	}
+	else
+	{ // we're running in maser mode, so create one RemoteWorker for each host
+		const StringVec& hostsVec = progArgs.getHostsVec();
 
 		for(size_t i=0; i < hostsVec.size(); i++)
 		{
 			Worker* newWorker = new RemoteWorker(
 				&workersSharedData, progArgs.getRankOffset() + i, hostsVec[i] );
 			workerVec.push_back(newWorker);
-
-			std::thread* thread = new std::thread(Worker::threadStart, workerVec[i] );
-			threadGroup.push_back(thread);
 		}
-    }
+	}
 
-	// make sure all worker threads are ready & able before we return
+	// run worker threads
+	for(size_t i=0; i < workerVec.size(); i++)
+	{
+		std::thread* thread = new std::thread(Worker::threadStart, workerVec[i] );
+		threadGroup.push_back(thread);
+	}
+
+	// temporarily disable phase time limit, as it makes no sense for worker preparation phase
+	size_t oldTimeLimitTecs = progArgs.getTimeLimitSecs();
+	progArgs.setTimeLimitSecs(0);
+
+	// wait for workers to finish their preparation phase before returning
 	waitForWorkersDone();
+
+	// restore user-defined phase time limit
+	progArgs.setTimeLimitSecs(oldTimeLimitTecs);
 }
+
+/**
+ * Delete all worker threads objects.
+ *
+ * Caller must ensure that all threads are stopped (e.g. via joinAllThreads() ).
+ *
+ * This is separate from prepareWorkers, because inside prepareWorkers would create problems when
+ * progArgs get changed in service mode.
+ */
+void WorkerManager::cleanupThreads()
+{
+	// cleanup allocated thread objects
+	for(std::thread* thread : threadGroup)
+		delete(thread);
+
+	threadGroup.resize(0);
+
+	// cleanup allocated worker objects
+	for(Worker* worker : workerVec)
+		delete(worker);
+
+	workerVec.resize(0);
+}
+
 
 /**
  * Join all threads in threadGroup and wait for them to terminate.

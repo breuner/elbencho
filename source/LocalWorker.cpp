@@ -18,58 +18,10 @@
 
 LocalWorker::~LocalWorker()
 {
-	SAFE_DELETE(offsetGen);
-
-#ifdef CUFILE_SUPPORT
-	// cleanup in case of exception in file/bdev mode.
-	// note: calling this is ok even if already deregistered or never registered.
-	// note: we call this directly to not rely on funcCuFileHandleDereg being initialized.
-	cuFileHandleData.deregisterHandle();
-
-	// deregister GPU buffers for DMA
-	for(char* gpuIOBuf : gpuIOBufVec)
-	{
-		if(!progArgs->getUseCuFile() || !gpuIOBuf ||!progArgs->getUseGPUBufReg() )
-			continue;
-
-		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
-
-		if(deregRes.err != CU_FILE_SUCCESS)
-			std::cerr << "ERROR: GPU DMA buffer deregistration via cuFileBufDeregister failed. "
-				"GPU ID: " << gpuID << "; "
-				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl;
-	}
-#endif
-
-#ifdef CUDA_SUPPORT
-	// cuda-free gpu memory buffers
-	for(char* gpuIOBuf : gpuIOBufVec)
-	{
-		if(gpuIOBuf)
-			cudaFree(gpuIOBuf);
-	}
-
-	// cuda-unregister host buffers
-	if(progArgs->getUseCuHostBufReg() && !progArgs->getGPUIDsVec().empty() )
-	{
-		for(char* ioBuf : ioBufVec)
-		{
-			if(!ioBuf)
-				continue;
-
-			cudaError_t unregRes = cudaHostUnregister(ioBuf);
-
-			if(unregRes != cudaSuccess)
-				std::cerr << "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
-					"GPU ID: " << gpuID << "; "
-					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl;
-		}
-	}
-#endif
-
-	// free host memory buffers
-	for(char* ioBuf : ioBufVec)
-		SAFE_FREE(ioBuf);
+	/* note: Most of the cleanup is done in cleanup() instead of here, because we need to release
+	 	handles etc. before the destructor is called. This is because in service mode, this object
+		needs to survive to provide statistics and might only get deleted when the next benchmark
+		run starts, but we can't keep the handles until then. */
 }
 
 
@@ -77,6 +29,8 @@ LocalWorker::~LocalWorker()
  * Entry point for the thread.
  * Kick off the work that this worker has to do. Each phase is sychronized to wait for notification
  * by coordinator.
+ *
+ * Ensure that cleanup() is called when this method finishes.
  */
 void LocalWorker::run()
 {
@@ -483,6 +437,70 @@ void LocalWorker::allocGPUIOBuffer()
 	}
 
 #endif // CUFILE_SUPPORT
+}
+
+/**
+ * Release all allocated objects, handles etc.
+ *
+ * This needs to be called when run() ends. The things in here would usually be done in the
+ * destructor, but especially in service mode we need this object to still exist (to query phase
+ * results) while all ressources need to be released, because this object will only be deleted when
+ * the next benchmark starts.
+ */
+void LocalWorker::cleanup()
+{
+	SAFE_DELETE(offsetGen);
+
+#ifdef CUFILE_SUPPORT
+	// cleanup cuFileHandleData here in case of exception in file/bdev mode.
+	// note: calling this is ok even if already deregistered or never registered.
+	// note: we call this directly to not rely on funcCuFileHandleDereg being initialized.
+	cuFileHandleData.deregisterHandle();
+
+	// deregister GPU buffers for DMA
+	for(char* gpuIOBuf : gpuIOBufVec)
+	{
+		if(!progArgs->getUseCuFile() || !gpuIOBuf || !progArgs->getUseGPUBufReg() )
+			continue;
+
+		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
+
+		if(deregRes.err != CU_FILE_SUCCESS)
+			std::cerr << "ERROR: GPU DMA buffer deregistration via cuFileBufDeregister failed. "
+				"GPU ID: " << gpuID << "; "
+				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl;
+	}
+#endif
+
+#ifdef CUDA_SUPPORT
+	// cuda-free gpu memory buffers
+	for(char* gpuIOBuf : gpuIOBufVec)
+	{
+		if(gpuIOBuf)
+			cudaFree(gpuIOBuf);
+	}
+
+	// cuda-unregister host buffers
+	if(progArgs->getUseCuHostBufReg() && !progArgs->getGPUIDsVec().empty() )
+	{
+		for(char* ioBuf : ioBufVec)
+		{
+			if(!ioBuf)
+				continue;
+
+			cudaError_t unregRes = cudaHostUnregister(ioBuf);
+
+			if(unregRes != cudaSuccess)
+				std::cerr << "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
+					"GPU ID: " << gpuID << "; "
+					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl;
+		}
+	}
+#endif
+
+	// free host memory buffers
+	for(char* ioBuf : ioBufVec)
+		SAFE_FREE(ioBuf);
 }
 
 /**

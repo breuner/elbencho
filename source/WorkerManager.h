@@ -12,6 +12,7 @@ class WorkerManager
 		~WorkerManager();
 
 		void prepareThreads();
+		void cleanupThreads();
 		void interruptAndNotifyWorkers();
 		void joinAllThreads();
 		void waitForWorkersDone();

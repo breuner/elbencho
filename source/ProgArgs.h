@@ -186,6 +186,7 @@ class ProgArgs
 		bool noCSVLabels; // true to not print headline with labels to csv file
 		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
 		IntVec gpuIDsVec; // gpuIDsStr broken down into individual GPU IDs
+		std::string gpuIDsServiceOverride; // set in service mode with override for gpu IDs
 		bool assignGPUPerService; // assign GPUs from gpuIDsVec round robin per service
 		bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
 		bool useGDSBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
@@ -282,6 +283,7 @@ class ProgArgs
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
 		std::string getGPUIDsStr() const { return gpuIDsStr; }
 		const IntVec& getGPUIDsVec() const { return gpuIDsVec; }
+		std::string getGPUIDsServiceOverride() const { return gpuIDsServiceOverride; }
 		bool getAssignGPUPerService() const { return assignGPUPerService; }
 		bool getUseCuFile() const { return useCuFile; }
 		bool getUseGPUBufReg() const { return useGDSBufReg; }

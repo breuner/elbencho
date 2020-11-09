@@ -9,6 +9,7 @@
 void Worker::threadStart(Worker* worker)
 {
 	worker->run();
+	worker->cleanup();
 }
 
 

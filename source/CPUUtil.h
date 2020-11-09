@@ -28,6 +28,10 @@ class CPUUtil
 		{
 			const float idleCPUTimeDelta = currentIdleCPUTime - lastIdleCPUTime;
 			const float totalCPUTimeDelta = currentTotalCPUTime - lastTotalCPUTime;
+
+			if(!totalCPUTimeDelta)
+				return 0; // should not happen: no time passed, return 0 to avoid div by 0 below
+
 			const float cpuUtilPercent = 100.0 * (1.0 - (idleCPUTimeDelta / totalCPUTimeDelta) );
 
 			return cpuUtilPercent;

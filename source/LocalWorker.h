@@ -51,6 +51,9 @@ class LocalWorker : public Worker
 
 		~LocalWorker();
 
+	protected:
+		virtual void run() override;
+		virtual void cleanup() override;
 
 	private:
 	    std::mt19937_64 randGen{std::random_device()() }; // random_device is just for random seed
@@ -73,8 +76,6 @@ class LocalWorker : public Worker
 		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
 		CUFILE_HANDLE_DEREGISTER funcCuFileHandleDereg; // cuFile handle deregister
 		FileOffsetGenerator* offsetGen{NULL}; // offset generator for phase-dependent funcs
-
-		virtual void run() override;
 
 		void finishPhase();
 

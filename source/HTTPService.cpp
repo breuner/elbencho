@@ -221,6 +221,9 @@ void HTTPService::defineServerResources(HttpServer& server)
 				running workers first) */
 			workerManager.interruptAndNotifyWorkers();
 			workerManager.joinAllThreads();
+			workerManager.cleanupThreads();
+
+			progArgs.resetBenchPath();
 
 			LoggerBase::clearErrHistory();
 
@@ -242,10 +245,23 @@ void HTTPService::defineServerResources(HttpServer& server)
 		}
 		catch(const std::exception& e)
 		{
+			/* we will not get another interrupt or stop from master when prep fails, because the
+				corresponding RemoteWorker on master terminates on prep error reply, so we need to
+				clean up and release everything here before replying. */
+
+			workerManager.interruptAndNotifyWorkers();
+			workerManager.joinAllThreads();
+
+			progArgs.resetBenchPath();
+
 			std::stringstream stream;
-			stream << e.what();
+
+			stream << "Preparation phase error: " << e.what() << std::endl <<
+				LoggerBase::getErrHistory();
+
 			response->write(Web::StatusCode::client_error_bad_request, stream);
-			std::cerr << stream.str() << std::endl;
+
+			//std::cerr << "Preparation phase error: " << stream.str() << std::endl;
 		}
 	};
 
@@ -444,6 +460,11 @@ void HTTPService::daemonize()
 	// if we got here, we successfully daemonized into background
 
 	LOGGER(Log_NORMAL, "Running in background. PID: " << getpid() << std::endl);
+
+	std::string gpuIDsServiceOverride = progArgs.getGPUIDsServiceOverride();
+	if(!gpuIDsServiceOverride.empty() )
+		LOGGER(Log_NORMAL, "NOTE: GPU IDs given. These GPU IDs will be used instead of any "
+			"GPU ID list provided by master. GPU IDs: " << gpuIDsServiceOverride << std::endl);
 }
 
 /**

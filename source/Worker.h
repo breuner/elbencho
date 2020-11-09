@@ -46,6 +46,7 @@ class Worker
 		LatencyHistogram entriesLatHisto; // entry latency histogram (valid only at phase end)
 
 		virtual void run() = 0;
+		virtual void cleanup() {}; // cleanup that needs to be done after run()
 
 		void incNumWorkersDone();
 		void incNumWorkersDoneWithError();

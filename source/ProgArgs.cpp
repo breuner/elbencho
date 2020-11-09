@@ -160,8 +160,10 @@ void ProgArgs::defineAllowedArgs()
 #ifdef CUDA_SUPPORT
 /*gp*/	(ARG_GPUIDS_LONG, bpo::value(&this->gpuIDsStr),
 			"Comma-separated list of CUDA GPU IDs to use for buffer allocation. If no other "
-			"option for GPU buffers is selected, then read/write timings will include copy "
+			"option for GPU buffers is given then read/write timings will include copy "
 			"to/from GPU buffers. GPU IDs will be assigned round robin to different threads. "
+			"When this is given in service mode then the given list will override any list given "
+			"by the master, which can be used to bind specific service instances to specific GPUs. "
 			"(Hint: CUDA GPU IDs are 0-based.)")
 /*gp*/	(ARG_GPUPERSERVICE_LONG, bpo::bool_switch(&this->assignGPUPerService),
 			"Assign GPUs round robin to service instances (i.e. one GPU per service) instead of "
@@ -361,6 +363,14 @@ void ProgArgs::checkArgs()
 		// service mode and host list for coordinated master mode are mutually exclusive
 		if(!hostsStr.empty() )
 			throw ProgException("Service mode and host list definition are mutually exclusive.");
+
+		// override of GPU IDs
+		if(!gpuIDsStr.empty() )
+		{
+			LOGGER(Log_NORMAL, "NOTE: GPU IDs given. These GPU IDs will be used instead of any GPU "
+				"ID list provided by master." << std::endl);
+			gpuIDsServiceOverride = gpuIDsStr;
+		}
 
 		return;
 	}
@@ -1503,6 +1513,10 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 
 	checkPathDependentArgs();
 
+	// apply GPU IDs override if given
+	if(!gpuIDsStr.empty() && !gpuIDsServiceOverride.empty() )
+		gpuIDsStr = gpuIDsServiceOverride;
+
 	parseGPUIDs();
 }
 
@@ -1618,7 +1632,8 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 }
 
 /**
- * Reset benchmark path and close associated file descriptors (incl. cuFile driver).
+ * Reset benchmark path, close associated file descriptors (incl. cuFile driver) and free/reset
+ * any other resources that are associated with the previous benchmark phase.
  */
 void ProgArgs::resetBenchPath()
 {
@@ -1627,6 +1642,8 @@ void ProgArgs::resetBenchPath()
 			cuFileHandleData.deregisterHandle();
 
 	cuFileHandleDataVec.resize(0); // reset before reuse in service mode
+	gpuIDsVec.resize(0); // reset before reuse in service mode
+	gpuIDsStr = ""; // reset before reuse in service mode
 
 	// close open file descriptors
 	for(int fd : benchPathFDsVec)
