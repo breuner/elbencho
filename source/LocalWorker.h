@@ -97,6 +97,8 @@ class LocalWorker : public Worker
 		void anyModeDropCaches();
 
 		int getDirModeOpenFlags(BenchPhase benchPhase);
+		int dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
+			unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileSize);
 
 		// for phase function pointers...
 

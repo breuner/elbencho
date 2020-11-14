@@ -1163,12 +1163,8 @@ void LocalWorker::dirModeIterateFiles()
 
 			if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
 			{
-				int fd = openat(pathFDs[pathFDsIndex], currentPath.data(), openFlags, MKFILE_MODE);
-
-				IF_UNLIKELY(fd == -1)
-					throw WorkerException(std::string("File open failed. ") +
-						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
-						"SysErr: " + strerror(errno) );
+				int fd = dirModeOpenAndPrepFile(benchPhase, pathFDs, pathFDsIndex,
+					currentPath.data(), openFlags, fileSize);
 
 				// try-block to ensure that fd is closed in case of exception
 				try
@@ -1390,6 +1386,76 @@ int LocalWorker::getDirModeOpenFlags(BenchPhase benchPhase)
 		openFlags |= O_DIRECT;
 
 	return openFlags;
+}
+
+/**
+ * Open file and prepare it for the actual IO, e.g. by truncating or preallocating it to
+ * user-requested size.
+ *
+ * @benchPhase current benchmark phase.
+ * @pathFDs progArgs->getBenchPathFDs.
+ * @pathFDsIndex current index in pathFDs.
+ * @relativePath path to open, relative to pathFD.
+ * @openFlags as returned by getDirModeOpenFlags().
+ * @fileSize progArgs->getFileSize().
+ * @return filedescriptor of open file.
+ * @throw WorkerException on error, in which case file is guaranteed to be closed.
+ */
+int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
+		unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileSize)
+{
+	int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
+
+	IF_UNLIKELY(fd == -1)
+		throw WorkerException(std::string("File open failed. ") +
+			"Path: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath + "; "
+			"SysErr: " + strerror(errno) );
+
+	// try block to ensure file close on error
+	try
+	{
+		if(benchPhase == BenchPhase_CREATEFILES)
+		{
+			if(progArgs->getDoTruncToSize() )
+			{
+				int truncRes = ftruncate(fd, fileSize);
+				if(truncRes == -1)
+					throw WorkerException("Unable to set file size through ftruncate. "
+						"Path: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath +
+							"; "
+						"Size: " + std::to_string(fileSize) + "; "
+						"SysErr: " + strerror(errno) );
+			}
+
+			if(progArgs->getDoPreallocFile() )
+			{
+				// (note: posix_fallocate does not set errno.)
+				int preallocRes = posix_fallocate(fd, 0, fileSize);
+				if(preallocRes != 0)
+					throw WorkerException(
+						"Unable to preallocate file size through posix_fallocate. "
+						"File: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath +
+							"; "
+						"Size: " + std::to_string(fileSize) + "; "
+						"SysErr: " + strerror(preallocRes) );
+			}
+		}
+
+		return fd;
+	}
+	catch(WorkerException& e)
+	{
+		int closeRes = close(fd);
+
+		if(closeRes == -1)
+			ERRLOGGER(Log_NORMAL, "File close failed. " <<
+				"Path: " << progArgs->getBenchPaths()[pathFDsIndex] << "/" << relativePath <<
+					"; " <<
+				"FD: " << std::to_string(fd) << "; " <<
+				"SysErr: " << strerror(errno) << std::endl);
+
+		throw;
+	}
 }
 
 /**

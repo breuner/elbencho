@@ -86,6 +86,8 @@ namespace bpo = boost::program_options;
 #define ARG_CPUUTIL_LONG			"cpu"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_VERSION_LONG			"version"
+#define ARG_TRUNCTOSIZE_LONG		"trunctosize"
+#define ARG_PREALLOCFILE_LONG		"preallocfile"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -202,6 +204,8 @@ class ProgArgs
 		std::string hostsFilePath; // path to file for service hosts
 		bool showCPUUtilization; // show cpu utilization in phase stats results
 		size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
+		bool doTruncToSize; // truncate files to size on creation via ftruncate()
+		bool doPreallocFile; // prealloc file space on creation via posix_fallocate()
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -297,6 +301,8 @@ class ProgArgs
 		std::string getHostsFilePath() const { return hostsFilePath; }
 		bool getShowCPUUtilization() const { return showCPUUtilization; }
 		size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
+		bool getDoTruncToSize() const { return doTruncToSize; }
+		bool getDoPreallocFile() const { return doPreallocFile; }
 };
 
 

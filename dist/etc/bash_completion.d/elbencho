@@ -59,6 +59,7 @@ _elbencho_opts()
         --notshared
         --perthread
         --port
+        --preallocfile
         --quit
         --rand
         --randalign
@@ -76,6 +77,7 @@ _elbencho_opts()
         --threads
         --timelimit
         --trunc
+        --trunctosize
         --verify
         --version
         --write

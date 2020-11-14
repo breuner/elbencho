@@ -211,6 +211,8 @@ void ProgArgs::defineAllowedArgs()
 			"stats.)")
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
+/*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
+			"Preallocate file disk space on creation via posix_fallocate().")
 /*qu*/	(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
 			"Quit services on given service mode hosts.")
 /*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
@@ -249,6 +251,10 @@ void ProgArgs::defineAllowedArgs()
 			"further phases will run. (Default: 0 for disabled)")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
+/*tr*/	(ARG_TRUNCTOSIZE_LONG, bpo::bool_switch(&this->doTruncToSize),
+			"Truncate files to given --" ARG_FILESIZE_LONG " via ftruncate() when opening for "
+			"writing. If the file previously was larger then the remainder is discarded. This flag "
+			"is automatically enabled when --" ARG_RANDOMOFFSETS_LONG " is given.")
 /*ve*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
 			"Enable data integrity check. Writes sum of given 64bit salt plus current 64bit offset "
 			"as file or block device content, which can afterwards be verified in a read phase "
@@ -326,6 +332,8 @@ void ProgArgs::defineDefaults()
 	this->runStatFilesPhase = false;
 	this->showCPUUtilization = false;
 	this->svcUpdateIntervalMS = 500;
+	this->doTruncToSize = false;
+	this->doPreallocFile = false;
 }
 
 /**
@@ -733,7 +741,7 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			fileSize = currentFileSize;
 		}
 
-		if( (fileSize > (uint64_t)currentFileSize) && !runCreateFilesPhase)
+		if(!runCreateFilesPhase && ( (uint64_t)currentFileSize < fileSize) )
 			throw ProgException("Given size to use is larger than detected size. "
 				"File: " + path + "; "
 				"Detected size: " + std::to_string(currentFileSize) + "; "
@@ -741,26 +749,6 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 
 		if(runCreateFilesPhase)
 		{
-			// truncate file to given size in random mode, so reads will work across full length
-			if(useRandomOffsets)
-			{
-				// check if current file size is smaller than given size
-				if( (size_t)currentFileSize < fileSize)
-				{ // increase file size
-					LOGGER(Log_VERBOSE,
-						"Truncating file to full size. "
-						"Path: " << path << "; "
-						"Size: " << currentFileSize << std::endl);
-
-					int truncRes = ftruncate(fd, fileSize);
-					if(truncRes == -1)
-						throw ProgException("Unable to set file size through ftruncate. "
-							"File: " + path + "; "
-							"Size: " + std::to_string(fileSize) + "; "
-							"SysErr: " + strerror(errno) );
-				}
-			}
-
 			// truncate file to 0. (make sure to keep this after all other file size checks.)
 			if(doTruncate)
 			{
@@ -772,8 +760,44 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 						"SysErr: " + strerror(errno) );
 			}
 
-		}
+			// truncate file to given size if set by user or when running in random mode
+			// (note: in random mode for reads to work across full length)
+			if(doTruncToSize ||
+				(useRandomOffsets && ( (size_t)currentFileSize < fileSize) ) )
+			{
+				LOGGER(Log_VERBOSE,
+					"Truncating file to full size. "
+					"Path: " << path << "; "
+					"Size: " << currentFileSize << std::endl);
 
+				int truncRes = ftruncate(fd, fileSize);
+				if(truncRes == -1)
+					throw ProgException("Unable to set file size through ftruncate. "
+						"File: " + path + "; "
+						"Size: " + std::to_string(fileSize) + "; "
+						"SysErr: " + strerror(errno) );
+			}
+
+			// preallocate file blocks if set by user
+			if(doPreallocFile)
+			{
+				LOGGER(Log_DEBUG,
+					"Preallocating file blocks. "
+					"Path: " << path << "; "
+					"Size: " << currentFileSize << std::endl);
+
+				// (note: posix_fallocate does not set errno.)
+				int preallocRes = posix_fallocate(fd, 0, fileSize);
+				if(preallocRes != 0)
+					throw ProgException(
+						"Unable to preallocate file disk space through posix_fallocate. "
+						"File: " + path + "; "
+						"Size: " + std::to_string(fileSize) + "; "
+						"SysErr: " + strerror(preallocRes) );
+			}
+		} // end of runCreateFilesPhase
+
+		// warn when reading sparse (or compressed) files
 		if(runReadPhase && !runCreateFilesPhase)
 		{
 			// let user know about reading sparse/compressed files
@@ -781,10 +805,10 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			if( (statBuf.st_blocks * 512) < currentFileSize)
 				LOGGER(Log_NORMAL,
 					"NOTE: Allocated file disk space smaller than file size. File seems sparse or "
-					"compressed. (Perform sequential write to fill sparse areas.) "
+					"compressed. (Sequential write can fill sparse areas.) "
 					"Path: " << path << "; "
 					"File size: " << currentFileSize << "; "
-					"Allocated size: " << statBuf.st_blocks << std::endl);
+					"Allocated size: " << (statBuf.st_blocks * 512) << std::endl);
 		}
 	}
 
@@ -1501,6 +1525,8 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);
 	runDropCachesPhase = tree.get<bool>(ARG_DROPCACHESPHASE_LONG);
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
+	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
+	doPreallocFile = tree.get<bool>(ARG_PREALLOCFILE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1555,6 +1581,8 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
 	outTree.put(ARG_DROPCACHESPHASE_LONG, runDropCachesPhase);
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
+	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);
+	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
 
 
 	// dynamically calculated values for service hosts...
