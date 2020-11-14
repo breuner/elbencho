@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v1.5.2 (TBD)
+## v1.5.3 (Nov 15, 2020)
 
 ### Fixes
 * Fixed typos in Makefile related to automatic detection of CUDA path.
