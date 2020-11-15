@@ -1351,7 +1351,8 @@ void LocalWorker::fileModeIterateFiles()
 
 			int unlinkRes = unlink(path.c_str() );
 
-			if( (unlinkRes == -1) && ( (errno != ENOENT) || !progArgs->getIgnoreDelErrors() ) )
+			// (note: all threads try to delete all files, so ignore ENOENT)
+			if( (unlinkRes == -1) && (errno != ENOENT) )
 				throw WorkerException(std::string("File delete failed. ") +
 					"Path: " + path + "; "
 					"SysErr: " + strerror(errno) );

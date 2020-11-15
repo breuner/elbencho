@@ -148,7 +148,8 @@ void ProgArgs::defineAllowedArgs()
 			ARG_SYNCPHASE_LONG "\", because only data on stable storage can be dropped from cache. "
 			"Note for distributed file systems that this only drops caches on the clients where "
 			"elbencho runs, but there might still be cached data on the server.")
-/*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->runDeleteFilesPhase),
+/*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT,
+			bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
 /*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
@@ -262,7 +263,8 @@ void ProgArgs::defineAllowedArgs()
 			"different contents when running multiple consecutive write and read verifications. "
 			"(Default: 0 for disabled)")
 /*ve*/	(ARG_VERSION_LONG, "Show version and included optional build features and exit.")
-/*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
+/*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT,
+			bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
@@ -632,9 +634,13 @@ void ProgArgs::prepareBenchPathFDsVec()
 			throw ProgException("Refusing to work with directories in /dev: " + path);
 
 		if( (benchPathType != BenchPathType_DIR) &&
-			(runCreateDirsPhase || runDeleteDirsPhase || runDeleteFilesPhase) )
-			throw ProgException("Delete and directory create options are only allowed if benchmark "
+			(runCreateDirsPhase || runDeleteDirsPhase) )
+			throw ProgException("Directory create and delete options are only allowed if benchmark "
 				"path is a directory.");
+
+		if( (benchPathType == BenchPathType_BLOCKDEV) && runDeleteFilesPhase)
+			throw ProgException("File delete option is not allowed if benchmark path is a block "
+				"device.");
 
 		if( (benchPathType == BenchPathType_DIR) && !numDirs)
 			throw ProgException("Number of directories may not be zero");
