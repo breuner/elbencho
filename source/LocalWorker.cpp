@@ -733,7 +733,7 @@ void LocalWorker::noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset)
 }
 
 /**
- * Fill buf with 64bit values made of offset plus integrityCheckBase.
+ * Fill buf with unsigned 64bit values made of offset plus integrity check salt.
  *
  * @bufLen buf len to fill with checksums
  * @fileOffset file offset for buf
@@ -747,9 +747,9 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
 	size_t numBytesLeft = bufLen;
 	off_t currentOffset = fileOffset;
 
-	/* note: offset and nbytes are not guaranteed to be a multiple of uint64_t (e.g. if blocksize is
-	   1B), so to allow reading with different blocksize later, we only copy the relevant part of
-	   the uint64_t. */
+	/* note: fileOffset and bufLen are not guaranteed to be a multiple of uint64_t (e.g. if
+	   blocksize is 1 byte). We also want to support writes and verficiation reads to use different
+	   block size (bufLen). So we only copy the relevant part of the uint64_t to buf. */
 
 	while(numBytesLeft)
 	{
@@ -758,7 +758,7 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
 
 		// (note: after the 1st loop pass, the remaining offsets will be 8 byte aligned.)
 
-		// 8 byte aligned offset for checksum value calculation
+		// 8 byte aligned offset as basis for checksum value calculation
 		off_t checkSumStartOffset = currentOffset - (currentOffset % checkSumLen);
 
 		uint64_t checkSum = checkSumStartOffset + checkSumSalt;
@@ -776,7 +776,7 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
 }
 
 /**
- * Verify buffer contents are according to preWriteIntegrityCheckFullBuf.
+ * Verify buffer contents as counterpart to preWriteIntegrityCheckFillBuf.
  *
  * @bufLen buf len to fill with checksums
  * @fileOffset file offset for buf
