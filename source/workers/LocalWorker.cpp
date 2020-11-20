@@ -245,6 +245,18 @@ void LocalWorker::initPhaseFunctionPointers()
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
 	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
 	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
+	const bool doDirectVerify = progArgs->getDoDirectVerify();
+
+	funcRWBlockSized = NULL;
+	funcPositionalRW = NULL;
+	funcAioRwPrepper = NULL;
+	funcPreWriteCudaMemcpy = NULL;
+	funcPostReadCudaMemcpy = NULL;
+	funcPreWriteCudaMemcpy = NULL;
+	funcPreWriteIntegrityCheck = NULL;
+	funcPostReadIntegrityCheck = NULL;
+	funcCuFileHandleReg = NULL;
+	funcCuFileHandleDereg = NULL;
 
 	if(benchPhase == BenchPhase_CREATEFILES)
 	{
@@ -253,7 +265,8 @@ void LocalWorker::initPhaseFunctionPointers()
 
 		funcPositionalRW = useCuFileAPI ?
 			&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
-		funcAioRwPrepper = &io_prep_pwrite;
+
+		funcAioRwPrepper = (ioDepth == 1) ? NULL : &io_prep_pwrite;
 
 		funcPreWriteCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
 			&LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
@@ -265,6 +278,19 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcPreWriteIntegrityCheck = integrityCheckEnabled ?
 			&LocalWorker::preWriteIntegrityCheckFillBuf : &LocalWorker::noOpIntegrityCheck;
 		funcPostReadIntegrityCheck = &LocalWorker::noOpIntegrityCheck;
+
+		if(doDirectVerify)
+		{
+			if(!useCuFileAPI)
+				funcPositionalRW = &LocalWorker::pWriteAndReadWrapper;
+			else
+			{
+				funcPositionalRW = &LocalWorker::cuFileWriteAndReadWrapper;
+				funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
+			}
+
+			funcPostReadIntegrityCheck = &LocalWorker::postReadIntegrityCheckVerifyBuf;
+		}
 	}
 	else // BenchPhase_READFILES (and others which don't use these function pointers)
 	{
@@ -273,7 +299,8 @@ void LocalWorker::initPhaseFunctionPointers()
 
 		funcPositionalRW = useCuFileAPI ?
 			&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
-		funcAioRwPrepper = &io_prep_pread;
+
+		funcAioRwPrepper = (ioDepth == 1) ? NULL : &io_prep_pread;
 
 		funcPreWriteCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
 		funcPostReadCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
@@ -963,6 +990,19 @@ ssize_t LocalWorker::pwriteWrapper(int fd, void* buf, size_t nbytes, off_t offse
 }
 
 /**
+ * Wrapper for positional sync write followed by an immediate read of the same block.
+ */
+ssize_t LocalWorker::pWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+{
+	ssize_t pwriteRes = pwrite(fd, buf, nbytes, offset);
+
+	IF_UNLIKELY(pwriteRes <= 0)
+		return pwriteRes;
+
+	return pread(fd, buf, pwriteRes, offset);
+}
+
+/**
  * Wrapper for positional sync cuFile read.
  *
  * @fd ignored, using cuFileHandleData.cfr_handle instead.
@@ -991,6 +1031,25 @@ ssize_t LocalWorker::cuFileWriteWrapper(int fd, void* buf, size_t nbytes, off_t 
 		"API support");
 #else
 	return cuFileWrite(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+#endif
+}
+
+/**
+ * Wrapper for positional sync cuFile write followed by an immediate cuFile read of the same block.
+ */
+ssize_t LocalWorker::cuFileWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+{
+#ifndef CUFILE_SUPPORT
+	throw WorkerException("cuFileWriteAndReadWrapper called, but this executable was built without "
+		"cuFile API support");
+#else
+	ssize_t writeRes =
+		cuFileWrite(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+
+	IF_UNLIKELY(writeRes <= 0)
+		return writeRes;
+
+	return cuFileRead(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], writeRes, offset, 0);
 #endif
 }
 

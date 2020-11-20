@@ -80,6 +80,7 @@ _elbencho_opts()
         --trunc
         --trunctosize
         --verify
+        --verifydirect
         --version
         --write
         --zones

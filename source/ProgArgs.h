@@ -89,6 +89,7 @@ namespace bpo = boost::program_options;
 #define ARG_TRUNCTOSIZE_LONG		"trunctosize"
 #define ARG_PREALLOCFILE_LONG		"preallocfile"
 #define ARG_DIRSHARING_LONG			"dirsharing"
+#define ARG_VERIFYDIRECT_LONG		"verifydirect"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -209,6 +210,7 @@ class ProgArgs
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		bool doPreallocFile; // prealloc file space on creation via posix_fallocate()
 		bool doDirSharing; // workers use same dirs in dir mode (instead of unique dir per worker)
+		bool doDirectVerify; // verify data integrity by reading immediately after write
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -308,6 +310,7 @@ class ProgArgs
 		bool getDoTruncToSize() const { return doTruncToSize; }
 		bool getDoPreallocFile() const { return doPreallocFile; }
 		bool getDoDirSharing() const { return doDirSharing; }
+		bool getDoDirectVerify() const { return doDirectVerify; }
 };
 
 

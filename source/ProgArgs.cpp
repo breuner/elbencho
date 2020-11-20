@@ -269,7 +269,10 @@ void ProgArgs::defineAllowedArgs()
 			"using the same salt (e.g. \"1\"). Different salt values can be used to ensure "
 			"different contents when running multiple consecutive write and read verifications. "
 			"(Default: 0 for disabled)")
-/*ve*/	(ARG_VERSION_LONG, "Show version and included optional build features and exit.")
+/*ve*/	(ARG_VERIFYDIRECT_LONG, bpo::bool_switch(&this->doDirectVerify),
+			"Verify data integrity by reading each block directly after writing. Use together with "
+			"\"--" ARG_INTEGRITYCHECK_LONG "\", \"--" ARG_CREATEFILES_LONG "\".")
+/*ve*/	(ARG_VERSION_LONG, "Show version and included optional build features.")
 /*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT,
 			bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
@@ -344,6 +347,7 @@ void ProgArgs::defineDefaults()
 	this->doTruncToSize = false;
 	this->doPreallocFile = false;
 	this->doDirSharing = false;
+	this->doDirectVerify = false;
 }
 
 /**
@@ -493,7 +497,14 @@ void ProgArgs::checkArgs()
 
 	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
 		throw ProgException("Integrity check writes not supported in combination with random "
-				"offsets.");
+			"offsets.");
+
+	if(doDirectVerify && (!integrityCheckSalt || !runCreateFilesPhase) )
+		throw ProgException("Direct verification requires --" ARG_INTEGRITYCHECK_LONG " and "
+			"--" ARG_CREATEFILES_LONG);
+
+	if(doDirectVerify && (ioDepth > 1) )
+		throw ProgException("Direct verification cannot be used together with --" ARG_IODEPTH_LONG);
 
 	if(!hostsVec.empty() )
 		return;
@@ -1566,6 +1577,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	doPreallocFile = tree.get<bool>(ARG_PREALLOCFILE_LONG);
 	doDirSharing = tree.get<bool>(ARG_DIRSHARING_LONG);
+	doDirectVerify = tree.get<bool>(ARG_VERIFYDIRECT_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1623,6 +1635,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);
 	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
 	outTree.put(ARG_DIRSHARING_LONG, doDirSharing);
+	outTree.put(ARG_VERIFYDIRECT_LONG, doDirectVerify);
 
 
 	// dynamically calculated values for service hosts...

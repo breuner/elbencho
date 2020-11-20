@@ -115,8 +115,10 @@ class LocalWorker : public Worker
 
 		ssize_t preadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t pwriteWrapper(int fd, void* buf, size_t nbytes, off_t offset);
+		ssize_t pWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileWriteWrapper(int fd, void* buf, size_t nbytes, off_t offset);
+		ssize_t cuFileWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 
 		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
 		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);

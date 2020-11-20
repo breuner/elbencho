@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v1.6.4 (work in progress)
+
+### New Features & Enhancements
+* New option to verify data by reading directly after writing (--verifydirect).
+
 ## v1.6.3 (Dec 12, 2020)
 
 ### New Features & Enhancements
