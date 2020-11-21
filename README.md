@@ -7,8 +7,8 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 ## Features
 
 * Unified latency, throughput, IOPS benchmark for file and block storage
-* Supports local and shared storage through service mode
-* For modern NVMe storage or classic spinning disk storage, on-prem and in the cloud
+* Supports local and shared storage through distributed service mode
+* For modern NVMe storage or classic spinning disk storage
 * GPU storage access performance testing through Nvidia CUDA or GPUDirect Storage (GDS)
 * Live statistics show how the system behaves under load
 * Multi-threaded and async I/O support through libaio

@@ -25,7 +25,7 @@
 * Disable phase time limit for sync and cache drop phase, as the low level calls in these phases are blocking.
 * Disable phase time limit for worker preparation phase, as a time limit makes no sense in this phase.
 * Avoid possible division by 0 with enable live stats in sync and cache drop phase.
-* Poperly release GPU resources at end of benchmark phase in service mode.
+* Properly release GPU resources at end of benchmark phase in service mode.
 * Update automatic path detection during make for GDS v0.9 beta release.
 
 ## v1.4-3 (Oct 30, 2020)
