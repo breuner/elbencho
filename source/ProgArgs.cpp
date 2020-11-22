@@ -142,6 +142,11 @@ void ProgArgs::defineAllowedArgs()
 			"Create directories. (Already existing dirs are not treated as error.)")
 /*di*/	(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
 			"Use direct IO.")
+/*di*/	(ARG_DIRSHARING_LONG, bpo::bool_switch(&this->doDirSharing),
+			"If benchmark path is a directory, all threads create their files in the same dirs "
+			"instead of using unique dirs for each thread. In this case, --" ARG_NUMDIRS_LONG " "
+			"defines the total number of dirs for all threads instead of the number of dirs for "
+			"each thread.")
 /*dr*/	(ARG_DROPCACHESPHASE_LONG, bpo::bool_switch(&this->runDropCachesPhase),
 			"Drop linux file system page cache, dentry cache and inode cache before/after each "
 			"benchmark phase. Requires root privileges. This should be used together with \"--"
@@ -204,9 +209,9 @@ void ProgArgs::defineAllowedArgs()
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
 			"Disable live statistics.")
-/*not*/	(ARG_PATHNOTSHARED_LONG, bpo::bool_switch(&this->isBenchPathNotShared),
-			"Benchmark paths are not shared between service hosts. Thus, each service host will "
-			"work on its own full dataset instead of a fraction of the data set.")
+/*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
+			"Benchmark paths are not shared between service instances. Thus, each service instance "
+			"will work on its own full dataset instead of a fraction of the data set.")
 /*pe*/	(ARG_PERTHREADSTATS_LONG, bpo::bool_switch(&this->showPerThreadStats),
 			"Show results per thread instead of total for all threads. (Does not apply to live "
 			"stats.)")
@@ -307,7 +312,7 @@ void ProgArgs::defineDefaults()
 	this->servicePort = ARGDEFAULT_SERVICEPORT;
 	this->interruptServices = false;
 	this->quitServices = false;
-	this->isBenchPathNotShared = false;
+	this->noSharedServicePath = false;
 	this->rankOffset = 0;
 	this->logLevel = Log_NORMAL;
 	this->showAllElapsed = false;
@@ -336,6 +341,7 @@ void ProgArgs::defineDefaults()
 	this->svcUpdateIntervalMS = 500;
 	this->doTruncToSize = false;
 	this->doPreallocFile = false;
+	this->doDirSharing = false;
 }
 
 /**
@@ -1422,7 +1428,7 @@ void ProgArgs::printHelpDistributed()
 		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
 
 	argsDistributedMiscDescription.add_options()
-		(ARG_PATHNOTSHARED_LONG, bpo::bool_switch(&this->isBenchPathNotShared),
+		(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service hosts. Thus, each service host will"
 			"work on the full given dataset instead of its own fraction of the data set.")
 		(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
@@ -1533,6 +1539,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	doPreallocFile = tree.get<bool>(ARG_PREALLOCFILE_LONG);
+	doDirSharing = tree.get<bool>(ARG_DIRSHARING_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1589,16 +1596,17 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);
 	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
+	outTree.put(ARG_DIRSHARING_LONG, doDirSharing);
 
 
 	// dynamically calculated values for service hosts...
 
-	size_t remoteRankOffset = getIsBenchPathShared() ?
+	size_t remoteRankOffset = getIsServicePathShared() ?
 		rankOffset + (workerRank * numThreads) : rankOffset;
 
 	outTree.put(ARG_RANKOFFSET_LONG, remoteRankOffset);
 
-	size_t remoteNumDataSetThreads = getIsBenchPathShared() ?
+	size_t remoteNumDataSetThreads = getIsServicePathShared() ?
 		numThreads * hostsVec.size() : numThreads;
 
 	outTree.put(ARG_NUMDATASETTHREADS_LONG, remoteNumDataSetThreads);
@@ -1658,7 +1666,7 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 	outValuesVec.push_back(std::to_string(ioDepth) );
 
 	outLabelsVec.push_back("shared paths");
-	outValuesVec.push_back(hostsVec.empty() ? "" : std::to_string(getIsBenchPathShared() ) );
+	outValuesVec.push_back(hostsVec.empty() ? "" : std::to_string(getIsServicePathShared() ) );
 
 	outLabelsVec.push_back("truncate");
 	outValuesVec.push_back( (benchPathType == BenchPathType_BLOCKDEV) ?

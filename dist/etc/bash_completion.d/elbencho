@@ -31,6 +31,7 @@ _elbencho_opts()
         --delfiles
         --direct
         --dirs
+        --dirsharing
         --dropcache
         --files
         --foreground
@@ -56,7 +57,7 @@ _elbencho_opts()
         --nodelerr
         --nodetach
         --nolive
-        --notshared
+        --nosvcshare
         --perthread
         --port
         --preallocfile

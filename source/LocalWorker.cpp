@@ -54,7 +54,7 @@ void LocalWorker::run()
 
 			currentBenchID = workersSharedData->currentBenchID;
 
-			initPhaseOffsetGen();
+			initPhaseRWOffsetGen();
 			initPhaseFunctionPointers();
 
 			switch(workersSharedData->currentBenchPhase)
@@ -152,7 +152,7 @@ void LocalWorker::finishPhase()
  * Prepare file range for dirModeIterateFiles and fileModeIterateFiles. This is typically used to
  * initialize the offset generator and to calculate the expected read/write result.
  */
-void LocalWorker::getPhaseFileRange(uint64_t& outFileRangeStart, uint64_t& outFileRangeLen)
+void LocalWorker::getPhaseFileOffsetRange(uint64_t& outFileRangeStart, uint64_t& outFileRangeLen)
 {
 	if(progArgs->getBenchPathType() == BenchPathType_DIR)
 	{
@@ -176,7 +176,7 @@ void LocalWorker::getPhaseFileRange(uint64_t& outFileRangeStart, uint64_t& outFi
 		outFileRangeStart = workerRank * blockSize * (numBlocks / numDataSetThreads);
 
 		// end of last worker's range is user-defined file end to avoid rounding problems
-		// (note: last worker may get more range than all others, but progArgs warns user about this.)
+		// (note: last worker may get more range than others, but progArgs warns user about this.)
 		size_t fileRangeEnd = (workerRank == (numDataSetThreads - 1) ) ?
 			fileSize - 1 :
 			( (workerRank+1) * blockSize * (numBlocks / numDataSetThreads) ) - 1;
@@ -186,17 +186,18 @@ void LocalWorker::getPhaseFileRange(uint64_t& outFileRangeStart, uint64_t& outFi
 }
 
 /**
- * Prepare offset generator for dirModeIterateFiles and fileModeIterateFiles.
+ * Prepare read/write file contents offset generator for dirModeIterateFiles and
+ * fileModeIterateFiles.
  *
- * Note: offsetGen will always be set to an object here (even if phase is not read or write) to
+ * Note: rwOffsetGen will always be set to an object here (even if phase is not read or write) to
  * prevent extra NULL pointer checks in file/dir loops.
  */
-void LocalWorker::initPhaseOffsetGen()
+void LocalWorker::initPhaseRWOffsetGen()
 {
 	const size_t blockSize = progArgs->getBlockSize();
 
 	// delete offset gen from previous phase
-	SAFE_DELETE(offsetGen);
+	SAFE_DELETE(rwOffsetGen);
 
 	if(progArgs->getBenchPathType() == BenchPathType_DIR)
 	{
@@ -205,12 +206,12 @@ void LocalWorker::initPhaseOffsetGen()
 		const uint64_t fileSize = progArgs->getFileSize();
 
 		if(!progArgs->getUseRandomOffsets() )
-			offsetGen = new FileOffsetGenSequential(fileSize, 0, blockSize);
+			rwOffsetGen = new OffsetGenSequential(fileSize, 0, blockSize);
 		else
 		if(progArgs->getUseRandomAligned() )
-			offsetGen = new FileOffsetGenRandomAligned(*progArgs, randGen, fileSize, 0, blockSize);
+			rwOffsetGen = new OffsetGenRandomAligned(*progArgs, randGen, fileSize, 0, blockSize);
 		else // random unaligned
-			offsetGen = new FileOffsetGenRandom(*progArgs, randGen, fileSize, 0, blockSize);
+			rwOffsetGen = new OffsetGenRandom(*progArgs, randGen, fileSize, 0, blockSize);
 	}
 	else
 	{
@@ -219,16 +220,16 @@ void LocalWorker::initPhaseOffsetGen()
 		uint64_t fileRangeStart;
 		uint64_t fileRangeLen;
 
-		getPhaseFileRange(fileRangeStart, fileRangeLen);
+		getPhaseFileOffsetRange(fileRangeStart, fileRangeLen);
 
 		if(!progArgs->getUseRandomOffsets() )
-			offsetGen = new FileOffsetGenSequential(fileRangeLen, fileRangeStart, blockSize);
+			rwOffsetGen = new OffsetGenSequential(fileRangeLen, fileRangeStart, blockSize);
 		else
 		if(progArgs->getUseRandomAligned() )
-			offsetGen = new FileOffsetGenRandomAligned(*progArgs, randGen,
+			rwOffsetGen = new OffsetGenRandomAligned(*progArgs, randGen,
 				fileRangeLen, fileRangeStart, blockSize);
 		else // random unaligned
-			offsetGen = new FileOffsetGenRandom(*progArgs, randGen,
+			rwOffsetGen = new OffsetGenRandom(*progArgs, randGen,
 				fileRangeLen, fileRangeStart, blockSize);
 	}
 }
@@ -449,7 +450,7 @@ void LocalWorker::allocGPUIOBuffer()
  */
 void LocalWorker::cleanup()
 {
-	SAFE_DELETE(offsetGen);
+	SAFE_DELETE(rwOffsetGen);
 
 #ifdef CUFILE_SUPPORT
 	// cleanup cuFileHandleData here in case of exception in file/bdev mode.
@@ -513,10 +514,10 @@ void LocalWorker::cleanup()
  */
 int64_t LocalWorker::rwBlockSized(int fd)
 {
-	while(offsetGen->getNumBytesLeftToSubmit() )
+	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		uint64_t currentOffset = offsetGen->getNextOffset();
-		size_t blockSize = offsetGen->getNextBlockSizeToSubmit();
+		uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -529,12 +530,12 @@ int64_t LocalWorker::rwBlockSized(int fd)
 		{ // unexpected result
 			std::cerr << "rw failed: " << "blockSize: " << blockSize << "; " <<
 				"currentOffset:" << currentOffset << "; " <<
-				"leftToSubmit:" << offsetGen->getNumBytesLeftToSubmit() << "; " <<
+				"leftToSubmit:" << rwOffsetGen->getNumBytesLeftToSubmit() << "; " <<
 				"rank:" << workerRank << std::endl;
 
 			return (rwRes < 0) ?
 				rwRes :
-				(offsetGen->getNumBytesTotal() - offsetGen->getNumBytesLeftToSubmit() );
+				(rwOffsetGen->getNumBytesTotal() - rwOffsetGen->getNumBytesLeftToSubmit() );
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
@@ -548,14 +549,14 @@ int64_t LocalWorker::rwBlockSized(int fd)
 
 		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
 
-		offsetGen->addBytesSubmitted(rwRes);
+		rwOffsetGen->addBytesSubmitted(rwRes);
 		atomicLiveOps.numBytesDone += rwRes;
 		atomicLiveOps.numIOPSDone++;
 
 		checkInterruptionRequest();
 	}
 
-	return offsetGen->getNumBytesTotal();
+	return rwOffsetGen->getNumBytesTotal();
 }
 
 /**
@@ -586,10 +587,10 @@ int64_t LocalWorker::aioBlockSized(int fd)
 			"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
 
 	// initial seed of io submissions up to ioDepth
-	while(offsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
+	while(rwOffsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
 	{
-		size_t blockSize = offsetGen->getNextBlockSizeToSubmit();
-		uint64_t currentOffset = offsetGen->getNextOffset();
+		size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+		uint64_t currentOffset = rwOffsetGen->getNextOffset();
 		size_t vecIdx = numPending;
 
 		iocbPointerVec[vecIdx] = &iocbVec[vecIdx];
@@ -615,7 +616,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 		}
 
 		numPending++;
-		offsetGen->addBytesSubmitted(blockSize);
+		rwOffsetGen->addBytesSubmitted(blockSize);
 	}
 
 	// wait for submissions to complete and submit new requests if bytes left
@@ -681,7 +682,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
 
-			if(!offsetGen->getNumBytesLeftToSubmit() )
+			if(!rwOffsetGen->getNumBytesLeftToSubmit() )
 			{
 				numPending--;
 				continue;
@@ -689,8 +690,8 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 			// request complete, so reuse iocb for the next request...
 
-			size_t blockSize = offsetGen->getNextBlockSizeToSubmit();
-			uint64_t currentOffset = offsetGen->getNextOffset();
+			size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+			uint64_t currentOffset = rwOffsetGen->getNextOffset();
 
 			funcAioRwPrepper(ioEvents[eventIdx].obj, fd, ioBufVec[vecIdx], blockSize,
 				currentOffset);
@@ -713,7 +714,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 					"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
 			}
 
-			offsetGen->addBytesSubmitted(blockSize);
+			rwOffsetGen->addBytesSubmitted(blockSize);
 
 		} // end of for loop to resubmit completed iocbs
 
@@ -721,7 +722,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 	io_queue_release(ioContext);
 
-	return offsetGen->getNumBytesTotal();
+	return rwOffsetGen->getNumBytesTotal();
 }
 
 /**
@@ -1007,6 +1008,10 @@ void LocalWorker::dirModeIterateDirs()
 	size_t numDirs = progArgs->getNumDirs();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
+	const bool ignoreDelErrors = progArgs->getDoDirSharing() ?
+		true : progArgs->getIgnoreDelErrors(); // in dir share mode, all workers mk/del all dirs
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
 
 	// create rank dir inside each pathFD
 	if(benchPhase == BenchPhase_CREATEDIRS)
@@ -1018,7 +1023,7 @@ void LocalWorker::dirModeIterateDirs()
 			checkInterruptionRequest();
 
 			// generate path
-			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerRank);
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
 			if(printRes >= PATH_BUF_LEN)
 				throw WorkerException("mkdir path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -1040,7 +1045,7 @@ void LocalWorker::dirModeIterateDirs()
 
 		// generate current dir path
 		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu",
-			workerRank, dirIndex);
+			workerDirRank, dirIndex);
 		if(printRes >= PATH_BUF_LEN)
 			throw WorkerException("mkdir path too long for static buffer. "
 				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -1065,7 +1070,7 @@ void LocalWorker::dirModeIterateDirs()
 		{ // remove dir
 			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
 
-			if( (rmdirRes == -1) && ( (errno != ENOENT) || !progArgs->getIgnoreDelErrors() ) )
+			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
 					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 					"SysErr: " + strerror(errno) );
@@ -1093,7 +1098,7 @@ void LocalWorker::dirModeIterateDirs()
 			checkInterruptionRequest();
 
 			// generate path
-			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerRank);
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
 			if(printRes >= PATH_BUF_LEN)
 				throw WorkerException("mkdir path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -1101,7 +1106,7 @@ void LocalWorker::dirModeIterateDirs()
 
 			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
 
-			if( (rmdirRes == -1) && ( (errno != ENOENT) || !progArgs->getIgnoreDelErrors() ) )
+			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
 					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 					"SysErr: " + strerror(errno) );
@@ -1126,6 +1131,8 @@ void LocalWorker::dirModeIterateFiles()
 	const StringVec& pathVec = progArgs->getBenchPaths();
 	const int openFlags = getDirModeOpenFlags(benchPhase);
 	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
 
 	cuFileHandleDataPtr = &cuFileHandleData; // prep for cuFileRead/WriteWrapper
 
@@ -1146,8 +1153,8 @@ void LocalWorker::dirModeIterateFiles()
 				checkInterruptionRequest();
 
 			// generate current dir path
-			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/f%zu",
-				workerRank, dirIndex, fileIndex);
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+				workerDirRank, dirIndex, workerRank, fileIndex);
 			if(printRes >= PATH_BUF_LEN)
 				throw WorkerException("mkdir path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -1157,7 +1164,7 @@ void LocalWorker::dirModeIterateFiles()
 
 			unsigned pathFDsIndex = (workerRank + dirIndex) % pathFDs.size();
 
-			offsetGen->reset(); // reset for next file
+			rwOffsetGen->reset(); // reset for next file
 
 			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -1277,7 +1284,7 @@ void LocalWorker::fileModeIterateFiles()
 	uint64_t fileRangeStart;
 	uint64_t fileRangeLen;
 
-	getPhaseFileRange(fileRangeStart, fileRangeLen);
+	getPhaseFileOffsetRange(fileRangeStart, fileRangeLen);
 
 	uint64_t fileRangeEnd = fileRangeStart + fileRangeLen - 1; // "-1" for inclusive last offset
 
@@ -1288,7 +1295,7 @@ void LocalWorker::fileModeIterateFiles()
 	LOGGER(Log_DEBUG, "fsize: " << fileSize << "; " "bsize: " << blockSize << "; "
 		"threads: " << numDataSetThreads << "; " "numFiles: " << numFiles << std::endl);
 	LOGGER(Log_DEBUG, "rank: " << workerRank << "; "
-		"shared: " << !progArgs->getIsBenchPathNotShared() << "; "
+		"shared: " << progArgs->getIsServicePathShared() << "; "
 		"range: " << fileRangeStart << " - " << fileRangeEnd << " (" << fileRangeLen << ")" <<
 		std::endl);
 
@@ -1307,7 +1314,7 @@ void LocalWorker::fileModeIterateFiles()
 
 		((*this).*funcCuFileHandleReg)(fd, cuFileHandleDataVec[currentFileIndex]); // reg handle
 
-		offsetGen->reset(); // reset for next file
+		rwOffsetGen->reset(); // reset for next file
 
 		// write/read our range of this file and then move on to the next
 

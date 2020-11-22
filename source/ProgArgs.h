@@ -53,7 +53,7 @@ namespace bpo = boost::program_options;
 #define ARG_HOSTS_LONG				"hosts"
 #define ARG_INTERRUPT_LONG			"interrupt"
 #define ARG_QUIT_LONG				"quit"
-#define ARG_PATHNOTSHARED_LONG		"notshared"
+#define ARG_NOSVCPATHSHARE_LONG		"nosvcshare"
 #define ARG_RANKOFFSET_LONG			"rankoffset"
 #define ARG_LOGLEVEL_LONG			"log"
 #define ARG_NUMAZONES_LONG			"zones"
@@ -62,7 +62,7 @@ namespace bpo = boost::program_options;
 #define ARG_RANDOMOFFSETS_LONG		"rand"
 #define ARG_RANDOMALIGN_LONG		"randalign"
 #define ARG_RANDOMAMOUNT_LONG		"randamount"
-#define ARG_NUMDATASETTHREADS_LONG	"datasetthreads"
+#define ARG_NUMDATASETTHREADS_LONG	"datasetthreads" // internal (not set by user)
 #define ARG_IODEPTH_LONG			"iodepth"
 #define ARG_LATENCY_LONG			"lat"
 #define ARG_LATENCYPERCENTILES_LONG	"latpercent"
@@ -88,6 +88,7 @@ namespace bpo = boost::program_options;
 #define ARG_VERSION_LONG			"version"
 #define ARG_TRUNCTOSIZE_LONG		"trunctosize"
 #define ARG_PREALLOCFILE_LONG		"preallocfile"
+#define ARG_DIRSHARING_LONG			"dirsharing"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -166,7 +167,7 @@ class ProgArgs
 		StringVec hostsVec; // service hosts broken down into individual hostname[:port]
 		bool interruptServices; // send interrupt msg to given hosts to stop current phase
 		bool quitServices; // send quit (via interrupt msg) to given hosts to exit service
-		bool isBenchPathNotShared; // true if bench paths are not shared between different hosts
+		bool noSharedServicePath; // true if bench paths not shared between service instances
 		size_t rankOffset; // offset for worker rank numbers
 		unsigned short logLevel; // filter level for log messages (higher will not be logged)
 		std::string numaZonesStr; // comma-separted numa zones that this process may run on
@@ -206,6 +207,7 @@ class ProgArgs
 		size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		bool doPreallocFile; // prealloc file space on creation via posix_fallocate()
+		bool doDirSharing; // workers use same dirs in dir mode (instead of unique dir per worker)
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -264,8 +266,7 @@ class ProgArgs
 		const StringVec& getHostsVec() const { return hostsVec; }
 		bool getInterruptServices() const { return interruptServices; }
 		bool getQuitServices() const { return quitServices; }
-		bool getIsBenchPathNotShared() const { return isBenchPathNotShared; }
-		bool getIsBenchPathShared() const { return !isBenchPathNotShared; }
+		bool getIsServicePathShared() const { return !noSharedServicePath; }
 		size_t getRankOffset() const { return rankOffset; }
 		LogLevel getLogLevel() const { return (LogLevel)logLevel; }
 		std::string getNumaZonesStr() const { return numaZonesStr; }
@@ -303,6 +304,7 @@ class ProgArgs
 		size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
 		bool getDoTruncToSize() const { return doTruncToSize; }
 		bool getDoPreallocFile() const { return doPreallocFile; }
+		bool getDoDirSharing() const { return doDirSharing; }
 };
 
 

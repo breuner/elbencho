@@ -371,7 +371,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 		outNumEntriesPerWorker *= progArgs.getNumThreads();
 		outNumBytesPerWorker *= progArgs.getNumThreads();
 
-		if(progArgs.getIsBenchPathShared() &&
+		if(progArgs.getIsServicePathShared() &&
 			(progArgs.getBenchPathType() != BenchPathType_DIR) )
 		{ // shared bench path, so each host reads/writes its own fraction
 			outNumEntriesPerWorker /= progArgs.getHostsVec().size();

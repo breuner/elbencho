@@ -10,7 +10,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include "CuFileHandleData.h"
-#include "FileOffsetGenerator.h"
+#include "OffsetGenerator.h"
 #include "Worker.h"
 
 // delaration for function typedefs below
@@ -75,12 +75,12 @@ class LocalWorker : public Worker
 		GPU_MEMCPY_RW funcPostReadCudaMemcpy; // copy to GPU memory
 		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
 		CUFILE_HANDLE_DEREGISTER funcCuFileHandleDereg; // cuFile handle deregister
-		FileOffsetGenerator* offsetGen{NULL}; // offset generator for phase-dependent funcs
+		OffsetGenerator* rwOffsetGen{NULL}; // read/write offset generator for phase-dependent funcs
 
 		void finishPhase();
 
-		void getPhaseFileRange(uint64_t& outFileRangeStart, uint64_t& outFileRangeLen);
-		void initPhaseOffsetGen();
+		void getPhaseFileOffsetRange(uint64_t& outFileRangeStart, uint64_t& outFileRangeLen);
+		void initPhaseRWOffsetGen();
 		void initPhaseFunctionPointers();
 
 		void allocIOBuffer();

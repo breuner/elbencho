@@ -1,5 +1,5 @@
-#ifndef FILEOFFSETGENERATOR_H_
-#define FILEOFFSETGENERATOR_H_
+#ifndef OFFSETGENERATOR_H_
+#define OFFSETGENERATOR_H_
 
 #include <ctype.h>
 #include <cstdio>
@@ -14,10 +14,10 @@
  * Generate sequential, random, and random block aligned offsets for LocalWorker's file read/write
  * methods.
  */
-class FileOffsetGenerator
+class OffsetGenerator
 {
 	public:
-		virtual ~FileOffsetGenerator() {}
+		virtual ~OffsetGenerator() {}
 
 		virtual void reset() = 0; // reset for reuse of object with next file
 		virtual uint64_t getNextOffset() = 0;
@@ -27,23 +27,21 @@ class FileOffsetGenerator
 		virtual void addBytesSubmitted(size_t numBytes) = 0;
 
 	protected:
-		FileOffsetGenerator() {};
-
-	protected:
+		OffsetGenerator() {};
 };
 
 /**
  * Generate simple sequential offsets.
  */
-class FileOffsetGenSequential : public FileOffsetGenerator
+class OffsetGenSequential : public OffsetGenerator
 {
 	public:
-		FileOffsetGenSequential(uint64_t len, uint64_t offset, size_t blockSize) :
+		OffsetGenSequential(uint64_t len, uint64_t offset, size_t blockSize) :
 			numBytesTotal(len), numBytesLeft(len), startOffset(offset), currentOffset(offset),
 			blockSize(blockSize)
 		{ }
 
-		virtual ~FileOffsetGenSequential() {}
+		virtual ~OffsetGenSequential() {}
 
 	protected:
 		const uint64_t numBytesTotal;
@@ -85,10 +83,10 @@ class FileOffsetGenSequential : public FileOffsetGenerator
  * offset and len in constructor define that range in which random offsets are selected. The amount
  * of data is defined by progArgs.getRandomAmount() div progArgs.getNumDataSetThreads().
  */
-class FileOffsetGenRandom : public FileOffsetGenerator
+class OffsetGenRandom : public OffsetGenerator
 {
 	public:
-		FileOffsetGenRandom(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
+		OffsetGenRandom(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
 			uint64_t offset, size_t blockSize) :
 			progArgs(progArgs), randGen(randGen), randDist(offset, offset + len - blockSize),
 			blockSize(blockSize)
@@ -97,7 +95,7 @@ class FileOffsetGenRandom : public FileOffsetGenerator
 			this->numBytesLeft = this->numBytesTotal;
 		}
 
-		virtual ~FileOffsetGenRandom() {}
+		virtual ~OffsetGenRandom() {}
 
 	protected:
 		const ProgArgs& progArgs;
@@ -135,10 +133,10 @@ class FileOffsetGenRandom : public FileOffsetGenerator
  * offset and len in constructor define that range in which random offsets are selected. The amount
  * of data is defined by progArgs.getRandomAmount() div progArgs.getNumDataSetThreads().
  */
-class FileOffsetGenRandomAligned : public FileOffsetGenerator
+class OffsetGenRandomAligned : public OffsetGenerator
 {
 	public:
-		FileOffsetGenRandomAligned(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
+		OffsetGenRandomAligned(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
 				uint64_t offset, size_t blockSize) :
 			randGen(randGen), randDist(0, (offset + len - blockSize) / blockSize),
 			blockSize(blockSize)
@@ -149,7 +147,7 @@ class FileOffsetGenRandomAligned : public FileOffsetGenerator
 			this->numBytesLeft = this->numBytesTotal - (this->numBytesTotal % blockSize);
 		}
 
-		virtual ~FileOffsetGenRandomAligned() {}
+		virtual ~OffsetGenRandomAligned() {}
 
 	protected:
 		std::mt19937_64& randGen;
@@ -184,4 +182,4 @@ class FileOffsetGenRandomAligned : public FileOffsetGenerator
 
 };
 
-#endif /* FILEOFFSETGENERATOR_H_ */
+#endif /* OFFSETGENERATOR_H_ */
