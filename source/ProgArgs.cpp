@@ -144,9 +144,9 @@ void ProgArgs::defineAllowedArgs()
 			"Use direct IO.")
 /*di*/	(ARG_DIRSHARING_LONG, bpo::bool_switch(&this->doDirSharing),
 			"If benchmark path is a directory, all threads create their files in the same dirs "
-			"instead of using unique dirs for each thread. In this case, --" ARG_NUMDIRS_LONG " "
-			"defines the total number of dirs for all threads instead of the number of dirs for "
-			"each thread.")
+			"instead of using different dirs for each thread. In this case, \"-" ARG_NUMDIRS_SHORT
+			"\" defines the total number of dirs for all threads instead of the number of dirs per "
+			"thread.")
 /*dr*/	(ARG_DROPCACHESPHASE_LONG, bpo::bool_switch(&this->runDropCachesPhase),
 			"Drop linux file system page cache, dentry cache and inode cache before/after each "
 			"benchmark phase. Requires root privileges. This should be used together with \"--"
@@ -198,9 +198,11 @@ void ProgArgs::defineAllowedArgs()
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
-			"Number of files per directory. (Default: 1)")
+			"Number of files per thread per directory. (Default: 1) Example: \""
+			"-" ARG_NUMTHREADS_SHORT "2 -" ARG_NUMDIRS_SHORT "3 -" ARG_NUMFILES_SHORT "4\" will "
+			"use 2x3x4=24 files.")
 /*n*/	(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirsOrigStr),
-			"Number of directories per I/O worker thread. (Default: 1)")
+			"Number of directories per thread. (Default: 1)")
 /*no0*/	(ARG_IGNORE0USECERR_LONG, bpo::bool_switch(&this->ignore0USecErrors),
 			"Do not warn if worker thread completion time is less than 1 microsecond.")
 /*noc*/	(ARG_NOCSVLABELS_LONG, bpo::bool_switch(&this->noCSVLabels),
@@ -258,9 +260,9 @@ void ProgArgs::defineAllowedArgs()
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
 /*tr*/	(ARG_TRUNCTOSIZE_LONG, bpo::bool_switch(&this->doTruncToSize),
-			"Truncate files to given --" ARG_FILESIZE_LONG " via ftruncate() when opening for "
+			"Truncate files to given \"--" ARG_FILESIZE_LONG "\" via ftruncate() when opening for "
 			"writing. If the file previously was larger then the remainder is discarded. This flag "
-			"is automatically enabled when --" ARG_RANDOMOFFSETS_LONG " is given.")
+			"is automatically enabled when \"--" ARG_RANDOMOFFSETS_LONG "\" is given.")
 /*ve*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
 			"Enable data integrity check. Writes sum of given 64bit salt plus current 64bit offset "
 			"as file or block device content, which can afterwards be verified in a read phase "
@@ -1297,7 +1299,7 @@ void ProgArgs::printHelpMultiFile()
 		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read files.")
 		(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
-			"Stat files.")
+			"Read file status attributes (file size, owner etc).")
 		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
 		(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
@@ -1306,8 +1308,10 @@ void ProgArgs::printHelpMultiFile()
 			"Number of I/O worker threads. (Default: 1)")
 		(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirs),
 			"Number of directories per I/O worker thread. (Default: 1)")
-		(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFiles),
-			"Number of files per directory. (Default: 1)")
+		(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
+			"Number of files per thread per directory. (Default: 1) Example: \""
+			"-" ARG_NUMTHREADS_SHORT "2 -" ARG_NUMDIRS_SHORT "3 -" ARG_NUMFILES_SHORT "4\" will "
+			"use 2x3x4=24 files.")
 		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
 			"File size. (Default: 0)")
 		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),

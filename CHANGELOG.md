@@ -1,12 +1,12 @@
 # Changelog of elbencho
 
-## v1.6.0 (under construction)
+## v1.6.1 (Nov 28, 2020)
 
 ### New Features & Enhancements
+* New directory sharing option (--dirsharing) to make all threads work in the same dirs instead of individual dirs for each thread.
 * New option to truncate files to full size (--trunctosize) in creation/write phase.
 * New option to preallocate file disk space (--preallocfile) in creation/write phase.
 * File deletion (-F) can be used when benchmark path is a file.
-* New directory sharing option (--dirsharing) to make all threads work in the same dirs instead of individual dirs for each thread.
 
 ### General Changes
 * Renamed option "--notshared" to "--nosvcshare" for clear separation from new "--dirsharing" option.

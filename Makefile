@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
 EXE_VER_MINOR      ?= 6
-EXE_VER_PATCHLEVEL ?= 0
+EXE_VER_PATCHLEVEL ?= 1
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
