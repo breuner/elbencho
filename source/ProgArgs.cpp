@@ -373,16 +373,22 @@ void ProgArgs::checkArgs()
 		numThreads = 0; // master will set the actual number, so no reason to start with high num
 		numDataSetThreads = numThreads;
 
-		// service mode and path definition are mutually exclusive
-		if(!benchPathStr.empty() )
-			throw ProgException("In service mode, benchmark path will come from master coordinator "
-				"and may not be given as argument.");
-
 		// service mode and host list for coordinated master mode are mutually exclusive
 		if(!hostsStr.empty() )
 			throw ProgException("Service mode and host list definition are mutually exclusive.");
 
-		// override of GPU IDs
+		// check/apply override of benchmark paths
+		if(argsVariablesMap.count(ARG_BENCHPATHS_LONG) )
+			benchPathsVec = argsVariablesMap[ARG_BENCHPATHS_LONG].as<StringVec>();
+
+		if(!benchPathsVec.empty() )
+		{
+			LOGGER(Log_NORMAL, "NOTE: Benchmark paths given. These paths will be used instead of "
+				"any paths provided by master." << std::endl);
+			benchPathsServiceOverrideVec = benchPathsVec;
+		}
+
+		// check/apply override of GPU IDs
 		if(!gpuIDsStr.empty() )
 		{
 			LOGGER(Log_NORMAL, "NOTE: GPU IDs given. These GPU IDs will be used instead of any GPU "
@@ -556,15 +562,26 @@ void ProgArgs::parseAndCheckPaths()
 {
 	benchPathsVec.resize(0); // reset before reuse in service mode
 
-	/* bench paths can come in two ways:
-		1) As benchPathStr from master (using absolute paths)
-		2) As benchPathsVec from command line
-		In both cases, benchPathsVec and benchPathStr will contain the paths afterwards. */
+	/* bench paths can come in three ways:
+		1) In service mode...
+			a) As benchPathStr from master (using absolute paths).
+			b) As benchPathsServiceOverrideVec, a user-given override list on service start.
+		2) As benchPathsVec from command line.
+		In all cases, benchPathsVec and benchPathStr will contain the paths afterwards. */
 
 	if(getRunAsService() )
-	{ // service: take paths from benchPathStr
-		boost::split(benchPathsVec, benchPathStr, boost::is_any_of(BENCHPATH_DELIMITER),
-			boost::token_compress_on);
+	{ // service: use user-given override list xor take paths from benchPathStr
+		if(!benchPathsServiceOverrideVec.empty() )
+		{ // user-given override list
+			benchPathsVec = benchPathsServiceOverrideVec;
+			benchPathStr = "";
+
+			for(std::string path : benchPathsVec)
+				benchPathStr += absolutePath(path) + std::string(BENCHPATH_DELIMITER)[0];
+		}
+		else // no override given, use benchPathStr from master
+			boost::split(benchPathsVec, benchPathStr, boost::is_any_of(BENCHPATH_DELIMITER),
+				boost::token_compress_on);
 
 		// delete empty string elements from pathsVec (they come from delimiter use at start/end)
 		for( ; ; )
@@ -951,6 +968,11 @@ void ProgArgs::parseNumaZones()
 	if(zonesStrVec.empty() )
 		throw ProgException("NUMA zones defined, but parsing resulted in an empty list: " +
 			numaZonesStr);
+
+	// rebuild numaZonesStr clean from trimmed vec, because libnuma segfaults e.g. on end delimter
+	numaZonesStr = "";
+	for(unsigned i=0; i < zonesStrVec.size(); i++)
+		numaZonesStr += (i ? "," : "") + zonesStrVec[i];
 
 	// apply given zones to current thread
 	NumaTk::bindToNumaZone(numaZonesStr);

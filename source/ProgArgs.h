@@ -134,6 +134,7 @@ class ProgArgs
 		std::string progPath; // absolute path to program binary
 		std::string benchPathStr; // path(s) to benchmark base dirs separated by BENCHPATH_DELIMITER
 		StringVec benchPathsVec; // benchPathStr split into individual paths
+		StringVec benchPathsServiceOverrideVec; // set in service mode to override bench paths
 		IntVec benchPathFDsVec; // file descriptors to individual bench paths
 		BenchPathType benchPathType; /* for local runs auto-detected based on benchPathStr;
 										in master mode received from service hosts */
@@ -189,7 +190,7 @@ class ProgArgs
 		bool noCSVLabels; // true to not print headline with labels to csv file
 		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
 		IntVec gpuIDsVec; // gpuIDsStr broken down into individual GPU IDs
-		std::string gpuIDsServiceOverride; // set in service mode with override for gpu IDs
+		std::string gpuIDsServiceOverride; // set in service mode to override gpu IDs
 		bool assignGPUPerService; // assign GPUs from gpuIDsVec round robin per service
 		bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
 		bool useGDSBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
@@ -239,6 +240,8 @@ class ProgArgs
 		std::string getProgPath() const { return progPath; }
 		std::string getBenchPathStr() const { return benchPathStr; }
 		const StringVec& getBenchPaths() const { return benchPathsVec; }
+		const StringVec& getBenchPathsServiceOverride() const
+			{ return benchPathsServiceOverrideVec; }
 		const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
 		BenchPathType getBenchPathType() const { return benchPathType; }
 		size_t getNumDirs() const { return numDirs; }

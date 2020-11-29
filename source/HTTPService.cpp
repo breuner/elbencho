@@ -461,6 +461,18 @@ void HTTPService::daemonize()
 
 	LOGGER(Log_NORMAL, "Running in background. PID: " << getpid() << std::endl);
 
+	const StringVec& benchPathsServiceOverrideVec = progArgs.getBenchPathsServiceOverride();
+	if(!benchPathsServiceOverrideVec.empty() )
+	{
+		std::string logMsg = "NOTE: Benchmark paths given. These paths will be used instead of any "
+			"path list provided by master. Paths: ";
+
+		for(std::string path : benchPathsServiceOverrideVec)
+			logMsg += "\"" + path + "\" ";
+
+		LOGGER(Log_NORMAL, logMsg << std::endl);
+	}
+
 	std::string gpuIDsServiceOverride = progArgs.getGPUIDsServiceOverride();
 	if(!gpuIDsServiceOverride.empty() )
 		LOGGER(Log_NORMAL, "NOTE: GPU IDs given. These GPU IDs will be used instead of any "
