@@ -29,7 +29,8 @@ class NumaTk
 		static bool isNumaInfoAvailable() { return (numa_available() != -1); }
 
 		/**
-		 * Bind calling thread to given zones.
+		 * Bind calling thread to given NUMA zone and set memory allocations to also prefer the
+		 * given zone.
 		 *
 		 * @zoneStr must be compatible with libnuma numa_parse_cpustring, but current method code
 		 * 		relies on this being a single number.
@@ -38,12 +39,6 @@ class NumaTk
 		 */
 		static void bindToNumaZone(std::string zonesStr)
 		{
-			numa_exit_on_error = 0; // libnuma setting
-			numa_exit_on_warn = 0; // libnuma setting
-
-			/* extra checks here because libnuma on Ubuntu 20.04 segfaults when desired node is
-				higher than max available node. */
-
 			int maxNode = numa_max_node();
 			int desiredNode = std::stoi(zonesStr);
 
@@ -58,19 +53,46 @@ class NumaTk
 
 			struct bitmask* nodeMask = numa_parse_nodestring(zonesStr.c_str() );
 			if(nodeMask == NULL)
-				ProgException("Parsing of NUMA zone string failed: " + zonesStr);
+				throw ProgException("Parsing of NUMA zone string failed: " + zonesStr);
 
 			// note: don't use numa_bind here, as it has no error return value
 
 			int runRes = numa_run_on_node_mask(nodeMask);
+
+			numa_free_nodemask(nodeMask);
+
 			if(runRes == -1)
 				ProgException("Applying NUMA zone node mask failed. "
 					"Given zones: " + zonesStr + "; "
 					"SysErr: " + strerror(errno) );
 
-			numa_set_membind(nodeMask);
+			// note: only "preferred" instead of numa_set_membind to allow fallback to other zones
+
+			numa_set_preferred(desiredNode); // set mem alloc to prefer desiredNode
+		}
+
+		/**
+		 * Bind calling thread to given zones. This intended to be called with possibly multiple
+		 * zones, so it does not set memory binding to a certain preferred zone.
+		 *
+		 * @zoneStr must be compatible with libnuma numa_parse_cpustring.
+		 * 		Valid libnuma examples: 1-5,7,10 !4-5 +0-3.
+		 * 	@throw ProgException on error, e.g. zonesStr parsing failure.
+		 */
+		static void bindToNumaZones(std::string zonesStr)
+		{
+			struct bitmask* nodeMask = numa_parse_nodestring(zonesStr.c_str() );
+			if(nodeMask == NULL)
+				throw ProgException("Parsing of NUMA zone string failed: " + zonesStr);
+
+			int runRes = numa_run_on_node_mask(nodeMask);
 
 			numa_free_nodemask(nodeMask);
+
+			if(runRes == -1)
+				ProgException("Applying NUMA zone node mask failed. "
+					"Given zones: " + zonesStr + "; "
+					"SysErr: " + strerror(errno) );
 		}
 };
 

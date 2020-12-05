@@ -969,13 +969,13 @@ void ProgArgs::parseNumaZones()
 		throw ProgException("NUMA zones defined, but parsing resulted in an empty list: " +
 			numaZonesStr);
 
-	// rebuild numaZonesStr clean from trimmed vec, because libnuma segfaults e.g. on end delimter
+	// rebuild numaZonesStr clean from trimmed vec, because libnuma has probs with leading delimter
 	numaZonesStr = "";
 	for(unsigned i=0; i < zonesStrVec.size(); i++)
 		numaZonesStr += (i ? "," : "") + zonesStrVec[i];
 
 	// apply given zones to current thread
-	NumaTk::bindToNumaZone(numaZonesStr);
+	NumaTk::bindToNumaZones(numaZonesStr);
 
 	// convert from string vector to int vector
 	for(std::string& zoneStr : zonesStrVec)
