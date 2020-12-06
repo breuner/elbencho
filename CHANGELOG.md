@@ -5,6 +5,12 @@
 ### New Features & Enhancements
 * New option to override service mode benchmark paths (--service PATH [MORE_PATHS]). These path overrides can be different for each service instance and will be used by a service instead of any path list provided by master.
 
+### General Changes
+* When NUMA zones are given (--zones), then set memory bind policy to only prefer these zones instead of strictly enforcing these zones. This is to avoid the OOM killer on systems where other processes already used up most of the available memory in a particular zone.
+
+### Fixes
+* Correct internal update order of phase done flags for worker threads, which could previously lead to process not terminating correctly in rare cases.
+
 ## v1.6.1 (Nov 28, 2020)
 
 ### New Features & Enhancements
