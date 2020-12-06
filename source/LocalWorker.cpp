@@ -44,8 +44,8 @@ void LocalWorker::run()
 		allocGPUIOBuffer();
 
 		// signal coordinator that our preparations phase is done
+		phaseFinished = true; // before incNumWorkersDone(), as Coordinator can reset after done inc
 		incNumWorkersDone();
-		phaseFinished = true;
 
 		for( ; ; )
 		{
@@ -143,9 +143,9 @@ void LocalWorker::finishPhase()
 	elapsedUSecVec.resize(1);
 	elapsedUSecVec[0] = finishElapsedUSec;
 
-	incNumWorkersDone();
+	phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
 
-	phaseFinished = true;
+	incNumWorkersDone();
 }
 
 /**

@@ -32,8 +32,8 @@ void RemoteWorker::run()
 		preparePhase();
 
 		// signal coordinator that our preparations phase is done (and ignore elapsed ms)
+		phaseFinished = true; // before incNumWorkersDone(), as Coordinator can reset after done inc
 		incNumWorkersDone();
-		phaseFinished = true;
 
 		for( ; ; )
 		{
@@ -208,9 +208,9 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
-		incNumWorkersDone();
+		phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
 
-		phaseFinished = true;
+		incNumWorkersDone();
 	}
 	catch(Web::system_error& e)
 	{
@@ -218,9 +218,9 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 			std::string("HTTP client error in finish benchmark phase: ") + e.what() + ". "
 			"Server: " + host);
 
-		incNumWorkersDoneWithError();
+		phaseFinished = true; // before incNumWorkersDone because Coordinator can reset after inc
 
-		phaseFinished = true;
+		incNumWorkersDoneWithError();
 	}
 
 }
