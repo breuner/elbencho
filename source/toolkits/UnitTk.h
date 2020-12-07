@@ -1,5 +1,5 @@
-#ifndef UNITTK_H_
-#define UNITTK_H_
+#ifndef TOOLKITS_UNITTK_H_
+#define TOOLKITS_UNITTK_H_
 
 #include <cstdint>
 #include <string>
@@ -36,4 +36,4 @@ class UnitTk
 
 };
 
-#endif /* SOURCE_UNITTK_H_ */
+#endif /* SOURCE_TOOLKITS_UNITTK_H_ */

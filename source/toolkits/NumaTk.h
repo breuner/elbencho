@@ -1,5 +1,5 @@
-#ifndef NUMATK_H_
-#define NUMATK_H_
+#ifndef TOOLKITS_NUMATK_H_
+#define TOOLKITS_NUMATK_H_
 
 #include <cstdarg>
 #include <numa.h>
@@ -97,4 +97,4 @@ class NumaTk
 };
 
 
-#endif /* NUMATK_H_ */
+#endif /* TOOLKITS_NUMATK_H_ */

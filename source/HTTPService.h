@@ -4,7 +4,7 @@
 #include <server_http.hpp>
 #include "ProgArgs.h"
 #include "Statistics.h"
-#include "WorkerManager.h"
+#include "workers/WorkerManager.h"
 
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 

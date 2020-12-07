@@ -1,5 +1,5 @@
-#ifndef TRANSLATORTK_H_
-#define TRANSLATORTK_H_
+#ifndef TOOLKITS_TRANSLATORTK_H_
+#define TOOLKITS_TRANSLATORTK_H_
 
 #include <string>
 #include <vector>
@@ -22,4 +22,4 @@ class TranslatorTk
 };
 
 
-#endif /* TRANSLATORTK_H_ */
+#endif /* TOOLKITS_TRANSLATORTK_H_ */

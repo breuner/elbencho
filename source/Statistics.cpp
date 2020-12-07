@@ -3,14 +3,14 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <chrono>
 #include <ncurses.h>
-#include "LocalWorker.h"
 #include "ProgException.h"
-#include "RemoteWorker.h"
 #include "Statistics.h"
 #include "Terminal.h"
-#include "TranslatorTk.h"
-#include "Worker.h"
-#include "WorkerException.h"
+#include "toolkits/TranslatorTk.h"
+#include "workers/LocalWorker.h"
+#include "workers/RemoteWorker.h"
+#include "workers/Worker.h"
+#include "workers/WorkerException.h"
 
 #define CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN	"\x1B[2K\r" /* "\x1B[2K" is the VT100 code to
 										clear the line. "\r" moves cursor to beginning of line. */

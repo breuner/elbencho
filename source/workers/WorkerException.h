@@ -1,5 +1,5 @@
-#ifndef WORKEREXCEPTION_H_
-#define WORKEREXCEPTION_H_
+#ifndef WORKERS_WORKEREXCEPTION_H_
+#define WORKERS_WORKEREXCEPTION_H_
 
 #include "ProgException.h"
 
@@ -38,4 +38,4 @@ class WorkerRemoteException : public WorkerException
 };
 
 
-#endif /* WORKEREXCEPTION_H_ */
+#endif /* WORKERS_WORKEREXCEPTION_H_ */

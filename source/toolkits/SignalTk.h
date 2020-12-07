@@ -1,5 +1,7 @@
-#ifndef SIGNALTK_H_
-#define SIGNALTK_H_
+#ifndef TOOLKITS_SIGNALTK_H_
+#define TOOLKITS_SIGNALTK_H_
+
+#include <string>
 
 
 class SignalTk
@@ -17,4 +19,4 @@ class SignalTk
 };
 
 
-#endif /* SIGNALTK_H_ */
+#endif /* TOOLKITS_SIGNALTK_H_ */

@@ -5,7 +5,7 @@
 #include <ctype.h>
 #include <vector>
 #include "ProgArgs.h"
-#include "WorkersSharedData.h"
+#include "workers/WorkersSharedData.h"
 
 #define LATHISTO_BUCKETFRACTION		4 // log2 1/n increments between buckets (4 means 1/4=0.25)
 #define LATHISTO_MAXLOG2MICROSEC	28 /* n here means max microsec lat in histogram is

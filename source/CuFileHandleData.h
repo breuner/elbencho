@@ -2,7 +2,7 @@
 #define CUFILEHANDLEDATA_H_
 
 #include <string>
-#include "WorkersSharedData.h"
+#include "workers/WorkersSharedData.h"
 
 #ifdef CUFILE_SUPPORT
 	#include <cufile.h>

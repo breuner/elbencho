@@ -1,5 +1,5 @@
-#ifndef WORKERMANAGER_H_
-#define WORKERMANAGER_H_
+#ifndef WORKERS_WORKERMANAGER_H_
+#define WORKERS_WORKERMANAGER_H_
 
 #include "Worker.h"
 #include "WorkersSharedData.h"
@@ -43,4 +43,4 @@ class WorkerManager
 		size_t& getNumWorkersDoneWithError() { return workersSharedData.numWorkersDoneWithError; }
 };
 
-#endif /* WORKERMANAGER_H_ */
+#endif /* WORKERS_WORKERMANAGER_H_ */

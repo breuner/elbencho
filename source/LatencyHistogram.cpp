@@ -1,5 +1,5 @@
 #include "LatencyHistogram.h"
-#include "RemoteWorker.h"
+#include "workers/RemoteWorker.h"
 
 /**
  * @prefixStr prefix for element names (XFER_STATS_LAT_PREFIX_...)

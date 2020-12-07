@@ -1,5 +1,5 @@
-#ifndef REMOTEWORKER_H_
-#define REMOTEWORKER_H_
+#ifndef WORKERS_REMOTEWORKER_H_
+#define WORKERS_REMOTEWORKER_H_
 
 #include <client_http.hpp>
 #include <ctype.h>
@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include "Worker.h"
+
 
 #define XFER_PREP_PROTCOLVERSION			"ProtocolVersion"
 #define XFER_PREP_BENCHPATHTYPE				"BenchPathType"
@@ -132,4 +133,4 @@ class RemoteWorker : public Worker
 
 
 
-#endif /* REMOTEWORKER_H_ */
+#endif /* WORKERS_REMOTEWORKER_H_ */

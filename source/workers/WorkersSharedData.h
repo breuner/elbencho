@@ -1,5 +1,5 @@
-#ifndef WORKERSSHAREDDATA_H_
-#define WORKERSSHAREDDATA_H_
+#ifndef WORKERS_WORKERSSHAREDDATA_H_
+#define WORKERS_WORKERSSHAREDDATA_H_
 
 #include <boost/config.hpp> // for BOOST_LIKELY
 #include <boost/uuid/string_generator.hpp>
@@ -101,4 +101,4 @@ class WorkersSharedData
 
 
 
-#endif /* WORKERSSHAREDDATA_H_ */
+#endif /* WORKERS_WORKERSSHAREDDATA_H_ */

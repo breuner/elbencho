@@ -1,7 +1,7 @@
+#include "toolkits/SignalTk.h"
+#include "toolkits/TranslatorTk.h"
 #include "LocalWorker.h"
 #include "RemoteWorker.h"
-#include "SignalTk.h"
-#include "TranslatorTk.h"
 #include "WorkerException.h"
 #include "WorkerManager.h"
 

@@ -2,8 +2,8 @@
 #define COORDINATOR_H_
 
 #include "Statistics.h"
-#include "Worker.h"
-#include "WorkerManager.h"
+#include "workers/Worker.h"
+#include "workers/WorkerManager.h"
 
 
 /**

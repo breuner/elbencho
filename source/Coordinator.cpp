@@ -4,8 +4,8 @@
 #include "HTTPService.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
-#include "SignalTk.h"
-#include "WorkerException.h"
+#include "toolkits/SignalTk.h"
+#include "workers/WorkerException.h"
 
 
 /**

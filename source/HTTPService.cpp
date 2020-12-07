@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include "HTTPService.h"
 #include "ProgException.h"
-#include "RemoteWorker.h"
+#include "workers/RemoteWorker.h"
 
 #define SERVICE_LOG_DIR			"/tmp"
 #define SERVICE_LOG_FILEPREFIX	EXE_NAME

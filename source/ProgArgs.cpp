@@ -5,12 +5,12 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include "NumaTk.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "Terminal.h"
-#include "TranslatorTk.h"
-#include "UnitTk.h"
+#include "toolkits/NumaTk.h"
+#include "toolkits/TranslatorTk.h"
+#include "toolkits/UnitTk.h"
 
 #ifdef CUFILE_SUPPORT
 	#include <cufile.h>

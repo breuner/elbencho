@@ -3,8 +3,8 @@
 
 #include "CPUUtil.h"
 #include "ProgArgs.h"
-#include "WorkerManager.h"
-#include "WorkersSharedData.h"
+#include "workers/WorkerManager.h"
+#include "workers/WorkersSharedData.h"
 
 class PhaseResults
 {

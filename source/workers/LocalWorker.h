@@ -1,5 +1,5 @@
-#ifndef LOCALWORKER_H_
-#define LOCALWORKER_H_
+#ifndef WORKERS_LOCALWORKER_H_
+#define WORKERS_LOCALWORKER_H_
 
 #include <ctype.h>
 #include <cstdio>
@@ -124,4 +124,4 @@ class LocalWorker : public Worker
 };
 
 
-#endif /* LOCALWORKER_H_ */
+#endif /* WORKERS_LOCALWORKER_H_ */

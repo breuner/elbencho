@@ -1,5 +1,5 @@
-#ifndef WORKER_H_
-#define WORKER_H_
+#ifndef WORKERS_WORKER_H_
+#define WORKERS_WORKER_H_
 
 #include <iostream>
 #include "LatencyHistogram.h"
@@ -137,4 +137,4 @@ class Worker
 
 };
 
-#endif /* WORKER_H_ */
+#endif /* WORKERS_WORKER_H_ */
