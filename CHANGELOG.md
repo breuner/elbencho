@@ -7,6 +7,7 @@
 
 ### General Changes
 * When NUMA zones are given (--zones), then set memory bind policy to only prefer these zones instead of strictly enforcing these zones. This is to avoid the OOM killer on systems where other processes already used up most of the available memory in a particular zone.
+* Log backtrace in fault signal handler.
 
 ### Fixes
 * Correct internal update order of phase done flags for worker threads, which could previously lead to process not terminating correctly in rare cases.

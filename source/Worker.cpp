@@ -1,4 +1,5 @@
 #include "NumaTk.h"
+#include "SignalTk.h"
 #include "Worker.h"
 #include "WorkerException.h"
 
@@ -8,6 +9,8 @@
  */
 void Worker::threadStart(Worker* worker)
 {
+	SignalTk::registerFaultSignalHandlers();
+
 	worker->run();
 	worker->cleanup();
 }

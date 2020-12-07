@@ -4,6 +4,7 @@
 #include "HTTPService.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
+#include "SignalTk.h"
 #include "WorkerException.h"
 
 
@@ -19,6 +20,7 @@ int Coordinator::main()
 
 	try
 	{
+		SignalTk::registerFaultSignalHandlers();
 		workerManager.prepareThreads();
 
 		// HTTP service mode
@@ -35,8 +37,9 @@ int Coordinator::main()
 			goto joinall_and_exit;
 		}
 
-		// register signal handlers (termination of remote I/O workers and stats print after ctrl+c)
-		registerSignalHandlers();
+		/* register signal handlers for clean worker stop and stats print after ctrl+c. This is not
+			done in service mode, because a service shall just quit on an interrupt signal. */
+		registerInterruptSignalHandlers();
 
 		// special preparations if we're running in master mode
 		if(!progArgs.getHostsVec().empty() )
@@ -241,7 +244,10 @@ void Coordinator::handleInterruptSignal(int signal)
 	WorkersSharedData::gotUserInterruptSignal = true;
 }
 
-void Coordinator::registerSignalHandlers()
+/**
+ * Register handler of SIGINT/SIGTERM.
+ */
+void Coordinator::registerInterruptSignalHandlers()
 {
 	std::signal(SIGINT, handleInterruptSignal);
 	std::signal(SIGTERM, handleInterruptSignal);

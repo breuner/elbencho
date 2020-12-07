@@ -36,7 +36,7 @@ namespace buuids = boost::uuids;
 class WorkersSharedData
 {
 	public:
-		static bool gotUserInterruptSignal; // SIGINT/SIGTERM handler sets this to true
+		static bool gotUserInterruptSignal; // main thread SIGINT/SIGTERM handler sets this to true
 		static bool isPhaseTimeExpired; // expired progArgs::timeLimitSecs sets this to true
 
 		ThreadGroup* threadGroup;

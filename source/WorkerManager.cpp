@@ -1,5 +1,6 @@
 #include "LocalWorker.h"
 #include "RemoteWorker.h"
+#include "SignalTk.h"
 #include "TranslatorTk.h"
 #include "WorkerException.h"
 #include "WorkerManager.h"
@@ -172,7 +173,11 @@ void WorkerManager::prepareThreads()
 	// run worker threads
 	for(size_t i=0; i < workerVec.size(); i++)
 	{
+		/* Linux can send process signals to any thread, so ensure that workers have SIGINT/SIGTERM
+			blocked and only the main thread receives it. */
+		SignalTk::blockInterruptSignals();
 		std::thread* thread = new std::thread(Worker::threadStart, workerVec[i] );
+		SignalTk::unblockInterruptSignals(); // unblock for current thread
 		threadGroup.push_back(thread);
 	}
 

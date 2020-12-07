@@ -436,7 +436,7 @@ void HTTPService::daemonize()
 		exit(1);
 	}
 
-	// close stdout and replace by logfile
+	// close stderr and replace by logfile
 	int stderrDup = dup2(logFileFD, STDERR_FILENO);
 	if(stderrDup == -1)
 	{
