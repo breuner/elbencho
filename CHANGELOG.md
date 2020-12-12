@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v1.6.2 (under construction)
+## v1.6.3 (Dec 12, 2020)
 
 ### New Features & Enhancements
 * New option to override service mode benchmark paths (--service PATH [MORE_PATHS]). These path overrides can be different for each service instance and will be used by a service instead of any path list provided by master.
