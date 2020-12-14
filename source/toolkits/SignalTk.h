@@ -16,6 +16,7 @@ class SignalTk
 		SignalTk() {}
 
 		static void faultSignalHandler(int sig);
+		static pid_t getThreadID();
 };
 
 

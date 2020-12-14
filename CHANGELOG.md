@@ -5,6 +5,9 @@
 ### New Features & Enhancements
 * New option to verify data by reading directly after writing (--verifydirect).
 
+### Fixes
+* Fix compilation on platforms that don't define gettid().
+
 ## v1.6.3 (Dec 12, 2020)
 
 ### New Features & Enhancements

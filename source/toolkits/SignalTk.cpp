@@ -4,12 +4,13 @@
 #include <iostream>
 #include <sstream>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <thread>
+#include <unistd.h>
 #include "Common.h"
 #include "ProgException.h"
 #include "SignalTk.h"
-
 
 #define SIGNALTK_BACKTRACE_ARRAY_SIZE	32
 #define SIGNALTK_BACKTRACE_PATH			"/tmp/" EXE_NAME "_fault_trace.txt"
@@ -43,37 +44,37 @@ void SignalTk::faultSignalHandler(int sig)
 	{
 		case SIGSEGV:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << gettid() << "): "
+			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
 				"Segmentation fault" << std::endl;
 		} break;
 
 		case SIGFPE:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << gettid() << "): "
+			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
 				"Floating point exception" << std::endl;
 		} break;
 
 		case SIGBUS:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << gettid() << "): "
+			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
 				"Bus error (bad memory access)" << std::endl;
 		} break;
 
 		case SIGILL:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << gettid() << "): "
+			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
 				"Illegal instruction" << std::endl;
 		} break;
 
 		case SIGABRT:
 		{ // note: SIGABRT is special: after signal handler returns the process dies immediately
-			std::cerr << "FAULT HANDLER (" << getpid() << "/" << gettid() << "): "
+			std::cerr << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
 				"Abnormal termination" << std::endl;
 		} break;
 
 		default:
 		{
-			std::cerr << "FAULT HANDLER (" << getpid() << "/" << gettid() << "): "
+			std::cerr << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
 				"Received an unknown signal: " << std::to_string(sig) << std::endl;
 		} break;
 	}
@@ -164,4 +165,17 @@ std::string SignalTk::logBacktrace()
 	SAFE_FREE(backtraceSymbols);
 
 	return stream.str();
+}
+
+/**
+ * Return linux-specific thread ID to show which thread encountered an error.
+ *
+ * This would usually just be gettid(), but gettid() is not available on all platforms, so we use
+ * syscall() just like the man page suggests.
+ *
+ * @return linux-specific thread ID (which is not the same as POSIX thread ID)
+ */
+pid_t SignalTk::getThreadID()
+{
+	return syscall(SYS_gettid);
 }
