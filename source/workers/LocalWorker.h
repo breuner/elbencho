@@ -36,7 +36,7 @@ typedef void (LocalWorker::*CUFILE_HANDLE_REGISTER)(int fd, CuFileHandleData& ha
 typedef void (LocalWorker::*CUFILE_HANDLE_DEREGISTER)(CuFileHandleData& handleData);
 
 // preWriteIntegrityCheckFillBuf/postReadIntegrityCheckVerifyBuf
-typedef void (LocalWorker::*INTEGRITY_CHECKER)(char* buf, size_t bufLen, off_t fileOffset);
+typedef void (LocalWorker::*BLOCK_MODIFIER)(char* buf, size_t bufLen, off_t fileOffset);
 
 
 
@@ -69,8 +69,8 @@ class LocalWorker : public Worker
 		RW_BLOCKSIZED funcRWBlockSized; // pointer to sync or async read/write
 		POSITIONAL_RW funcPositionalRW; // pread/write, cuFileRead/Write for sync read/write
 		AIO_RW_PREPPER funcAioRwPrepper; // io_prep_pwrite/io_prep_read for async read/write
-		INTEGRITY_CHECKER funcPreWriteIntegrityCheck; // fill integrity check buf pre write
-		INTEGRITY_CHECKER funcPostReadIntegrityCheck; // verify integrity check buf post read
+		BLOCK_MODIFIER funcPreWriteBlockModifier; // mod block buf before write (e.g. integrity chk)
+		BLOCK_MODIFIER funcPostReadBlockChecker; // check block buf post read (e.g. integrity check)
 		GPU_MEMCPY_RW funcPreWriteCudaMemcpy; // copy from GPU memory
 		GPU_MEMCPY_RW funcPostReadCudaMemcpy; // copy to GPU memory
 		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
@@ -123,6 +123,7 @@ class LocalWorker : public Worker
 		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
 		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);
 		void postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset);
+		void preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset);
 };
 
 

@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * New option to verify data by reading directly after writing (--verifydirect).
+* New option control how well written data can be compressed or dedupe'd (--blockvarpct).
 
 ### Fixes
 * Fix compilation on platforms that don't define gettid().

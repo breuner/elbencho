@@ -121,6 +121,10 @@ void ProgArgs::defineAllowedArgs()
 			"Show elapsed time to completion of each I/O worker thread.")
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
+/*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
+			"Percentage of blocks that should be refilled with random data between writes. This "
+			"can be used to control how well the generated data can be compressed or deduplicated. "
+			"(Default: 0; Max: 100)")
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
 			"Show CPU utilization in phase stats results.")
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
@@ -348,6 +352,7 @@ void ProgArgs::defineDefaults()
 	this->doPreallocFile = false;
 	this->doDirSharing = false;
 	this->doDirectVerify = false;
+	this->blockVariancePercent = 0;
 }
 
 /**
@@ -495,8 +500,12 @@ void ProgArgs::checkArgs()
 	if(useRandomOffsets && !randomAmount)
 		randomAmount = fileSize;
 
+	if(integrityCheckSalt && blockVariancePercent)
+		throw ProgException("Option --" ARG_BLOCKVARIANCE_LONG " cannot be used together with "
+			"option --" ARG_INTEGRITYCHECK_LONG);
+
 	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
-		throw ProgException("Integrity check writes not supported in combination with random "
+		throw ProgException("Integrity check writes are not supported in combination with random "
 			"offsets.");
 
 	if(doDirectVerify && (!integrityCheckSalt || !runCreateFilesPhase) )
@@ -1578,6 +1587,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	doPreallocFile = tree.get<bool>(ARG_PREALLOCFILE_LONG);
 	doDirSharing = tree.get<bool>(ARG_DIRSHARING_LONG);
 	doDirectVerify = tree.get<bool>(ARG_VERIFYDIRECT_LONG);
+	blockVariancePercent = tree.get<unsigned>(ARG_BLOCKVARIANCE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1636,6 +1646,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
 	outTree.put(ARG_DIRSHARING_LONG, doDirSharing);
 	outTree.put(ARG_VERIFYDIRECT_LONG, doDirectVerify);
+	outTree.put(ARG_BLOCKVARIANCE_LONG, blockVariancePercent);
 
 
 	// dynamically calculated values for service hosts...

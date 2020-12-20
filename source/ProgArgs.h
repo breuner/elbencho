@@ -90,6 +90,7 @@ namespace bpo = boost::program_options;
 #define ARG_PREALLOCFILE_LONG		"preallocfile"
 #define ARG_DIRSHARING_LONG			"dirsharing"
 #define ARG_VERIFYDIRECT_LONG		"verifydirect"
+#define ARG_BLOCKVARIANCE_LONG		"blockvarpct"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -211,6 +212,7 @@ class ProgArgs
 		bool doPreallocFile; // prealloc file space on creation via posix_fallocate()
 		bool doDirSharing; // workers use same dirs in dir mode (instead of unique dir per worker)
 		bool doDirectVerify; // verify data integrity by reading immediately after write
+		unsigned blockVariancePercent; // % of blocks that should differ between writes
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -311,6 +313,7 @@ class ProgArgs
 		bool getDoPreallocFile() const { return doPreallocFile; }
 		bool getDoDirSharing() const { return doDirSharing; }
 		bool getDoDirectVerify() const { return doDirectVerify; }
+		unsigned getBlockVariancePercent() const { return blockVariancePercent; }
 };
 
 

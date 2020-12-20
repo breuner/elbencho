@@ -246,6 +246,7 @@ void LocalWorker::initPhaseFunctionPointers()
 	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
 	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
 	const bool doDirectVerify = progArgs->getDoDirectVerify();
+	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
 
 	funcRWBlockSized = NULL;
 	funcPositionalRW = NULL;
@@ -253,8 +254,8 @@ void LocalWorker::initPhaseFunctionPointers()
 	funcPreWriteCudaMemcpy = NULL;
 	funcPostReadCudaMemcpy = NULL;
 	funcPreWriteCudaMemcpy = NULL;
-	funcPreWriteIntegrityCheck = NULL;
-	funcPostReadIntegrityCheck = NULL;
+	funcPreWriteBlockModifier = NULL;
+	funcPostReadBlockChecker = NULL;
 	funcCuFileHandleReg = NULL;
 	funcCuFileHandleDereg = NULL;
 
@@ -275,9 +276,15 @@ void LocalWorker::initPhaseFunctionPointers()
 		if(useCuFileAPI && integrityCheckEnabled)
 			funcPreWriteCudaMemcpy = &LocalWorker::cudaMemcpyHostToGPU;
 
-		funcPreWriteIntegrityCheck = integrityCheckEnabled ?
-			&LocalWorker::preWriteIntegrityCheckFillBuf : &LocalWorker::noOpIntegrityCheck;
-		funcPostReadIntegrityCheck = &LocalWorker::noOpIntegrityCheck;
+		if(integrityCheckEnabled)
+			funcPreWriteBlockModifier = &LocalWorker::preWriteIntegrityCheckFillBuf;
+		else
+		if(blockVariancePercent)
+			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefill;
+		else
+			funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
+
+		funcPostReadBlockChecker = &LocalWorker::noOpIntegrityCheck;
 
 		if(doDirectVerify)
 		{
@@ -289,7 +296,7 @@ void LocalWorker::initPhaseFunctionPointers()
 				funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 			}
 
-			funcPostReadIntegrityCheck = &LocalWorker::postReadIntegrityCheckVerifyBuf;
+			funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
 		}
 	}
 	else // BenchPhase_READFILES (and others which don't use these function pointers)
@@ -309,8 +316,8 @@ void LocalWorker::initPhaseFunctionPointers()
 		if(useCuFileAPI && integrityCheckEnabled)
 			funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 
-		funcPreWriteIntegrityCheck = &LocalWorker::noOpIntegrityCheck;
-		funcPostReadIntegrityCheck = integrityCheckEnabled ?
+		funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
+		funcPostReadBlockChecker = integrityCheckEnabled ?
 			&LocalWorker::postReadIntegrityCheckVerifyBuf : &LocalWorker::noOpIntegrityCheck;
 	}
 
@@ -548,7 +555,7 @@ int64_t LocalWorker::rwBlockSized(int fd)
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteIntegrityCheck)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
 		ssize_t rwRes = ((*this).*funcPositionalRW)(fd, ioBufVec[0], blockSize, currentOffset);
@@ -566,7 +573,7 @@ int64_t LocalWorker::rwBlockSized(int fd)
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadIntegrityCheck)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -628,7 +635,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 		ioStartTimeVec[vecIdx] = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteIntegrityCheck)(ioBufVec[vecIdx], blockSize, currentOffset); // fill
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[vecIdx], blockSize, currentOffset); // fill
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx], blockSize);
 
 		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[vecIdx] );
@@ -692,7 +699,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 			((*this).*funcPostReadCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx],
 				ioEvents[eventIdx].obj->u.c.nbytes);
-			((*this).*funcPostReadIntegrityCheck)( (char*)ioEvents[eventIdx].obj->u.c.buf,
+			((*this).*funcPostReadBlockChecker)( (char*)ioEvents[eventIdx].obj->u.c.buf,
 				ioEvents[eventIdx].obj->u.c.nbytes, ioEvents[eventIdx].obj->u.c.offset); // verify
 
 			// calc io operation latency
@@ -726,7 +733,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 			ioStartTimeVec[vecIdx] = std::chrono::steady_clock::now();
 
-			((*this).*funcPreWriteIntegrityCheck)(ioBufVec[vecIdx], blockSize, currentOffset);
+			((*this).*funcPreWriteBlockModifier)(ioBufVec[vecIdx], blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx], blockSize);
 
 			int submitRes = io_submit(
@@ -850,6 +857,42 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 	}
 }
 
+/**
+ * Refill some percentage of buffers with random data. The percentage of buffers to refill is
+ * defined in progArgs::blockVariancePercent.
+ */
+void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset)
+{
+	// example: 40% means we refill 40 out of 100 buffers and the remaining 60 buffers are identical
+
+	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
+		to work between different files. (atomicLiveOps.numIOPSDone ensures that below.) */
+
+	// note: workerRank is used to have skew between different worker threads
+	if( (workerRank + atomicLiveOps.numIOPSDone % 100) >= progArgs->getBlockVariancePercent() )
+		return;
+
+	// refill buffer with random data
+
+	size_t numBytesDone = 0;
+
+	for(uint64_t i=0; i < (bufLen / sizeof(uint64_t) ); i++)
+	{
+		uint64_t* uint64Buf = (uint64_t*)buf;
+		*uint64Buf = randGen();
+
+		buf += sizeof(uint64_t);
+		numBytesDone += sizeof(uint64_t);
+	}
+
+	if(numBytesDone == bufLen)
+		return; // all done, complete buffer filled
+
+	// we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
+	uint64_t randUint64 = randGen();
+
+	memcpy(buf, &randUint64, bufLen - numBytesDone);
+}
 
 /**
  * Noop for cases where preWriteCudaMemcpy & postReadCudaMemcpy are not appropriate.
