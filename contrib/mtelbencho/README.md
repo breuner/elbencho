@@ -70,8 +70,8 @@ imagination.
 ## Motivation
 
 My professional focus and speciality is moving data at scale and when
-feasible, at speed.  Since 2015, my company, Zettar
-Inc. <https://zettar.com/> has been engaged to support the ambitious
+feasible, at speed.  Since 2015, my company, [Zettar
+Inc.](https://zettar.com/) has been engaged to support the ambitious
 data movement requirements of LCLS-II,
 <https://lcls.slac.stanford.edu/lcls-ii/design-and-performance>, a
 premier U.S. Department of Energy's Exascale Computing preparation
