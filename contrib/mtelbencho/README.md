@@ -2,12 +2,13 @@
 
 # Table of contents
 
-1. Introduction
-2. Layout and content
-3. Goals and possible use of the wrapper
-4. Motivation
-5. Future evolution
-6. Epilogue
+1. **Introduction**
+2. **Layout and content**
+3. **Goals and possible use of the wrapper**
+4. **Motivation**
+5. **Future evolution**
+6. **Acknowledgments**
+7. **Epilogue**
 
 ## Introduction
 
