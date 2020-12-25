@@ -26,7 +26,7 @@ proficiency to use elbencho for real work.  This is how I learned
 `elbencho`.
 
 Nevertheless, it is helpful to see how this versatile program is used
-in real production/test environment. This bash wrapper provides a
+in real production/test environment. This `bash` wrapper provides a
 comprehensive, production grade, and yet simple example.
 
 ## Layout and content
