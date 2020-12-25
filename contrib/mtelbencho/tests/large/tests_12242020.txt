@@ -1,1 +1,171 @@
-
+[root@nersc-tbn-6 sweep]# mtelbencho.sh -r l -t 56 -b 16 -s /data/zettar/zx/src/sweep -v 
+Working on 1024x1GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2955       3254
+---
+WRITE     Elapsed ms       :      76564      90348
+          IOPS             :        736        725
+          Throughput MiB/s :      11786      11605
+          Total MiB        :     902432    1048576
+---
+DROPCACHE Elapsed ms       :       3152       3385
+---
+RMFILES   Elapsed ms       :         42         56
+---
+DROPCACHE Elapsed ms       :       2867       3276
+---
+Working on 512x2GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2900       3236
+---
+WRITE     Elapsed ms       :      83732      98402
+          IOPS             :        667        666
+          Throughput MiB/s :      10687      10656
+          Total MiB        :     894928    1048576
+---
+DROPCACHE Elapsed ms       :       3242       3444
+---
+RMFILES   Elapsed ms       :         17         28
+---
+DROPCACHE Elapsed ms       :       2997       3393
+---
+Working on 256x4GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3024       3398
+---
+WRITE     Elapsed ms       :      80086      99180
+          IOPS             :        678        660
+          Throughput MiB/s :      10863      10572
+          Total MiB        :     870000    1048576
+---
+DROPCACHE Elapsed ms       :       3207       3470
+---
+RMFILES   Elapsed ms       :          4         13
+---
+DROPCACHE Elapsed ms       :       2976       3326
+---
+Working on 128x8GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3022       3356
+---
+WRITE     Elapsed ms       :      63548     108147
+          IOPS             :        631        605
+          Throughput MiB/s :      10098       9695
+          Total MiB        :     641760    1048576
+---
+DROPCACHE Elapsed ms       :       3133       3364
+---
+RMFILES   Elapsed ms       :          0          5
+---
+DROPCACHE Elapsed ms       :       1752       3123
+---
+Working on 64x16GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2812       3153
+---
+WRITE     Elapsed ms       :      75551     109120
+          IOPS             :        612        600
+          Throughput MiB/s :       9793       9609
+          Total MiB        :     739952    1048576
+---
+DROPCACHE Elapsed ms       :       3297       3536
+---
+RMFILES   Elapsed ms       :          1          4
+---
+DROPCACHE Elapsed ms       :       2829       3253
+---
+Working on 32x32GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3117       3432
+---
+WRITE     Elapsed ms       :      85706     113714
+          IOPS             :        580        576
+          Throughput MiB/s :       9294       9221
+          Total MiB        :     796640    1048576
+---
+DROPCACHE Elapsed ms       :       3090       3339
+---
+RMFILES   Elapsed ms       :          0          2
+---
+DROPCACHE Elapsed ms       :       2790       3160
+---
+Working on 16x64GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2710       3090
+---
+WRITE     Elapsed ms       :     104220     111241
+          IOPS             :        590        589
+          Throughput MiB/s :       9441       9426
+          Total MiB        :     983952    1048576
+---
+DROPCACHE Elapsed ms       :       3306       3550
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       2893       3307
+---
+Working on 8x128GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2985       3365
+---
+WRITE     Elapsed ms       :     104947     114891
+          IOPS             :        571        570
+          Throughput MiB/s :       9138       9126
+          Total MiB        :     959008    1048576
+---
+DROPCACHE Elapsed ms       :       3294       3553
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       2917       3322
+---
+Working on 4x256GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2927       3297
+---
+WRITE     Elapsed ms       :     105640     118154
+          IOPS             :        552        554
+          Throughput MiB/s :       8846       8874
+          Total MiB        :     934560    1048576
+---
+DROPCACHE Elapsed ms       :       3196       3444
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2932       3402
+---
+Working on 2x512GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2499       3219
+---
+WRITE     Elapsed ms       :      97054     113233
+          IOPS             :        577        578
+          Throughput MiB/s :       9234       9260
+          Total MiB        :     896208    1048576
+---
+DROPCACHE Elapsed ms       :       2692       3329
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2699       3261
+---
