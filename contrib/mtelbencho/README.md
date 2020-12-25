@@ -72,8 +72,7 @@ imagination.
 My professional focus and speciality is moving data at scale and when
 feasible, at speed.  Since 2015, my company, [Zettar
 Inc.](https://zettar.com/) has been engaged to support the ambitious
-data movement requirements of LCLS-II,
-<https://lcls.slac.stanford.edu/lcls-ii/design-and-performance>, a
+data movement requirements of [Linac Coherent Light Source II (LCLS-II)](https://lcls.slac.stanford.edu/lcls-ii/design-and-performance), a
 premier U.S. Department of Energy's Exascale Computing preparation
 project.  As a result, my team and I have become intimately familar
 with the DOE's co-design principle: *integrated consideration of
@@ -86,7 +85,7 @@ understanding of the storage system's I/O throughput and
 characteristics, typically by storage benchmarking.
 
 While collaborating with the DOE's Energy Sciences Network (ESnet) in
-2020, documented in
+2020, documented in 
 <https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf>, one
 challenge was the file size range needed to be considered -- there was
 simply not a single storage benchmarking tool that we knew of could
