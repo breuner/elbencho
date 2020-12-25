@@ -1,1 +1,679 @@
-
+[root@nersc-tbn-6 sweep]# date; mtelbencho.sh -t 56 -b 16 -s /data/zettar/zx/src/sweep -v ; date
+Fri Dec 25 05:57:01 UTC 2020
+Working on 1048576x1KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2961       3242
+---
+MKDIRS    Elapsed ms       :          0          1
+          Dirs/s           :      12383      33694
+          Total dirs       :          4         56
+---
+DROPCACHE Elapsed ms       :       2860       3239
+---
+WRITE     Elapsed ms       :      18423      19112
+          Files/s          :      54777      54865
+          Throughput MiB/s :         53         53
+          Total files      :    1009212    1048600
+          Total MiB        :        985       1024
+---
+DROPCACHE Elapsed ms       :      24322      24327
+---
+RMFILES   Elapsed ms       :      12975      13357
+          Files/s          :      78049      78504
+          Total files      :    1012769    1048600
+---
+DROPCACHE Elapsed ms       :       5460       5490
+---
+Working on 1048576x2KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4301       4833
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      23728      21613
+          Total dirs       :         14         56
+---
+DROPCACHE Elapsed ms       :       4373       4882
+---
+WRITE     Elapsed ms       :      18366      19179
+          Files/s          :      54586      54673
+          Throughput MiB/s :        106        106
+          Total files      :    1002547    1048600
+          Total MiB        :       1958       2048
+---
+DROPCACHE Elapsed ms       :      26001      26682
+---
+RMFILES   Elapsed ms       :      12867      13466
+          Files/s          :      77411      77867
+          Total files      :     996079    1048600
+---
+DROPCACHE Elapsed ms       :       5291       5311
+---
+Working on 1048576x4KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4266       4815
+---
+MKDIRS    Elapsed ms       :          1          3
+          Dirs/s           :        909      18312
+          Total dirs       :          1         56
+---
+DROPCACHE Elapsed ms       :       4333       4957
+---
+WRITE     Elapsed ms       :      19437      19855
+          Files/s          :      52780      52811
+          Throughput MiB/s :        206        206
+          Total files      :    1025905    1048600
+          Total MiB        :       4007       4096
+---
+DROPCACHE Elapsed ms       :      14956      14967
+---
+RMFILES   Elapsed ms       :      11640      13926
+          Files/s          :      74744      75296
+          Total files      :     870065    1048600
+---
+DROPCACHE Elapsed ms       :       4820       4855
+---
+Working on 1048576x8KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4153       4483
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       9463      23982
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       3171       3777
+---
+WRITE     Elapsed ms       :      19176      20233
+          Files/s          :      51807      51825
+          Throughput MiB/s :        404        404
+          Total files      :     993469    1048600
+          Total MiB        :       7761       8192
+---
+DROPCACHE Elapsed ms       :      14119      14129
+---
+RMFILES   Elapsed ms       :       4905      14383
+          Files/s          :      55107      72901
+          Total files      :     270353    1048600
+---
+DROPCACHE Elapsed ms       :       4492       4520
+---
+Working on 1048576x16KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3724       4039
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      17341      20763
+          Total dirs       :          6         56
+---
+DROPCACHE Elapsed ms       :       3278       3678
+---
+WRITE     Elapsed ms       :      19055      20123
+          Files/s          :      52034      52107
+          Throughput MiB/s :        813        814
+          Total files      :     991577    1048600
+          Total MiB        :      15493      16384
+---
+DROPCACHE Elapsed ms       :       6931      13533
+---
+RMFILES   Elapsed ms       :       7833      12389
+          Files/s          :      78094      84638
+          Total files      :     611759    1048600
+---
+DROPCACHE Elapsed ms       :       4722       4746
+---
+Working on 1048576x32KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3576       4036
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      33797      21789
+          Total dirs       :         17         56
+---
+DROPCACHE Elapsed ms       :       3868       4339
+---
+WRITE     Elapsed ms       :      19656      20303
+          Files/s          :      51587      51645
+          Throughput MiB/s :       1612       1613
+          Total files      :    1014018    1048600
+          Total MiB        :      31688      32768
+---
+DROPCACHE Elapsed ms       :      13576      13601
+---
+RMFILES   Elapsed ms       :      10323      11881
+          Files/s          :      87074      88253
+          Total files      :     898900    1048600
+---
+DROPCACHE Elapsed ms       :       5001       5026
+---
+Working on 1048576x64KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3605       4086
+---
+MKDIRS    Elapsed ms       :          0          1
+          Dirs/s           :       8571      30368
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       3710       4239
+---
+WRITE     Elapsed ms       :      19280      20023
+          Files/s          :      52342      52368
+          Throughput MiB/s :       3271       3273
+          Total files      :    1009187    1048600
+          Total MiB        :      63074      65537
+---
+DROPCACHE Elapsed ms       :      13660      13686
+---
+RMFILES   Elapsed ms       :      11069      12717
+          Files/s          :      80476      82456
+          Total files      :     890854    1048600
+---
+DROPCACHE Elapsed ms       :       5033       5057
+---
+Working on 1048576x128KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4046       4535
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      12195      26034
+          Total dirs       :          4         56
+---
+DROPCACHE Elapsed ms       :       4210       4539
+---
+WRITE     Elapsed ms       :      18466      19278
+          Files/s          :      54420      54391
+          Throughput MiB/s :       6802       6798
+          Total files      :    1004944    1048600
+          Total MiB        :     125618     131075
+---
+DROPCACHE Elapsed ms       :       7265      13272
+---
+RMFILES   Elapsed ms       :      11429      12183
+          Files/s          :      85248      86067
+          Total files      :     974368    1048600
+---
+DROPCACHE Elapsed ms       :       5492       5518
+---
+Working on 1048576x256KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4399       4940
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       9868      23130
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       4563       4887
+---
+WRITE     Elapsed ms       :      28307      28914
+          Files/s          :      36280      36265
+          Throughput MiB/s :       9070       9066
+          Total files      :    1026991    1048600
+          Total MiB        :     256747     262150
+---
+DROPCACHE Elapsed ms       :      13518      13528
+---
+RMFILES   Elapsed ms       :       5124      14380
+          Files/s          :      57057      72919
+          Total files      :     292409    1048600
+---
+DROPCACHE Elapsed ms       :       4622       4649
+---
+Working on 1048576x512KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3272       3607
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      18808      21604
+          Total dirs       :          6         56
+---
+DROPCACHE Elapsed ms       :       2878       3298
+---
+WRITE     Elapsed ms       :      52777      53364
+          Files/s          :      19655      19649
+          Throughput MiB/s :       9827       9824
+          Total files      :    1037357    1048600
+          Total MiB        :     518678     524300
+---
+DROPCACHE Elapsed ms       :      13997      14013
+---
+RMFILES   Elapsed ms       :       5312      15055
+          Files/s          :      56168      69650
+          Total files      :     298391    1048600
+---
+DROPCACHE Elapsed ms       :       4892       4918
+---
+Working on 1048576x1MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3335       3662
+---
+MKDIRS    Elapsed ms       :          0          3
+          Dirs/s           :      15723      17897
+          Total dirs       :         10         56
+---
+DROPCACHE Elapsed ms       :       2970       3408
+---
+WRITE     Elapsed ms       :     106640     107047
+          Files/s          :       9797       9795
+          Throughput MiB/s :       9797       9795
+          Total files      :    1044842    1048600
+          Total MiB        :    1044842    1048600
+---
+DROPCACHE Elapsed ms       :      13891      13900
+---
+RMFILES   Elapsed ms       :       4288      13744
+          Files/s          :      71916      76293
+          Total files      :     308442    1048600
+---
+DROPCACHE Elapsed ms       :       4566       4589
+---
+Working on 524288x2MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2320       3285
+---
+MKDIRS    Elapsed ms       :          1          2
+          Dirs/s           :      14462      19690
+          Total dirs       :         21         56
+---
+DROPCACHE Elapsed ms       :       2721       3204
+---
+WRITE     Elapsed ms       :     107737     107931
+          Files/s          :       4858       4857
+          Throughput MiB/s :       9716       9715
+          Total files      :     523394     524328
+          Total MiB        :    1046788    1048656
+---
+DROPCACHE Elapsed ms       :       8421       8438
+---
+RMFILES   Elapsed ms       :       3035       6788
+          Files/s          :      75366      77235
+          Total files      :     228797     524328
+---
+DROPCACHE Elapsed ms       :       4186       4221
+---
+Working on 262144x4MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3404       3827
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      27295      22195
+          Total dirs       :         22         56
+---
+DROPCACHE Elapsed ms       :       3599       3901
+---
+WRITE     Elapsed ms       :     104838     104988
+          Files/s          :       2497       2497
+          Throughput MiB/s :       9988       9989
+          Total files      :     261804     262192
+          Total MiB        :    1047216    1048768
+---
+DROPCACHE Elapsed ms       :       5613       5621
+---
+RMFILES   Elapsed ms       :       1432       3361
+          Files/s          :      77116      78003
+          Total files      :     110436     262192
+---
+DROPCACHE Elapsed ms       :       3636       3774
+---
+Working on 131072x8MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3129       3546
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       6688      20267
+          Total dirs       :          4         56
+---
+DROPCACHE Elapsed ms       :       3362       3757
+---
+WRITE     Elapsed ms       :     100645     100776
+          Files/s          :       1300       1300
+          Throughput MiB/s :      10406      10406
+          Total files      :     130927     131096
+          Total MiB        :    1047416    1048768
+---
+DROPCACHE Elapsed ms       :       4410       4413
+---
+RMFILES   Elapsed ms       :        798       1689
+          Files/s          :      77535      77572
+          Total files      :      61884     131096
+---
+DROPCACHE Elapsed ms       :       3386       3765
+---
+Working on 65536x16MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3242       3554
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       8756      18773
+          Total dirs       :          5         56
+---
+DROPCACHE Elapsed ms       :       3178       3483
+---
+WRITE     Elapsed ms       :      96370      96626
+          Files/s          :        678        678
+          Throughput MiB/s :      10849      10858
+          Total files      :      65346      65576
+          Total MiB        :    1045536    1049216
+---
+DROPCACHE Elapsed ms       :       3488       3491
+---
+RMFILES   Elapsed ms       :        360        858
+          Files/s          :      75145      76383
+          Total files      :      27113      65576
+---
+DROPCACHE Elapsed ms       :       3319       3669
+---
+Working on 32768x32MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3133       3465
+---
+MKDIRS    Elapsed ms       :          2          2
+          Dirs/s           :      20595      19774
+          Total dirs       :         56         56
+---
+DROPCACHE Elapsed ms       :       3080       3461
+---
+WRITE     Elapsed ms       :      89892      90039
+          Files/s          :        364        364
+          IOPS             :        728        728
+          Throughput MiB/s :      11660      11662
+          Total files      :      32755      32816
+          Total MiB        :    1048240    1050112
+---
+DROPCACHE Elapsed ms       :       3211       3408
+---
+RMFILES   Elapsed ms       :        243        437
+          Files/s          :      74787      74961
+          Total files      :      18201      32816
+---
+DROPCACHE Elapsed ms       :       3259       3632
+---
+Working on 16384x64MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3135       3420
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       7117      19184
+          Total dirs       :          4         56
+---
+DROPCACHE Elapsed ms       :       3090       3466
+---
+WRITE     Elapsed ms       :      89394      89471
+          Files/s          :        182        183
+          IOPS             :        733        733
+          Throughput MiB/s :      11731      11736
+          Total files      :      16354      16408
+          Total MiB        :    1048720    1050112
+---
+DROPCACHE Elapsed ms       :       3346       3581
+---
+RMFILES   Elapsed ms       :        212        244
+          Files/s          :      67412      67148
+          Total files      :      14330      16408
+---
+DROPCACHE Elapsed ms       :       3427       3766
+---
+Working on 8192x128MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3121       3449
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       1798      23313
+          Total dirs       :          1         56
+---
+DROPCACHE Elapsed ms       :       2870       3388
+---
+WRITE     Elapsed ms       :      89588      89702
+          Files/s          :         91         91
+          IOPS             :        733        734
+          Throughput MiB/s :      11740      11746
+          Total files      :       8177       8232
+          Total MiB        :    1051824    1053696
+---
+DROPCACHE Elapsed ms       :       3265       3467
+---
+RMFILES   Elapsed ms       :        158        160
+          Files/s          :      51245      51210
+          Total files      :       8127       8232
+---
+DROPCACHE Elapsed ms       :       3206       3600
+---
+Working on 4096x256MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2997       3338
+---
+MKDIRS    Elapsed ms       :          0          3
+          Dirs/s           :       7462      16898
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       2929       3441
+---
+WRITE     Elapsed ms       :      90961      91093
+          Files/s          :         44         45
+          IOPS             :        727        727
+          Throughput MiB/s :      11638      11645
+          Total files      :       4089       4144
+          Total MiB        :    1058688    1060864
+---
+DROPCACHE Elapsed ms       :       3238       3482
+---
+RMFILES   Elapsed ms       :        146        149
+          Files/s          :      27617      27747
+          Total files      :       4058       4144
+---
+DROPCACHE Elapsed ms       :       3118       3478
+---
+Working on 2048x512MiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2965       3311
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       3361      19437
+          Total dirs       :          2         56
+---
+DROPCACHE Elapsed ms       :       2958       3336
+---
+WRITE     Elapsed ms       :      89988      90065
+          Files/s          :         22         23
+          IOPS             :        735        736
+          Throughput MiB/s :      11772      11778
+          Total files      :       2017       2072
+          Total MiB        :    1059376    1060864
+---
+DROPCACHE Elapsed ms       :       3199       3420
+---
+RMFILES   Elapsed ms       :        142        144
+          Files/s          :      14112      14325
+          Total files      :       2007       2072
+---
+DROPCACHE Elapsed ms       :       3205       3520
+---
+Working on 1024x1GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3018       3366
+---
+WRITE     Elapsed ms       :      77059      90710
+          IOPS             :        734        722
+          Throughput MiB/s :      11744      11559
+          Total MiB        :     905008    1048576
+---
+DROPCACHE Elapsed ms       :       3232       3462
+---
+RMFILES   Elapsed ms       :         31         52
+---
+DROPCACHE Elapsed ms       :       2866       3248
+---
+Working on 512x2GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2710       3076
+---
+WRITE     Elapsed ms       :      79587      95246
+          IOPS             :        706        688
+          Throughput MiB/s :      11301      11009
+          Total MiB        :     899488    1048576
+---
+DROPCACHE Elapsed ms       :       3284       3505
+---
+RMFILES   Elapsed ms       :         12         25
+---
+DROPCACHE Elapsed ms       :       2934       3293
+---
+Working on 256x4GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2979       3415
+---
+WRITE     Elapsed ms       :      88269     107879
+          IOPS             :        610        607
+          Throughput MiB/s :       9768       9719
+          Total MiB        :     862224    1048576
+---
+DROPCACHE Elapsed ms       :       3344       3540
+---
+RMFILES   Elapsed ms       :          7         14
+---
+DROPCACHE Elapsed ms       :       2795       3232
+---
+Working on 128x8GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2789       3171
+---
+WRITE     Elapsed ms       :      67252     112020
+          IOPS             :        597        585
+          Throughput MiB/s :       9563       9360
+          Total MiB        :     643152    1048576
+---
+DROPCACHE Elapsed ms       :       3272       3493
+---
+RMFILES   Elapsed ms       :          8         10
+---
+DROPCACHE Elapsed ms       :       2104       3323
+---
+Working on 64x16GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3061       3385
+---
+WRITE     Elapsed ms       :      71858     108346
+          IOPS             :        620        604
+          Throughput MiB/s :       9924       9678
+          Total MiB        :     713184    1048576
+---
+DROPCACHE Elapsed ms       :       3050       3277
+---
+RMFILES   Elapsed ms       :          2          3
+---
+DROPCACHE Elapsed ms       :       2915       3330
+---
+Working on 32x32GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2791       3199
+---
+WRITE     Elapsed ms       :      83306     110361
+          IOPS             :        599        593
+          Throughput MiB/s :       9596       9501
+          Total MiB        :     799424    1048576
+---
+DROPCACHE Elapsed ms       :       3272       3469
+---
+RMFILES   Elapsed ms       :          0          2
+---
+DROPCACHE Elapsed ms       :       2739       3279
+---
+Working on 16x64GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3004       3384
+---
+WRITE     Elapsed ms       :     106372     115501
+          IOPS             :        567        567
+          Throughput MiB/s :       9076       9078
+          Total MiB        :     965520    1048576
+---
+DROPCACHE Elapsed ms       :       3381       3601
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       2917       3372
+---
+Working on 8x128GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2839       3206
+---
+WRITE     Elapsed ms       :     104104     114978
+          IOPS             :        570        569
+          Throughput MiB/s :       9134       9119
+          Total MiB        :     950912    1048576
+---
+DROPCACHE Elapsed ms       :       3285       3518
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       2982       3346
+---
+Working on 4x256GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2906       3209
+---
+WRITE     Elapsed ms       :     107568     118242
+          IOPS             :        550        554
+          Throughput MiB/s :       8813       8868
+          Total MiB        :     948016    1048576
+---
+DROPCACHE Elapsed ms       :       3148       3369
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2624       3109
+---
+Working on 2x512GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2752       3118
+---
+WRITE     Elapsed ms       :     102550     114058
+          IOPS             :        576        574
+          Throughput MiB/s :       9217       9193
+          Total MiB        :     945248    1048576
+---
+DROPCACHE Elapsed ms       :       3206       3469
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2717       3315
+---
+Working on 1x1024GiB with 56 threads...
+Fri Dec 25 06:47:30 UTC 2020
