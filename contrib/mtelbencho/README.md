@@ -109,7 +109,7 @@ definitely are possible.
 ## Acknowledgments
 
 * **Sven Breuner** <`sven.breuner[at]gmail.com`> for creating the excellent 
-  elbencho and enhancing it rapidly, his friendship, and many stimulating 
+  `elbencho` and enhancing it rapidly, his friendship, and many stimulating 
   discussions over the years.
   
 * **Sandy Wambold** <`sandy[at]wambold.com`> for her friendship and English
