@@ -59,7 +59,7 @@
 #          9. Any user can run this script's help or dry-run mode. But to
 #             use it for actual tests, one must be either root or have
 #             sudo privilege.
-#         10. The script has been statically check with shellcheck
+#         10. The script has been statically checked with shellcheck
 #             without any errors/warnings.
 #
 # Usage  : Assuming mtelbencho.sh is available from the $PATH,
