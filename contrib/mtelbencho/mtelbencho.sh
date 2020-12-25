@@ -436,7 +436,7 @@ verify_block_size()
 		verify_threads
                 ;;
             s)  src_dir=$OPTARG
-		if ! [[ "$(cd $src_dir)" -eq 0 ]]; then
+		if ! [[ "$(cd "$src_dir")" -eq 0 ]]; then
 		    msg="$src_dir does not exist. Abort!"
                     echo "$msg"
 		    exit 1
