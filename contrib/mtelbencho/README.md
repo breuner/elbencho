@@ -89,7 +89,7 @@ While collaborating with the DOE's Energy Sciences Network (ESnet) in
 challenge was the file size range needed to be considered -- there was
 simply not a single storage benchmarking tool that we knew of could
 meet our needs.  The timely appearance of `elbencho` was really
-serendipity as it met our requirements perfectly.  As a result, the
+a serendipity as it met our requirements perfectly.  As a result, the
 ESnet/Zettar project concluded both timely and successfully.
 
 Believing what we learned and did during the project could be helpful
