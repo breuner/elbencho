@@ -46,7 +46,7 @@ out by any IT professional responsible for an organization's storage,
 especially for new deployment.
 
 The foremost goal of this wrapper is to simplify the already simple
-elbencho usage even more for carrying out a storage sweep over a wide
+`elbencho` usage even more for carrying out a storage sweep over a wide
 range of file sizes. As implemented, it does so by default sweeping
 from 1KiB to 1TiB, incremented in power-of-two file sizes.  Once
 installed, please type `$ mtelbencho.sh -h` on the command line for more
