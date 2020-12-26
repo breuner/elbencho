@@ -7,10 +7,10 @@
 #
 # Authors: Chin Fang <fangchin@zettar.com>
 #
-# Purpose: A simple bash wrapper of the elbencho program by Sven Breuner.
+# Purpose: A simple bash wrapper of the elbencho program by Sven Breuner[0].
 #          The purpose of this bash wrapper is to:
 #
-#          0. Facilitate the conduction of a storage "sweep" in a
+#          0. Facilitate the conduction of a storage "sweep"[1] in a
 #             client of a POSIX compliant storage service, e.g. BeeGFS, NFS.
 #          1. Make it easy to select
 #             1.1 A distributed POSIX compliant file system 
@@ -59,7 +59,7 @@
 #          9. Any user can run this script's help or dry-run mode. But to
 #             use it for actual tests, one must be either root or have
 #             sudo privilege.
-#         10. The script has been statically checked with shellcheck
+#         10. The script has been statically checked with shellcheck[2]
 #             without any errors/warnings.
 #
 # Usage  : Assuming mtelbencho.sh is available from the $PATH,
@@ -68,10 +68,10 @@
 #          where N is the desired thread number to run elbencho.
 #          Do a mtelbencho.sh -h for more info.
 #
-# Reference: 0. https://github.com/breuner/elbencho/blob/master/README.md
-#            1. mtelbencho.md
-#            2. https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf
-#               Fig. 3 for an actual application of this bash wrapper
+# Reference: [0]. https://github.com/breuner/elbencho/blob/master/README.md
+#            [1]. https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf
+#                 Fig. 3 for an actual application of this bash wrapper
+#            [2]. https://shellcheck.net/
 
 # A few global variables. Contrary to a myth popular among newbie
 # programmers, if judiciously employed, global variables simplify
