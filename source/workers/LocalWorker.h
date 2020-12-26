@@ -17,7 +17,7 @@
 class LocalWorker;
 
 // io_prep_pwrite or io_prep_read from libaio
-typedef void (*AIO_RW_PREPPER)(struct iocb* iocb, int fd, void* buf, size_t count,
+typedef void (LocalWorker::*AIO_RW_PREPPER)(struct iocb* iocb, int fd, void* buf, size_t count,
 	long long offset);
 
 // {pread,pwrite}Wrapper (as in "man 2 pread") or cuFile{Read,Write}Wrapper
@@ -64,6 +64,8 @@ class LocalWorker : public Worker
 		int gpuID{-1}; // GPU ID for this worker, initialized in allocGPUIOBuffer
 		CuFileHandleData cuFileHandleData; // cuFile handle for current file in dir mode
 		CuFileHandleData* cuFileHandleDataPtr{NULL}; // for cuFileRead/WriteWrapper
+
+		uint64_t numIOPSSubmitted{0}; // internal sequential counter, not reset between phases
 
 		// phase-dependent function & offsetGen pointers
 		RW_BLOCKSIZED funcRWBlockSized; // pointer to sync or async read/write
@@ -115,15 +117,21 @@ class LocalWorker : public Worker
 
 		ssize_t preadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t pwriteWrapper(int fd, void* buf, size_t nbytes, off_t offset);
-		ssize_t pWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
+		ssize_t pwriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
+		ssize_t pwriteRWMixWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileWriteWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset);
+		ssize_t cuFileRWMixWrapper(int fd, void* buf, size_t nbytes, off_t offset);
 
 		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
 		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);
 		void postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset);
 		void preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset);
+
+		void aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
+		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
+		void aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 };
 
 

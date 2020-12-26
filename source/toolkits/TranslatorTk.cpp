@@ -1,6 +1,8 @@
+#include "ProgArgs.h"
 #include "ProgException.h"
 #include "TranslatorTk.h"
 
+#define TRANSLATORTK_PHASENAME_RWMIX	"RWMIX"
 
 /**
  * Get name of a phase from bench phase.
@@ -8,7 +10,7 @@
  * @return PHASENAME_...
  * @throw ProgException on invalid benchPhase value
  */
-std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase)
+std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const ProgArgs* progArgs)
 {
 	switch(benchPhase)
 	{
@@ -16,7 +18,13 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase)
 		case BenchPhase_TERMINATE: return PHASENAME_TERMINATE;
 		case BenchPhase_CREATEDIRS: return PHASENAME_CREATEDIRS;
 		case BenchPhase_DELETEDIRS: return PHASENAME_DELETEDIRS;
-		case BenchPhase_CREATEFILES: return PHASENAME_CREATEFILES;
+		case BenchPhase_CREATEFILES:
+		{
+			if(progArgs->getRWMixPercent() )
+				return TRANSLATORTK_PHASENAME_RWMIX + std::to_string(progArgs->getRWMixPercent() );
+			else
+				return PHASENAME_CREATEFILES;
+		}
 		case BenchPhase_READFILES: return PHASENAME_READFILES;
 		case BenchPhase_DELETEFILES: return PHASENAME_DELETEFILES;
 		case BenchPhase_SYNC: return PHASENAME_SYNC;

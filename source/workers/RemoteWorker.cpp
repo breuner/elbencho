@@ -208,6 +208,15 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
+		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
+			(progArgs->getRWMixPercent() ) )
+		{
+			atomicLiveRWMixReadOps.numBytesDone =
+					resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
+			atomicLiveRWMixReadOps.numIOPSDone =
+					resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
+		}
+
 		phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
 
 		incNumWorkersDone();
@@ -355,6 +364,15 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			atomicLiveOps.numBytesDone = statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 			atomicLiveOps.numIOPSDone = statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
+
+			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
+				(progArgs->getRWMixPercent() ) )
+			{
+				atomicLiveRWMixReadOps.numBytesDone =
+					statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
+				atomicLiveRWMixReadOps.numIOPSDone =
+					statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
+			}
 
 			IF_UNLIKELY(numWorkersDoneWithError)
 			{

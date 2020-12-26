@@ -21,6 +21,16 @@ struct LiveOps
 	}
 
 	/**
+	 * Add current ops values to given outSumOps.
+	 */
+	void getAndAddOps(LiveOps& outSumOps) const
+	{
+		outSumOps.numEntriesDone += numEntriesDone;
+		outSumOps.numBytesDone += numBytesDone;
+		outSumOps.numIOPSDone += numIOPSDone;
+	}
+
+	/**
 	 * Calculate per second values from total values based on given elapsed time.
 	 *
 	 * @elapsedUSec elapsed time as basis for per-sec calculation.
@@ -81,6 +91,23 @@ struct AtomicLiveOps
 		numEntriesDone = 0;
 		numBytesDone = 0;
 		numIOPSDone = 0;
+	}
+
+	void getAsLiveOps(LiveOps& outLiveOps) const
+	{
+		outLiveOps.numEntriesDone = numEntriesDone;
+		outLiveOps.numBytesDone = numBytesDone;
+		outLiveOps.numIOPSDone = numIOPSDone;
+	}
+
+	/**
+	 * Add current ops values to given outSumLiveOps.
+	 */
+	void getAndAddLiveOps(LiveOps& outSumLiveOps) const
+	{
+		outSumLiveOps.numEntriesDone += numEntriesDone;
+		outSumLiveOps.numBytesDone += numBytesDone;
+		outSumLiveOps.numIOPSDone += numIOPSDone;
 	}
 };
 

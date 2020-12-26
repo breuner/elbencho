@@ -218,9 +218,6 @@ void ProgArgs::defineAllowedArgs()
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service instances. Thus, each service instance "
 			"will work on its own full dataset instead of a fraction of the data set.")
-/*pe*/	(ARG_PERTHREADSTATS_LONG, bpo::bool_switch(&this->showPerThreadStats),
-			"Show results per thread instead of total for all threads. (Does not apply to live "
-			"stats.)")
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
@@ -242,6 +239,8 @@ void ProgArgs::defineAllowedArgs()
 /*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
 			"Path to file for human-readable results, similar to console output. If the file "
 			"exists, new results will be appended.")
+/*rw*/	(ARG_RWMIXPERCENT_LONG, bpo::value(&this->rwMixPercent),
+			"Percentage of blocks that should be read in a write phase. (Default: 0; Max: 100)")
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0)")
 /*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
@@ -306,7 +305,6 @@ void ProgArgs::defineDefaults()
 	this->blockSize = 1024*1024;
 	this->blockSizeOrigStr = "1M";
 	this->useDirectIO = false;
-	this->showPerThreadStats = false;
 	this->disableLiveStats = false;
 	this->ignoreDelErrors = false;
 	this->ignore0USecErrors = false;
@@ -353,6 +351,7 @@ void ProgArgs::defineDefaults()
 	this->doDirSharing = false;
 	this->doDirectVerify = false;
 	this->blockVariancePercent = 0;
+	this->rwMixPercent = 0;
 }
 
 /**
@@ -499,6 +498,14 @@ void ProgArgs::checkArgs()
 
 	if(useRandomOffsets && !randomAmount)
 		randomAmount = fileSize;
+
+	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
+		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
+			"GPU memory copy");
+
+	if(integrityCheckSalt && rwMixPercent)
+		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
+			"option --" ARG_INTEGRITYCHECK_LONG);
 
 	if(integrityCheckSalt && blockVariancePercent)
 		throw ProgException("Option --" ARG_BLOCKVARIANCE_LONG " cannot be used together with "
@@ -1561,7 +1568,6 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	fileSize = tree.get<uint64_t>(ARG_FILESIZE_LONG);
 	blockSize = tree.get<size_t>(ARG_BLOCK_LONG);
 	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
-	showPerThreadStats = tree.get<bool>(ARG_PERTHREADSTATS_LONG);
 	ignoreDelErrors = tree.get<bool>(ARG_IGNOREDELERR_LONG);
 	ignore0USecErrors = tree.get<bool>(ARG_IGNORE0USECERR_LONG);
 	runCreateDirsPhase = tree.get<bool>(ARG_CREATEDIRS_LONG);
@@ -1588,6 +1594,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	doDirSharing = tree.get<bool>(ARG_DIRSHARING_LONG);
 	doDirectVerify = tree.get<bool>(ARG_VERIFYDIRECT_LONG);
 	blockVariancePercent = tree.get<unsigned>(ARG_BLOCKVARIANCE_LONG);
+	rwMixPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1621,7 +1628,6 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_FILESIZE_LONG, fileSize);
 	outTree.put(ARG_BLOCK_LONG, blockSize);
 	outTree.put(ARG_DIRECTIO_LONG, useDirectIO);
-	outTree.put(ARG_PERTHREADSTATS_LONG, showPerThreadStats);
 	outTree.put(ARG_IGNOREDELERR_LONG, ignoreDelErrors);
 	outTree.put(ARG_IGNORE0USECERR_LONG, ignore0USecErrors);
 	outTree.put(ARG_CREATEDIRS_LONG, runCreateDirsPhase);
@@ -1647,6 +1653,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_DIRSHARING_LONG, doDirSharing);
 	outTree.put(ARG_VERIFYDIRECT_LONG, doDirectVerify);
 	outTree.put(ARG_BLOCKVARIANCE_LONG, blockVariancePercent);
+	outTree.put(ARG_RWMIXPERCENT_LONG, rwMixPercent);
 
 
 	// dynamically calculated values for service hosts...

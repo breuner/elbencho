@@ -70,6 +70,7 @@ _elbencho_opts()
         --read
         --refresh
         --resfile
+        --rwmixpct
         --service
         --size
         --start
@@ -128,6 +129,8 @@ _elbencho()
         --rankoffset)
         ;&
         --refresh)
+        ;&
+        --rwmixpct)
         ;&
         -s)
         ;&

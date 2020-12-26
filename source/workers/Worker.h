@@ -39,9 +39,11 @@ class Worker
 			LocalWorker: finish of only thread; for RemoteWorker: finish of each worker on host */
 		std::atomic_bool isInterruptionRequested{false}; // set true to request self-termination
 		AtomicLiveOps atomicLiveOps; // done in current phase
+		AtomicLiveOps atomicLiveRWMixReadOps; // read ops done in current write phase with rwmix>0
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
 		std::atomic_bool stoneWallTriggered{false}; // true after 1st worker triggered stonewall
 		LiveOps stoneWallOps; // done values when stonewall was hit
+		LiveOps stoneWallRWMixReadOps; // read ops done values when stonewall was hit with rwmix>0
 		LatencyHistogram iopsLatHisto; // read/write ops latency histogram (valid only at phase end)
 		LatencyHistogram entriesLatHisto; // entry latency histogram (valid only at phase end)
 
@@ -67,18 +69,18 @@ class Worker
 
 			elapsedUSecVec.resize(0);
 			atomicLiveOps.setToZero();
+			atomicLiveRWMixReadOps.setToZero();
 			oldAtomicLiveOps.setToZero();
 			stoneWallTriggered = false;
 			stoneWallOps.setToZero();
+			stoneWallRWMixReadOps.setToZero();
 			iopsLatHisto.reset();
 			entriesLatHisto.reset();
 		}
 
 		void getLiveOps(LiveOps& outLiveOps) const
 		{
-			outLiveOps.numEntriesDone = atomicLiveOps.numEntriesDone;
-			outLiveOps.numBytesDone = atomicLiveOps.numBytesDone;
-			outLiveOps.numIOPSDone = atomicLiveOps.numIOPSDone;
+			atomicLiveOps.getAsLiveOps(outLiveOps);
 		}
 
 		/**
@@ -86,9 +88,16 @@ class Worker
 		 */
 		void getAndAddLiveOps(LiveOps& outSumLiveOps) const
 		{
-			outSumLiveOps.numEntriesDone += atomicLiveOps.numEntriesDone;
-			outSumLiveOps.numBytesDone += atomicLiveOps.numBytesDone;
-			outSumLiveOps.numIOPSDone += atomicLiveOps.numIOPSDone;
+			atomicLiveOps.getAndAddLiveOps(outSumLiveOps);
+		}
+
+		/**
+		 * Add current live ops values of this worker to given outSumLiveOps.
+		 */
+		void getAndAddLiveOps(LiveOps& outSumLiveOps, LiveOps& outSumLiveRWMixReadOps) const
+		{
+			atomicLiveOps.getAndAddLiveOps(outSumLiveOps);
+			atomicLiveRWMixReadOps.getAndAddLiveOps(outSumLiveRWMixReadOps);
 		}
 
 		/**
@@ -96,9 +105,17 @@ class Worker
 		 */
 		void getAndAddStoneWallOps(LiveOps& outSumStoneWallOps) const
 		{
-			outSumStoneWallOps.numEntriesDone += stoneWallOps.numEntriesDone;
-			outSumStoneWallOps.numBytesDone += stoneWallOps.numBytesDone;
-			outSumStoneWallOps.numIOPSDone += stoneWallOps.numIOPSDone;
+			stoneWallOps.getAndAddOps(outSumStoneWallOps);
+		}
+
+		/**
+		 * Add stonewall ops values of this worker to given outSumStoneWallOps.
+		 */
+		void getAndAddStoneWallOps(LiveOps& outSumStoneWallOps,
+			LiveOps& outSumStoneWallRWMixReadOps) const
+		{
+			stoneWallOps.getAndAddOps(outSumStoneWallOps);
+			stoneWallRWMixReadOps.getAndAddOps(outSumStoneWallRWMixReadOps);
 		}
 
 		/**
@@ -122,9 +139,8 @@ class Worker
 		{
 			stoneWallTriggered = true;
 
-			stoneWallOps.numEntriesDone = atomicLiveOps.numEntriesDone;
-			stoneWallOps.numBytesDone = atomicLiveOps.numBytesDone;
-			stoneWallOps.numIOPSDone = atomicLiveOps.numIOPSDone;
+			atomicLiveOps.getAsLiveOps(stoneWallOps);
+			atomicLiveRWMixReadOps.getAsLiveOps(stoneWallRWMixReadOps);
 		}
 
 		/**

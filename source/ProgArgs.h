@@ -31,7 +31,6 @@ namespace bpo = boost::program_options;
 #define ARG_BLOCK_LONG	 			"block"
 #define ARG_BLOCK_SHORT 			"b"
 #define ARG_DIRECTIO_LONG 			"direct"
-#define ARG_PERTHREADSTATS_LONG 	"perthread"
 #define ARG_NOLIVESTATS_LONG 		"nolive"
 #define ARG_IGNOREDELERR_LONG		"nodelerr"
 #define ARG_IGNORE0USECERR_LONG		"no0usecerr"
@@ -91,6 +90,7 @@ namespace bpo = boost::program_options;
 #define ARG_DIRSHARING_LONG			"dirsharing"
 #define ARG_VERIFYDIRECT_LONG		"verifydirect"
 #define ARG_BLOCKVARIANCE_LONG		"blockvarpct"
+#define ARG_RWMIXPERCENT_LONG		"rwmixpct"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -152,7 +152,6 @@ class ProgArgs
 		size_t blockSize; // number of bytes to read/write in a single read()/write() call
 		std::string blockSizeOrigStr; // original blockSize str from user with unit
 		bool useDirectIO; // open files with O_DIRECT
-		bool showPerThreadStats; // show stats per thread instead of total status for all threads
 		bool disableLiveStats; // disable live stats
 		bool ignoreDelErrors; // ignore ENOENT errors on file/dir deletion
 		bool ignore0USecErrors; // ignore worker completion in less than 1 millisecond
@@ -213,6 +212,7 @@ class ProgArgs
 		bool doDirSharing; // workers use same dirs in dir mode (instead of unique dir per worker)
 		bool doDirectVerify; // verify data integrity by reading immediately after write
 		unsigned blockVariancePercent; // % of blocks that should differ between writes
+		unsigned rwMixPercent; // % of blocks that should be read (the rest will be written)
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -255,7 +255,6 @@ class ProgArgs
 		uint64_t getFileSize() const { return fileSize; }
 		size_t getBlockSize() const { return blockSize; }
 		bool getUseDirectIO() const { return useDirectIO; }
-		bool getShowPerThreadStats() const { return showPerThreadStats; }
 		bool getDisableLiveStats() const { return disableLiveStats; }
 		bool getIgnoreDelErrors() const { return ignoreDelErrors; }
 		void setIgnoreDelErrors(bool ignoreDelErrors) { this->ignoreDelErrors = ignoreDelErrors; }
@@ -314,6 +313,7 @@ class ProgArgs
 		bool getDoDirSharing() const { return doDirSharing; }
 		bool getDoDirectVerify() const { return doDirectVerify; }
 		unsigned getBlockVariancePercent() const { return blockVariancePercent; }
+		unsigned getRWMixPercent() const { return rwMixPercent; }
 };
 
 

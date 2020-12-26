@@ -269,7 +269,7 @@ void WorkerManager::waitForWorkersDone()
 void WorkerManager::startNextPhase(BenchPhase newBenchPhase, std::string* benchID)
 {
 	Logger(Log_VERBOSE) << "Starting benchmark phase: " <<
-		TranslatorTk::benchPhaseToPhaseName(newBenchPhase) << std::endl;
+		TranslatorTk::benchPhaseToPhaseName(newBenchPhase, &progArgs) << std::endl;
 
 	std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
 

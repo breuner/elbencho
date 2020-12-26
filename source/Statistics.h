@@ -14,9 +14,13 @@ class PhaseResults
 
 		LiveOps opsTotal; // processed by all workers
 		LiveOps opsStoneWallTotal; // processed by all workers when stonewall was hit
+		LiveOps opsRWMixReadTotal; // rwmix read processed by all workers
+		LiveOps opsStoneWallRWMixReadTotal; // rwmix read proc'ed by all workers when stonewall hit
 
 		LiveOps opsPerSec; // total per sec for all workers by last finisher
 		LiveOps opsStoneWallPerSec; // total per sec for all workers by 1st finisher
+		LiveOps opsRWMixReadPerSec; // rwmix read total per sec for all workers by last finisher
+		LiveOps opsStoneWallRWMixReadPerSec; // rwmix read total per sec for all workers by 1st fin
 
 		float cpuUtilPercent; // cpu utilization until last finisher
 		float cpuUtilStoneWallPercent; // cpu utilization until first finisher
@@ -66,6 +70,7 @@ class Statistics
 		void printPhaseResults();
 
 		void getLiveOps(LiveOps& outLiveOps);
+		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps);
 		void getLiveStatsAsPropertyTree(bpt::ptree& outTree);
 		void getBenchResultAsPropertyTree(bpt::ptree& outTree);
 

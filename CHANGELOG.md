@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v1.6.6 (work in progress)
+
+### New Features & Enhancements
+* New option for mixed read+write (--rwmixpct) to define percentage of block reads in write phase (-w).
+
 ## v1.6.5 (Dec 26, 2020)
 
 ### New Features & Enhancements

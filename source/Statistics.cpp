@@ -173,7 +173,7 @@ void Statistics::deleteSingleLineLiveStatsLine()
 void Statistics::printSingleLineLiveStats()
 {
 	std::string phaseName = TranslatorTk::benchPhaseToPhaseName(
-		workersSharedData.currentBenchPhase);
+		workersSharedData.currentBenchPhase, &progArgs);
 	std::string phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
 		workersSharedData.currentBenchPhase);
 	time_t startTime = time(NULL);
@@ -289,7 +289,7 @@ void Statistics::printWholeScreenLiveStats()
 	LiveResults liveResults;
 
 	liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
-		workersSharedData.currentBenchPhase);
+		workersSharedData.currentBenchPhase, &progArgs);
 	liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
 		workersSharedData.currentBenchPhase);
 	liveResults.entryTypeUpperCase =
@@ -588,13 +588,30 @@ void Statistics::getLiveOps(LiveOps& outLiveOps)
 }
 
 /**
+ * Get current processed entries sum and bytes written/read of all workers.
+ *
+ * @param outLiveOps entries/ops/bytes done for all workers (does not need to be initialized to 0).
+ * @param outLiveRWMixReadOps rwmix mode read entries/ops/bytes done for all workers (does not need
+ * 		to be initialized to 0).
+ */
+void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps)
+{
+	outLiveOps = {}; // set all members to zero
+	outLiveRWMixReadOps = {}; // set all members to zero
+
+	for(size_t i=0; i < workerVec.size(); i++)
+		workerVec[i]->getAndAddLiveOps(outLiveOps, outLiveRWMixReadOps);
+}
+
+/**
  * @usePerThreadValues true to div numEntriesDone/numBytesDone by number of workers.
  */
 void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
+	LiveOps liveRWMixReadOps;
 
-	getLiveOps(liveOps);
+	getLiveOps(liveOps, liveRWMixReadOps);
 
 	std::chrono::seconds elapsedDurationSecs =
 				std::chrono::duration_cast<std::chrono::seconds>
@@ -603,7 +620,7 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 
 	outTree.put(XFER_STATS_BENCHID, workersSharedData.currentBenchID);
 	outTree.put(XFER_STATS_BENCHPHASENAME,
-		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase) );
+		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs) );
 	outTree.put(XFER_STATS_BENCHPHASECODE, workersSharedData.currentBenchPhase);
 	outTree.put(XFER_STATS_NUMWORKERSDONE, workersSharedData.numWorkersDone);
 	outTree.put(XFER_STATS_NUMWORKERSDONEWITHERR, workersSharedData.numWorkersDoneWithError);
@@ -612,6 +629,14 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_NUMIOPSDONE, liveOps.numIOPSDone);
 	outTree.put(XFER_STATS_CPUUTIL, (unsigned) liveCpuUtil.getCPUUtilPercent() );
 	outTree.put(XFER_STATS_ELAPSEDSECS, elapsedSecs);
+
+	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
+		(progArgs.getRWMixPercent() ) )
+	{
+		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveRWMixReadOps.numBytesDone);
+		outTree.put(XFER_STATS_NUMIOPSDONE_RWMIXREAD, liveRWMixReadOps.numIOPSDone);
+	}
+
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );
 }
 
@@ -848,8 +873,9 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 				phaseResults.lastFinishUSec = elapsedUSec;
 		}
 
-		worker->getAndAddLiveOps(phaseResults.opsTotal);
-		worker->getAndAddStoneWallOps(phaseResults.opsStoneWallTotal);
+		worker->getAndAddLiveOps(phaseResults.opsTotal, phaseResults.opsRWMixReadTotal);
+		worker->getAndAddStoneWallOps(phaseResults.opsStoneWallTotal,
+			phaseResults.opsStoneWallRWMixReadTotal);
 		phaseResults.iopsLatHisto += worker->getIOPSLatencyHistogram();
 		phaseResults.entriesLatHisto += worker->getEntriesLatencyHistogram();
 
@@ -862,6 +888,13 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 			phaseResults.firstFinishUSec, phaseResults.opsStoneWallPerSec);
 	}
 
+	// rwmix read total per sec for all workers by 1st finisher
+	if(phaseResults.firstFinishUSec && phaseResults.opsRWMixReadTotal.numIOPSDone)
+	{
+		phaseResults.opsStoneWallRWMixReadTotal.getPerSecFromUSec(
+			phaseResults.firstFinishUSec, phaseResults.opsStoneWallRWMixReadPerSec);
+	}
+
 	// total per sec for all workers by last finisher
 	if(phaseResults.lastFinishUSec)
 	{
@@ -869,15 +902,11 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 			phaseResults.lastFinishUSec, phaseResults.opsPerSec);
 	}
 
-	// convert to per-worker values depending on user setting
-	if(progArgs.getShowPerThreadStats() )
+	// rwmix read total per sec for all workers by last finisher
+	if(phaseResults.lastFinishUSec && phaseResults.opsRWMixReadTotal.numIOPSDone)
 	{
-		/* note: service hosts are aware of per-thread value and provide their local per-thread
-			result. that's why we div by workerVec.size() instead of by numIOWorkersTotal. */
-		phaseResults.opsStoneWallPerSec /= workerVec.size();
-		phaseResults.opsPerSec /= workerVec.size();
-		phaseResults.opsStoneWallTotal /= workerVec.size();
-		phaseResults.opsTotal /= workerVec.size();
+		phaseResults.opsRWMixReadTotal.getPerSecFromUSec(
+			phaseResults.firstFinishUSec, phaseResults.opsRWMixReadPerSec);
 	}
 
 	// cpu utilization
@@ -916,7 +945,7 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	std::ostream& outStream)
 {
 	std::string phaseName =
-		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
+		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs);
 	std::string entryTypeUpperCase =
 		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
 	std::string entryTypeLowerCase =
@@ -959,6 +988,22 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
+	// IOPS rwmix read
+	if(phaseResults.opsRWMixReadTotal.numIOPSDone)
+	{
+		/* print iops only if path is bdev/file; or in dir mode when each file consists of more than
+		   one block read/write (because otherwise iops is equal to files/s) */
+		if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
+			(progArgs.getBlockSize() != progArgs.getFileSize() ) )
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% "IOPS read"
+			% ":"
+			% phaseResults.opsStoneWallRWMixReadPerSec.numIOPSDone
+			% phaseResults.opsRWMixReadPerSec.numIOPSDone
+			<< std::endl;
+	}
+
 	// bytes per second total for all workers
 	if(phaseResults.opsTotal.numBytesDone)
 	{
@@ -968,6 +1013,18 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			% ":"
 			% (phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) )
 			% (phaseResults.opsPerSec.numBytesDone / (1024*1024) )
+			<< std::endl;
+	}
+
+	// rwmix read bytes per second total for all workers
+	if(phaseResults.opsRWMixReadTotal.numBytesDone)
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% "Read MiB/s"
+			% ":"
+			% (phaseResults.opsStoneWallRWMixReadPerSec.numBytesDone / (1024*1024) )
+			% (phaseResults.opsRWMixReadPerSec.numBytesDone / (1024*1024) )
 			<< std::endl;
 	}
 
@@ -1007,6 +1064,18 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
+	// rwmix read sum of bytes
+	if(phaseResults.opsRWMixReadTotal.numBytesDone)
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% "Read MiB"
+			% ":"
+			% (phaseResults.opsStoneWallRWMixReadTotal.numBytesDone / (1024*1024) )
+			% (phaseResults.opsRWMixReadTotal.numBytesDone / (1024*1024) )
+			<< std::endl;
+	}
+
 	// IOs (number of blocks read/written)
 	if(phaseResults.opsTotal.numIOPSDone)
 	{
@@ -1017,6 +1086,19 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 				% ":"
 				% phaseResults.opsStoneWallTotal.numIOPSDone
 				% phaseResults.opsTotal.numIOPSDone
+				<< std::endl;
+	}
+
+	// rwmix read IOs (number of blocks read)
+	if(phaseResults.opsRWMixReadTotal.numIOPSDone)
+	{
+		if(progArgs.getLogLevel() > Log_NORMAL)
+			outStream << boost::format(Statistics::phaseResultsFormatStr)
+				% ""
+				% "IOs read"
+				% ":"
+				% phaseResults.opsStoneWallRWMixReadTotal.numIOPSDone
+				% phaseResults.opsRWMixReadTotal.numIOPSDone
 				<< std::endl;
 	}
 
@@ -1070,7 +1152,7 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 	StringVec& outLabelsVec, StringVec& outResultsVec)
 {
 	std::string phaseName =
-		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
+		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs);
 
 	outLabelsVec.push_back("operation");
 	outResultsVec.push_back(phaseName);
@@ -1161,7 +1243,7 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 	std::string latTypeStr, std::ostream& outStream)
 {
 	std::string phaseName =
-		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase);
+		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs);
 
 	// print IO latency min/avg/max
 	if(progArgs.getShowLatency() && latHisto.getNumStoredValues() )
@@ -1252,17 +1334,15 @@ void Statistics::printPhaseResultsLatencyToStringVec(const LatencyHistogram& lat
 void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
+	LiveOps liveRWMixReadOps;
 	LatencyHistogram iopsLatHisto; // sum of all histograms
 	LatencyHistogram entriesLatHisto; // sum of all histograms
 
-	getLiveOps(liveOps);
-
-	if(progArgs.getShowPerThreadStats() )
-		liveOps /= workerVec.size(); // divide by number of threads for per-thread values
+	getLiveOps(liveOps, liveRWMixReadOps);
 
 	outTree.put(XFER_STATS_BENCHID, workersSharedData.currentBenchID);
 	outTree.put(XFER_STATS_BENCHPHASENAME,
-		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase) );
+		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs) );
 	outTree.put(XFER_STATS_BENCHPHASECODE, workersSharedData.currentBenchPhase);
 	outTree.put(XFER_STATS_NUMWORKERSDONE, workersSharedData.numWorkersDone);
 	outTree.put(XFER_STATS_NUMWORKERSDONEWITHERR, workersSharedData.numWorkersDoneWithError);
@@ -1286,6 +1366,13 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 
 	iopsLatHisto.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_IOPS);
 	entriesLatHisto.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_ENTRIES);
+
+	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
+		(progArgs.getRWMixPercent() ) )
+	{
+		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveRWMixReadOps.numBytesDone);
+		outTree.put(XFER_STATS_NUMIOPSDONE_RWMIXREAD, liveRWMixReadOps.numIOPSDone);
+	}
 
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );
 }

@@ -247,6 +247,7 @@ void LocalWorker::initPhaseFunctionPointers()
 	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
 	const bool doDirectVerify = progArgs->getDoDirectVerify();
 	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+	const unsigned rwMixPercent = progArgs->getRWMixPercent();
 
 	funcRWBlockSized = NULL;
 	funcPositionalRW = NULL;
@@ -267,7 +268,16 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcPositionalRW = useCuFileAPI ?
 			&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
 
-		funcAioRwPrepper = (ioDepth == 1) ? NULL : &io_prep_pwrite;
+		if(rwMixPercent && (funcPositionalRW == &LocalWorker::pwriteWrapper) )
+			funcPositionalRW = &LocalWorker::pwriteRWMixWrapper;
+		else
+		if(rwMixPercent && (funcPositionalRW == &LocalWorker::cuFileWriteWrapper) )
+			funcPositionalRW = &LocalWorker::cuFileRWMixWrapper;
+
+		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioWritePrepper;
+
+		if(rwMixPercent && funcAioRwPrepper)
+			funcAioRwPrepper = &LocalWorker::aioRWMixPrepper;
 
 		funcPreWriteCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
 			&LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
@@ -289,7 +299,7 @@ void LocalWorker::initPhaseFunctionPointers()
 		if(doDirectVerify)
 		{
 			if(!useCuFileAPI)
-				funcPositionalRW = &LocalWorker::pWriteAndReadWrapper;
+				funcPositionalRW = &LocalWorker::pwriteAndReadWrapper;
 			else
 			{
 				funcPositionalRW = &LocalWorker::cuFileWriteAndReadWrapper;
@@ -307,7 +317,7 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcPositionalRW = useCuFileAPI ?
 			&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
 
-		funcAioRwPrepper = (ioDepth == 1) ? NULL : &io_prep_pread;
+		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioReadPrepper;
 
 		funcPreWriteCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
 		funcPostReadCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
@@ -583,6 +593,7 @@ int64_t LocalWorker::rwBlockSized(int fd)
 
 		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
 
+		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(rwRes);
 		atomicLiveOps.numBytesDone += rwRes;
 		atomicLiveOps.numIOPSDone++;
@@ -629,7 +640,8 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 		iocbPointerVec[vecIdx] = &iocbVec[vecIdx];
 
-		funcAioRwPrepper(&iocbVec[vecIdx], fd, ioBufVec[vecIdx], blockSize, currentOffset);
+		((*this).*funcAioRwPrepper)(&iocbVec[vecIdx], fd, ioBufVec[vecIdx], blockSize,
+			currentOffset);
 		iocbVec[vecIdx].data = (void*)vecIdx; /* the vec index of this request; ioctl.data
 						is caller's private data returned after io_getevents as ioEvents[].data */
 
@@ -650,6 +662,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 		}
 
 		numPending++;
+		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(blockSize);
 	}
 
@@ -714,6 +727,14 @@ int64_t LocalWorker::aioBlockSized(int fd)
 			atomicLiveOps.numBytesDone += ioEvents[eventIdx].res;
 			atomicLiveOps.numIOPSDone++;
 
+			// inc rwmix stats
+			if( (funcAioRwPrepper == &LocalWorker::aioRWMixPrepper) &&
+				(ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) )
+			{
+				atomicLiveRWMixReadOps.numBytesDone += ioEvents[eventIdx].res;
+				atomicLiveRWMixReadOps.numIOPSDone++;
+			}
+
 			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
 
 			if(!rwOffsetGen->getNumBytesLeftToSubmit() )
@@ -727,7 +748,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 			size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 			uint64_t currentOffset = rwOffsetGen->getNextOffset();
 
-			funcAioRwPrepper(ioEvents[eventIdx].obj, fd, ioBufVec[vecIdx], blockSize,
+			((*this).*funcAioRwPrepper)(ioEvents[eventIdx].obj, fd, ioBufVec[vecIdx], blockSize,
 				currentOffset);
 			ioEvents[eventIdx].obj->data = (void*)vecIdx; // caller's private data
 
@@ -748,6 +769,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 					"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
 			}
 
+			numIOPSSubmitted++;
 			rwOffsetGen->addBytesSubmitted(blockSize);
 
 		} // end of for loop to resubmit completed iocbs
@@ -866,10 +888,11 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 	// example: 40% means we refill 40 out of 100 buffers and the remaining 60 buffers are identical
 
 	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
-		to work between different files. (atomicLiveOps.numIOPSDone ensures that below.) */
+		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
+		work for this because aio would not inc counter directly on submission.) */
 
 	// note: workerRank is used to have skew between different worker threads
-	if( (workerRank + atomicLiveOps.numIOPSDone % 100) >= progArgs->getBlockVariancePercent() )
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getBlockVariancePercent() )
 		return;
 
 	// refill buffer with random data
@@ -892,6 +915,45 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 	uint64_t randUint64 = randGen();
 
 	memcpy(buf, &randUint64, bufLen - numBytesDone);
+}
+
+/**
+ * Simple wrapper for io_prep_pwrite().
+ */
+void LocalWorker::aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count,
+	long long offset)
+{
+	io_prep_pwrite(iocb, fd, buf, count, offset);
+}
+
+/**
+ * Simple wrapper for io_prep_pread().
+ */
+void LocalWorker::aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
+	long long offset)
+{
+	io_prep_pread(iocb, fd, buf, count, offset);
+}
+
+/**
+ * Within a write phase, send user-defined pecentage of block reads for mixed r/w.
+ *
+ * Parameters are similar to io_prep_p{write,read}.
+ */
+void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
+	long long offset)
+{
+	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
+
+	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
+		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
+		work for this because aio would not inc counter directly on submission.) */
+
+	// note: workerRank is used to have skew between different worker threads
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
+		io_prep_pwrite(iocb, fd, buf, count, offset);
+	else
+		io_prep_pread(iocb, fd, buf, count, offset);
 }
 
 /**
@@ -1035,7 +1097,7 @@ ssize_t LocalWorker::pwriteWrapper(int fd, void* buf, size_t nbytes, off_t offse
 /**
  * Wrapper for positional sync write followed by an immediate read of the same block.
  */
-ssize_t LocalWorker::pWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::pwriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
 {
 	ssize_t pwriteRes = pwrite(fd, buf, nbytes, offset);
 
@@ -1043,6 +1105,36 @@ ssize_t LocalWorker::pWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_
 		return pwriteRes;
 
 	return pread(fd, buf, pwriteRes, offset);
+}
+
+/**
+ * Within a write phase, send user-defined pecentage of block reads for mixed r/w.
+ *
+ * Parameters and return value are similar to p{write,read}.
+ */
+ssize_t LocalWorker::pwriteRWMixWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+{
+	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
+
+	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
+		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
+		work for this because aio would not inc counter directly on submission.) */
+
+	// note: workerRank is used to have skew between different worker threads
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
+		return pwrite(fd, buf, nbytes, offset);
+	else
+	{
+		ssize_t readRes = pread(fd, buf, nbytes, offset);
+
+		IF_UNLIKELY(readRes <= 0)
+			return readRes;
+
+		atomicLiveRWMixReadOps.numBytesDone += readRes;
+		atomicLiveRWMixReadOps.numIOPSDone++;
+
+		return readRes;
+	}
 }
 
 /**
@@ -1093,6 +1185,42 @@ ssize_t LocalWorker::cuFileWriteAndReadWrapper(int fd, void* buf, size_t nbytes,
 		return writeRes;
 
 	return cuFileRead(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], writeRes, offset, 0);
+#endif
+}
+
+/**
+ * Within a write phase, send user-defined pecentage of block reads for mixed r/w.
+ *
+ * Parameters and return value are similar to p{write,read}.
+ */
+ssize_t LocalWorker::cuFileRWMixWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+{
+#ifndef CUFILE_SUPPORT
+	throw WorkerException("cuFileRWMixWrapper called, but this executable was built without cuFile "
+		"API support");
+#else
+	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
+
+	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
+		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
+		work for this because aio would not inc counter directly on submission.) */
+
+	// note: workerRank is used to have skew between different worker threads
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
+		return cuFileWrite(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+	else
+	{
+		ssize_t readRes = cuFileRead(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes,
+			offset, 0);
+
+		IF_UNLIKELY(readRes <= 0)
+			return readRes;
+
+		atomicLiveRWMixReadOps.numBytesDone += readRes;
+		atomicLiveRWMixReadOps.numIOPSDone++;
+
+		return readRes;
+	}
 #endif
 }
 

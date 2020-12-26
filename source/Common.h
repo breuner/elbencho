@@ -30,7 +30,7 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASEENTRYTYPE_DIRS		"dirs"
 #define PHASEENTRYTYPE_FILES	"files"
 
-#define HTTP_PROTOCOLVERSION	"1.6.5" // exchanged between client & server to check compatibility
+#define HTTP_PROTOCOLVERSION	"1.6.6" // exchanged between client & server to check compatibility
 
 
 #define SAFE_DELETE(objectPointer) \
