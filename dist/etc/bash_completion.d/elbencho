@@ -22,6 +22,7 @@ _elbencho_opts()
    longopts="
         --allelapsed
         --block
+        --blockvarpct
         --cpu
         --csvfile
         --cufile
@@ -103,6 +104,8 @@ _elbencho()
         -b)
         ;&
         --block)
+        ;&
+        --blockvarpct)
         ;&
         --dirs)
         ;&

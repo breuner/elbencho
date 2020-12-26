@@ -1,10 +1,13 @@
 # Changelog of elbencho
 
-## v1.6.4 (work in progress)
+## v1.6.5 (Dec 26, 2020)
 
 ### New Features & Enhancements
 * New option to verify data by reading directly after writing (--verifydirect).
-* New option control how well written data can be compressed or dedupe'd (--blockvarpct).
+* New option to control how well written data can be compressed or dedupe'd (--blockvarpct).
+
+### Contributions
+* New mtelbencho.sh (multi-test) script to run a storage sweep based on different file sizes. Added to new contrib subdir. Thanks to Chin Fang (Zettar) for this contribution.
 
 ### Fixes
 * Fix compilation on platforms that don't define gettid().
