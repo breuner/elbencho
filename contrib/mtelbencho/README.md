@@ -97,7 +97,7 @@ ESnet/Zettar project concluded both timely and successfully.
 
 Believing what we learned and did during the project could be helpful
 to others, I decided to rewrite and consolidate the various test
-scripts that I wrote for the project into a single bash wrapper. 
+scripts that I wrote for the project into a single `bash` wrapper. 
 
 ## Future evolution
 
