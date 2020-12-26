@@ -22,7 +22,7 @@ tutorials, hoping to get some useful tips.  Merely run:
 `elbencho --help-all | less` 
 
 and read carefully. With a bit of practice, one should acquire enough
-proficiency to use elbencho for real work.  This is how I learned
+proficiency to use `elbencho` for real work.  This is how I learned
 `elbencho`.
 
 Nevertheless, it is helpful to see how this versatile program is used
@@ -43,7 +43,7 @@ A storage sweep (described more in the **Motivation** section below) is a
 simple and effective way to learn about the performance and
 characteristics of a storage service. Such a sweep should be carried
 out by any IT professional responsible for an organization's storage,
-especially for new deployment.
+especially a new deployment.
 
 The foremost goal of this wrapper is to simplify the already simple
 `elbencho` usage even more for carrying out a storage sweep over a wide
@@ -61,7 +61,7 @@ following:
 2. Pick the performant candidate from serveral distributed,
    scale-out storage service candidates,
    
-3. Picking the most appropriate storage devices, from multiple
+3. Select the most appropriate storage devices, from multiple
    choices, for a given storage service.
 
 Many other uses are possible. It's up to one's creativity and
@@ -72,8 +72,9 @@ imagination.
 My professional focus and speciality is moving data at scale and when
 feasible, at speed.  Since 2015, my company, [Zettar
 Inc.](https://zettar.com/) has been engaged to support the ambitious
-data movement requirements of [Linac Coherent Light Source II (LCLS-II)](https://lcls.slac.stanford.edu/lcls-ii/design-and-performance), a
-premier U.S. Department of Energy's Exascale Computing preparation
+data movement requirements of [Linac Coherent Light Source II
+(LCLS-II)](https://lcls.slac.stanford.edu/lcls-ii/design-and-performance),
+a premier U.S. Department of Energy's Exascale Computing preparation
 project.  As a result, my team and I have become intimately familar
 with the DOE's co-design principle: *integrated consideration of
 storage, computing, networking, and highly concurrent, scale-out data
@@ -85,11 +86,12 @@ understanding of the storage system's I/O throughput and
 characteristics, typically by storage benchmarking.
 
 While collaborating with the DOE's Energy Sciences Network (ESnet) in
-2020, documented in [Zettar zx Evaluation for ESnet DTNs](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf), one
+2020, documented in [Zettar zx Evaluation for ESnet
+DTNs](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf), one
 challenge was the file size range needed to be considered -- there was
 simply not a single storage benchmarking tool that we knew of could
-meet our needs.  The timely appearance of `elbencho` was really
-a serendipity as it met our requirements perfectly.  As a result, the
+meet our needs.  The timely appearance of `elbencho` was really a
+serendipity as it met our requirements perfectly.  As a result, the
 ESnet/Zettar project concluded both timely and successfully.
 
 Believing what we learned and did during the project could be helpful
@@ -103,7 +105,7 @@ devices with support for GPUs.  It is far more capable than the
 wrapper covers.  In addition, the wrapper by itself doesn't handle the
 benchmarking of scale-out storage.  Although coupled with something
 like Ansible, it can be done.  Future improvment and evolution
-definitely are possible.
+are definitely possible.
 
 ## Acknowledgments
 
