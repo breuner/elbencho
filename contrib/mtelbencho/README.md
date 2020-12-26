@@ -74,11 +74,12 @@ feasible, at speed.  Since 2015, my company, [Zettar
 Inc.](https://zettar.com/) has been engaged to support the ambitious
 data movement requirements of [Linac Coherent Light Source II
 (LCLS-II)](https://lcls.slac.stanford.edu/lcls-ii/design-and-performance),
-a premier U.S. Department of Energy's Exascale Computing preparation
-project.  As a result, my team and I have become intimately familar
-with the DOE's co-design principle: *integrated consideration of
-storage, computing, networking, and highly concurrent, scale-out data
-mover software for optimal data movement performance*.
+a premier U.S. Department of Energy (DOE)'s Exascale Computing
+preparation project.  As a result, my team and I have become
+intimately familar with the DOE's co-design principle: *integrated
+consideration of storage, computing, networking, and highly
+concurrent, scale-out data mover software for optimal data movement
+performance*.
 
 We also learned that when undertaking any serious moving data at scale
 and speed effort, *the first step* should always be to gain a good
