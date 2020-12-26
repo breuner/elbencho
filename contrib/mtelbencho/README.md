@@ -33,7 +33,7 @@ comprehensive, production grade, and yet simple example.
 
 This directory contains 
 
-* `mtelbencho.sh` (mt: multiple test), a simple bash wrapper for `elbencho`.
+* `mtelbencho.sh` (mt: multiple test), a simple `bash` wrapper for `elbencho`.
 * A '`tests`' subdirectory.  Please review the `README.md` in the '`tests`'
   subdirectory.
 
