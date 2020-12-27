@@ -36,8 +36,9 @@
 #          4. The '-b' option enables a user to specify the desired
 #             block size (see elbencho --help-all for -b [ --block ]
 #             arg). elbencho defaults to 1MiB.
-#          5. mtelbencho.sh sweeps from 1KiB in 2th power increment
-#             all the way up to 1TiB, over three file size ranges:
+#          5. mtelbencho.sh sweeps from 1KiB to 1TiB, incremented in
+#             power-of-two file sizes, over the following three file
+#             size ranges:
 #             4.1 LOSF  : 1KiB <= file size < 1MiB
 #             4.2 Medium: 1MiB <= file size < 1GiB
 #             4.3 Large : 1GiB <= file size <= 1024GiB (i.e. 1TiB)
@@ -52,7 +53,11 @@
 #          7. The test dataset naming convention used by the script
 #             is: number_of_files x the common size of all files.  So,
 #             2x512GiB means there are 2 files in this dataset and
-#             each file is of the common size 512GiB
+#             each file is of the common size 512GiB.  If anyone of
+#             such directories does not exist when the test is
+#             launched, it will be created. But all will be left
+#             nearly completely empty (using the elbencho -F option)
+#             after the test so as to be ready for the next sweep.
 #          8. The wrapper must be used with elbencho version 1.6.1 or
 #             later! It will enforce this restriction within the
 #             script!
@@ -62,11 +67,13 @@
 #         10. The script has been statically checked with shellcheck[2]
 #             without any errors/warnings.
 #
-# Usage  : Assuming mtelbencho.sh is available from the $PATH,
-#          cd src_data_dir; \
-#          sudo mtelbencho.sh [-t N] [-r s|m|l] -b arg [-v] [-n],
-#          where N is the desired thread number to run elbencho.
-#          Do a mtelbencho.sh -h for more info.
+# Usage : Assuming mtelbencho.sh is available from the $PATH,
+#         cd src_data_dir\
+#         sudo mtelbencho.sh [-t N] [-r s|m|l] -b arg
+#         [-v] [-n], where src_data_dir is the directory that holds
+#         all test datasets, N is the desired thread number to run
+#         elbencho. For other usage tips and examples, on the CLI, type
+#         mtelbencho.sh -h for more info.
 #
 # Reference: [0]. https://github.com/breuner/elbencho/blob/master/README.md
 #            [1]. https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf
@@ -82,6 +89,7 @@ block_size=1m
 no_opt=
 buffered=
 threads=$(nproc)
+src_data_dir=/var/tmp
 
 #
 check_elbencho_version()
@@ -104,7 +112,7 @@ check_elbencho_version()
 help()
 {
     local help_str=''
-    read -r -d '' help_str <<EOF
+    read -r -d '' help_str <<'EOF'
 This script is a simple bash wrapper for the elbencho program by Sven Breuner.
 Its purpose is to 
 0. Facilitate the conduction of a storage "sweep" in a client of a POSIX 
@@ -131,13 +139,40 @@ Command line options:
 The usage: 
 $ sudo mtelbencho [-h][-n][-v][-r range][-t numthreads][-s dirpath][-b block_size][-B][-v][n]
 Examples: 0. $ mtelbencho.sh -r s -t 56 -b 16 -v -n
-          1. $ sudo ./mtelbencho.sh -r s -t 12 -b 16 -s /var/tmp -v
+          1. $ sudo mtelbencho.sh -r s -t 12 -b 16 -v
+          2. # (date; mtelbencho.sh -r s -t 56 -b 16 -s \
+               /data/zettar/zx/src/sweep -v; date)\
+               |tee /tmp/s_"$(hostname)"_tests_"$(date +%F).txt"   
+          3. # (date; mtelbencho.sh -r s -t 56 -b 16 -s \
+               /data/zettar/zx/src/sweep -v; date)\
+               |tee /tmp/s_"$(hostname)"_tests_"$(date +%F).txt"   
+          4. # (date; mtelbencho.sh -r s -t 56 -b 16 -s \
+               /data/zettar/zx/src/sweep -v; date)\
+               |tee /tmp/s_"$(hostname)"_tests_"$(date +%F).txt"   
+
+In the above examples 
+0   shows how to carry out a verbose (-v) dry run (-n)
+1   shows how to use sudo to carry out a sweep for the LOSF range
+    after the cd "$src_data_dir" has been done
+2-4 show a way to facilitate automated graphing of the results from multiple 
+    sweeps.
 EOF
     echo "$help_str"
     exit 0
 }
 
-# A helper function to the following main functions
+# Two helper functions to the following main functions
+
+set_full_dataset_path()
+{
+    if [[ -z "$src_data_dir" ]]; then
+	# I assume that you have cd src_data_dir already!
+	dataset="./$dataset"
+    else
+	dataset="$src_data_dir/$dataset"
+    fi
+}
+
 ensure_dataset_exists()
 {
     local dataset
@@ -171,14 +206,15 @@ los_files() {
     file_per_thread=$((combo/threads))
     local cmd
     local end
-    end=9
-    
-    for ((i=0;i<=end;i++));
+    end=10
+
+    for ((i=0;i<end;i++));
     do
 	local file_size_multiplier
 	file_size_multiplier=$(echo "$power_base^${i}" | bc)
 	local dataset
 	dataset="${number_of_files}x${file_size_multiplier}KiB"
+	set_full_dataset_path	
 	ensure_dataset_exists "$dataset"
 	if [[ $verbose ]]; then
 	    echo "Working on $dataset with $threads threads..."
@@ -188,21 +224,21 @@ los_files() {
 		cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		cmd+="-F -d -n 1 -N $file_per_thread "
 		cmd+="-s ${file_size_multiplier}k --trunctosize "
-		cmd+="-b $block_size --dropcache --nodelerr ./$dataset"
+		cmd+="-b $block_size --dropcache --nodelerr $dataset"
 		echo "$cmd"
 	    else
 		if [[ "$buffered" ]]; then
 		    cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		    cmd+="-F -d -n 1 -N $file_per_thread "
 		    cmd+="-s ${file_size_multiplier}k --trunctosize "
-		    cmd+="-b $block_size --dropcache --nodelerr ./$dataset"
+		    cmd+="-b $block_size --dropcache --nodelerr $dataset"
 		    echo "$cmd"
 		else
 		    cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		    cmd+="-F -d -n 1 -N $file_per_thread "
 		    cmd+="-s ${file_size_multiplier}k --trunctosize "
 		    cmd+="-b $block_size --direct --dropcache "
-		    cmd+="--nodelerr  ./$dataset"
+		    cmd+="--nodelerr $dataset"
 		    echo "$cmd"
 		fi
             fi	
@@ -211,21 +247,21 @@ los_files() {
 		cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		cmd+="-F -d -n 1 -N $file_per_thread "
 		cmd+="-s ${file_size_multiplier}k --trunctosize "
-		cmd+="-b $block_size --dropcache --nodelerr ./$dataset"
+		cmd+="-b $block_size --dropcache --nodelerr $dataset"
 		$cmd
 	    else
 		if [[ "$buffered" ]]; then
 		    cmd="elbencho  --dirsharing -$type -t $threads --nolive "
 		    cmd+="-F -d -n 1 -N $file_per_thread -s "
 		    cmd+="${file_size_multiplier}k --trunctosize "
-		    cmd+="-b $block_size --dropcache --nodelerr ./$dataset"
+		    cmd+="-b $block_size --dropcache --nodelerr $dataset"
 		    $cmd
 		else
 		    cmd="elbencho --dirsharing -$type -t $threads --nolive -F "
 		    cmd+="-d -n 1 -N $file_per_thread "
 		    cmd+="-s ${file_size_multiplier}k --trunctosize "
 		    cmd+="-b $block_size --direct --dropcache "
-		    cmd+="--nodelerr  ./$dataset"
+		    cmd+="--nodelerr $dataset"
 		    $cmd
 		fi
             fi	
@@ -241,14 +277,15 @@ medium_files()
     power_base=2
     local cmd
     local end
-    end=9
+    end=10
     
-    for ((i=0;i<=end;i++));
+    for ((i=0;i<end;i++));
     do
 	local file_size_multiplier
 	file_size_multiplier=$(echo "$power_base^${i}" | bc)
 	local dataset
 	dataset="${number_of_files}x${file_size_multiplier}MiB"
+	set_full_dataset_path	
 	ensure_dataset_exists "$dataset"
 	local file_per_thread
 	local threads_less_one
@@ -264,14 +301,14 @@ medium_files()
 		cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		cmd+="-F -d -n 1 -N $file_per_thread "
 		cmd+="-s ${file_size_multiplier}m --trunctosize "
-		cmd+="-b $block_size --dropcache --nodelerr ./$dataset"
+		cmd+="-b $block_size --dropcache --nodelerr $dataset"
 		echo "$cmd"
 	    else
 		cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		cmd+="-F -d -n 1 -N $file_per_thread "
 		cmd+="-s ${file_size_multiplier}m --trunctosize "
 		cmd+="-b $block_size --direct --dropcache "
-		cmd+="--nodelerr ./$dataset"
+		cmd+="--nodelerr $dataset"
 		echo "$cmd"
 	    fi
 	else
@@ -279,14 +316,14 @@ medium_files()
 		cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		cmd+="-F -d -n 1 -N $file_per_thread"
 		cmd+="-s ${file_size_multiplier}m --trunctosize "
-		cmd+="-b $block_size --dropcache --nodelerr ./$dataset"
+		cmd+="-b $block_size --dropcache --nodelerr $dataset"
 		$cmd
 	    else
 		cmd="elbencho --dirsharing -$type -t $threads --nolive "
 		cmd+="-F -d -n 1 -N $file_per_thread "
 		cmd+="-s ${file_size_multiplier}m --trunctosize "
 		cmd+="-b $block_size --direct --dropcache "
-		cmd+="--nodelerr ./$dataset"
+		cmd+="--nodelerr $dataset"
 		$cmd
 	    fi
 	fi
@@ -302,35 +339,50 @@ large_files()
     power_base=2
     local cmd
     local end
-    end=10
+    end=11
     
-    for ((i=0;i<=end;i++));
+    for ((i=0;i<end;i++));
     do
 	local file_size_multiplier
 	file_size_multiplier=$(echo "$power_base^${i}" | bc)
 	local dataset
 	dataset="${number_of_files}x${file_size_multiplier}GiB"
+	set_full_dataset_path		
 	ensure_dataset_exists "$dataset"
 	local upper
 	upper=$(( number_of_files-1 ))
 	if [[ $verbose ]]; then
 	    echo "Working on $dataset with $threads threads..."
 	fi
-	if [[ "$upper" -eq 0 ]]; then
+	if [[ "$upper" -eq 1 ]]; then
 	    if [[ "$no_opt" ]]; then
 		if [[ "$buffered" ]]; then
 		    cmd="elbencho -$type -t $threads --nolive -F "
 		    cmd+="-s ${file_size_multiplier}g --trunctosize "
 		    cmd+="-b $block_size --dropcache "
-		    cmd+="--nodelerr ./$dataset/f0"
+		    cmd+="--nodelerr $dataset/f0"
 		    echo "$cmd"
 		else
 		    cmd="elbencho -$type -t $threads --nolive -F "
 		    cmd+="-s ${file_size_multiplier}g --trunctosize "
 		    cmd+="-b $block_size --direct --dropcache "
-		    cmd+="--nodelerr ./$dataset/f0"
+		    cmd+="--nodelerr $dataset/f0"
 		    echo "$cmd"
 		fi
+	    else
+		if [[ "$buffered" ]]; then
+		    cmd="elbencho -$type -t $threads --nolive -F "
+		    cmd+="-s ${file_size_multiplier}g --trunctosize "
+		    cmd+="-b $block_size --dropcache "
+		    cmd+="--nodelerr $dataset/f0"
+		    $cmd
+		else
+		    cmd="elbencho -$type -t $threads --nolive -F "
+		    cmd+="-s ${file_size_multiplier}g --trunctosize "
+		    cmd+="-b $block_size --direct --dropcache "
+		    cmd+="--nodelerr $dataset/f0"
+		    $cmd
+		fi		
 	    fi
 	else
 	    if [[ "$no_opt" ]]; then
@@ -338,13 +390,13 @@ large_files()
 		    cmd="elbencho -$type -t $threads --nolive -F "
 		    cmd+="-s ${file_size_multiplier}g --trunctosize "
 		    cmd+="-b $block_size --dropcache --nodelerr "
-		    cmd+="$(eval echo "./$dataset/f{0..$upper}")"
+		    cmd+="$(eval echo "$dataset/f{0..$upper}")"
 		    echo "$cmd"
 		else
 		    cmd="elbencho -$type -t $threads --nolive -F "
 		    cmd+="-s ${file_size_multiplier}g --trunctosize "
 		    cmd+="-b $block_size --direct --dropcache --nodelerr "
-		    cmd+="$(eval echo "./$dataset/f{0..$upper}")"
+		    cmd+="$(eval echo "$dataset/f{0..$upper}")"
 		    echo "$cmd"
 		fi
 	    else
@@ -352,13 +404,13 @@ large_files()
 		    cmd="elbencho -$type -t $threads --nolive -F "
 		    cmd+="-s ${file_size_multiplier}g --trunctosize "
 		    cmd+="-b $block_size --dropcache --nodelerr "
-		    cmd+="$(eval echo "./$dataset/f{0..$upper}")"
+		    cmd+="$(eval echo "$dataset/f{0..$upper}")"
 		    $cmd
 		else
 		    cmd="elbencho -$type -t $threads --nolive -F "
 		    cmd+="-s ${file_size_multiplier}g --trunctosize "
 		    cmd+="-b $block_size --direct --dropcache --nodelerr "
-		    cmd+="$(eval echo "./$dataset/f{0..$upper}")"
+		    cmd+="$(eval echo "$dataset/f{0..$upper}")"
 		    $cmd
 		fi	    
 	    fi
@@ -407,6 +459,15 @@ verify_threads()
     fi    
 }
 
+cd_to_src_data_dir()
+{
+    if ! [[ "$(cd "$src_data_dir")" -eq 0 ]]; then
+	msg="$src_data_dir does not exist. Abort!"
+        echo "$msg"
+	exit 1
+    fi
+}
+
 verify_block_size()
 {
     # Note, block_size is a global variable :)
@@ -435,12 +496,8 @@ verify_block_size()
             t)  threads=$OPTARG
 		verify_threads
                 ;;
-            s)  src_dir=$OPTARG
-		if ! [[ "$(cd "$src_dir")" -eq 0 ]]; then
-		    msg="$src_dir does not exist. Abort!"
-                    echo "$msg"
-		    exit 1
-		fi
+            s)  src_data_dir=$OPTARG
+		cd_to_src_data_dir
                 ;;   		
             b)  block_size=$OPTARG
 		verify_block_size
@@ -456,7 +513,9 @@ verify_block_size()
                 ;;
         esac
     done
-    run_as_root
+    if ! [[ "$no_opt" ]]; then
+	run_as_root
+    fi
     if ! [[ "$no_opt" ]]; then
 	check_elbencho_version
     fi
