@@ -28,7 +28,7 @@ New users can use such info to get started quickly.
 
 ## Duration of each sweep
 
-Using the date command output at the top and bottom of each test result files,
+Using the `date` command output at the top and bottom of each test result files,
 it should be evident that given the environment described in the next section,
 each single-run sweep took:
 1. **LOSF**   : 10 minutes 27 seconds
