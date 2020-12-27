@@ -18,7 +18,7 @@ The `overall` subdirectory also contains a
 full sweep, going from 1KiB all the way up to
 1024GiB (i.e. 1TiB) with size increment in powers of 2.
 
-Once the `mtelbencho.sh` is installed, assuming your $PATH variable
+Once the `mtelbencho.sh` is installed, assuming your `$PATH` variable
 enables you to launch it on the CLI, please type 
 
 `$ mtelbencho.sh -h` 
