@@ -7,7 +7,7 @@ This subdirectory consists of four subdirectories:
 4. `overall` 
 
 The first three subdirectories each contains respectively a
-[lms]_nersc-tbn-6_tests_2020-12-27.txt, which is the test results for
+`[lms]_nersc-tbn-6_tests_2020-12-27.txt`, which is the test results for
 
 * **LOSF**   :1KiB <= file size < 1MiB
 * **Medium** :1MiB <= file size < 1GiB
