@@ -90,7 +90,7 @@ While collaborating with the DOE's Energy Sciences Network (ESnet) in
 2020, documented in [Zettar zx Evaluation for ESnet
 DTNs](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf), one
 challenge was the file size range needed to be considered -- there was
-simply not a single file storage benchmarking tool that we knew of could
+simply not a single storage benchmarking tool that we knew of could
 meet our needs.  The timely appearance of `elbencho` was really a
 serendipity as it met our requirements perfectly.  As a result, the
 ESnet/Zettar project concluded both timely and successfully.
