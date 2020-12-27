@@ -1,20 +1,20 @@
 ## Layout and content
 
 This subdirectory consists of four subdirectories:
-1. losf
-2. medium
-3. large
-4. overall 
+1. `losf`
+2. `medium`
+3. `large`
+4. `overall` 
 
 The first three subdirectories each contains respectively a
 [lms]_nersc-tbn-6_tests_2020-12-27.txt, which is the test results for
 
-* LOSF   :1KiB <= file size < 1MiB
-* Medium :1MiB <= file size < 1GiB
-* Large  :1GiB <= file size <= 1024GiB (i.e. 1TiB)
+* **LOSF**   :1KiB <= file size < 1MiB
+* **Medium** :1MiB <= file size < 1GiB
+* **Large**  :1GiB <= file size <= 1024GiB (i.e. 1TiB)
 
-The 'overall' subdirectory also contains a
-o_nersc-tbn-6_tests_2020-12-27.txt, which shows the results from a
+The `overall` subdirectory also contains a
+`o_nersc-tbn-6_tests_2020-12-27.txt`, which shows the results from a
 full sweep, going from 1KiB all the way up to
 1024GiB (i.e. 1TiB) with size increment in powers of 2.
 
@@ -31,14 +31,14 @@ New users can use such info to get started quickly.
 Using the date command output at the top and bottom of each test result files,
 it should be evident that given the environment described in the next section,
 each single-run sweep took:
-1. LOSF   : 10 minutes 27 seconds
-2. Medium : 18 minutes 57 seconds
-3. Large  : 21 minutes 2 seconds
-4. Overall: 51 minutes 3 seconds
+1. **LOSF**   : 10 minutes 27 seconds
+2. **Medium** : 18 minutes 57 seconds
+3. **Large**  : 21 minutes 2 seconds
+4. **Overall**: 51 minutes 3 seconds
 
 ## The environment
 
-In additon to a precise description of how the scope of the test and
+In additon to a precise description of the scope of the test and
 how each one was run, for an engineering documentation of this nature,
 the test environment should always be made clear to facilitate
 comparision and reproduction.  The environment employed to produce
