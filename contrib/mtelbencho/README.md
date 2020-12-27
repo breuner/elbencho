@@ -41,7 +41,7 @@ This directory contains
 
 A storage sweep (described more in the **Motivation** section below) is a
 simple and effective way to learn about the performance and
-characteristics of a storage service. Such a sweep should be carried
+characteristics of a file storage service. Such a sweep should be carried
 out by any IT professional responsible for an organization's storage,
 especially a new deployment.
 
@@ -49,20 +49,20 @@ The foremost goal of this wrapper is to simplify the already simple
 `elbencho` usage even more for carrying out a storage sweep over a wide
 range of file sizes. As implemented, it does so by default sweeping
 from 1KiB to 1TiB, incremented in power-of-two file sizes.  Once
-installed, please type `$ mtelbencho.sh -h` on the command line for more
-details.
+installed, please type **`$ mtelbencho.sh -h`** on the command line for 
+more details.
 
 Using this wrapper, one can quickly and simply accomplish the
 following:
 
-1. Gain a good understanding of a storage system in
+1. Gain a good understanding of a file storage system in
    service.
 
 2. Pick the performant candidate from serveral distributed,
-   scale-out storage service candidates,
+   scale-out file storage service candidates,
    
 3. Select the most appropriate storage devices, from multiple
-   choices, for a given storage service.
+   choices, for a given file storage service.
 
 Many other uses are possible. It's up to one's creativity and
 imagination.
@@ -90,7 +90,7 @@ While collaborating with the DOE's Energy Sciences Network (ESnet) in
 2020, documented in [Zettar zx Evaluation for ESnet
 DTNs](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf), one
 challenge was the file size range needed to be considered -- there was
-simply not a single storage benchmarking tool that we knew of could
+simply not a single file storage benchmarking tool that we knew of could
 meet our needs.  The timely appearance of `elbencho` was really a
 serendipity as it met our requirements perfectly.  As a result, the
 ESnet/Zettar project concluded both timely and successfully.
