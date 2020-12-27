@@ -41,7 +41,7 @@ This directory contains
 
 A storage sweep (described more in the **Motivation** section below) is a
 simple and effective way to learn about the performance and
-characteristics of a file storage service. Such a sweep should be carried
+characteristics of a storage service. Such a sweep should be carried
 out by any IT professional responsible for an organization's storage,
 especially a new deployment.
 
