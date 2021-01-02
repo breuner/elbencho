@@ -1,0 +1,261 @@
+range_to_sweep: s
+threads       : 56
+src_data_dir  : /data/zettar/zx/src/sweep
+fs_block_size : 4
+block_size    : 16m
+buffered      : 
+verbose       : 1
+dry_run       : 
+cmd           : 
+Working on /data/zettar/zx/src/sweep/1048576x1KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3444       4476
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      14732      19283
+          Total dirs       :          8         56
+---
+DROPCACHE Elapsed ms       :       3105       4342
+---
+WRITE     Elapsed ms       :      18602      19336
+          Files/s          :      54158      54229
+          Throughput MiB/s :         52         52
+          Total files      :    1007495    1048600
+          Total MiB        :        983       1024
+---
+DROPCACHE Elapsed ms       :      24587      24611
+---
+RMFILES   Elapsed ms       :      12997      13714
+          Files/s          :      76175      76461
+          Total files      :     990072    1048600
+---
+DROPCACHE Elapsed ms       :       5595       5824
+---
+Working on /data/zettar/zx/src/sweep/1048576x2KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4556       5252
+---
+MKDIRS    Elapsed ms       :          0          1
+          Dirs/s           :      13986      30567
+          Total dirs       :          4         56
+---
+DROPCACHE Elapsed ms       :       4330       5172
+---
+WRITE     Elapsed ms       :      17934      18641
+          Files/s          :      56213      56252
+          Throughput MiB/s :        109        109
+          Total files      :    1008161    1048600
+          Total MiB        :       1969       2048
+---
+DROPCACHE Elapsed ms       :      24893      24917
+---
+RMFILES   Elapsed ms       :      12636      13550
+          Files/s          :      76884      77383
+          Total files      :     971550    1048600
+---
+DROPCACHE Elapsed ms       :       5673       5787
+---
+Working on /data/zettar/zx/src/sweep/1048576x4KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4880       5611
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       9677      21497
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       4882       5746
+---
+WRITE     Elapsed ms       :      19360      20266
+          Files/s          :      51583      51740
+          Throughput MiB/s :        201        202
+          Total files      :     998668    1048600
+          Total MiB        :       3901       4096
+---
+DROPCACHE Elapsed ms       :      14236      14269
+---
+RMFILES   Elapsed ms       :       8131      14400
+          Files/s          :      66729      72816
+          Total files      :     542637    1048600
+---
+DROPCACHE Elapsed ms       :       4373       4524
+---
+Working on /data/zettar/zx/src/sweep/1048576x8KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3864       4245
+---
+MKDIRS    Elapsed ms       :          0          1
+          Dirs/s           :      10273      29946
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       3566       4064
+---
+WRITE     Elapsed ms       :      18813      20008
+          Files/s          :      52345      52406
+          Throughput MiB/s :        408        409
+          Total files      :     984814    1048600
+          Total MiB        :       7693       8192
+---
+DROPCACHE Elapsed ms       :      14153      14176
+---
+RMFILES   Elapsed ms       :       4466      14481
+          Files/s          :      52972      72411
+          Total files      :     236590    1048600
+---
+DROPCACHE Elapsed ms       :       4519       4542
+---
+Working on /data/zettar/zx/src/sweep/1048576x16KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       1052       3799
+---
+MKDIRS    Elapsed ms       :          0          3
+          Dirs/s           :      18255      16831
+          Total dirs       :          9         56
+---
+DROPCACHE Elapsed ms       :       1181       4289
+---
+WRITE     Elapsed ms       :      19630      20207
+          Files/s          :      51809      51891
+          Throughput MiB/s :        809        810
+          Total files      :    1017033    1048600
+          Total MiB        :      15891      16384
+---
+DROPCACHE Elapsed ms       :      13026      13044
+---
+RMFILES   Elapsed ms       :      11996      12580
+          Files/s          :      82484      83348
+          Total files      :     989516    1048600
+---
+DROPCACHE Elapsed ms       :       3851       4783
+---
+Working on /data/zettar/zx/src/sweep/1048576x32KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       1883       4552
+---
+MKDIRS    Elapsed ms       :          0          3
+          Dirs/s           :       9210      16706
+          Total dirs       :          7         56
+---
+DROPCACHE Elapsed ms       :       1489       3878
+---
+WRITE     Elapsed ms       :      19488      20218
+          Files/s          :      51854      51863
+          Throughput MiB/s :       1620       1620
+          Total files      :    1010574    1048600
+          Total MiB        :      31580      32768
+---
+DROPCACHE Elapsed ms       :       6294      12542
+---
+RMFILES   Elapsed ms       :      11164      11859
+          Files/s          :      87736      88420
+          Total files      :     979512    1048600
+---
+DROPCACHE Elapsed ms       :       4460       5183
+---
+Working on /data/zettar/zx/src/sweep/1048576x64KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4008       4975
+---
+MKDIRS    Elapsed ms       :          0          3
+          Dirs/s           :       7389      17193
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       3659       5120
+---
+WRITE     Elapsed ms       :      18213      18831
+          Files/s          :      55723      55684
+          Throughput MiB/s :       3482       3480
+          Total files      :    1014906    1048600
+          Total MiB        :      63431      65537
+---
+DROPCACHE Elapsed ms       :      13887      13890
+---
+RMFILES   Elapsed ms       :      13420      13920
+          Files/s          :      75135      75326
+          Total files      :    1008359    1048600
+---
+DROPCACHE Elapsed ms       :       5642       5667
+---
+Working on /data/zettar/zx/src/sweep/1048576x128KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       4136       4617
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       7915      24604
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       2569       4153
+---
+WRITE     Elapsed ms       :      18656      19146
+          Files/s          :      54937      54766
+          Throughput MiB/s :       6867       6845
+          Total files      :    1024971    1048600
+          Total MiB        :     128121     131075
+---
+DROPCACHE Elapsed ms       :      14471      14487
+---
+RMFILES   Elapsed ms       :       9366      15560
+          Files/s          :      60777      67388
+          Total files      :     569256    1048600
+---
+DROPCACHE Elapsed ms       :       4982       5005
+---
+Working on /data/zettar/zx/src/sweep/1048576x256KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3739       4263
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       9009      23993
+          Total dirs       :          3         56
+---
+DROPCACHE Elapsed ms       :       3231       4026
+---
+WRITE     Elapsed ms       :      29610      30213
+          Files/s          :      34761      34706
+          Throughput MiB/s :       8690       8676
+          Total files      :    1029291    1048600
+          Total MiB        :     257322     262150
+---
+DROPCACHE Elapsed ms       :      14185      14192
+---
+RMFILES   Elapsed ms       :       6777      15139
+          Files/s          :      59785      69263
+          Total files      :     405197    1048600
+---
+DROPCACHE Elapsed ms       :       5071       5102
+---
+Working on /data/zettar/zx/src/sweep/1048576x512KiB with 56 threads...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3416       3926
+---
+MKDIRS    Elapsed ms       :          0          3
+          Dirs/s           :       1811      14865
+          Total dirs       :          1         56
+---
+DROPCACHE Elapsed ms       :       3270       3875
+---
+WRITE     Elapsed ms       :      56297      57094
+          Files/s          :      18379      18366
+          Throughput MiB/s :       9189       9183
+          Total files      :    1034716    1048600
+          Total MiB        :     517358     524300
+---
+DROPCACHE Elapsed ms       :      13813      13822
+---
+RMFILES   Elapsed ms       :       4852      14090
+          Files/s          :      63438      74420
+          Total files      :     307830    1048600
+---
+DROPCACHE Elapsed ms       :       5082       5105
+---
+===> /usr/local/sbin/mtelbencho.sh all done :)
+Total test time: 11m:26s

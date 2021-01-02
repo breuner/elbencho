@@ -1,0 +1,198 @@
+range_to_sweep: l
+threads       : 56
+src_data_dir  : /data/zettar/zx/src/sweep
+fs_block_size : 4
+block_size    : 16m
+buffered      : 
+verbose       : 1
+dry_run       : 
+cmd           : 
+Working on /data/zettar/zx/src/sweep/1024x1GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3493       4001
+---
+WRITE     Elapsed ms       :      84317      98623
+          IOPS             :        670        664
+          Throughput MiB/s :      10728      10632
+          Total MiB        :     904640    1048576
+---
+DROPCACHE Elapsed ms       :       3686       4014
+---
+RMFILES   Elapsed ms       :         26         50
+---
+DROPCACHE Elapsed ms       :       3173       3733
+---
+Working on /data/zettar/zx/src/sweep/512x2GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3208       3668
+---
+WRITE     Elapsed ms       :      82790      97781
+          IOPS             :        677        670
+          Throughput MiB/s :      10841      10723
+          Total MiB        :     897584    1048576
+---
+DROPCACHE Elapsed ms       :       3679       4081
+---
+RMFILES   Elapsed ms       :         11         26
+---
+DROPCACHE Elapsed ms       :       3325       3905
+---
+Working on /data/zettar/zx/src/sweep/256x4GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3228       3729
+---
+WRITE     Elapsed ms       :      88392     108050
+          IOPS             :        613        606
+          Throughput MiB/s :       9820       9704
+          Total MiB        :     868032    1048576
+---
+DROPCACHE Elapsed ms       :       3635       3995
+---
+RMFILES   Elapsed ms       :          7         13
+---
+DROPCACHE Elapsed ms       :       3170       3760
+---
+Working on /data/zettar/zx/src/sweep/128x8GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3272       3654
+---
+WRITE     Elapsed ms       :      66182     109687
+          IOPS             :        624        597
+          Throughput MiB/s :       9993       9559
+          Total MiB        :     661376    1048576
+---
+DROPCACHE Elapsed ms       :       3583       3951
+---
+RMFILES   Elapsed ms       :          1          6
+---
+DROPCACHE Elapsed ms       :       2489       3835
+---
+Working on /data/zettar/zx/src/sweep/64x16GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3206       3714
+---
+WRITE     Elapsed ms       :      75542     107308
+          IOPS             :        622        610
+          Throughput MiB/s :       9958       9771
+          Total MiB        :     752272    1048576
+---
+DROPCACHE Elapsed ms       :       3801       4249
+---
+RMFILES   Elapsed ms       :          1          4
+---
+DROPCACHE Elapsed ms       :       3453       4108
+---
+Working on /data/zettar/zx/src/sweep/32x32GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3086       3833
+---
+WRITE     Elapsed ms       :      86548     112693
+          IOPS             :        578        581
+          Throughput MiB/s :       9255       9304
+          Total MiB        :     801008    1048576
+---
+DROPCACHE Elapsed ms       :       3744       4076
+---
+RMFILES   Elapsed ms       :          0          2
+---
+DROPCACHE Elapsed ms       :       3296       3790
+---
+Working on /data/zettar/zx/src/sweep/16x64GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3227       3747
+---
+WRITE     Elapsed ms       :     104312     112746
+          IOPS             :        580        581
+          Throughput MiB/s :       9282       9300
+          Total MiB        :     968320    1048576
+---
+DROPCACHE Elapsed ms       :       3623       3994
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       3138       3791
+---
+Working on /data/zettar/zx/src/sweep/8x128GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3584       4027
+---
+WRITE     Elapsed ms       :     103609     112278
+          IOPS             :        583        583
+          Throughput MiB/s :       9336       9339
+          Total MiB        :     967344    1048576
+---
+DROPCACHE Elapsed ms       :       3748       4140
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       3360       3823
+---
+Working on /data/zettar/zx/src/sweep/4x256GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3363       3798
+---
+WRITE     Elapsed ms       :     105816     117743
+          IOPS             :        556        556
+          Throughput MiB/s :       8910       8905
+          Total MiB        :     942864    1048576
+---
+DROPCACHE Elapsed ms       :       3819       4160
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       3319       3952
+---
+Working on /data/zettar/zx/src/sweep/2x512GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3270       3805
+---
+WRITE     Elapsed ms       :      48026      54247
+          IOPS             :        605        604
+          Throughput MiB/s :       9694       9664
+          Total MiB        :     465584     524288
+---
+DROPCACHE Elapsed ms       :       3396       3816
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       3147       3746
+---
+Working on /data/zettar/zx/src/sweep/1x1024GiB with 56 threads...
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3120       3742
+---
+WRITE     Elapsed ms       :      99678     111208
+          IOPS             :        590        589
+          Throughput MiB/s :       9445       9428
+          Total MiB        :     941552    1048576
+---
+DROPCACHE Elapsed ms       :       3590       4032
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       3257       3860
+---
+===> /usr/local/sbin/mtelbencho.sh all done :)
+Total test time: 21m:25s
