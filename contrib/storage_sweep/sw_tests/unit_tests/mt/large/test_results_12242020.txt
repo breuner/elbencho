@@ -1,0 +1,116 @@
+[root@nersc-tbn-6 sweep]# ./t0.sh; sync; sleep 1; ./t1.sh; sync; sleep 1; ./t2.sh 
+A. Use the eval trick this time ...
+The command to execute...
+elbencho -w -t 56 --nolive -F -s 512g --trunctosize -b 16m --direct --dropcache --nodelerr ./2x512GiB/f0 ./2x512GiB/f1
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2746       3071
+---
+WRITE     Elapsed ms       :      99757     116077
+          IOPS             :        571        564
+          Throughput MiB/s :       9136       9033
+          Total MiB        :     911424    1048576
+---
+DROPCACHE Elapsed ms       :       3045       3246
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       2846       3214
+---
+B. Use the bash brace expansion directly ...
+The command to execute...
+elbencho -w -t 56 --nolive -F -s 512g --trunctosize -b 16m --direct --dropcache --nodelerr ./2x512GiB/f{0..1}
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2763       3180
+---
+WRITE     Elapsed ms       :     100770     114456
+          IOPS             :        573        572
+          Throughput MiB/s :       9175       9161
+          Total MiB        :     924608    1048576
+---
+DROPCACHE Elapsed ms       :       3225       3493
+---
+RMFILES   Elapsed ms       :          0          1
+---
+DROPCACHE Elapsed ms       :       2727       3212
+---
+***** A. Use the eval technique ...
+This is the command to execute...
+elbencho -w -t 56 --nolive -F -s 512g --trunctosize -b 16m --direct --dropcache --nodelerr ./2x512GiB/f0 ./2x512GiB/f1
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2801       3135
+---
+WRITE     Elapsed ms       :      96849     114014
+          IOPS             :        576        574
+          Throughput MiB/s :       9216       9196
+          Total MiB        :     892608    1048576
+---
+DROPCACHE Elapsed ms       :       3075       3368
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2946       3375
+---
+B. Use the bash brace expansion directly ...
+The command to execute...
+elbencho -w -t 56 --nolive -F -s 512g --trunctosize -b 16m --direct --dropcache --nodelerr ./2x512GiB/f{0..1}
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2936       3257
+---
+WRITE     Elapsed ms       :      93797     113735
+          IOPS             :        577        576
+          Throughput MiB/s :       9233       9219
+          Total MiB        :     866048    1048576
+---
+DROPCACHE Elapsed ms       :       3204       3428
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2649       3234
+---
+***** A. Use the eval technique ...
+This is the command to execute...
+elbencho -w -t 56 --nolive -F -s 512g --trunctosize -b 16m --direct --dropcache --nodelerr ./2x512GiB/f0 ./2x512GiB/f1
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2873       3258
+---
+WRITE     Elapsed ms       :      95142     115394
+          IOPS             :        575        567
+          Throughput MiB/s :       9210       9086
+          Total MiB        :     876288    1048576
+---
+DROPCACHE Elapsed ms       :       3280       3451
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2769       3146
+---
+**** B. Use the direct bash brace expansion ...
+This is the command to execute...
+elbencho -w -t 56 --nolive -F -s 512g --trunctosize -b 16m --direct --dropcache --nodelerr  ./2x512GiB/f{0..1}
+NOTE: File size is not a multiple of block size times number of I/O threads, so the I/O threads write different amounts of data.
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2828       3157
+---
+WRITE     Elapsed ms       :      98283     114230
+          IOPS             :        574        573
+          Throughput MiB/s :       9199       9179
+          Total MiB        :     904160    1048576
+---
+DROPCACHE Elapsed ms       :       3490       3688
+---
+RMFILES   Elapsed ms       :          0          0
+---
+DROPCACHE Elapsed ms       :       2952       3371
+---
+

@@ -1,0 +1,161 @@
+[root@nersc-tbn-6 sweep]# ./t0.sh; sync; sleep 1; ./t1.sh; sync; sleep 1; ./t2.sh 
+A. Use the structure of the wrapper ...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2776       3128
+---
+MKDIRS    Elapsed ms       :          0          1
+          Dirs/s           :      41269      28397
+          Total dirs       :         26         56
+---
+DROPCACHE Elapsed ms       :       2677       3052
+---
+WRITE     Elapsed ms       :      89514      89835
+          Files/s          :      11675      11672
+          Throughput MiB/s :      11675      11672
+          Total files      :    1045153    1048600
+          Total MiB        :    1045153    1048600
+---
+DROPCACHE Elapsed ms       :      14091      14101
+---
+RMFILES   Elapsed ms       :       4408      13712
+          Files/s          :      72023      76473
+          Total files      :     317494    1048600
+---
+DROPCACHE Elapsed ms       :       4951       4973
+---
+B. Run the command directly ...
+The command to execute...
+elbencho  --dirsharing -w -t 56 --nolive -F -d -n 1 -N 18725 -s 1m --trunctosize -b 16m --direct --dropcache --nodelerr  ./1048576x1MiB
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3676       3932
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      32367      22169
+          Total dirs       :         19         56
+---
+DROPCACHE Elapsed ms       :       2844       3209
+---
+WRITE     Elapsed ms       :     107652     108107
+          Files/s          :       9697       9699
+          Throughput MiB/s :       9697       9699
+          Total files      :    1043994    1048600
+          Total MiB        :    1043994    1048600
+---
+DROPCACHE Elapsed ms       :      13486      13496
+---
+RMFILES   Elapsed ms       :       4789      14473
+          Files/s          :      68938      72451
+          Total files      :     330203    1048600
+---
+DROPCACHE Elapsed ms       :       4991       5015
+---
+A. Use the structure of the wrapper ...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3570       3942
+---
+MKDIRS    Elapsed ms       :          0          3
+          Dirs/s           :      11385      16489
+          Total dirs       :          6         56
+---
+DROPCACHE Elapsed ms       :       2897       3354
+---
+WRITE     Elapsed ms       :     104086     104324
+          Files/s          :        313        314
+          IOPS             :        627        628
+          Throughput MiB/s :      10044      10048
+          Total files      :      32660      32760
+          Total MiB        :    1045472    1048320
+---
+DROPCACHE Elapsed ms       :       3207       3318
+---
+RMFILES   Elapsed ms       :        284        420
+          Files/s          :      77326      77931
+          Total files      :      21978      32760
+---
+DROPCACHE Elapsed ms       :       3175       3548
+---
+B. Run the command directly ...
+The command to execute...
+elbencho  --dirsharing -w -t 56 --nolive -F -d -n 1 -N 585 -s 32m --trunctosize -b 16m --direct --dropcache --nodelerr  ./32768x32MiB
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2856       3249
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      29197      22626
+          Total dirs       :         12         56
+---
+DROPCACHE Elapsed ms       :       2831       3349
+---
+WRITE     Elapsed ms       :      94516      94633
+          Files/s          :        345        346
+          IOPS             :        692        692
+          Throughput MiB/s :      11073      11077
+          Total files      :      32684      32760
+          Total MiB        :    1046672    1048320
+---
+DROPCACHE Elapsed ms       :       3316       3487
+---
+RMFILES   Elapsed ms       :        254        434
+          Files/s          :      75389      75458
+          Total files      :      19169      32760
+---
+DROPCACHE Elapsed ms       :       2661       3530
+---
+A. Use the structure of the wrapper ...
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       2938       3258
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :       4705      25396
+          Total dirs       :          2         56
+---
+DROPCACHE Elapsed ms       :       2961       3298
+---
+WRITE     Elapsed ms       :      98879      99088
+          Files/s          :         20         20
+          IOPS             :        668        669
+          Throughput MiB/s :      10702      10706
+          Total files      :       2017       2072
+          Total MiB        :    1058224    1060864
+---
+DROPCACHE Elapsed ms       :       3174       3422
+---
+RMFILES   Elapsed ms       :        142        146
+          Files/s          :      14012      14171
+          Total files      :       1998       2072
+---
+DROPCACHE Elapsed ms       :       3249       3680
+---
+B. Run the command directly ...
+The command to execute...
+elbencho  --dirsharing -w -t 56 --nolive -F -d -n 1 -N 37 -s 512m --trunctosize -b 16m --direct --dropcache --nodelerr  ./2048x512MiB
+OPERATION RESULT TYPE        FIRST DONE  LAST DONE
+========= ================   ==========  =========
+DROPCACHE Elapsed ms       :       3053       3388
+---
+MKDIRS    Elapsed ms       :          0          2
+          Dirs/s           :      18912      25889
+          Total dirs       :          8         56
+---
+DROPCACHE Elapsed ms       :       2966       3428
+---
+WRITE     Elapsed ms       :      91652      91781
+          Files/s          :         22         22
+          IOPS             :        722        722
+          Throughput MiB/s :      11552      11558
+          Total files      :       2017       2072
+          Total MiB        :    1058784    1060864
+---
+DROPCACHE Elapsed ms       :       3075       3298
+---
+RMFILES   Elapsed ms       :        141        144
+          Files/s          :      14147      14325
+          Total files      :       2000       2072
+---
+DROPCACHE Elapsed ms       :       3050       3464
+---
