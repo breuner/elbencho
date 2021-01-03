@@ -7,13 +7,20 @@ Chin Fang <`fangchin[at]zettar.com`>, Palo Alto, California, U.S.A
 # Table of contents
 
 1. **Introduction**
-2. **Layout and content**
-3. **Goals and possible use of the wrapper**
-4. **Motivation**
-5. **A brief overview of storage benchmarking**
-6. **Future evolution**
-7. **Acknowledgments**
-8. **Epilogue**
+2. **Requirements**
+3. **Layout and content**
+4. **Goals and possible uses**
+    1. **Primary goal of each wrapper and the main use**
+	2. **Other uses**
+5. **Motivation**
+6. **A brief overview of storage benchmarking**
+    1. **A typical goal**
+	2. **How it should be done**
+	3. **A common misconception**
+	4. **Carry out you own storage benchmarking**
+7. **Future evolution**
+8. **Acknowledgments**
+9. **Epilogue**
 
 # Introduction
 
@@ -28,10 +35,10 @@ This directory contains two `bash` scripts:
    `elbencho`. Once it's installed, type `mtelbencho.sh -h` for more
    info.
 
-`elbencho` is a modern, fast, storage space efficient, and easy to use
-storage benchmarking application. There is no need to study many pages
-of documentation or search the Internet up and down looking for
-tutorials, hoping to get some useful tips.  Merely run:
+`elbencho` is a modern, distributed, fast, storage space efficient,
+and easy to use storage benchmarking application. There is no need to
+study many pages of documentation or search the Internet up and down
+looking for tutorials, hoping to get some useful tips.  Merely run:
 
 `elbencho --help-all | less` 
 
@@ -48,6 +55,18 @@ button manner.
 Before proceeding, you may wish to browse the
 **[`QUICKSTART.md`](QUICKSTART.md)** first.
 
+# Requirements
+
+1. There must be two TB (1TB=2000000000000 bytes) available to conduct
+   a sweep.  Note that only hyperscale datasets are used, where the
+   term "hyperscale dataset" is defined as a dataset that has overall
+   size >= 1TB (terabyte), or contains >= 1 million files, or both.
+2. `elbencho` must be installed and available in the `root`'s `$PATH`.
+3. Both `mtelbencho.sh` and `graph_sweep.sh` must be install in
+   a directory that is part of the `root`'s `$PATH`. The key reason
+   is that `mtelbencho.sh` runs `elbencho` with its `--dropcache`
+   option, which demands `root` privilege.
+
 # Layout and content
 
 This directory contains 
@@ -57,17 +76,19 @@ This directory contains
 3. A '`sw_tests`' subdirectory.  Please review the
    [`README.md`](sw_tests/README.md) in this subdirectory.
 
-# Goals and a possible use
+# Goals and possible uses
 
-## mtelbencho.sh 
+## Primary goal of each wrapper and the main use
+
+### mtelbencho.sh 
 A storage sweep (*described more in the **Motivation** and **A brief
 overview of storage benchmarking** sections below*) is a simple and
-effective way to learn about the performance and characteristics of a
-storage service. Such a sweep should be carried out by any IT
-professional responsible for an organization's storage, especially a
-new deployment.
+effective way to learn about *the current* performance and
+characteristics of a storage service. Such a sweep should be carried
+out by any IT professional responsible for an organization's storage,
+especially a new deployment.
 
-The foremost goal of `mtelbencho.sh` is to simplify the already simple
+The foremost goal of `mtelbencho.sh` is to simplify the already easy
 `elbencho` usage even more for carrying out a storage sweep over a
 wide range of file sizes. As implemented, it does so by default
 sweeping from **1KiB** to **1TiB**, incremented in power-of-two file
@@ -75,23 +96,11 @@ sizes.  Once installed, please type `$ mtelbencho.sh -h` on the
 command line for more details.  We also recommend you consulting the
 [`QUICKSTART.md`](QUICKSTART.md).
 
-Using this wrapper, one can conveniently accomplish the following:
-
-1. Gain a good understanding of a file storage system in
-   service.
-2. Pick the most performant candidate from serveral distributed,
-   scale-out file storage service candidates.
-3. Select the most appropriate storage devices, from multiple
-   choices, for a given file storage service.
-
-Many other uses are possible. It's up to one's creativity and
-imagination.
-
-## graph_sweep.sh
+### graph_sweep.sh
 
 Nevertheless, often times it is much desirable to have the numerical
 results plotted in simple to understand form. This is where the
-`grap_sweep.sh` comes in. Please see figures below, produced with the
+`graph_sweep.sh` comes in. Please see figures below, produced with the
 `graph_sweep.sh`'s `-p` (*push button plotting option*). You may wish
 to consult the [`QUICKSTART.md`](QUICKSTART.md) again.
 
@@ -99,16 +108,47 @@ to consult the [`QUICKSTART.md`](QUICKSTART.md) again.
 ![Medium file 3-run sweep graph](pics/m_sweep.svg)
 ![Large file 3-run sweep graph](pics/l_sweep.svg)
 ![Overall 3-run sweep graph](pics/o_sweep.svg)
+
+Note that due to the gradual changes of the performance
+characteristics of SSDs, the shape of the graphs above may change over
+time.  More below in the next subsection.
+
+## Other uses
+
+Using the two wrappers and `elbencho`, one can conveniently accomplish
+the following:
+
+1. Gain a good understanding of a file storage system in
+   service.
+2. Pick the most performant candidate from several distributed,
+   scale-out file storage service candidates.
+3. Select the most appropriate storage devices, from multiple
+   choices, for a given file storage service.
+5. Prepare (aka condition) a large number of new SSDs using the two
+   wrappers together with `elbencho`, recalling it's a distributed
+   application.
+6. Monitor the characteristics of a batch of SSDs in production over
+   time, either visually or numerically.  Note that SSDs, except
+   [Intel
+   Optane](https://www.intel.com/content/www/us/en/architecture-and-technology/optane-technology/optane-enterprise-storage.html),
+   tend to change their performance characteristics over time.  Please
+   see [The Why and How of SSD Performance
+   Benchmarking](https://www.snia.org/educational-library/why-and-how-ssd-performance-benchmarking-2011)
+   for a more in-depth discussion.
+
+Many other uses are possible. It's up to one's creativity and
+imagination.
+
 # Motivation
 
-My professional focus and speciality is moving data at scale and when
+My professional focus and specialty is moving data at scale and when
 feasible, at speed.  Since 2015, my company, [Zettar
 Inc.](https://zettar.com/) has been engaged to support the ambitious
 data movement requirements of [Linac Coherent Light Source II
 (LCLS-II)](https://lcls.slac.stanford.edu/lcls-ii/design-and-performance),
 a premier U.S. Department of Energy (DOE)'s Exascale Computing
 preparation project.  As a result, my team and I have become
-intimately familar with the DOE's co-design principle: *integrated
+intimately familiar with the DOE's co-design principle: *integrated
 consideration of storage, computing, networking, and highly
 concurrent, scale-out data mover software for optimal data movement
 performance*.
@@ -129,15 +169,15 @@ ESnet/Zettar project concluded both timely and successfully.
 
 Believing what we learned and did during the project could be helpful
 to others, I decided to rewrite and consolidate the various test
-scripts that I wrote for the project into the two `bash` wrappers. 
+scripts that I wrote for the project into a pair of `bash` wrappers. 
 
 # A brief overview of storage benchmarking
 
-The views and opinions expressed below are for serious server
-processing tasks. Also, they reflect my background in high-performance
-computing at the U.S. DOE national lab level.  Nevertheless, I
-anticipate the information to be useful to large distributed
-data-intensive enterprises.
+The views and opinions expressed below are for serious data processing
+tasks. Also, they reflect my background in high-performance computing
+(HPC) at the U.S. DOE national lab level.  Nevertheless, I anticipate
+the information to be useful to large distributed data-intensive
+enterprises.
 
 ## A typical goal
 
@@ -148,13 +188,13 @@ characteristics to one or more selected target application(s).
 
 1. If the target application is a host-oriented one, such as a typical
    database application, then the storage benchmarking should be
-   carried out in a single **storage client host** (*identical in
+   carried out on a single **storage client host** (*identical in
    hardware spec and configuration to the one that **is** intended to run
    said application*).
 2. If the target application is a cluster application running on e.g.
    5 cluster nodes, then the storage benchmarking should be carried
    out concurrently on five **storage client hosts** (*identical in
-   hardware spec and configuratin to the ones that **are** intented to
+   hardware spec and configuration to the ones that **are** intended to
    run said application*).
 3. In general, such benchmarking should be carried out over storage
    interconnects (e.g. InfiniBand or Ethernet (RoCE likely
@@ -162,15 +202,17 @@ characteristics to one or more selected target application(s).
 
 ## A common misconception
 
-Often we read that a storage service can provide, e.g. 100TB/s
-throughput.
+Often we read that a storage service can provide, e.g. 1PB/s
+throughput :grin:.
 
-This number is meaningless because:
+This number is meaningless because the lack of info about the
+following, among the others:
 
-1. How was the number obtained? The benchmark hardware setup? The
-   benchmark software?
+1. How was the number obtained? What is the benchmark hardware setup?
+   How about the benchmark software?
 2. How is the benchmark software configured? 
-3. What kind of datasets were used for the measurements? 
+3. What kind of datasets was used for the measurements? e.g. their
+   respective histogram?
 4. How long and how many times did the benchmark take to run?
 5. What is the interconnect connecting the storage clients for
    benchmarking and the storage service?
@@ -181,19 +223,19 @@ This number is meaningless because:
   
 ## Carry out your own storage benchmarking
 
-So, you are recommended to use `graph_sweep.sh` and `mtelbencho.sh` to
-carry out storage sweeps in your environment and obtain your own
-numbers.  This is the information that you can trust. `elbencho`
-together with the two bash wrappers empower you to do so conveniently.
+So, we recommend using `graph_sweep.sh` and `mtelbencho.sh` to carry
+out storage sweeps in your environment and obtain your own numbers,
+which you can trust.  `elbencho` together with the two bash wrappers
+empower you to do so conveniently.
   
 # Future evolution
 
 `elbencho` is a distributed storage benchmark for file systems and
 block devices with support for GPUs.  It is far more capable than the
-the two wrappers cover.  In addition, they don't directly handle the
+two wrappers cover.  In addition, they don't directly handle the
 benchmarking of scale-out storage.  Although coupled with something
 like [Ansible](https://www.ansible.com) and `elbencho`'s service mode
-(see `elbencho --help-all`), it can be done.  Future improvment and
+(see `elbencho --help-all`), it can be done.  Future improvement and
 evolution are definitely possible.
 
 # Acknowledgments
