@@ -8,6 +8,7 @@
 #include "Common.h"
 #include "CuFileHandleData.h"
 #include "Logger.h"
+#include "toolkits/random/RandAlgoSelectorTk.h"
 
 
 namespace bpo = boost::program_options;
@@ -91,6 +92,8 @@ namespace bpo = boost::program_options;
 #define ARG_VERIFYDIRECT_LONG		"verifydirect"
 #define ARG_BLOCKVARIANCE_LONG		"blockvarpct"
 #define ARG_RWMIXPERCENT_LONG		"rwmixpct"
+#define ARG_BLOCKVARIANCEALGO_LONG	"blockvaralgo"
+#define ARG_RANDSEEKALGO_LONG		"randalgo"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -213,6 +216,8 @@ class ProgArgs
 		bool doDirectVerify; // verify data integrity by reading immediately after write
 		unsigned blockVariancePercent; // % of blocks that should differ between writes
 		unsigned rwMixPercent; // % of blocks that should be read (the rest will be written)
+		std::string blockVarianceAlgo; // rand algo for buffer fill variance
+		std::string randOffsetAlgo; // rand algo for random offsets
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -225,6 +230,7 @@ class ProgArgs
 		void parseHosts();
 		void parseNumaZones();
 		void parseGPUIDs();
+		void parseRandAlgos();
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
@@ -314,6 +320,8 @@ class ProgArgs
 		bool getDoDirectVerify() const { return doDirectVerify; }
 		unsigned getBlockVariancePercent() const { return blockVariancePercent; }
 		unsigned getRWMixPercent() const { return rwMixPercent; }
+		std::string getBlockVarianceAlgo() const { return blockVarianceAlgo; }
+		std::string getRandOffsetAlgo() const { return randOffsetAlgo; }
 };
 
 

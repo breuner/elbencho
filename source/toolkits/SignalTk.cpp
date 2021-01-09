@@ -44,37 +44,37 @@ void SignalTk::faultSignalHandler(int sig)
 	{
 		case SIGSEGV:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
+			stream << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Segmentation fault" << std::endl;
 		} break;
 
 		case SIGFPE:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
+			stream << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Floating point exception" << std::endl;
 		} break;
 
 		case SIGBUS:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
+			stream << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Bus error (bad memory access)" << std::endl;
 		} break;
 
 		case SIGILL:
 		{
-			stream << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
+			stream << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Illegal instruction" << std::endl;
 		} break;
 
 		case SIGABRT:
 		{ // note: SIGABRT is special: after signal handler returns the process dies immediately
-			std::cerr << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
+			std::cerr << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Abnormal termination" << std::endl;
 		} break;
 
 		default:
 		{
-			std::cerr << "FAULT HANDLER (" << getpid() << "/" << getThreadID() << "): "
+			std::cerr << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Received an unknown signal: " << std::to_string(sig) << std::endl;
 		} break;
 	}

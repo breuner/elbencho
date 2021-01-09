@@ -22,6 +22,7 @@ _elbencho_opts()
    longopts="
         --allelapsed
         --block
+        --blockvaralgo
         --blockvarpct
         --cpu
         --csvfile
@@ -64,6 +65,7 @@ _elbencho_opts()
         --preallocfile
         --quit
         --rand
+        --randalgo
         --randalign
         --randamount
         --rankoffset
@@ -91,7 +93,7 @@ _elbencho_opts()
     echo "$shortopts $longopts"
 }
 
-_elbencho() 
+_elbencho()
 {
     local cur prev opts
     COMPREPLY=()
@@ -105,6 +107,8 @@ _elbencho()
         -b)
         ;&
         --block)
+        ;&
+        --blockvaralgo)
         ;&
         --blockvarpct)
         ;&
@@ -123,6 +127,8 @@ _elbencho()
         -n)
         ;&
         --port)
+        ;&
+        --randalgo)
         ;&
         --randamount)
         ;&

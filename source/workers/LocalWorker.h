@@ -5,12 +5,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
-#include <random>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include "CuFileHandleData.h"
 #include "OffsetGenerator.h"
+#include "toolkits/random/RandAlgoInterface.h"
 #include "Worker.h"
 
 // delaration for function typedefs below
@@ -46,9 +46,7 @@ typedef void (LocalWorker::*BLOCK_MODIFIER)(char* buf, size_t bufLen, off_t file
 class LocalWorker : public Worker
 {
 	public:
-		explicit LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank) :
-			Worker(workersSharedData, workerRank) {}
-
+		explicit LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank);
 		~LocalWorker();
 
 	protected:
@@ -56,8 +54,6 @@ class LocalWorker : public Worker
 		virtual void cleanup() override;
 
 	private:
-	    std::mt19937_64 randGen{std::random_device()() }; // random_device is just for random seed
-
 		BufferVec ioBufVec; // host buffers used for block-sized read/write (count matches iodepth)
 
 		BufferVec gpuIOBufVec; // gpu memory buffers for read/write via cuda (count matches iodepth)
@@ -77,12 +73,16 @@ class LocalWorker : public Worker
 		GPU_MEMCPY_RW funcPostReadCudaMemcpy; // copy to GPU memory
 		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
 		CUFILE_HANDLE_DEREGISTER funcCuFileHandleDereg; // cuFile handle deregister
-		OffsetGenerator* rwOffsetGen{NULL}; // read/write offset generator for phase-dependent funcs
+		std::unique_ptr<OffsetGenerator> rwOffsetGen; // r/w offset gen for phase-dependent funcs
+		std::unique_ptr<RandAlgoInterface> randOffsetAlgo; // for random offsets
+		std::unique_ptr<RandAlgoInterface> randBlockVarAlgo; // for random block contents variance
+		std::unique_ptr<RandAlgoInterface> randBlockVarReseed; // reseed for golden prime block var
 
 		void finishPhase();
 
 		void getPhaseFileOffsetRange(uint64_t& outFileRangeStart, uint64_t& outFileRangeLen);
 		void initPhaseRWOffsetGen();
+		void nullifyPhaseFunctionPointers();
 		void initPhaseFunctionPointers();
 
 		void allocIOBuffer();
@@ -128,6 +128,7 @@ class LocalWorker : public Worker
 		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);
 		void postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset);
 		void preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset);
+		void preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset);
 
 		void aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);

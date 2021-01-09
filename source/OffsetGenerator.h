@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include "ProgArgs.h"
+#include "toolkits/random/RandAlgoRange.h"
 
 /**
  * Generate sequential, random, and random block aligned offsets for LocalWorker's file read/write
@@ -86,9 +87,9 @@ class OffsetGenSequential : public OffsetGenerator
 class OffsetGenRandom : public OffsetGenerator
 {
 	public:
-		OffsetGenRandom(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
+		OffsetGenRandom(const ProgArgs& progArgs, RandAlgoInterface& randAlgo, uint64_t len,
 			uint64_t offset, size_t blockSize) :
-			progArgs(progArgs), randGen(randGen), randDist(offset, offset + len - blockSize),
+			progArgs(progArgs), randRange(randAlgo, offset, offset + len - blockSize),
 			blockSize(blockSize)
 		{
 			this->numBytesTotal = progArgs.getRandomAmount() / progArgs.getNumDataSetThreads();
@@ -99,8 +100,7 @@ class OffsetGenRandom : public OffsetGenerator
 
 	protected:
 		const ProgArgs& progArgs;
-		std::mt19937_64& randGen;
-		std::uniform_int_distribution<uint64_t> randDist;
+		RandAlgoRange randRange;
 
 		uint64_t numBytesTotal;
 		uint64_t numBytesLeft;
@@ -112,7 +112,7 @@ class OffsetGenRandom : public OffsetGenerator
 		{ numBytesLeft = numBytesTotal; }
 
 		virtual uint64_t getNextOffset() override
-			{ return randDist(randGen); }
+			{ return randRange.next(); }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }
@@ -136,9 +136,9 @@ class OffsetGenRandom : public OffsetGenerator
 class OffsetGenRandomAligned : public OffsetGenerator
 {
 	public:
-		OffsetGenRandomAligned(const ProgArgs& progArgs, std::mt19937_64& randGen, uint64_t len,
+		OffsetGenRandomAligned(const ProgArgs& progArgs, RandAlgoInterface& randAlgo, uint64_t len,
 				uint64_t offset, size_t blockSize) :
-			randGen(randGen), randDist(0, (offset + len - blockSize) / blockSize),
+			randRange(randAlgo, 0, (offset + len - blockSize) / blockSize),
 			blockSize(blockSize)
 		{
 			this->numBytesTotal = progArgs.getRandomAmount() / progArgs.getNumDataSetThreads();
@@ -150,8 +150,7 @@ class OffsetGenRandomAligned : public OffsetGenerator
 		virtual ~OffsetGenRandomAligned() {}
 
 	protected:
-		std::mt19937_64& randGen;
-		std::uniform_int_distribution<uint64_t> randDist;
+		RandAlgoRange randRange;
 
 		uint64_t numBytesTotal;
 		uint64_t numBytesLeft;
@@ -166,7 +165,7 @@ class OffsetGenRandomAligned : public OffsetGenerator
 		}
 
 		virtual uint64_t getNextOffset() override
-			{ return randDist(randGen) * blockSize; }
+			{ return randRange.next() * blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }

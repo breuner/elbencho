@@ -1,5 +1,6 @@
 #include <libaio.h>
 #include "LocalWorker.h"
+#include "toolkits/random/RandAlgoSelectorTk.h"
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
 
@@ -15,6 +16,12 @@
 #define AIO_MAX_WAIT_SEC				5
 #define AIO_MAX_EVENTS					4 // max number of events to retrieve in io_getevents()
 
+
+LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank) :
+	Worker(workersSharedData, workerRank)
+{
+	nullifyPhaseFunctionPointers();
+}
 
 LocalWorker::~LocalWorker()
 {
@@ -196,8 +203,10 @@ void LocalWorker::initPhaseRWOffsetGen()
 {
 	const size_t blockSize = progArgs->getBlockSize();
 
-	// delete offset gen from previous phase
-	SAFE_DELETE(rwOffsetGen);
+	// init random algos
+	randOffsetAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo() );
+	randBlockVarAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getBlockVarianceAlgo() );
+	randBlockVarReseed = std::make_unique<RandAlgoXoshiro256ss>();
 
 	if(progArgs->getBenchPathType() == BenchPathType_DIR)
 	{
@@ -206,12 +215,15 @@ void LocalWorker::initPhaseRWOffsetGen()
 		const uint64_t fileSize = progArgs->getFileSize();
 
 		if(!progArgs->getUseRandomOffsets() )
-			rwOffsetGen = new OffsetGenSequential(fileSize, 0, blockSize);
+			rwOffsetGen = std::make_unique<OffsetGenSequential>(
+				fileSize, 0, blockSize);
 		else
 		if(progArgs->getUseRandomAligned() )
-			rwOffsetGen = new OffsetGenRandomAligned(*progArgs, randGen, fileSize, 0, blockSize);
+			rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(*progArgs, *randOffsetAlgo,
+				fileSize, 0, blockSize);
 		else // random unaligned
-			rwOffsetGen = new OffsetGenRandom(*progArgs, randGen, fileSize, 0, blockSize);
+			rwOffsetGen = std::make_unique<OffsetGenRandom>(*progArgs, *randOffsetAlgo,
+				fileSize, 0, blockSize);
 	}
 	else
 	{
@@ -223,15 +235,33 @@ void LocalWorker::initPhaseRWOffsetGen()
 		getPhaseFileOffsetRange(fileRangeStart, fileRangeLen);
 
 		if(!progArgs->getUseRandomOffsets() )
-			rwOffsetGen = new OffsetGenSequential(fileRangeLen, fileRangeStart, blockSize);
+			rwOffsetGen = std::make_unique<OffsetGenSequential>(
+				fileRangeLen, fileRangeStart, blockSize);
 		else
 		if(progArgs->getUseRandomAligned() )
-			rwOffsetGen = new OffsetGenRandomAligned(*progArgs, randGen,
+			rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(*progArgs, *randOffsetAlgo,
 				fileRangeLen, fileRangeStart, blockSize);
 		else // random unaligned
-			rwOffsetGen = new OffsetGenRandom(*progArgs, randGen,
+			rwOffsetGen = std::make_unique<OffsetGenRandom>(*progArgs, *randOffsetAlgo,
 				fileRangeLen, fileRangeStart, blockSize);
 	}
+}
+
+/**
+ * Just set all phase-dependent function pointers to NULL.
+ */
+void LocalWorker::nullifyPhaseFunctionPointers()
+{
+	funcRWBlockSized = NULL;
+	funcPositionalRW = NULL;
+	funcAioRwPrepper = NULL;
+	funcPreWriteCudaMemcpy = NULL;
+	funcPostReadCudaMemcpy = NULL;
+	funcPreWriteCudaMemcpy = NULL;
+	funcPreWriteBlockModifier = NULL;
+	funcPostReadBlockChecker = NULL;
+	funcCuFileHandleReg = NULL;
+	funcCuFileHandleDereg = NULL;
 }
 
 /**
@@ -248,17 +278,10 @@ void LocalWorker::initPhaseFunctionPointers()
 	const bool doDirectVerify = progArgs->getDoDirectVerify();
 	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
+	const RandAlgoType blockVarAlgo = RandAlgoSelectorTk::stringToEnum(
+		progArgs->getBlockVarianceAlgo() );
 
-	funcRWBlockSized = NULL;
-	funcPositionalRW = NULL;
-	funcAioRwPrepper = NULL;
-	funcPreWriteCudaMemcpy = NULL;
-	funcPostReadCudaMemcpy = NULL;
-	funcPreWriteCudaMemcpy = NULL;
-	funcPreWriteBlockModifier = NULL;
-	funcPostReadBlockChecker = NULL;
-	funcCuFileHandleReg = NULL;
-	funcCuFileHandleDereg = NULL;
+	nullifyPhaseFunctionPointers(); // set all function pointers to NULL
 
 	if(benchPhase == BenchPhase_CREATEFILES)
 	{
@@ -288,6 +311,9 @@ void LocalWorker::initPhaseFunctionPointers()
 
 		if(integrityCheckEnabled)
 			funcPreWriteBlockModifier = &LocalWorker::preWriteIntegrityCheckFillBuf;
+		else
+		if(blockVariancePercent && (blockVarAlgo == RandAlgo_GOLDENRATIOPRIME) )
+			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillFast;
 		else
 		if(blockVariancePercent)
 			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefill;
@@ -494,7 +520,7 @@ void LocalWorker::allocGPUIOBuffer()
  */
 void LocalWorker::cleanup()
 {
-	SAFE_DELETE(rwOffsetGen);
+	rwOffsetGen.reset();
 
 #ifdef CUFILE_SUPPORT
 	// cleanup cuFileHandleData here in case of exception in file/bdev mode.
@@ -897,12 +923,42 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 
 	// refill buffer with random data
 
+	randBlockVarAlgo->fillBuf(buf, bufLen);
+}
+
+/**
+ * Refill some percentage of buffers with random data. The percentage of buffers to refill is
+ * defined in progArgs::blockVariancePercent.
+ *
+ * Note: The only reason why this function exists separate from preWriteBufRandRefill() which does
+ * the same with RandAlgoGoldenPrime::fillBuf() is that test have shown 30% lower perf for
+ * "-w -t 1 -b 128k --iodepth 128 --blockvarpct 100 --rand --direct" when the function in the
+ * RandAlgo object is called (which is quite mysterious).
+ */
+void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset)
+{
+	// example: 40% means we refill 40 out of 100 buffers and the remaining 60 buffers are identical
+
+	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
+		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
+		work for this because aio would not inc counter directly on submission.) */
+
+	// note: workerRank is used to have skew between different worker threads
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getBlockVariancePercent() )
+		return;
+
+	// refill buffer with random data
+
+	uint64_t state = randBlockVarReseed->next();
+
 	size_t numBytesDone = 0;
 
 	for(uint64_t i=0; i < (bufLen / sizeof(uint64_t) ); i++)
 	{
 		uint64_t* uint64Buf = (uint64_t*)buf;
-		*uint64Buf = randGen();
+		state *= RANDALGO_GOLDEN_RATIO_PRIME;
+		state >>= 3;
+		*uint64Buf = state;
 
 		buf += sizeof(uint64_t);
 		numBytesDone += sizeof(uint64_t);
@@ -912,7 +968,9 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 		return; // all done, complete buffer filled
 
 	// we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
-	uint64_t randUint64 = randGen();
+	state *= RANDALGO_GOLDEN_RATIO_PRIME;
+	state >>= 3;
+	uint64_t randUint64 = state;
 
 	memcpy(buf, &randUint64, bufLen - numBytesDone);
 }

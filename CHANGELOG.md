@@ -1,9 +1,10 @@
 # Changelog of elbencho
 
-## v1.6.6 (work in progress)
+## v1.7.0 (work in progress)
 
 ### New Features & Enhancements
 * New option for mixed read+write (--rwmixpct) to define percentage of block reads in write phase (-w).
+* Faster default random number generators for "--rand" and "--blockvarpct" and new options for random number generator selection ("--blockvaralgo" and "--randalgo").
 
 ## v1.6.5 (Dec 26, 2020)
 

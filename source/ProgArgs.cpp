@@ -121,6 +121,11 @@ void ProgArgs::defineAllowedArgs()
 			"Show elapsed time to completion of each I/O worker thread.")
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
+/*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
+			"Random number algorithm for \"--" ARG_BLOCKVARIANCE_LONG "\". Values: \""
+			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
+			"\" for good balance of speed and randomness; \"" RANDALGO_STRONG_STR "\" for high CPU "
+			"cost but strong randomness. (Default: " RANDALGO_FAST_STR ")")
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
 			"Percentage of blocks that should be refilled with random data between writes. This "
 			"can be used to control how well the generated data can be compressed or deduplicated. "
@@ -228,6 +233,11 @@ void ProgArgs::defineAllowedArgs()
 			"Read files.")
 /*ra*/	(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
+/*ra*/	(ARG_RANDSEEKALGO_LONG, bpo::value(&this->randOffsetAlgo),
+			"Random number algorithm for \"--" ARG_RANDOMOFFSETS_LONG "\". Values: \""
+			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
+			"\" for good balance of speed and randomness; \"" RANDALGO_STRONG_STR "\" for high CPU "
+			"cost but strong randomness. (Default: " RANDALGO_BALANCED_STR ")")
 /*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
 			"Align random offsets to block size.")
 /*ra*/	(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmountOrigStr),
@@ -352,6 +362,8 @@ void ProgArgs::defineDefaults()
 	this->doDirectVerify = false;
 	this->blockVariancePercent = 0;
 	this->rwMixPercent = 0;
+	this->blockVarianceAlgo = RANDALGO_FAST_STR;
+	this->randOffsetAlgo = RANDALGO_BALANCED_STR;
 }
 
 /**
@@ -411,6 +423,7 @@ void ProgArgs::checkArgs()
 
 	parseHosts();
 	parseGPUIDs();
+	parseRandAlgos();
 
 	if( (interruptServices || quitServices) && hostsVec.empty() )
 		throw ProgException("Service interruption/termination requires a host list.");
@@ -557,6 +570,13 @@ void ProgArgs::checkPathDependentArgs()
 				"Current dataset thread count: " + std::to_string(numDataSetThreads) + "; "
 				"Current file size: " + std::to_string(fileSize) + "; "
 				"Resulting min valid file size: " + std::to_string(minFileSize) );
+
+		if(useRandomOffsets && (randomAmount < minFileSize) )
+			throw ProgException("Random I/O amount must be large enough so that each I/O thread "
+				"can at least read/write one block. "
+				"Current block size: " + std::to_string(blockSize) + "; "
+				"Current dataset thread count: " + std::to_string(numDataSetThreads) + "; "
+				"Resulting min valid random I/O amount: " + std::to_string(minFileSize) );
 
 		if(minFileSize && !useRandomOffsets && ( (fileSize % minFileSize) != 0) )
 			LOGGER(Log_NORMAL, "NOTE: File size is not a multiple of block size times number "
@@ -1066,6 +1086,22 @@ void ProgArgs::parseGPUIDs()
 			isCuFileDriverOpen = true;
 		}
 	#endif
+}
+
+/**
+ * Parse random number generator selection for random offsets and block variance..
+ */
+void ProgArgs::parseRandAlgos()
+{
+	RandAlgoType randAlgoBlockVariance = RandAlgoSelectorTk::stringToEnum(blockVarianceAlgo);
+	if(randAlgoBlockVariance == RandAlgo_INVALID)
+		throw ProgException("Invalid random generator selection for block variance: " +
+			blockVarianceAlgo);
+
+	RandAlgoType randAlgoOffsets = RandAlgoSelectorTk::stringToEnum(randOffsetAlgo);
+	if(randAlgoOffsets == RandAlgo_INVALID)
+		throw ProgException("Invalid random generator selection for random offsets: " +
+			randOffsetAlgo);
 }
 
 /**
@@ -1595,6 +1631,8 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	doDirectVerify = tree.get<bool>(ARG_VERIFYDIRECT_LONG);
 	blockVariancePercent = tree.get<unsigned>(ARG_BLOCKVARIANCE_LONG);
 	rwMixPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);
+	blockVarianceAlgo = tree.get<std::string>(ARG_BLOCKVARIANCEALGO_LONG);
+	randOffsetAlgo = tree.get<std::string>(ARG_RANDSEEKALGO_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1654,6 +1692,8 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_VERIFYDIRECT_LONG, doDirectVerify);
 	outTree.put(ARG_BLOCKVARIANCE_LONG, blockVariancePercent);
 	outTree.put(ARG_RWMIXPERCENT_LONG, rwMixPercent);
+	outTree.put(ARG_BLOCKVARIANCEALGO_LONG, blockVarianceAlgo);
+	outTree.put(ARG_RANDSEEKALGO_LONG, randOffsetAlgo);
 
 
 	// dynamically calculated values for service hosts...
