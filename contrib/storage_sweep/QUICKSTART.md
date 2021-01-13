@@ -1,3 +1,16 @@
+![Storage sweep logo](pics/storage_sweep.png)
+
+Chin Fang <`fangchin[at]zettar.com`>, Palo Alto, California, U.S.A
+
+<a name="page_top"></a>
+Table of Contents
+=================
+
+   * [Hello graph_sweep.h and mtelbencho.sh](#hello-graph_sweeph-and-mtelbenchosh)
+   * [Overview of the two scripts](#overview-of-the-two-scripts)
+   * [Design and implementation notes](#design-and-implementation-notes)
+   * [Special graphing usage notes](#special-graphing-usage-notes)
+
 # Hello `graph_sweep.h` and `mtelbencho.sh`
 
 Three steps in the following order:
@@ -9,16 +22,19 @@ Three steps in the following order:
    example, use `-r s -N 1` and (`-v`) to see how its option values
    change
    
-Once you are done, you are ready for the real actions :)
+Once done, you are ready for the real actions :)
+
+[Back to top](#page_top)
 
 # Overview of the two scripts
 
 The two scripts **`graph_sweep.sh`** and **`mtelbencho.sh`** have been
 designed and created such that
 
-1. Both provide concise information for fast learning.  When running
-   `$0 -h` or when the dry-run output option (`-n`) is used, there is
-   no need to be the `root` or use the `sudo root` privilege.
+1. Both provide concise information for fast learning.  Furthermore,
+   when running `$0 -h` or when the dry-run output option (`-n`) is
+   used, there is no need to be the `root` or use the `sudo root`
+   privilege.
 2. With the `graph_sweep.sh`, the verbose mode (`-v`) and the dry-run
    mode (`-n`) show how it carries out a desired multi sweep session.
 3. With the `mtelbencho.sh`, the verbose mode (`-v`) and the dry-run
@@ -29,6 +45,8 @@ designed and created such that
        mode to get to know how to run it.
     2. Then, **`graph_sweep.sh -h`**, then using the dry-run mode to
        get acquainted, then carry out actual runs.
+
+[Back to top](#page_top)
 
 # Design and implementation notes
 
@@ -64,7 +82,9 @@ designed and created such that
    columns.  Almost all functions are shorter than 52 lines (except
    `help()`, `extract_results_for_plotting()`, `run_genuplot()`, and `#
    main()` due to comments or necessity.
-   
+
+[Back to top](#page_top)
+
 # Special graphing usage notes
 
 *Adopted mostly from the embedded comments in* `graph_sweep.sh`:
@@ -99,3 +119,5 @@ designed and created such that
 5. Should you prefer to use another graphing application on your
    workstation, such as a spreadsheet, please use the `sweep.csv`
    file in the `output_dir` (defined in the `graph_sweep.sh`).
+
+[Back to top](#page_top)

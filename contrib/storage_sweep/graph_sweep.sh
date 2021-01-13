@@ -53,7 +53,7 @@
 #         graph_sweep.sh -h for more info.
 #
 # References:
-# 0. https://github.com/breuner/elbencho/tree/master/contrib/mtelbencho
+# 0. https://github.com/breuner/elbencho/tree/master/contrib/storage_sweep
 # 1. http://www.gnuplot.info
 # 2. https://man7.org/linux/man-pages/man1/paste.1.html
 #
