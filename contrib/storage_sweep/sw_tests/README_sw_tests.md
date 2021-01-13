@@ -1,3 +1,18 @@
+![Storage sweep logo](pics/storage_sweep.png)
+
+Chin Fang <`fangchin[at]zettar.com`>, Palo Alto, California, U.S.A
+
+<a name="page_top"></a>
+Table of Contents
+=================
+
+   * [Layout and content](#layout-and-content)
+      * [The real_tests's content](#the-real_testss-content)
+      * [The unit_tests' content](#the-unit_tests-content)
+   * [The environment](#the-environment)
+   * [The included storage sweep results](#the-included-storage-sweep-results)
+      * [The duration of each 3-run sweep session](#the-duration-of-each-3-run-sweep-session)
+
 # Layout and content
 
 This subdirectory consists of the two subdirectories:
@@ -25,10 +40,14 @@ powers of 2.
 
 Each sweep is repeated 3 times (default).
 
+[Back to top](#page_top)
+
 ## The `unit_tests`' content
 
 It contains misc unit tests used while developing the two bash scripts
 `graph_sweep.sh` and `mtelbencho.sh`.
+
+[Back to top](#page_top)
 
 # The environment
 
@@ -54,6 +73,8 @@ conducted.
 * [Mellanox ConnectX-5 dual-port 100G NICs](https://bit.ly/383r9fK)
 * CentOS Linux release 7.9.2009 (Core)
 * Filesystem: XFS
+
+[Back to top](#page_top)
 
 # The included storage sweep results
 
@@ -83,8 +104,10 @@ data mover software. Thus, each sweep published herein is configured
 for Zettar zx. Please see [Zettar zx Evaluation for ESnet
 DTNs](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf).
 
-For other apdata movers or applications, you are advised to adjust the
+For other data movers or applications, you are advised to adjust the
 setup of your sweeps as appropriate.
+
+[Back to top](#page_top)
 
 ## The duration of each 3-run sweep session
 
@@ -95,3 +118,5 @@ also shown below for ease of reference.
 2. **Medium** : `1h:1m:14s`
 3. **Large**  : `1h:4m:20s`
 4. **Overall**: `2h:40m:35s`
+
+[Back to top](#page_top)
