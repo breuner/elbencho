@@ -1,3 +1,7 @@
 RPMS/
 BUILDROOT/
-*.deb
+/*.deb
+/*.ddeb
+/*.build
+/*.buildinfo
+/*.changes

@@ -38,11 +38,11 @@ usage()
   echo
   echo "Examples:"
   echo "  Check read latency of NVMesh volume /dev/nvmesh/myvol:"
-  echo "    $ $0 myvol 1 1 100 4k 20"
+  echo "    $ $(basename $0) myvol 1 1 100 4k 20"
   echo "  Check read IOPS of device /dev/nvme0n1:"
-  echo "    $ $0 nvme0n1 16 16 100 4k 20"
+  echo "    $ $(basename $0) nvme0n1 16 16 100 4k 20"
   echo "  Check write throughput of volumes /dev/nvmesh/myvol1 and /dev/nvmesh/myvol2:"
-  echo "    $ $0 \"myvol1 myvol2\" 16 16 0 128k 20"
+  echo "    $ $(basename $0) \"myvol1 myvol2\" 16 16 0 128k 20"
 
   exit 1
 }
@@ -80,11 +80,6 @@ parse_args()
   READPERCENT=$4 # percentage of read accessed
   BLOCKSIZE=$5 # block size for read/write
   RUNTIMESEC=$6 # runtime in seconds
-  
-  if [ "$READPERCENT" -ne 0 ] && [ "$READPERCENT" -ne 100 ]; then
-    echo "ERROR: READPERCENT must be either 0 or 100."
-    usage
-  fi
 }
 
 
@@ -126,10 +121,10 @@ prepare_arg_filenames()
 # Sets $RWMIXREAD.
 prepare_arg_rwmix()
 {
-  if [ $READPERCENT -eq 0 ]; then
-    RWMIXREAD="-w"
+  if [ $READPERCENT -eq 100 ]; then
+    RWMIXREAD="-r"
   else
-    RWMIXREAD="-r"  
+    RWMIXREAD="-w --rwmixpct $READPERCENT"
   fi
 }
 
