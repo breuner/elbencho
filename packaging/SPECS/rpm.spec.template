@@ -18,5 +18,6 @@ rm -rf %{buildroot}
 
 %files
 %{_bindir}/__NAME__
+%{_bindir}/__NAME__-chart
 %{_sysconfdir}/bash_completion.d/__NAME__
-
+%{_sysconfdir}/bash_completion.d/__NAME__-chart

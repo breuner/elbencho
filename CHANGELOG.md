@@ -3,6 +3,7 @@
 ## v1.7.0 (work in progress)
 
 ### New Features & Enhancements
+* New tool "elbencho-chart" to easily generate charts from elbencho csv result files.
 * New option for mixed read+write (--rwmixpct) to define percentage of block reads in write phase (-w).
 * Faster default random number generators for "--rand" and "--blockvarpct" and new options for random number generator selection ("--blockvaralgo" and "--randalgo").
 

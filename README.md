@@ -15,7 +15,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 * Live statistics show how the system behaves under load
 * Multi-threaded and async I/O support through libaio
 * Results by first and by last finished thread
-* CSV file output to easily create graphs in spreadsheet applications
+* CSV file output to easily create graphs in spreadsheet apps or via elbencho-chart tool
 * Data integrity verification option
 
 ## Usage
@@ -77,20 +77,26 @@ sudo apt install ./packaging/elbencho*.deb
 
 **There you go. Happy benchmarking!**
 
-### Optional Build Features
+## Now what?
+
+Now comes the fun part: It's time to find out what your system can deliver.
+
+The built-in help (`elbencho --help`) provides many usage examples. You will be interested in throughput and IOPS, typically for a single client and also for multiple clients. For the latter, see `--hosts` & `--service`.
+
+If GPU data transfer performance is critical for you, e.g. because you are running DeepLearning applications, you will also want to include GPUs in your read/write benchmarks (`--gpuids`).
+
+### Results & Charts
+
+Elbencho presents two result columns: One showing the status when the first I/O thread finished its work and one for the end result when the last thread finished its work. Ideally, both are close together.
+
+To generate charts from your result series, e.g. based on different block sizes or different thread counts, use elbencho's csv file option (`--csvfile`) and the `elbencho-chart` tool to easily generate a chart from your csv file. Alternatively, spreadsheet tools like Microsoft Excel or Google Sheets can be used for this.
+
+### Questions & Comments
+
+In case of questions, comments, if something is missing to make elbencho more useful or if you would just like to share your thoughts, feel free to contact me: sven.breuner[at]gmail.com
+
+## Optional Build Features
 
 Nvidia CUDA support for GPU data transfers will automatically be enabled when CUDA development files (`cuda_runtime.h` and `libcudart.so`) are installed on the build system. Alternatively, elbencho CUDA support can be manually enabled or disabled. See `make help` for details.
 
 Nvidia GPUDirect Storage (GDS) support through the cuFile API will automatically be enabled when GDS development files (`cufile.h` and `libcufile.so`) are installed on the build system. Alternatively, elbencho GDS support can be manually enabled or disabled. See `make help` for details.
-
-## Now what?
-
-Now comes the fun part. It's time to find out what your system can deliver, so that you know if you got what you expected and for how long this system will be able to support your plans for the future.
-
-The built-in help (`elbencho --help`) provides many examples. You will be interested in access latency, IOPS and throughput.
-
-If GPU data transfer performance is critical for you, e.g. because you are running DeepLearning applications, you will also want to include GPUs in your read/write benchmarks.
-
-## Questions & Comments
-
-In case of questions, comments, if something is missing to make elbencho more useful or if you would just like to share your thoughts, please feel free to contact sven.breuner[at]gmail.com
