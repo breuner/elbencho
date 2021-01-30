@@ -6,16 +6,16 @@ Chin Fang <`fangchin[at]zettar.com`>, Palo Alto, California, U.S.A
 Table of Contents
 =================
 
-   * [Hello graph_sweep.h and mtelbencho.sh](#hello-graph_sweeph-and-mtelbenchosh)
+   * [Hello graph_sweep.sh and mtelbencho.sh](#hello-graph_sweepsh-and-mtelbenchosh)
    * [Overview of the two scripts](#overview-of-the-two-scripts)
    * [Design and implementation notes](#design-and-implementation-notes)
    * [Special graphing usage notes](#special-graphing-usage-notes)
 
-# Hello `graph_sweep.h` and `mtelbencho.sh`
+# Hello `graph_sweep.sh` and `mtelbencho.sh`
 
 Three steps in the following order:
 
-1. `graph_sweep.h -h` shows you a few examples. Review a dry-run example. 
+1. `graph_sweep.sh -h` shows you a few examples. Review a dry-run example. 
 2. `mtelbencho.sh -h` to get to know its CLI options.
 3. Carry out a `mtelbencho.sh` dry-run based on what you saw
    in 1. Then, adjust the option values to get more acquainted. For
