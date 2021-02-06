@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v1.7.0 (work in progress)
+## v1.7.1 (Feb 06, 2021)
 
 ### New Features & Enhancements
 * New tool "elbencho-chart" to easily generate charts from elbencho csv result files.
