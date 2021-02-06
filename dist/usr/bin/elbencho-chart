@@ -8,8 +8,14 @@ OUTIMGFILE=""                # output file for chart image
 OUTIMGBGCOLOR=""             # output image rgb background (e.g. "#ffffff" for white)
 TMPOPSTRING="OPERATION"      # string in tmp file name to replace by actual op (e.g. "READ")
 TMPOPFILE="/tmp/elbencho-plot-${TMPOPSTRING}.csv" # tmp files for each requested op (e.g. "READ")
+TERMINALDEFAULT="qt"         # default gnuplot terminal type (overridden by image file output)
+CHARTSIZE=""                 # width,height of chart (to override gnuplot default)
 CHARTKEYPOS="top center"     # position of line descriptions within chart area
+CHARTBORDERFLAGS="15"        # bitwise flags for axis (1=bottom, 2=left, 4=top, 8=right)
 LINEWIDTH="3"                # width of graph lines
+POINTSIZE="0.5"              # scale of data points between graph lines (relative to font size)
+POINTBOX="1"                 # scale of box that creates space between data points and graph lines
+FONTSIZE=""                  # font size (to override gnuplot default)
 CHARTTITLE=""                # chart headline
 CHARTXTITLE=""               # x-axis title
 CHARTYTITLE=""               # left-hand y-axis title
@@ -41,7 +47,7 @@ usage()
    echo "  -o                 List all available operations in csv file and exit."
    echo "  -x COL             Csv file column to use for x-axis labels."
    echo "                     This option can be used multiple times for combined labels."
-   echo "                     (Hint use \"-c\" to see avaiable columns.)"
+   echo "                     (Hint: Use \"-c\" to see avaiable columns.)"
    echo "  -y COL[:OP]        Csv file column to use for graph on left-hand y-axis. OP is"
    echo "                     the operation in case your csv file contains multiple ops,"
    echo "                     e.g. read and write results. (Hint: Use \"-o\" to see"
@@ -52,6 +58,9 @@ usage()
    echo
    echo "Misc Options:"
    echo "  --bars             Generate bar chart. Default is line chart."
+   echo "  --chartsize W,H    Chart width and height in pixels."
+   echo "                     Exception: Size for pdf image file is in inches."
+   echo "  --fontsize NUM     Font size."
    echo "  --imgfile PATH     Path to output image file. The extension of the filename"
    echo "                     determines the file type."
    echo "                     Supported extensions are: \".svg\" \".png\" \".pdf\""
@@ -59,6 +68,7 @@ usage()
    echo "                     Example: \"#ffffff\" for white background."
    echo "  --keypos STRING    Position of key with line descriptions within chart area."
    echo "                     Default is \"top center\"."
+   echo "  --linewidth NUM    Line width."
    echo "  --title STRING     Set chart title."
    echo "  --xrot NUM         Rotate x-axis tick labels by given number of degrees."
    echo "  --xtitle STRING    Set title for x-axis."
@@ -113,6 +123,18 @@ parse_args()
 
          # options that require an argument (i.e. additional shift)
 
+        --borderflags)
+           CHARTBORDERFLAGS="$2"
+           shift
+           ;;
+        --chartsize)
+           CHARTSIZE="$2"
+           shift
+           ;;
+        --fontsize)
+           FONTSIZE="$2"
+           shift
+           ;;
         --imgfile)
            OUTIMGFILE="$2"
            shift
@@ -123,6 +145,22 @@ parse_args()
            ;;
         --keypos)
            CHARTKEYPOS="$2"
+           shift
+           ;;
+        --linewidth)
+           LINEWIDTH="$2"
+           shift
+           ;;
+        --pointbox)
+           POINTBOX="$2"
+           shift
+           ;;
+        --pointsize)
+           POINTSIZE="$2"
+           shift
+           ;;
+        --terminaltype)
+           TERMINALDEFAULT="$2"
            shift
            ;;
         --title)
@@ -509,16 +547,23 @@ get_line_title()
    fi
 }
 
-# Generate gnuplot commands for image file output if OUTIMGFILE is set.
-generate_gnuplot_image_cmd()
+# Generate gnuplot terminal device command. The "terminal" can be a window or an image file if
+# OUTIMGFILE is set.
+generate_gnuplot_terminal_cmd()
 {
    local filename
    local extension
+   local term_font=""
+   local chart_size=""
    local transparent="transparent" # separate var because not all terms support transparent keyword
    local imgbgcolor=""
 
+   [ -z "$CHARTSIZE" ] || chart_size="size ${CHARTSIZE}"
+   [ -z "$FONTSIZE" ] || term_font="font ',${FONTSIZE}'"
+
+   # Graphical window if no output image file is requested
    if [ -z "$OUTIMGFILE" ]; then
-      # no output image requested, so nothing to do here
+      echo "set terminal ${TERMINALDEFAULT} ${chart_size} ${term_font} enhanced"
       return
    fi
 
@@ -535,17 +580,17 @@ generate_gnuplot_image_cmd()
 
    case "$extension" in
       pdf)
-         # pdfcairo only supports size in inches and cm (not in pixels).
-         # pdfcairo doesn't support transparent background.
-         echo "set terminal pdfcairo enhanced color size 16cm,12cm $imgbgcolor"
+         # note: pdfcairo only supports size in inches and cm (not in pixels).
+         # note: pdfcairo doesn't support transparent background.
+         echo "set terminal pdfcairo enhanced color ${chart_size} ${term_font} $imgbgcolor"
          echo "set output '$OUTIMGFILE'"
          ;;
       png)
-         echo "set terminal pngcairo enhanced color $transparent $imgbgcolor size 800,600"
+         echo "set terminal pngcairo enhanced color $transparent $imgbgcolor ${chart_size} ${term_font}"
          echo "set output '$OUTIMGFILE'"
          ;;
       svg)
-         echo "set terminal svg dynamic $imgbgcolor size 800,600"
+         echo "set terminal svg dynamic $imgbgcolor ${chart_size} ${term_font}"
          echo "set output '$OUTIMGFILE'"
          ;;
       *)
@@ -566,6 +611,9 @@ generate_gnuplot_cmd()
    local linetitle
    local i
 
+   # set terminal device to graphical window or output image file
+   generate_gnuplot_terminal_cmd || exit 1
+
    # define the basics
    echo "set datafile separator ','"
    echo "set key autotitle columnhead"
@@ -579,15 +627,15 @@ generate_gnuplot_cmd()
    echo "set autoscale yfixmin"
    echo "set autoscale y2fixmin"
    echo "set style line 100 lt 1 lc rgb \"grey\" lw 0.5" # grid line style
-
-   # set output image (default is chart window)
-   generate_gnuplot_image_cmd || exit 1
+   echo "set pointintervalbox $POINTBOX" # small gaps between graph line and data points
+   echo "set border $CHARTBORDERFLAGS" # bitwise (1=bottom, 2=left, 4=top, 8=right)
 
    # define line style (colors, width etc)
    linecoloridx="0"
    for (( i=0; i < ${#LINECOLORS[@]}; i++ )); do
       linecoldefnum="$(($linecoloridx + $LINECOLOROFFSET))"
-      echo "set style line $linecoldefnum lw $LINEWIDTH lt rgb \"${LINECOLORS[$linecoloridx]}\""
+      # note: point type (pt) 7 is filled circle
+      echo "set style line $linecoldefnum lw $LINEWIDTH lt rgb \"${LINECOLORS[$linecoloridx]}\" pt 7 pi -1 ps $POINTSIZE"
       ((linecoloridx++))
    done
 
@@ -616,12 +664,13 @@ generate_gnuplot_cmd()
    [ -z "$CHARTYTITLE" ] || echo "set ylabel \"${CHARTYTITLE}\""
    [ -z "$CHARTY2TITLE" ] || echo "set y2label \"${CHARTY2TITLE}\""
 
-   # generate plot command (separate for left-hand and right-hand y-axis)
+   # generate plot command (separate for left-hand and right-hand y-axis)...
 
    linecoloridx="0"
 
    plot_cmd="plot "
 
+   # left-hand y-axis
    for (( i=0; i < ${#CSVCOLUMNSIDX_Y_LEFT[@]}; i++ )); do
       linetitle=$(get_line_title "${CSVCOLUMNS_Y_LEFT[$i]}")
       linecoldefnum="$(($linecoloridx + $LINECOLOROFFSET))"
@@ -632,6 +681,7 @@ generate_gnuplot_cmd()
       ((linecoloridx++))
    done
 
+   # right-hand y-axis
    for (( i=0; i < ${#CSVCOLUMNSIDX_Y_RIGHT[@]}; i++ )); do
       linetitle=$(get_line_title "${CSVCOLUMNS_Y_RIGHT[$i]}")
       linecoldefnum="$(($linecoloridx + $LINECOLOROFFSET))"

@@ -15,9 +15,12 @@ _elbencho-chart_opts()
 
    longopts="
         --bars
+        --chartsize
+        --fontsize
         --imgbg
         --imgfile
         --keypos
+        --linewidth
         --title
         --xrot
         --xtitle
@@ -38,16 +41,23 @@ _elbencho-chart()
     opts="$(_elbencho-chart_opts)"
  
     case "${prev}" in
-        # options that take a string argument
+        # short options that take a string argument
         -x)
         ;&
         -y)
         ;&
         -Y)
         ;&
+        # long options that take a string argument
+        --chartsize)
+        ;&
+        --fontsize)
+        ;&
         --imgbg)
         ;&
         --keypos)
+        ;&
+        --linewidth)
         ;&
         --title)
         ;&
