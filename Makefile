@@ -151,13 +151,21 @@ clean-all: clean clean-externals clean-packaging clean-buildhelpers
 
 install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
+	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-chart $(INST_PATH)/
+	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME) \
+		/etc/bash_completion.d/$(EXE_NAME)
+	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME)-chart \
+		/etc/bash_completion.d/$(EXE_NAME)-chart
 	@echo
 	@echo "NOTE: The $(EXE_NAME) executable was installed to $(INST_PATH). The sudo"
-	@echo "  command might drop /usr/local/bin from PATH. In case sudo is needed, the"
+	@echo "  command might drop $(INST_PATH) from PATH. In case sudo is needed, the"
 	@echo "  absolute path can be used. Or alternatively use a rpm/deb package."
 
 uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
+	rm -f $(INST_PATH)/$(EXE_NAME)-chart
+	rm -f /etc/bash_completion.d/$(EXE_NAME)
+	rm -f /etc/bash_completion.d/$(EXE_NAME)-chart
 
 # prepare generic part of build-root (not the .rpm or .deb specific part)
 prepare-buildroot: | all clean-packaging
