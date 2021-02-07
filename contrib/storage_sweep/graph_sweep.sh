@@ -13,11 +13,11 @@
 # Remarks: 0. In the following, it is assumed that both mtelbencho.sh and
 #             gnuplot are in the $PATH.
 #          1. The wrapper enables you to select
-#             1.1 The range to sweep (LOSF, Medium, Large, or Full. Default
+#             1.0 The range to sweep (LOSF, Medium, Large, or Full. Default
 #                 is a full sweep from 1KiB to 1TiB, as this provides the
 #                 most comprehensive view of the storage system being
 #                 benchmarked.
-#             1.2 The number of times to repeat a desired sweep (default 3).
+#             1.1 The number of times to repeat a desired sweep (default 3).
 #          2. The format of the graph is set to svg. Nevertheless,
 #             it's very easy to regenerate a plot based on your
 #             preferences. See the descriptions for the two global
@@ -42,8 +42,8 @@
 # Usage : Assuming graph_sweep.sh is available from the $PATH,
 #
 #         cd src_data_dir;\
-#         sudo graph_sweep.sh [-t N] [-r s|m|l] -b arg\
-#         [-N num_sweep] [-o output_dir][-v][-p]
+#         sudo graph_sweep.sh [-r s|m|l][-t N][-S fs_block_size]\
+#         [-b block_size][-B][-N num_sweep][-o output_dir][-v][-T][-p][-n]
 #
 #         where src_data_dir is the directory that holds all test
 #         datasets, N is the desired thread number to run elbencho,
@@ -72,6 +72,7 @@ block_size=1
 buffered=
 num_sweep=3
 output_dir=/var/tmp
+traditional=
 push_button_plot=
 #
 # The following should be defined right at the beginning of the script
@@ -171,6 +172,7 @@ Command line options:
     -B use buffered I/O
     -N number of interations for a sweep (default: 3)
     -o the path to the directory where the results are stored
+    -T tranditional output (use GB/s instead of Gbps; default Gbps)
     -p generate plot directly on the server; this may be not
        acceptable at some sites which run the Minimal Install OS, or
        simply prohibited due to policy reasons
@@ -180,7 +182,8 @@ Command line options:
 
 The usage: 
 $ sudo graph_sweep.sh [-h][-r range][-t numthreads][-s dirpath]\
-  [-S fs_block_size][-b block_size][-B][-N num_sweep][-o output_dir][-v][-p][-n]
+  [-S fs_block_size][-b block_size][-B][-N num_sweep][-o output_dir]\
+  [-v][-T][-p][-n]
 
 Examples: 0. $ graph_sweep.sh -r s -t 56 -s /data/zettar/zx/src/sweep -b 16 \
                -o /var/tmp -p -v -n
@@ -288,12 +291,23 @@ extract_results_for_plotting()
     pasted_file="$output_dir"/plot.dat
     local i=0
     local pfile
-    # 0.008388608 = 1024*1024*8/(1000*1000*1000.), i.e. MiB*8(bps)/G(bps)
+    # If Gbps is preferred, use the following conversion:
+    # 0.008388608 = 1024*1024*8/(1000*1000*1000.),
+    # i.e. Mebibyte*8bit/byte)/Gigabyte
+    # If GB/s is preferred, use the following conversion:
+    # 0.00104858 = 1024x1024/(1000*1000*1000).
+    # i.e. Mebibytes/Gigabyte
+    local conv
+    if [[ "$traditional" ]]; then
+	conv=0.00104858
+    else
+	conv=0.008388608
+    fi
     for f in $out_files
     do
         pfile="$output_dir"/p"$i"
         grep Throughput < "$f"\
-            |awk '{printf "%.3f\n", (($4 + $5)*0.008388608/2)}' \
+            |awk -v cf="$conv" '{printf "%.3f\n", (($4 + $5)*cf/2)}' \
                  > "$pfile"
         ensure_file_exists "$pfile"
         ((i++))
@@ -343,6 +357,12 @@ run_gnuplot()
     else
         range='full range'
     fi
+    local speed
+    if [[ "$traditional" ]]; then
+	speed='GB/s'
+    else
+	speed='Gbps'
+    fi
     read -r -d '' gnuplot_settings <<EOF
 #set terminal eps          # tested
 #set terminal pdfcairo     # tested
@@ -351,7 +371,7 @@ set title "Storage sweep for $range over $num_sweep runs on $today"
 set title font "Times Bold, 14"
 set xlabel 'Datasets'
 set xlabel font "Times Bold,10"
-set ylabel 'Mean throughput (Gbps)'
+set ylabel "Mean throughput ($speed)"
 set ylabel font "Times Bold,10"
 set key autotitle columnhead
 set yrange [0:]
@@ -490,6 +510,7 @@ show_option_settings()
     echo "output_dir      : $output_dir"
     echo "buffered        : $buffered"
     echo "verbose         : $verbose"
+    echo "traditional     : $traditional"
     echo "push_button_plot: $push_button_plot"
     echo "dry_run         : $dry_run"
     echo "sweep_csv       : $sweep_csv"
@@ -534,7 +555,7 @@ show_test_duration()
 # main()
 {
     begin_test=$(date +"%s")
-    while getopts ":hr:t:s:S:b:N:o:Bvnp" opt; do
+    while getopts ":hr:t:s:S:b:N:o:BvTnp" opt; do
         case $opt in
             h)  help
                 ;;
@@ -561,6 +582,8 @@ show_test_duration()
                 ;;          
             v)  verbose=1
                 ;;
+	    T)  traditional=1
+		;;
             p)  push_button_plot=1
                 ;;
             n)  dry_run=1

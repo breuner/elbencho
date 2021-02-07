@@ -52,9 +52,9 @@ and read carefully. With a bit of practice, one should acquire enough
 proficiency to use `elbencho` for real work.  This is how I learned
 `elbencho`.
 
-Nevertheless, it is helpful to see how this versatile program is used
-in real production/test environment.  `mtelbencho.sh` provides a
-simple, production grade, useful, and extensible example.
+Nevertheless, it should be helpful to see how this versatile program
+is used in real production/test environment.  `mtelbencho.sh` provides
+a simple, production grade, useful, and extensible example.
 `graph_sweep.sh` enables you to graph the obtained results in a push
 button manner.
 
@@ -68,7 +68,9 @@ Before proceeding, you may wish to browse the
 1. There must be two TB (1TB=1000000000000 bytes) available to conduct
    a sweep.  Note that only hyperscale datasets are used, where the
    term "hyperscale dataset" is defined as a dataset that has overall
-   size >= 1TB (terabyte), or contains >= 1 million files, or both.
+   size >= 1TB (terabyte), or contains >= 1 million files, or
+   both. **Note**, *you don't need to generate test data ahead of the
+   time*!
 2. `elbencho` version 1.6.x or later must be installed and available
    in the `root`'s `$PATH`.
 3. Both `mtelbencho.sh` and `graph_sweep.sh` must be install in
@@ -122,9 +124,31 @@ to consult the [`QUICKSTART.md`](QUICKSTART.md) again.
 |-----------------------------------------------|-------------------------------------------------|
 |![Large file 3-run sweep graph](pics/l_sweep.svg)| ![Overall 3-run sweep graph](pics/o_sweep.svg)    |
 
-Note that due to the gradual changes of the performance
-characteristics of SSDs, the shape of the graphs above may change over
-time.  More below in the next subsection.
+Note that 
+1. Due to the gradual changes of the performance characteristics of
+   SSDs, the shape of the graphs above may change over time.  More
+   below in the next subsection.
+2. This set of tools is the outcome of [an ESnet/Zettar
+collaboration](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf)
+about moving data at scale and *speed*.  In this space, using bps is
+the norm. Furthermore, modern storage tends to be networked; in the
+networking world, bps has also been the unit to use. Thus the default
+output unit is Gbps. Nevertheless, the `graph_sweep.sh` has a `-T`
+(traditional) option which enables GB/s as a storage oriented output
+unit.
+3. The storage sweep tools are meant to be applied to reasonably fast
+   storage (write throughput >= 10Gbps). As such, Gbps and GB/s are used. 
+   No smaller units are planned.
+
+The following shows the two sweep plots of using bps and Bps. They
+were generated on [a Zettar
+testbed](https://youtube.com/watch?v=5qTpGg57p_o), using the following
+two commands:
+1. `# graph_sweep.sh -s /var/local/zettar/sweep -b 16 -o /var/tmp/full/1 -p -v`
+1. `# graph_sweep.sh -s /var/local/zettar/sweep -b 16 -o /var/tmp/full/2 -p -v -T`
+
+|![full sweep graph in Gbps](pics/full_sweep_Gbps.svg)      | ![full_sweep_graph_in_GBps](pics/full_sweep_GBps.svg)|
+|-----------------------------------------------|-------------------------------------------------|
 
 [Back to top](#page_top)
 
@@ -152,8 +176,8 @@ the following:
    Benchmarking](https://www.snia.org/educational-library/why-and-how-ssd-performance-benchmarking-2011)
    for a more in-depth discussion.  A quick glance of the six full
    sweep plots ![the six full sweep
-   plots](pics/6_overall_sweep_plots.png) should shoud make it evident
-   that although they are similar, but not identical.
+   plots](pics/6_overall_sweep_plots.png) should make it evident that
+   although they are similar, but not identical.
 
 Many other uses are possible. It's up to one's creativity and
 imagination.
