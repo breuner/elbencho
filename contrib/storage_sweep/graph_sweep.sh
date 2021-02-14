@@ -187,21 +187,17 @@ $ sudo graph_sweep.sh [-h][-r range][-t numthreads][-s dirpath]\
 
 Examples: 0. $ graph_sweep.sh -r s -t 56 -s /data/zettar/zx/src/sweep -b 16 \
                -o /var/tmp -p -v -n
-          1. # graph_sweep.sh -r s -t 56 -s /data/zettar/zx/src/sweep -b 16 \
-               -o /var/tmp -p -v
-          2. # graph_sweep.sh -r m -t 56 -s /data/zettar/zx/src/sweep -b 16 \
-               -o /var/tmp -p -v
-          3. # graph_sweep.sh -r l -t 56 -s /data/zettar/zx/src/sweep -b 16 \
-               -o /var/tmp -p -v
-          4. # graph_sweep.sh -t 56 -s /data/zettar/zx/src/sweep -b 16 \
-               -N 5 -o /var/tmp -p -v
+          1. # graph_sweep.sh -r s -s /var/local/zettar/sweep -b 16 -p -v -N 1
+          2. # graph_sweep.sh -r m -s /var/local/zettar/sweep -b 16 -p -v -N 1
+          3. # graph_sweep.sh -r l -s /var/local/zettar/sweep -b 16 -p -v -N 1
+          4. # graph_sweep.sh -s /var/local/zettar/sweep -b 16 -p -v -N 1
 
 In the above examples 
 0. shows a dry run
-1. shows to graph a sweep 3 times for LOSF in one shot
-2. shows to graph a sweep 3 times for medium files in one shot
-3. shows to graph a sweep 3 times for large files in one shot
-4. shows to graph a full sweep 5 times for the full 1KiB-1TiB range in one shot
+1. shows to graph a single-run sweep for LOSF in one shot
+2. shows to graph a single-run sweep for medium files in one shot
+3. shows to graph a single-run sweep for large files in one shot
+4. shows to graph a single-run full sweep for the full 1KiB-1TiB range in one shot
 EOF
     echo "$help_str"
     exit 0
@@ -499,6 +495,31 @@ verify_num_sweep()
     fi
 }
 
+mitigate_human_errors()
+{
+    #
+    # It has been observed enough times that some new users run
+    # successive sweep runs without putting the output of each sesion
+    # into different output directories using the -o option, then
+    # wondering why some graphs are missing etc.  OK, we will be nice
+    # to them :) But the following is done if only the default is
+    # used. Anyone who uses the -o option can take care of
+    # her/himself.
+    #
+    if [[ "$output_dir" == "/var/tmp" ]]; then
+       mkdir -p "$output_dir"/{losf,medium,large,full}
+    fi     	     
+    if [[ "$range_to_sweep" == 's' ]]; then
+        output_dir="$output_dir/losf"
+    elif [[ "$range_to_sweep" == 'm' ]]; then
+        output_dir="$output_dir/medium"
+    elif [[ "$range_to_sweep" == 'l' ]]; then
+        output_dir="$output_dir/large"
+    else
+        output_dir="$output_dir/full"
+    fi
+}
+
 show_option_settings()
 {
     echo "range_to_sweep  : $range_to_sweep"
@@ -593,6 +614,7 @@ show_test_duration()
                 ;;
         esac
     done
+    mitigate_human_errors
     sweep_csv="$output_dir"/sweep.csv
     sweep_gplt="$output_dir"/sweep.gplt
     sweep_svg="$output_dir"/sweep.svg
@@ -603,15 +625,7 @@ show_test_duration()
     [[ -z "$dry_run" ]] && check_dependencies
     [[ -z "$dry_run" ]] && run_as_root
     [[ "$verbose" ]] && echo "===> Getting ready to sweep..."
-    if [[ "$range_to_sweep" == 's' ]]; then
-        run_mtelbencho
-    elif [[ "$range_to_sweep" == 'm' ]]; then
-        run_mtelbencho
-    elif [[ "$range_to_sweep" == 'l' ]]; then
-        run_mtelbencho
-    else
-        run_mtelbencho  
-    fi
+    run_mtelbencho
     [[ "$verbose" ]] && echo "===> Sweeps done. Extracting results..."
     [[ -z "$dry_run" ]] && extract_results_for_plotting
     [[ "$verbose" ]] && echo "===> Results extracted. Plotting..."

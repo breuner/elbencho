@@ -37,7 +37,7 @@ This directory contains two `bash` scripts:
    the graphing of storage sweeps a push-button operation as much as
    possible.  Once it's installed, type `graph_sweep.sh -h` for more
    info.
-2. **`mtelbench.sh`** (mt: multiple test) is a wrapper script for
+2. **`mtelbench.sh`** (*mt: multiple test*) is a wrapper script for
    `elbencho`. Once it's installed, type `mtelbencho.sh -h` for more
    info.
 
@@ -78,6 +78,27 @@ Before proceeding, you may wish to browse the
    is that `mtelbencho.sh` runs `elbencho` with its `--dropcache`
    option, which demands `root` privilege.
    
+Note also that your storage must be reasonably fast (*i.e. capable of
+attaining a write throughput level >= 10Gbps with appropriately sized files*)
+to use the storage sweep tools. *In this age of exponentially and fast
+growing data, using slow storage is really no longer a cost-saving
+approach, it's actually money and time wasting instead*! 
+
+As a reference, on a [Zettar
+testbed](https://youtube.com/watch?v=5qTpGg57p_o), using any one of
+the two nodes (*each has a Linux software RAID 0 based on 8xNVMe
+SSDs - Intel DC P3700 1.6TB U.2*), the following provides single-run (`-N 1`) sweep timing
+information:
+|**Range**  | Test duration |
+|-----------|---------------|
+|**LOSF**   | 35m:58s       |
+|**Medium** | 33m:29s       |
+|**Large**  | 31m:3s        |
+|**Full**   | 1h:40m:13s    |
+
+If your storage takes much longer, e.g. 33 hours to finish a sweep
+for, e.g. the LOSF range, please heed the above advice.
+
 [Back to top](#page_top)
 
 # Layout and content
@@ -137,8 +158,8 @@ output unit is Gbps. Nevertheless, the `graph_sweep.sh` has a `-T`
 (traditional) option which enables GB/s as a storage oriented output
 unit.
 3. The storage sweep tools are meant to be applied to reasonably fast
-   storage (write throughput >= 10Gbps). As such, Gbps and GB/s are used. 
-   No smaller units are planned.
+   storage. As such, **Gbps** and **GB/s** are used.  No smaller units are
+   planned.
 
 The following shows the two sweep plots of using bps and Bps. They
 were generated on [a Zettar
@@ -248,8 +269,8 @@ characteristics to one or more selected target application(s).
    hardware spec and configuration to the ones that **are** intended to
    run said application*).
 4. In general, such benchmarking should be carried out over storage
-   interconnects (e.g. InfiniBand or Ethernet (RoCE likely
-   configured)).
+   interconnects, e.g. InfiniBand or Ethernet (RoCE likely
+   configured).
 
 [Back to top](#page_top)
 
