@@ -25,7 +25,8 @@ class WorkerManager
 
 		void getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerThread,
 			uint64_t& outNumBytesPerThread);
-		BenchPathType getBenchPathType();
+
+		void checkServiceBenchPathInfos();
 
 
 	private:

@@ -1,5 +1,18 @@
 # Changelog of elbencho
 
+## v1.8.0 (work in progress)
+
+### General Changes
+* Improved shared file/blockdev mode with multiple files/blockdevs.
+  * For random I/O, each thread now sends I/Os round-robin to the given files/blockdevs.
+    * This change was made to improve balance across different files/blockdevs.
+    * Previously, each thread started with a different file/blockdev, but then only moved on to the next one after completing its full I/O amount for a particular file/blockdev.
+  * For sequential I/O, each thread now writes a consecutive range of the aggregate file/blockdev size.
+    * This change was made to improve consecutive access per file and to reduce the minimum required file size in relation to number of threads and block size.
+    * This approach might involve multiple files/blockdevs for a certain thread, but will typically only involve a subset of the given files/blockdevs for a single thread.
+    * Previously, each thread started with a different file/blockdev, but got assigned a range in every file, thus requiring block size times number of threads as minimum usable size per file/blockdev.
+* Size of given files/blockdevs can now also be auto-detected in distributed mode.
+
 ## v1.7.1 (Feb 06, 2021)
 
 ### New Features & Enhancements

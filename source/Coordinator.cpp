@@ -52,9 +52,8 @@ int Coordinator::main()
 				goto joinall_and_exit;
 			}
 
-			// set benchmark path type as received from RemoteWorkers after preparation phase
-			BenchPathType benchPathType = workerManager.getBenchPathType();
-			progArgs.setBenchPathType(benchPathType);
+			// check that services accepted given settings and things are consistent across services
+			workerManager.checkServiceBenchPathInfos();
 		}
 
 		waitForUserDefinedStartTime();

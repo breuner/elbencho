@@ -21,6 +21,9 @@ LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank
 	Worker(workersSharedData, workerRank)
 {
 	nullifyPhaseFunctionPointers();
+
+	fileHandles.fdVec.resize(1);
+	fileHandles.cuFileHandleDataVec.resize(1);
 }
 
 LocalWorker::~LocalWorker()
@@ -61,6 +64,7 @@ void LocalWorker::run()
 
 			currentBenchID = workersSharedData->currentBenchID;
 
+			initPhaseFileHandleVecs();
 			initPhaseRWOffsetGen();
 			initPhaseFunctionPointers();
 
@@ -84,13 +88,31 @@ void LocalWorker::run()
 				} break;
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
-				case BenchPhase_DELETEFILES:
-				case BenchPhase_STATFILES:
 				{
 					if(progArgs->getBenchPathType() == BenchPathType_DIR)
 						dirModeIterateFiles();
 					else
-						fileModeIterateFiles();
+					{
+						if(!progArgs->getUseRandomOffsets() )
+							fileModeIterateFilesSeq();
+						else
+							fileModeIterateFilesRand();
+					}
+				} break;
+				case BenchPhase_STATFILES:
+				{
+					if(progArgs->getBenchPathType() != BenchPathType_DIR)
+						throw WorkerException("File stat operation not available in file and block "
+							"device mode.");
+
+					dirModeIterateFiles();
+				} break;
+				case BenchPhase_DELETEFILES:
+				{
+					if(progArgs->getBenchPathType() == BenchPathType_DIR)
+						dirModeIterateFiles();
+					else
+						fileModeDeleteFiles();
 				} break;
 				case BenchPhase_SYNC:
 				{
@@ -156,39 +178,66 @@ void LocalWorker::finishPhase()
 }
 
 /**
- * Prepare file range for dirModeIterateFiles and fileModeIterateFiles. This is typically used to
- * initialize the offset generator and to calculate the expected read/write result.
+ * Init fileHandle vectors for current phase.
  */
-void LocalWorker::getPhaseFileOffsetRange(uint64_t& outFileRangeStart, uint64_t& outFileRangeLen)
+void LocalWorker::initPhaseFileHandleVecs()
 {
-	if(progArgs->getBenchPathType() == BenchPathType_DIR)
-	{
-		// in dir mode, we have file-per-thread, so each worker thread writes full files
+	const BenchPathType benchPathType = progArgs->getBenchPathType();
 
-		outFileRangeStart = 0;
-		outFileRangeLen = progArgs->getFileSize();
+	fileHandles.errorFDVecIdx = -1; // clear ("-1" means "not set")
+
+	if(benchPathType == BenchPathType_DIR)
+	{
+		// there is only one current file per worker in dir mode
+
+		fileHandles.fdVec.resize(1);
+		fileHandles.fdVec[0] = -1; // clear/reset
+
+		fileHandles.fdVecPtr = &fileHandles.fdVec;
+
+		// fileHandles.cuFileHandleDataVec will be used for current file
+
+		fileHandles.cuFileHandleDataVec.resize(0); // clear/reset
+		fileHandles.cuFileHandleDataVec.resize(1);
+
+		fileHandles.cuFileHandleDataPtrVec.resize(0); // clear/reset
+		fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
+	}
+	else
+	if(!progArgs->getUseRandomOffsets() )
+	{
+		// there is only one current file in sequential file/bdev mode
+
+		// files are opened by progArgs, but FD will be copied to only use the single current file
+
+		fileHandles.fdVec.resize(1);
+		fileHandles.fdVec[0] = -1; // clear/reset, will be set dynamically to current file
+
+		fileHandles.fdVecPtr = &fileHandles.fdVec;
+
+		fileHandles.cuFileHandleDataVec.resize(0); // not needed, using cuFileHandle from progArgs
+
+		// fileHandles.cuFileHandleDataPtrVec will be set to progArgs cuFileHandle for current file
+
+		fileHandles.cuFileHandleDataPtrVec.resize(0); // clear/reset
+		fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
 	}
 	else
 	{
-		// in bdev & file mode, paths are shared between workers, so each has its part of the range
+		// in random file/bdev mode, all FDs from progArgs will be used round-robin
 
-		const uint64_t fileSize = progArgs->getFileSize();
-		const size_t blockSize = progArgs->getBlockSize();
-		const size_t numBlocks = blockSize ? (fileSize / blockSize) : 0;
-		const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+		fileHandles.fdVec.resize(0);
+		fileHandles.cuFileHandleDataVec.resize(0);
+		fileHandles.cuFileHandleDataPtrVec.resize(0);
 
-		// each worker writes its own range of the file.
-		// (note: progArgs ensure that there is at least one full block to write per thread.)
-		// (note: we use blockSize here to avoid misalignment.)
-		outFileRangeStart = workerRank * blockSize * (numBlocks / numDataSetThreads);
+		// FDs will be provided by progArgs
 
-		// end of last worker's range is user-defined file end to avoid rounding problems
-		// (note: last worker may get more range than others, but progArgs warns user about this.)
-		size_t fileRangeEnd = (workerRank == (numDataSetThreads - 1) ) ?
-			fileSize - 1 :
-			( (workerRank+1) * blockSize * (numBlocks / numDataSetThreads) ) - 1;
+		fileHandles.fdVecPtr = &progArgs->getBenchPathFDs();
 
-		outFileRangeLen = 1 + (fileRangeEnd - outFileRangeStart);
+		// cuFileHandles will be provided by progArgs
+
+		for(size_t i=0; i < progArgs->getCuFileHandleDataVec().size(); i++)
+			fileHandles.cuFileHandleDataPtrVec.push_back(&progArgs->getCuFileHandleDataVec()[i] );
 	}
 }
 
@@ -202,49 +251,25 @@ void LocalWorker::getPhaseFileOffsetRange(uint64_t& outFileRangeStart, uint64_t&
 void LocalWorker::initPhaseRWOffsetGen()
 {
 	const size_t blockSize = progArgs->getBlockSize();
+	const uint64_t fileSize = progArgs->getFileSize();
 
 	// init random algos
 	randOffsetAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo() );
 	randBlockVarAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getBlockVarianceAlgo() );
 	randBlockVarReseed = std::make_unique<RandAlgoXoshiro256ss>();
 
-	if(progArgs->getBenchPathType() == BenchPathType_DIR)
-	{
-		// in dir mode, we have file-per-thread, so each worker thread writes full files
+	// note: file/bdev mode sequential is done per-file in fileModeIterateFilesSeq()
 
-		const uint64_t fileSize = progArgs->getFileSize();
-
-		if(!progArgs->getUseRandomOffsets() )
-			rwOffsetGen = std::make_unique<OffsetGenSequential>(
-				fileSize, 0, blockSize);
-		else
-		if(progArgs->getUseRandomAligned() )
-			rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(*progArgs, *randOffsetAlgo,
-				fileSize, 0, blockSize);
-		else // random unaligned
-			rwOffsetGen = std::make_unique<OffsetGenRandom>(*progArgs, *randOffsetAlgo,
-				fileSize, 0, blockSize);
-	}
+	if(!progArgs->getUseRandomOffsets() ) // sequential
+		rwOffsetGen = std::make_unique<OffsetGenSequential>(
+			fileSize, 0, blockSize);
 	else
-	{
-		// in bdev & file mode, paths are shared between workers, so each has its part of the range
-
-		uint64_t fileRangeStart;
-		uint64_t fileRangeLen;
-
-		getPhaseFileOffsetRange(fileRangeStart, fileRangeLen);
-
-		if(!progArgs->getUseRandomOffsets() )
-			rwOffsetGen = std::make_unique<OffsetGenSequential>(
-				fileRangeLen, fileRangeStart, blockSize);
-		else
-		if(progArgs->getUseRandomAligned() )
-			rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(*progArgs, *randOffsetAlgo,
-				fileRangeLen, fileRangeStart, blockSize);
-		else // random unaligned
-			rwOffsetGen = std::make_unique<OffsetGenRandom>(*progArgs, *randOffsetAlgo,
-				fileRangeLen, fileRangeStart, blockSize);
-	}
+	if(progArgs->getUseRandomAligned() ) // random aligned
+		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(*progArgs, *randOffsetAlgo,
+			fileSize, 0, blockSize);
+	else // random unaligned
+		rwOffsetGen = std::make_unique<OffsetGenRandom>(*progArgs, *randOffsetAlgo,
+			fileSize, 0, blockSize);
 }
 
 /**
@@ -362,9 +387,9 @@ void LocalWorker::initPhaseFunctionPointers()
 	if(useCuFileAPI)
 	{
 		funcCuFileHandleReg = (benchPathType == BenchPathType_DIR) ?
-			&LocalWorker::dirModeCuFileHandleReg : &LocalWorker::fileModeCuFileHandleReg;
+			&LocalWorker::dirModeCuFileHandleReg : &LocalWorker::noOpCuFileHandleReg;
 		funcCuFileHandleDereg = (benchPathType == BenchPathType_DIR) ?
-			&LocalWorker::dirModeCuFileHandleDereg : &LocalWorker::fileModeCuFileHandleDereg;
+			&LocalWorker::dirModeCuFileHandleDereg : &LocalWorker::noOpCuFileHandleDereg;
 	}
 	else
 	{
@@ -520,14 +545,10 @@ void LocalWorker::allocGPUIOBuffer()
  */
 void LocalWorker::cleanup()
 {
+	// delete rwOffsetGen (unique ptr) to eliminate any references to progArgs data etc.
 	rwOffsetGen.reset();
 
 #ifdef CUFILE_SUPPORT
-	// cleanup cuFileHandleData here in case of exception in file/bdev mode.
-	// note: calling this is ok even if already deregistered or never registered.
-	// note: we call this directly to not rely on funcCuFileHandleDereg being initialized.
-	cuFileHandleData.deregisterHandle();
-
 	// deregister GPU buffers for DMA
 	for(char* gpuIOBuf : gpuIOBufVec)
 	{
@@ -576,25 +597,27 @@ void LocalWorker::cleanup()
 
 /**
  * Loop around pread/pwrite to use user-defined block size instead of full given count in one call.
- * Reads/writes the pre-allocated ioBuf.
+ * Reads/writes the pre-allocated ioBuf. Uses rwOffsetGen for next offset and block size.
  *
- * @positional_rw pread or pwrite as in "man 2 pread"; fd may be shared by multiple threads in
- * 		file/blockdev mode, so pwrite/pread for offset.
+ * @fdVec if more multiple fds are given then they will be used round-robin; there is no guarantee
+ * 		for which fd from the vec will be used first, so this is only suitable for random IO.
  * @return similar to pread/pwrite.
  */
-int64_t LocalWorker::rwBlockSized(int fd)
+int64_t LocalWorker::rwBlockSized()
 {
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+		const size_t fileHandleIdx = numIOPSSubmitted % fileHandles.fdVecPtr->size();
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
-		ssize_t rwRes = ((*this).*funcPositionalRW)(fd, ioBufVec[0], blockSize, currentOffset);
+		ssize_t rwRes = ((*this).*funcPositionalRW)(
+			fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
 
 		IF_UNLIKELY(rwRes <= 0)
 		{ // unexpected result
@@ -602,6 +625,8 @@ int64_t LocalWorker::rwBlockSized(int fd)
 				"currentOffset:" << currentOffset << "; " <<
 				"leftToSubmit:" << rwOffsetGen->getNumBytesLeftToSubmit() << "; " <<
 				"rank:" << workerRank << std::endl;
+
+			fileHandles.errorFDVecIdx = fileHandleIdx;
 
 			return (rwRes < 0) ?
 				rwRes :
@@ -633,14 +658,16 @@ int64_t LocalWorker::rwBlockSized(int fd)
 /**
  * Loop around libaio read/write to use user-defined block size instead of full file size in one
  * call.
- * Reads/writes the pre-allocated ioBuf. Uses iodepth from progArgs.
+ * Reads/writes the pre-allocated ioBuf. Uses iodepth from progArgs. Uses rwOffsetGen for next
+ * offset and block size.
  *
- * @aio_rw_prepper io_prep_pwrite or io_prep_read from libaio.
+ * @fdVec if more multiple fds are given then they will be used round-robin; there is no guarantee
+ * 		for which fd from the vec will be used first, so this is only suitable for random IO.
  * @return similar to pread/pwrite.
  */
-int64_t LocalWorker::aioBlockSized(int fd)
+int64_t LocalWorker::aioBlockSized()
 {
-	size_t maxIODepth = progArgs->getIODepth();
+	const size_t maxIODepth = progArgs->getIODepth();
 
 	size_t numPending = 0; // num requests submitted and pending for completion
 	size_t numBytesDone = 0; // after successfully completed requests
@@ -657,26 +684,29 @@ int64_t LocalWorker::aioBlockSized(int fd)
 		throw WorkerException(std::string("Initializing async IO (io_queue_init) failed. ") +
 			"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
 
-	// initial seed of io submissions up to ioDepth
+
+	// P H A S E 1: initial seed of io submissions up to full ioDepth
+
 	while(rwOffsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
 	{
-		size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		size_t vecIdx = numPending;
+		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		const int fd = (*fileHandles.fdVecPtr)[numIOPSSubmitted % fileHandles.fdVecPtr->size() ];
+		const size_t ioVecIdx = numPending; // iocbVec index
 
-		iocbPointerVec[vecIdx] = &iocbVec[vecIdx];
+		iocbPointerVec[ioVecIdx] = &iocbVec[ioVecIdx];
 
-		((*this).*funcAioRwPrepper)(&iocbVec[vecIdx], fd, ioBufVec[vecIdx], blockSize,
+		((*this).*funcAioRwPrepper)(&iocbVec[ioVecIdx], fd, ioBufVec[ioVecIdx], blockSize,
 			currentOffset);
-		iocbVec[vecIdx].data = (void*)vecIdx; /* the vec index of this request; ioctl.data
+		iocbVec[ioVecIdx].data = (void*)ioVecIdx; /* the vec index of this request; ioctl.data
 						is caller's private data returned after io_getevents as ioEvents[].data */
 
-		ioStartTimeVec[vecIdx] = std::chrono::steady_clock::now();
+		ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[vecIdx], blockSize, currentOffset); // fill
-		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx], blockSize);
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset); // fill
+		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
-		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[vecIdx] );
+		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[ioVecIdx] );
 		IF_UNLIKELY(submitRes != 1)
 		{
 			io_queue_release(ioContext);
@@ -692,7 +722,9 @@ int64_t LocalWorker::aioBlockSized(int fd)
 		rwOffsetGen->addBytesSubmitted(blockSize);
 	}
 
-	// wait for submissions to complete and submit new requests if bytes left
+
+	// P H A S E 2: wait for submissions to complete and submit new requests if bytes left
+
 	while(numPending)
 	{
 		ioTimeout.tv_sec = AIO_MAX_WAIT_SEC;
@@ -734,9 +766,9 @@ int64_t LocalWorker::aioBlockSized(int fd)
 					(numBytesDone + ioEvents[eventIdx].obj->u.c.nbytes);
 			}
 
-			size_t vecIdx = (size_t)ioEvents[eventIdx].data; // caller's private data is vec index
+			const size_t ioVecIdx = (size_t)ioEvents[eventIdx].data; // caller priv data is vec idx
 
-			((*this).*funcPostReadCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx],
+			((*this).*funcPostReadCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
 				ioEvents[eventIdx].obj->u.c.nbytes);
 			((*this).*funcPostReadBlockChecker)( (char*)ioEvents[eventIdx].obj->u.c.buf,
 				ioEvents[eventIdx].obj->u.c.nbytes, ioEvents[eventIdx].obj->u.c.offset); // verify
@@ -745,7 +777,7 @@ int64_t LocalWorker::aioBlockSized(int fd)
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
 			std::chrono::microseconds ioElapsedMicroSec =
 				std::chrono::duration_cast<std::chrono::microseconds>
-				(ioEndT - ioStartTimeVec[vecIdx] );
+				(ioEndT - ioStartTimeVec[ioVecIdx] );
 
 			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
 
@@ -771,20 +803,22 @@ int64_t LocalWorker::aioBlockSized(int fd)
 
 			// request complete, so reuse iocb for the next request...
 
-			size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-			uint64_t currentOffset = rwOffsetGen->getNextOffset();
+			const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+			const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+			const size_t fileHandlesIdx = numIOPSSubmitted % fileHandles.fdVecPtr->size();
+			const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
-			((*this).*funcAioRwPrepper)(ioEvents[eventIdx].obj, fd, ioBufVec[vecIdx], blockSize,
+			((*this).*funcAioRwPrepper)(ioEvents[eventIdx].obj, fd, ioBufVec[ioVecIdx], blockSize,
 				currentOffset);
-			ioEvents[eventIdx].obj->data = (void*)vecIdx; // caller's private data
+			ioEvents[eventIdx].obj->data = (void*)ioVecIdx; // caller's private data
 
-			ioStartTimeVec[vecIdx] = std::chrono::steady_clock::now();
+			ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-			((*this).*funcPreWriteBlockModifier)(ioBufVec[vecIdx], blockSize, currentOffset);
-			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[vecIdx], gpuIOBufVec[vecIdx], blockSize);
+			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset);
+			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
 			int submitRes = io_submit(
-				ioContext, 1, &iocbPointerVec[vecIdx] );
+				ioContext, 1, &iocbPointerVec[ioVecIdx] );
 			IF_UNLIKELY(submitRes != 1)
 			{
 				io_queue_release(ioContext);
@@ -1112,51 +1146,32 @@ void LocalWorker::dirModeCuFileHandleDereg(CuFileHandleData& handleData)
 }
 
 /**
- * cuFile handle register as preparation for cuFileRead/Write in file/blockdev mode. Call
- * cuFileHandleDereg when done with file access.
- *
- * @fd posix file handle from ProgArgs::getBenchPathFDs that was registered for cuFile access
- * 		by ProgArgs.
- * @outHandleData corresponding cuFileHandleData from ProgArgs::getCuFileHandleDataVec to be
- * 		assigned to cuFileHandleDataPtr for cuFileRead/WriteWrapper.
- */
-void LocalWorker::fileModeCuFileHandleReg(int fd, CuFileHandleData& outHandleData)
-{
-	cuFileHandleDataPtr = &outHandleData;
-}
-
-/**
- * Counterpart to cuFileHandleReg to deregister a file handle in file/blockdev mode. This is safe to
- * call even if registration was not called or if it failed. This is actually a noop.
- *
- * @handleData the same that was passed to cuFileHandleReg before.
- */
-void LocalWorker::fileModeCuFileHandleDereg(CuFileHandleData& handleData)
-{
-	return;
-}
-
-/**
  * Wrapper for positional sync read.
  */
-ssize_t LocalWorker::preadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::preadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
+	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
+
 	return pread(fd, buf, nbytes, offset);
 }
 
 /**
  * Wrapper for positional sync write.
  */
-ssize_t LocalWorker::pwriteWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::pwriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
+	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
+
 	return pwrite(fd, buf, nbytes, offset);
 }
 
 /**
  * Wrapper for positional sync write followed by an immediate read of the same block.
  */
-ssize_t LocalWorker::pwriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
+	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
+
 	ssize_t pwriteRes = pwrite(fd, buf, nbytes, offset);
 
 	IF_UNLIKELY(pwriteRes <= 0)
@@ -1170,13 +1185,15 @@ ssize_t LocalWorker::pwriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_
  *
  * Parameters and return value are similar to p{write,read}.
  */
-ssize_t LocalWorker::pwriteRWMixWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
 	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
 
 	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
 		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
 		work for this because aio would not inc counter directly on submission.) */
+
+	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
@@ -1201,13 +1218,14 @@ ssize_t LocalWorker::pwriteRWMixWrapper(int fd, void* buf, size_t nbytes, off_t 
  * @fd ignored, using cuFileHandleData.cfr_handle instead.
  * @buf ignored, using gpuIOBufVec[0] instead.
  */
-ssize_t LocalWorker::cuFileReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
 #ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileReadWrapper called, but this executable was built without cuFile "
 		"API support");
 #else
-	return cuFileRead(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+	return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+		gpuIOBufVec[0], nbytes, offset, 0);
 #endif
 }
 
@@ -1217,32 +1235,35 @@ ssize_t LocalWorker::cuFileReadWrapper(int fd, void* buf, size_t nbytes, off_t o
  * @fd ignored, using cuFileHandleData.cfr_handle instead.
  * @buf ignored, using gpuIOBufVec[0] instead.
  */
-ssize_t LocalWorker::cuFileWriteWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
 #ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileWriteWrapper called, but this executable was built without cuFile "
 		"API support");
 #else
-	return cuFileWrite(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+	return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+		gpuIOBufVec[0], nbytes, offset, 0);
 #endif
 }
 
 /**
  * Wrapper for positional sync cuFile write followed by an immediate cuFile read of the same block.
  */
-ssize_t LocalWorker::cuFileWriteAndReadWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
 #ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileWriteAndReadWrapper called, but this executable was built without "
 		"cuFile API support");
 #else
 	ssize_t writeRes =
-		cuFileWrite(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+		cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+			gpuIOBufVec[0], nbytes, offset, 0);
 
 	IF_UNLIKELY(writeRes <= 0)
 		return writeRes;
 
-	return cuFileRead(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], writeRes, offset, 0);
+	return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+		gpuIOBufVec[0], writeRes, offset, 0);
 #endif
 }
 
@@ -1251,7 +1272,7 @@ ssize_t LocalWorker::cuFileWriteAndReadWrapper(int fd, void* buf, size_t nbytes,
  *
  * Parameters and return value are similar to p{write,read}.
  */
-ssize_t LocalWorker::cuFileRWMixWrapper(int fd, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
 #ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileRWMixWrapper called, but this executable was built without cuFile "
@@ -1265,11 +1286,12 @@ ssize_t LocalWorker::cuFileRWMixWrapper(int fd, void* buf, size_t nbytes, off_t 
 
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
-		return cuFileWrite(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes, offset, 0);
+		return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+			gpuIOBufVec[0], nbytes, offset, 0);
 	else
 	{
-		ssize_t readRes = cuFileRead(cuFileHandleDataPtr->cfr_handle, gpuIOBufVec[0], nbytes,
-			offset, 0);
+		ssize_t readRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+			gpuIOBufVec[0], nbytes, offset, 0);
 
 		IF_UNLIKELY(readRes <= 0)
 			return readRes;
@@ -1422,7 +1444,8 @@ void LocalWorker::dirModeIterateFiles()
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
 
-	cuFileHandleDataPtr = &cuFileHandleData; // prep for cuFileRead/WriteWrapper
+	int& fd = fileHandles.fdVec[0];
+	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
 
 	// walk over each unique dir per worker
 
@@ -1458,7 +1481,7 @@ void LocalWorker::dirModeIterateFiles()
 
 			if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
 			{
-				int fd = dirModeOpenAndPrepFile(benchPhase, pathFDs, pathFDsIndex,
+				fd = dirModeOpenAndPrepFile(benchPhase, pathFDs, pathFDsIndex,
 					currentPath.data(), openFlags, fileSize);
 
 				// try-block to ensure that fd is closed in case of exception
@@ -1468,7 +1491,7 @@ void LocalWorker::dirModeIterateFiles()
 
 					if(benchPhase == BenchPhase_CREATEFILES)
 					{
-						int64_t writeRes = ((*this).*funcRWBlockSized)(fd);
+						int64_t writeRes = ((*this).*funcRWBlockSized)();
 
 						IF_UNLIKELY(writeRes == -1)
 							throw WorkerException(std::string("File write failed. ") +
@@ -1484,7 +1507,7 @@ void LocalWorker::dirModeIterateFiles()
 
 					if(benchPhase == BenchPhase_READFILES)
 					{
-						ssize_t readRes = ((*this).*funcRWBlockSized)(fd);
+						ssize_t readRes = ((*this).*funcRWBlockSized)();
 
 						IF_UNLIKELY(readRes == -1)
 							throw WorkerException(std::string("File read failed. ") +
@@ -1555,39 +1578,174 @@ void LocalWorker::dirModeIterateFiles()
 }
 
 /**
- * This is for file mode. Iterate over all files to create/write or read them.
+ * This is for file/bdev mode. Send random I/Os round-robin to all given files across full file
+ * range.
  *
  * @throw WorkerException on error.
  */
-void LocalWorker::fileModeIterateFiles()
+void LocalWorker::fileModeIterateFilesRand()
+{
+	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+
+	// funcRWBlockSized() will send IOs round-robin to all user-given files.
+
+	if(benchPhase == BenchPhase_CREATEFILES)
+	{
+		ssize_t writeRes = ((*this).*funcRWBlockSized)();
+
+		IF_UNLIKELY(writeRes == -1)
+			throw WorkerException(std::string("File write failed. ") +
+				fileModeLogPathFromFileHandlesErr() +
+				"SysErr: " + strerror(errno) );
+
+		IF_UNLIKELY( (size_t)writeRes != rwOffsetGen->getNumBytesTotal() )
+			throw WorkerException(std::string("Unexpected short file write. ") +
+				fileModeLogPathFromFileHandlesErr() +
+				"Bytes written: " + std::to_string(writeRes) + "; "
+				"Expected written: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) );
+	}
+
+	if(benchPhase == BenchPhase_READFILES)
+	{
+		ssize_t readRes = ((*this).*funcRWBlockSized)();
+
+		IF_UNLIKELY(readRes == -1)
+			throw WorkerException(std::string("File read failed. ") +
+				fileModeLogPathFromFileHandlesErr() +
+				"SysErr: " + strerror(errno) );
+
+		IF_UNLIKELY( (size_t)readRes != rwOffsetGen->getNumBytesTotal() )
+			throw WorkerException(std::string("Unexpected short file read. ") +
+				fileModeLogPathFromFileHandlesErr() +
+				"Bytes read: " + std::to_string(readRes) + "; "
+				"Expected read: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) );
+	}
+
+}
+
+/**
+ * This is for file/bdev mode. Iterate over all files to create/write or read them with sequential
+ * I/O.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::fileModeIterateFilesSeq()
 {
 	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const size_t numFiles = progArgs->getBenchPathFDs().size();
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
-	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+	const size_t numThreads = progArgs->getNumDataSetThreads();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
-	CuFileHandleDataVec& cuFileHandleDataVec = progArgs->getCuFileHandleDataVec();
 
-	uint64_t fileRangeStart;
-	uint64_t fileRangeLen;
+	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
+		( (fileSize % blockSize) ? 1 : 0);
 
-	getPhaseFileOffsetRange(fileRangeStart, fileRangeLen);
+	const uint64_t numBlocksTotal = numBlocksPerFile * numFiles; // total for all files
+	const uint64_t standardWorkerNumBlocks = numBlocksTotal / numThreads;
 
-	uint64_t fileRangeEnd = fileRangeStart + fileRangeLen - 1; // "-1" for inclusive last offset
+	// note: last worker might need to write up to "numThreads-1" more blocks than the others
+	uint64_t thisWorkerNumBlocks = standardWorkerNumBlocks;
+	if( (workerRank == (numThreads-1) ) && (numBlocksTotal % numThreads) )
+		thisWorkerNumBlocks = numBlocksTotal - (standardWorkerNumBlocks * (numThreads-1) );
 
-	size_t expectedIORes = fileRangeLen;
-	if(progArgs->getUseRandomOffsets() )
-		expectedIORes = progArgs->getRandomAmount() / numDataSetThreads;
+	// indices of start and end block. (end block is not inclusive.)
+	uint64_t startBlock = workerRank * standardWorkerNumBlocks;
+	uint64_t endBlock = startBlock + thisWorkerNumBlocks;
 
-	LOGGER(Log_DEBUG, "fsize: " << fileSize << "; " "bsize: " << blockSize << "; "
-		"threads: " << numDataSetThreads << "; " "numFiles: " << numFiles << std::endl);
-	LOGGER(Log_DEBUG, "rank: " << workerRank << "; "
-		"shared: " << progArgs->getIsServicePathShared() << "; "
-		"range: " << fileRangeStart << " - " << fileRangeEnd << " (" << fileRangeLen << ")" <<
-		std::endl);
+	LOGGER(Log_DEBUG, "workerRank: " << workerRank << "; "
+		"numFiles: " << numFiles << "; "
+		"dataSetThreads: " << numThreads << "; "
+		"blocksTotal: " << numBlocksTotal << "; "
+		"blocksPerFile: " << numBlocksPerFile << "; "
+		"standardWorkerNumBlocks: " << standardWorkerNumBlocks << "; "
+		"thisWorkerNumBlocks: " << thisWorkerNumBlocks << "; "
+		"startBlock: " << startBlock << "; "
+		"endBlock: " << endBlock << "; " << std::endl);
 
-	// walk over all files and write our range of each
+	uint64_t currentBlockIdx = startBlock;
+
+	// iterate over global block range for this worker thread
+	// (note: "global block range" means that different blocks can refer to different files)
+	while(currentBlockIdx < endBlock)
+	{
+		// find the file index and inner file block index for current global block index
+		const uint64_t currentFileIndex = currentBlockIdx / numBlocksPerFile;
+		fileHandles.fdVec[0] = pathFDs[currentFileIndex];
+		fileHandles.cuFileHandleDataPtrVec[0] =
+			&progArgs->getCuFileHandleDataVec()[currentFileIndex];
+
+		const uint64_t currentBlockInFile = currentBlockIdx % numBlocksPerFile;
+		const uint64_t currentIOStart = currentBlockInFile * blockSize;
+
+		// calc byte offset in file and range length
+		const uint64_t remainingWorkerLen = (endBlock - currentBlockIdx) * blockSize;
+		const uint64_t remainingFileLen = fileSize - (currentBlockInFile * blockSize);
+		const uint64_t currentIOLen = std::min(remainingWorkerLen, remainingFileLen);
+
+		// prep offset generator for current file range
+		rwOffsetGen = std::make_unique<OffsetGenSequential>(
+			currentIOLen, currentIOStart, blockSize);
+
+		// write/read our range of this file
+
+		if(benchPhase == BenchPhase_CREATEFILES)
+		{
+			ssize_t writeRes = ((*this).*funcRWBlockSized)();
+
+			IF_UNLIKELY(writeRes == -1)
+				throw WorkerException(std::string("File write failed. ") +
+					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+					"SysErr: " + strerror(errno) );
+
+			IF_UNLIKELY( (size_t)writeRes != currentIOLen)
+				throw WorkerException(std::string("Unexpected short file write. ") +
+					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+					"Bytes written: " + std::to_string(writeRes) + "; "
+					"Expected written: " + std::to_string(currentIOLen) );
+		}
+
+		if(benchPhase == BenchPhase_READFILES)
+		{
+			ssize_t readRes = ((*this).*funcRWBlockSized)();
+
+			IF_UNLIKELY(readRes == -1)
+				throw WorkerException(std::string("File read failed. ") +
+					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+					"SysErr: " + strerror(errno) );
+
+			IF_UNLIKELY( (size_t)readRes != currentIOLen)
+				throw WorkerException(std::string("Unexpected short file read. ") +
+					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+					"Bytes read: " + std::to_string(readRes) + "; "
+					"Expected read: " + std::to_string(currentIOLen) );
+		}
+
+		// calc completed number of blocks to inc for next loop pass
+		const uint64_t numBlocksDone = (currentIOLen / blockSize) +
+			( (currentIOLen % blockSize) ? 1 : 0);
+
+		LOGGER_DEBUG_BUILD("  w" << workerRank << " f" << currentFileIndex <<
+			" b" << currentBlockInFile << " " <<
+			currentIOStart << " - " << (currentIOStart+currentIOLen) << std::endl);
+
+		currentBlockIdx += numBlocksDone;
+
+	} // end of global blocks while-loop
+}
+
+/**
+ * This is for file mode. Each thread tries to delete all given files.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::fileModeDeleteFiles()
+{
+	const StringVec& benchPaths = progArgs->getBenchPaths();
+	const size_t numFiles = progArgs->getBenchPathFDs().size();
+
+	// walk over all files and delete each of them
+	// (note: each worker starts with a different file (based on workerRank) to spread the load)
 
 	for(size_t fileIndex = 0; fileIndex < numFiles; fileIndex++)
 	{
@@ -1595,68 +1753,37 @@ void LocalWorker::fileModeIterateFiles()
 		if( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
 			checkInterruptionRequest();
 
-		size_t currentFileIndex = (workerRank + fileIndex) % pathFDs.size();
+		// delete current file
 
-		// each worker starts with a different file (based on workerRank) to spread the load
-		int fd = pathFDs[currentFileIndex];
+		const std::string& path =
+			benchPaths[ (workerRank + fileIndex) % benchPaths.size() ];
 
-		((*this).*funcCuFileHandleReg)(fd, cuFileHandleDataVec[currentFileIndex]); // reg handle
+		int unlinkRes = unlink(path.c_str() );
 
-		rwOffsetGen->reset(); // reset for next file
+		// (note: all threads try to delete all files, so ignore ENOENT)
+		if( (unlinkRes == -1) && (errno != ENOENT) )
+			throw WorkerException(std::string("File delete failed. ") +
+				"Path: " + path + "; "
+				"SysErr: " + strerror(errno) );
 
-		// write/read our range of this file and then move on to the next
-
-		if(benchPhase == BenchPhase_CREATEFILES)
-		{
-			ssize_t writeRes = ((*this).*funcRWBlockSized)(fd);
-
-			IF_UNLIKELY(writeRes == -1)
-				throw WorkerException(std::string("File write failed. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"SysErr: " + strerror(errno) );
-
-			IF_UNLIKELY( (size_t)writeRes != expectedIORes)
-				throw WorkerException(std::string("Unexpected short file write. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"Bytes written: " + std::to_string(writeRes) + "; "
-					"Expected written: " + std::to_string(fileRangeLen) );
-		}
-
-		if(benchPhase == BenchPhase_READFILES)
-		{
-			ssize_t readRes = ((*this).*funcRWBlockSized)(fd);
-
-			IF_UNLIKELY(readRes == -1)
-				throw WorkerException(std::string("File read failed. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"SysErr: " + strerror(errno) );
-
-			IF_UNLIKELY( (size_t)readRes != expectedIORes)
-				throw WorkerException(std::string("Unexpected short file read. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"Bytes read: " + std::to_string(readRes) + "; "
-					"Expected read: " + std::to_string(fileRangeLen) );
-		}
-
-		if(benchPhase == BenchPhase_DELETEFILES)
-		{
-			const StringVec& benchPaths = progArgs->getBenchPaths();
-			const std::string& path =
-				benchPaths[ (workerRank + fileIndex) % benchPaths.size() ];
-
-			int unlinkRes = unlink(path.c_str() );
-
-			// (note: all threads try to delete all files, so ignore ENOENT)
-			if( (unlinkRes == -1) && (errno != ENOENT) )
-				throw WorkerException(std::string("File delete failed. ") +
-					"Path: " + path + "; "
-					"SysErr: " + strerror(errno) );
-		}
-
-		((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
+		atomicLiveOps.numEntriesDone++;
 
 	} // end of files for loop
 
+}
+
+/**
+ * This is for file/bdev mode. Retrieve path for log message based on fileHandles.errorFDVecIdx.
+ *
+ * The result will be "Path: /some/path; " based on progArgs benchPathsVec or "Path: unavailable; "
+ * if errorFDVecIdx is not set ("==-1").
+ */
+std::string LocalWorker::fileModeLogPathFromFileHandlesErr()
+{
+	if(fileHandles.errorFDVecIdx == -1)
+		return std::string("Path: unavailable; ");
+
+	return "Path: " + progArgs->getBenchPaths()[fileHandles.errorFDVecIdx] + "; ";
 }
 
 /**

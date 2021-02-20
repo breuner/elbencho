@@ -5,6 +5,9 @@
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
 
+namespace Web = SimpleWeb;
+
+
 #define THROW_WORKEREXCEPTION_OR_LOG_ERR(isThrowingAllowed, errorMsgStr) \
 	do \
 	{ \
@@ -13,7 +16,6 @@
 		else \
 			std::cerr << "Error: " << errorMsgStr << std::endl; \
 	} while(0)
-
 
 
 /**
@@ -266,10 +268,19 @@ void RemoteWorker::preparePhase()
 			throw WorkerException("Service host sent unexpected empty reply as preparation result. "
 				"Server: " + host);
 
+		// read bench path info and error history from service...
+
 		bpt::ptree resultTree;
 		bpt::read_json(response->content, resultTree);
 
-		benchPathType = (BenchPathType)resultTree.get<size_t>(XFER_PREP_BENCHPATHTYPE);
+		benchPathInfo.benchPathStr = resultTree.get<std::string>(ARG_BENCHPATHS_LONG);
+		benchPathInfo.benchPathType =
+			(BenchPathType)resultTree.get<size_t>(XFER_PREP_BENCHPATHTYPE);
+		benchPathInfo.numBenchPaths = resultTree.get<size_t>(XFER_PREP_NUMBENCHPATHS);
+		benchPathInfo.fileSize = resultTree.get<uint64_t>(ARG_FILESIZE_LONG);
+		benchPathInfo.blockSize = resultTree.get<uint64_t>(ARG_BLOCK_LONG);
+		benchPathInfo.randomAmount = resultTree.get<uint64_t>(ARG_RANDOMAMOUNT_LONG);
+
 		std::string errorHistory = resultTree.get<std::string>(XFER_PREP_ERRORHISTORY);
 
 		IF_UNLIKELY(!errorHistory.empty() )

@@ -12,6 +12,7 @@
 
 
 namespace bpo = boost::program_options;
+namespace bpt = boost::property_tree;
 
 
 #define ARG_HELP_LONG 				"help"
@@ -100,10 +101,8 @@ namespace bpo = boost::program_options;
 #define ARGDEFAULT_SERVICEPORT_STR	STRINGIZE(ARGDEFAULT_SERVICEPORT)
 
 
-namespace bpt = boost::property_tree;
-
-
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
+typedef std::vector<CuFileHandleData*> CuFileHandleDataPtrVec;
 
 
 /**
@@ -123,7 +122,8 @@ class ProgArgs
 		void getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const;
 		void getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const;
 		void resetBenchPath();
-		void setBenchPathType(BenchPathType benchPathType);
+		void getBenchPathInfoTree(bpt::ptree& outTree);
+		void checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos);
 
 
 	private:
@@ -137,15 +137,15 @@ class ProgArgs
 		char** argv; // command line arg vector (as in main(argc, argv) ).
 
 		std::string progPath; // absolute path to program binary
-		std::string benchPathStr; // path(s) to benchmark base dirs separated by BENCHPATH_DELIMITER
+		std::string benchPathStr; // benchmark path(s), separated by BENCHPATH_DELIMITER
 		StringVec benchPathsVec; // benchPathStr split into individual paths
 		StringVec benchPathsServiceOverrideVec; // set in service mode to override bench paths
 		IntVec benchPathFDsVec; // file descriptors to individual bench paths
 		BenchPathType benchPathType; /* for local runs auto-detected based on benchPathStr;
 										in master mode received from service hosts */
-		size_t numThreads; // parallel I/O worker threads
+		size_t numThreads; // parallel I/O worker threads per instance
 		size_t numDataSetThreads; /* global threads working on same dataset for service mode hosts
-									based on isBenchPathNotShared; otherwise equal to numThreads */
+									based on isBenchPathShared; otherwise equal to numThreads */
 		size_t numDirs; // directories per thread
 		std::string numDirsOrigStr; // original numDirs str from user with unit
 		size_t numFiles; // files per directory

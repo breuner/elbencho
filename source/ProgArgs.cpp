@@ -436,24 +436,8 @@ void ProgArgs::checkArgs()
 	if(!numThreads)
 		throw ProgException("Number of threads may not be zero.");
 
-	numDataSetThreads = numThreads;
-
-	if(fileSize && !blockSize && (runReadPhase || runCreateFilesPhase) )
-		throw ProgException("Block size may not be 0 if file size is given.");
-
-	if(blockSize > fileSize)
-	{
-		// only log if file size is not zero, so that we actually need block size
-		if(fileSize)
-			LOGGER(Log_VERBOSE, "NOTE: Reducing block size to not exceed file size. "
-				"Old: " << blockSize << "; " <<
-				"New: " << fileSize << std::endl);
-
-		blockSize = fileSize; // to avoid allocating large buffers if file size is small
-	}
-
-	if(fileSize && !blockSize)
-		throw ProgException("Block size may not be 0 when file size is not 0.");
+	numDataSetThreads = (!hostsVec.empty() && getIsServicePathShared() ) ?
+		(numThreads * hostsVec.size() ) : numThreads;
 
 	if(useCuFile && (ioDepth > 1) )
 		throw ProgException("cuFile API does not support \"IO depth > 1\"");
@@ -466,51 +450,6 @@ void ProgArgs::checkArgs()
 
 		useDirectIO = true;
 	}
-
-	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
-	{
-		if(fileSize % blockSize)
-		{
-			size_t newFileSize = fileSize - (fileSize % blockSize);
-
-			LOGGER(Log_NORMAL, "NOTE: File size for direct IO is not a multiple of block size. "
-				"Reducing file size. " <<
-				"Old: " << fileSize << "; " <<
-				"New: " << newFileSize << std::endl);
-
-			fileSize = newFileSize;
-		}
-
-		if(useRandomOffsets && !useRandomAligned)
-		{
-			LOGGER(Log_NORMAL,
-				"NOTE: Direct IO requires alignment. "
-				"Enabling \"--" ARG_RANDOMALIGN_LONG "\"." << std::endl);
-
-			useRandomAligned = true;
-		}
-
-		if(useRandomOffsets && (randomAmount % blockSize) )
-		{
-			size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
-
-			LOGGER(Log_NORMAL, "NOTE: Random amount for direct IO is not a multiple of block size. "
-				"Reducing random amount. " <<
-				"Old: " << randomAmount << "; " <<
-				"New: " << newRandomAmount << std::endl);
-
-			randomAmount = newRandomAmount;
-		}
-
-		if( (blockSize % DIRECTIO_MINSIZE) != 0)
-			throw ProgException("Block size for direct IO is not a multiple of required size. "
-				"(Note that a system's actual required size for direct IO might be even higher "
-				"depending on system page size and drive sector size.) "
-				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
-	}
-
-	if(useRandomOffsets && !randomAmount)
-		randomAmount = fileSize;
 
 	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
 		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
@@ -538,58 +477,150 @@ void ProgArgs::checkArgs()
 	if(!hostsVec.empty() )
 		return;
 
-	///////////// if we get here, we are not running in master mode...
+	///////////// if we get here, we are running in local standalone mode...
 
 	checkPathDependentArgs();
 }
 
 /**
- * Check arguments that depend on the bench path type. Not intended to be called in master mode.
+ * Check arguments that depend on the bench path type, which also includes possibly auto-detected
+ * file size in file/bdev mode. This is not intended to be called in master mode (e.g. because it
+ * uses numDataSetThreads, which is set correctly only in service mode and local standalone mode).
  *
  * @throw ProgException if a problem is found.
  */
 void ProgArgs::checkPathDependentArgs()
 {
-	if(benchPathType == BenchPathType_DIR)
+	if( (benchPathType != BenchPathType_DIR) && runStatFilesPhase)
+		throw ProgException("File stat phase can only be used when benchmark path is a directory.");
+
+	if( (benchPathType == BenchPathType_DIR) && useRandomOffsets)
+		throw ProgException("Random offsets are not allowed when benchmark path is a directory.");
+
+	// prevent blockSize==0 if fileSize>0 should be read or written
+	if(fileSize && !blockSize && (runReadPhase || runCreateFilesPhase) )
+		throw ProgException("Block size must not be 0 when file size is given.");
+
+	// reduce block size to file size
+	if(blockSize > fileSize)
 	{
-		if(useRandomOffsets)
-			throw ProgException("Random offsets are not allowed when benchmark path is a "
-				"directory");
+		// only log if file size is not zero, so that we actually need block size
+		if(fileSize  && (runReadPhase || runCreateFilesPhase) )
+			LOGGER(Log_VERBOSE, "NOTE: Reducing block size to not exceed file size. "
+				"Old: " << blockSize << "; " <<
+				"New: " << fileSize << std::endl);
+
+		blockSize = fileSize; // to avoid allocating large buffers if file size is small
 	}
 
+	// reduce file size to multiple of block size for directIO
+	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) && (fileSize % blockSize) )
+	{
+		size_t newFileSize = fileSize - (fileSize % blockSize);
+
+		LOGGER(Log_NORMAL, "NOTE: File size for direct IO is not a multiple of block size. "
+			"Reducing file size. " <<
+			"Old: " << fileSize << "; " <<
+			"New: " << newFileSize << std::endl);
+
+		fileSize = newFileSize;
+	}
+
+	// auto-set randomAmount if not set by user
+	if(useRandomOffsets && !randomAmount)
+		randomAmount = (benchPathType == BenchPathType_DIR) ?
+			fileSize : (fileSize * benchPathsVec.size() );
+
+	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
+	{
+		if(useRandomOffsets && !useRandomAligned)
+		{
+			LOGGER(Log_VERBOSE, "NOTE: Direct IO requires alignment. "
+				"Enabling \"--" ARG_RANDOMALIGN_LONG "\"." << std::endl);
+
+			useRandomAligned = true;
+		}
+
+		if( (blockSize % DIRECTIO_MINSIZE) != 0)
+			throw ProgException("Block size for direct IO is not a multiple of required size. "
+				"(Note that a system's actual required size for direct IO might be even higher "
+				"depending on system page size and drive sector size.) "
+				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
+	}
+
+	if(useRandomOffsets && useRandomAligned && (randomAmount % blockSize) )
+	{
+		size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
+
+		LOGGER(Log_NORMAL, "NOTE: Random amount for aligned IO is not a multiple of block size. "
+			"Reducing random amount. " <<
+			"Old: " << randomAmount << "; " <<
+			"New: " << newRandomAmount << std::endl);
+
+		randomAmount = newRandomAmount;
+	}
+
+	// shared file or block device mode
 	if(benchPathType != BenchPathType_DIR)
-	{ // ensure that each thread has at least one block to write per file
+	{
+		// note: we ensure before this point that fileSize, blockSize and thread count are not 0.
 
-		// note: blockSize can be 0 if fileSize is 0 (see checkArgs() blockSize reduction)
+		const size_t numFiles = benchPathFDsVec.size();
+		const uint64_t numBlocksPerFile = (fileSize / blockSize) +
+			( (fileSize % blockSize) ? 1 : 0);
+		const uint64_t numBlocksTotal = numBlocksPerFile * numFiles; // total for all files
+		const uint64_t blockSetSize = blockSize * numDataSetThreads;
 
-		size_t minFileSize = numDataSetThreads * blockSize;
-		if(fileSize < minFileSize)
-			throw ProgException("File size must be large enough so that each I/O thread can at "
-				"least read/write one block. "
+		if(useRandomOffsets && (randomAmount < blockSetSize) )
+			throw ProgException("Random I/O amount (--" ARG_RANDOMAMOUNT_LONG ") must be large "
+				"enough so that each I/O thread can at least read/write one block. "
 				"Current block size: " + std::to_string(blockSize) + "; "
 				"Current dataset thread count: " + std::to_string(numDataSetThreads) + "; "
-				"Current file size: " + std::to_string(fileSize) + "; "
-				"Resulting min valid file size: " + std::to_string(minFileSize) );
+				"Resulting min valid random amount: " + std::to_string(blockSetSize) );
 
-		if(useRandomOffsets && (randomAmount < minFileSize) )
-			throw ProgException("Random I/O amount must be large enough so that each I/O thread "
-				"can at least read/write one block. "
-				"Current block size: " + std::to_string(blockSize) + "; "
-				"Current dataset thread count: " + std::to_string(numDataSetThreads) + "; "
-				"Resulting min valid random I/O amount: " + std::to_string(minFileSize) );
+		// reduce randomAmount to multiple of blockSetSize
+		// (check above ensures that randAmount>=blockSetSize)
+		if(useRandomOffsets && useRandomAligned && (randomAmount % blockSetSize) )
+		{
+			size_t newRandomAmount = randomAmount - (randomAmount % blockSetSize);
 
-		if(minFileSize && !useRandomOffsets && ( (fileSize % minFileSize) != 0) )
-			LOGGER(Log_NORMAL, "NOTE: File size is not a multiple of block size times number "
-				"of I/O threads, so the I/O threads write different amounts of data." << std::endl);
+			LOGGER(Log_NORMAL, "NOTE: Random amount for aligned IO is not a multiple of block size "
+				"times number of threads. Reducing random amount. " <<
+				"Old: " << randomAmount << "; " <<
+				"New: " << newRandomAmount << std::endl);
 
-		if(minFileSize && useRandomOffsets && ( (randomAmount % minFileSize) != 0) )
-			LOGGER(Log_NORMAL, "NOTE: Random amount is not a multiple of block size times number "
-				"of I/O threads, so the I/O threads write different amounts of data." << std::endl);
+			randomAmount = newRandomAmount;
+		}
 
-		if(runStatFilesPhase)
-			throw ProgException("File stat phase can only be used when benchmark path is a "
-				"directory");
+		if(!useRandomOffsets && blockSize && (numBlocksTotal < numDataSetThreads) )
+			throw ProgException("Aggregate usable file size must be large enough so that each I/O "
+				"thread can at least read/write one block. "
+				"Block size: " + std::to_string(blockSize) + "; "
+				"Dataset thread count: " + std::to_string(numDataSetThreads) + "; "
+				"Aggregate file size: " + std::to_string(numFiles*fileSize) + "; "
+				"Aggregate blocks: " + std::to_string(numBlocksTotal) );
+
+		if(useRandomOffsets && useRandomAligned && (fileSize < blockSize) )
+			throw ProgException("File size must not be smaller than block size when random I/O "
+				"with alignment is selected.");
+
+		// verbose log messages...
+
+		if(useRandomOffsets && (randomAmount % blockSetSize) )
+			LOGGER(Log_VERBOSE, "NOTE: Random amount is not a multiple of block size times "
+				"number of I/O threads, so the last I/O is not a full block." << std::endl);
+
+		if(!useRandomOffsets && (numBlocksTotal % numDataSetThreads) )
+			LOGGER(Log_VERBOSE, "NOTE: Number of blocks with given aggregate file size is not a "
+				"multiple of given I/O threads, so the number of written blocks slightly differs "
+				"among I/O threads." << std::endl);
+
 	}
+
+	// recheck randomAmount after auto-decrease above
+	if(useRandomOffsets && !randomAmount && fileSize && (runCreateFilesPhase || runReadPhase) )
+		throw ProgException("File size must not be smaller than block size when random I/O "
+			"with alignment is selected.");
 
 	if(benchPathType == BenchPathType_FILE)
 		ignoreDelErrors = true; // multiple threads will try to delete the same files
@@ -809,12 +840,16 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 
 		off_t currentFileSize = statBuf.st_size;
 
+		if(!fileSize && !statBuf.st_size && (runReadPhase || runCreateFilesPhase) )
+			throw ProgException("File size must not be 0 when benchmark path is a file. "
+				"File: " + path);
+
 		if(!fileSize)
 		{
 			LOGGER(Log_NORMAL,
 				"NOTE: Auto-setting file size. "
-				"Path: " << path << "; "
-				"Size: " << currentFileSize << std::endl);
+				"Size: " << currentFileSize << "; "
+				"Path: " << path << std::endl);
 
 			fileSize = currentFileSize;
 		}
@@ -897,6 +932,9 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 		if(blockdevSize == -1)
 			throw ProgException("Unable to check size of blockdevice through lseek: " + path + "; "
 				"SysErr: " + strerror(errno) );
+
+		if(!blockdevSize)
+			throw ProgException("Block device size seems to be 0: " + path);
 
 		if(!fileSize)
 		{
@@ -1307,7 +1345,8 @@ void ProgArgs::printHelpBlockDev()
 		(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
 		(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmount),
-			"Number of bytes to write/read when using random offsets. (Default: Set to file size)")
+			"Number of bytes to write/read when using random offsets. (Default: Set to aggregate "
+			"file size)")
 		(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
 			"Align random offsets to block size.")
 		(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
@@ -1593,7 +1632,7 @@ void ProgArgs::printVersionAndBuildInfo()
 /**
  * Sets the arguments that are relevant for a new benchmark in service mode.
  *
- * @throw ProgException if configuration error is detected of bench dirs cannot be accessed.
+ * @throw ProgException if configuration error is detected or if bench dirs cannot be accessed.
  */
 void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 {
@@ -1676,6 +1715,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_RANDOMOFFSETS_LONG, useRandomOffsets);
 	outTree.put(ARG_RANDOMALIGN_LONG, useRandomAligned);
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
+	outTree.put(ARG_NUMDATASETTHREADS_LONG, numDataSetThreads);
 	outTree.put(ARG_IODEPTH_LONG, ioDepth);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_CUFILE_LONG, useCuFile);
@@ -1702,11 +1742,6 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 		rankOffset + (workerRank * numThreads) : rankOffset;
 
 	outTree.put(ARG_RANKOFFSET_LONG, remoteRankOffset);
-
-	size_t remoteNumDataSetThreads = getIsServicePathShared() ?
-		numThreads * hostsVec.size() : numThreads;
-
-	outTree.put(ARG_NUMDATASETTHREADS_LONG, remoteNumDataSetThreads);
 
 	if(!assignGPUPerService || gpuIDsVec.empty() )
 		outTree.put(ARG_GPUIDS_LONG, gpuIDsStr);
@@ -1802,27 +1837,114 @@ void ProgArgs::resetBenchPath()
 }
 
 /**
- * Supposed to be called only in master mode after benchPathType has been received from all service
- * hosts.
+ * Get info (path type, auto-detected file size etc.) about benchmark paths. Used for reply to
+ * master as result or preparation phase.
  *
- * @benchPathType benchPathType of service hosts after having confirmed that all service hosts are
- * 		using the same type.
+ * @outTree path info for given paths.
  */
-void ProgArgs::setBenchPathType(BenchPathType benchPathType)
+void ProgArgs::getBenchPathInfoTree(bpt::ptree& outTree)
 {
-	this->benchPathType = benchPathType;
+	outTree.put(ARG_BENCHPATHS_LONG, benchPathStr);
+	outTree.put(XFER_PREP_BENCHPATHTYPE, benchPathType);
+	outTree.put(XFER_PREP_NUMBENCHPATHS, benchPathsVec.size() );
+	outTree.put(ARG_FILESIZE_LONG, fileSize);
+	outTree.put(ARG_BLOCK_LONG, blockSize);
+	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
+}
 
-	if(!fileSize)
+/**
+ * Check whether info from services is consistent among services and consistent with what master
+ * sent for preparation, so intended to be called only in master mode after BenchPathInfo has been
+ * received from services.
+ *
+ * @benchPathInfos BenchPathInfo of service hosts; element order must match getHostsVec().
+ * @throw ProgException on error, e.g. inconsitency between different services.
+ */
+void ProgArgs::checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos)
+{
+	// sanity check
+	if(benchPathInfos.size() != hostsVec.size() )
+		throw ProgException("Unexpected different number of elements for services and provided "
+			"bench path infos");
+
+	BenchPathInfo& firstInfo = benchPathInfos[0];
+
+	// compare 1st info in provided list to our current info...
+
+	if(firstInfo.numBenchPaths != benchPathsVec.size() )
+		throw ProgException(
+			"Service instance benchmark paths count does not match master paths count. "
+			"Service: " + hostsVec[0] + "; "
+			"Master paths: " + std::to_string(benchPathsVec.size() ) + " "
+				"(" + benchPathStr + "); "
+			"Service paths: " + std::to_string(firstInfo.numBenchPaths) + " "
+				"(" + firstInfo.benchPathStr + ")");
+
+	if(firstInfo.fileSize != fileSize)
+		LOGGER(Log_NORMAL, "NOTE: Service instance adapted file size. "
+			"New file size: " << firstInfo.fileSize << "; " <<
+			"Service: " << hostsVec[0] << std::endl);
+
+	if(firstInfo.blockSize != blockSize)
+		LOGGER(Log_NORMAL, "NOTE: Service instance adapted block size. "
+			"New block size: " << firstInfo.blockSize << "; " <<
+			"Service: " << hostsVec[0] << std::endl);
+
+	if(useRandomOffsets && (firstInfo.randomAmount != randomAmount) )
+		LOGGER(Log_NORMAL, "NOTE: Service instance adapted random data amount. "
+			"New random amount: " << firstInfo.randomAmount << "; " <<
+			"Service: " << hostsVec[0] << std::endl);
+
+	// apply settings provided by 1st info in list
+
+	benchPathType = firstInfo.benchPathType;
+	fileSize = firstInfo.fileSize;
+	randomAmount = firstInfo.randomAmount;
+	blockSize = firstInfo.blockSize;
+
+	// compare all other bench path infos to 1st info in list
+	for(size_t i=1; i < benchPathInfos.size(); i++)
 	{
-		/* don't allow 0 (auto-detected) file size in file/blockdev mode, because otherwise master
-			wouldn't know random amount and total amount of IO for percent done calculation. */
+		BenchPathInfo& otherInfo = benchPathInfos[i];
 
-		if(benchPathType == BenchPathType_BLOCKDEV)
-			throw ProgException("File size must be set in master mode when benchmark path is a "
-				"block devices.");
+		if(firstInfo.benchPathType != otherInfo.benchPathType)
+			throw ProgException(
+				"Conflicting benchmark path types on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A paths: " + firstInfo.benchPathStr + "; "
+				"Service_B paths: " + otherInfo.benchPathStr);
 
-		if(benchPathType == BenchPathType_FILE)
-			throw ProgException("File size must be set in master mode when benchmark path is a "
-				"file.");
+		if(firstInfo.numBenchPaths != otherInfo.numBenchPaths)
+			throw ProgException(
+				"Conflicting number of benchmark paths on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A paths: " + std::to_string(firstInfo.numBenchPaths) + "; "
+				"Service_B paths: " + std::to_string(otherInfo.numBenchPaths) );
+
+		if(firstInfo.fileSize != otherInfo.fileSize)
+			throw ProgException(
+				"Conflicting file size on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A file size: " + std::to_string(firstInfo.fileSize) + "; "
+				"Service_B file size: " + std::to_string(otherInfo.fileSize) );
+
+		if(firstInfo.blockSize != otherInfo.blockSize)
+			throw ProgException(
+				"Conflicting block sizes on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A block size: " + std::to_string(firstInfo.blockSize) + "; "
+				"Service_B block size: " + std::to_string(otherInfo.blockSize) );
+
+		if(useRandomOffsets && (firstInfo.randomAmount != otherInfo.randomAmount) )
+			throw ProgException(
+				"Conflicting random amount on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A random amount: " + std::to_string(firstInfo.randomAmount) + "; "
+				"Service_B random amount: " + std::to_string(otherInfo.randomAmount) );
 	}
 }

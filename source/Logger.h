@@ -8,6 +8,12 @@
 #define LOGGER(logLevel, stream) 	do { Logger(logLevel) << stream; } while(0)
 #define ERRLOGGER(logLevel, stream) do { ErrLogger(logLevel, true) << stream; } while(0)
 
+#ifdef BUILD_DEBUG
+#define LOGGER_DEBUG_BUILD(stream)	LOGGER(Log_DEBUG, stream)
+#else // no debug build
+#define LOGGER_DEBUG_BUILD(stream)	/* nothing to do if not a debug build */
+#endif
+
 enum LogLevel
 {
 	Log_NORMAL=0,

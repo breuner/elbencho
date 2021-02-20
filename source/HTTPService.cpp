@@ -6,6 +6,8 @@
 #include "ProgException.h"
 #include "workers/RemoteWorker.h"
 
+namespace Web = SimpleWeb;
+
 #define SERVICE_LOG_DIR			"/tmp"
 #define SERVICE_LOG_FILEPREFIX	EXE_NAME
 #define SERVICE_LOG_FILEMODE	(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
@@ -236,7 +238,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 			std::stringstream replyStream;
 			bpt::ptree replyTree;
 
-			replyTree.put(XFER_PREP_BENCHPATHTYPE, progArgs.getBenchPathType() );
+			progArgs.getBenchPathInfoTree(replyTree);
 			replyTree.put(XFER_PREP_ERRORHISTORY, LoggerBase::getErrHistory() );
 
 			bpt::write_json(replyStream, replyTree, true);
