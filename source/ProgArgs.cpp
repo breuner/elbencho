@@ -204,6 +204,9 @@ void ProgArgs::defineAllowedArgs()
 			"Show latency histogram.")
 /*la*/	(ARG_LATENCYPERCENTILES_LONG, bpo::bool_switch(&this->showLatencyPercentiles),
 			"Show latency percentiles.")
+/*la*/	(ARG_LATENCYPERCENT9S_LONG, bpo::value(&this->numLatencyPercentile9s),
+			"Number of decimal nines to show in latency percentiles. 0 for 99%, 1 for 99.9%, 2 for "
+			"99.99% and so on. (Default: 0)")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
@@ -341,6 +344,7 @@ void ProgArgs::defineDefaults()
 	this->ioDepth = 1;
 	this->showLatency = false;
 	this->showLatencyPercentiles = false;
+	this->numLatencyPercentile9s = 0;
 	this->showLatencyHistogram = false;
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;

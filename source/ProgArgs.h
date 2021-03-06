@@ -67,6 +67,7 @@ namespace bpt = boost::property_tree;
 #define ARG_IODEPTH_LONG			"iodepth"
 #define ARG_LATENCY_LONG			"lat"
 #define ARG_LATENCYPERCENTILES_LONG	"latpercent"
+#define ARG_LATENCYPERCENT9S_LONG	"latpercent9s"
 #define ARG_LATENCYHISTOGRAM_LONG	"lathisto"
 #define ARG_TRUNCATE_LONG			"trunc"
 #define ARG_RESULTSFILE_LONG		"resfile"
@@ -186,6 +187,7 @@ class ProgArgs
 		size_t ioDepth; // depth of io queue per thread for libaio
 		bool showLatency; // show min/avg/max latency
 		bool showLatencyPercentiles; // show latency percentiles
+		unsigned short numLatencyPercentile9s; // decimal 9s to show (0=99%, 1=99.9%, 2=99.99%, ...)
 		bool showLatencyHistogram; // show latency histogram
 		bool doTruncate; // truncate files to 0 size on open for writing
 		std::string resFilePath; // results output file path (or empty for no results file)
@@ -291,6 +293,7 @@ class ProgArgs
 		size_t getIODepth() const { return ioDepth; }
 		bool getShowLatency() const { return showLatency; }
 		bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
+		unsigned short getNumLatencyPercentile9s() const { return numLatencyPercentile9s; }
 		bool getShowLatencyHistogram() const { return showLatencyHistogram; }
 		bool getDoTruncate() const { return doTruncate; }
 		std::string getResFilePath() const { return resFilePath; }

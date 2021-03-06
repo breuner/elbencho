@@ -52,6 +52,7 @@ _elbencho_opts()
         --lat
         --lathisto
         --latpercent
+        --latpercent9s
         --log
         --mkdirs
         --no0usecerr
@@ -119,6 +120,8 @@ _elbencho()
         --gpuids)
         ;&
         --iodepth)
+        ;&
+        --latpercent9s)
         ;&
         --log)
         ;&

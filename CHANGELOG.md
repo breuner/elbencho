@@ -2,6 +2,9 @@
 
 ## v1.8.0 (work in progress)
 
+### New Features & Enhancements
+* New option for number of decimal nines to show in latency percentiles (--latpercent9s).
+
 ### General Changes
 * Improved shared file/blockdev mode with multiple files/blockdevs.
   * For random I/O, each thread now sends I/Os round-robin to the given files/blockdevs.
@@ -12,6 +15,9 @@
     * This approach might involve multiple files/blockdevs for a certain thread, but will typically only involve a subset of the given files/blockdevs for a single thread.
     * Previously, each thread started with a different file/blockdev, but got assigned a range in every file, thus requiring block size times number of threads as minimum usable size per file/blockdev.
 * Size of given files/blockdevs can now also be auto-detected in distributed mode.
+
+### Contributors
+* Thanks to first time contributor Wes Vaske (Micron) for helpful suggestions.
 
 ## v1.7.1 (Feb 06, 2021)
 
