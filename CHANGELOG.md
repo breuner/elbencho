@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v1.8.0 (work in progress)
+## v1.8.1 (March 21, 2021)
 
 ### New Features & Enhancements
 * New option for number of decimal nines to show in latency percentiles (--latpercent9s).
