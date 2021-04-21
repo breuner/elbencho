@@ -13,7 +13,7 @@ RUN cd /root && git clone https://github.com/breuner/elbencho.git && \
 
 #now run a sample test, should just take a few seconds.
 
-ENTRYPOINT ["/usr/local/bin/elbencho"]
+CMD ["/usr/local/bin/elbencho"]
 
 
 
