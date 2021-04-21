@@ -8,12 +8,15 @@ RUN cd /root && git clone https://github.com/breuner/elbencho.git && \
     make -j4 && \
     make rpm && \
     make install 
+#get rid of stuff we don't need
+
+RUN yum erase -y gcc-c++ git make rpm-build
 
 
 
 #now run a sample test, should just take a few seconds.
 
-CMD ["/usr/local/bin/elbencho"]
+ENTRYPOINT ["/usr/local/bin/elbencho"]
 
 
 
