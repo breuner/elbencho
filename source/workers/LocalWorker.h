@@ -93,6 +93,8 @@ class LocalWorker : public Worker
 		std::unique_ptr<RandAlgoInterface> randBlockVarAlgo; // for random block contents variance
 		std::unique_ptr<RandAlgoInterface> randBlockVarReseed; // reseed for golden prime block var
 
+		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
+
 		void finishPhase();
 
 		void initPhaseFileHandleVecs();
@@ -102,12 +104,15 @@ class LocalWorker : public Worker
 
 		void allocIOBuffer();
 		void allocGPUIOBuffer();
+		void prepareCustomTreePathStores();
 
 		int64_t rwBlockSized();
 		int64_t aioBlockSized();
 
 		void dirModeIterateDirs();
+		void dirModeIterateCustomDirs();
 		void dirModeIterateFiles();
+		void dirModeIterateCustomFiles();
 		void fileModeIterateFilesRand();
 		void fileModeIterateFilesSeq();
 		void fileModeDeleteFiles();

@@ -1,7 +1,17 @@
 # Changelog of elbencho
 
-## v1.8.2 (work in progress)
+## v1.9.0 (work in progress)
+
+### New Features & Enhancements
+* New custom tree mode option to create/read arbitrary tree structures of directories and files with different sizes (--treefile).
+  * New elbencho-scan-path tool can be used to create a tree file from an existing dataset.
+* New Dockerfile added
+  * New official elbencho Docker repository with usage examples: https://hub.docker.com/r/breuner/elbencho
 * New makefile option NO_BACKTRACE=1 to build without backtrace support for musl-libc compatibility.
+
+### Contributors
+* Thanks to Zettar team (esp. Chin Fang & Oleskandr Nazarenko) for contributing in multiple ways to the new custom tree mode.
+* Thanks to first time contributor Andy Pernsteiner (VAST Data) for providing the Dockerfile and testing on Alpine Linux.
 
 ## v1.8.1 (March 21, 2021)
 

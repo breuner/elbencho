@@ -52,6 +52,7 @@ void LocalWorker::run()
 		applyNumaBinding();
 		allocIOBuffer();
 		allocGPUIOBuffer();
+		prepareCustomTreePathStores();
 
 		// signal coordinator that our preparations phase is done
 		phaseFinished = true; // before incNumWorkersDone(), as Coordinator can reset after done inc
@@ -84,13 +85,15 @@ void LocalWorker::run()
 						throw WorkerException("Directory creation and deletion are not available "
 							"in file and block device mode.");
 
-					dirModeIterateDirs();
+					progArgs->getTreeFilePath().empty() ?
+						dirModeIterateDirs() : dirModeIterateCustomDirs();
 				} break;
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				{
 					if(progArgs->getBenchPathType() == BenchPathType_DIR)
-						dirModeIterateFiles();
+						progArgs->getTreeFilePath().empty() ?
+							dirModeIterateFiles() : dirModeIterateCustomFiles();
 					else
 					{
 						if(!progArgs->getUseRandomOffsets() )
@@ -105,12 +108,14 @@ void LocalWorker::run()
 						throw WorkerException("File stat operation not available in file and block "
 							"device mode.");
 
-					dirModeIterateFiles();
+					progArgs->getTreeFilePath().empty() ?
+						dirModeIterateFiles() : dirModeIterateCustomFiles();
 				} break;
 				case BenchPhase_DELETEFILES:
 				{
 					if(progArgs->getBenchPathType() == BenchPathType_DIR)
-						dirModeIterateFiles();
+						progArgs->getTreeFilePath().empty() ?
+							dirModeIterateFiles() : dirModeIterateCustomFiles();
 					else
 						fileModeDeleteFiles();
 				} break;
@@ -536,17 +541,40 @@ void LocalWorker::allocGPUIOBuffer()
 }
 
 /**
+ * Prepare paths for custom tree mode for this worker.
+ *
+ * @throw WorkerException on error
+ */
+void LocalWorker::prepareCustomTreePathStores()
+{
+	if(progArgs->getTreeFilePath().empty() )
+		return; // nothing to do here
+
+	progArgs->getCustomTreeFilesNonShared().getWorkerSublistNonShared(
+		workerRank, progArgs->getNumDataSetThreads(), customTreeFiles);
+
+	progArgs->getCustomTreeFilesShared().getWorkerSublistShared(
+		workerRank, progArgs->getNumDataSetThreads(), customTreeFiles);
+
+	if(progArgs->getUseCustomTreeRandomize() )
+		customTreeFiles.randomShuffle();
+}
+
+/**
  * Release all allocated objects, handles etc.
  *
  * This needs to be called when run() ends. The things in here would usually be done in the
- * destructor, but especially in service mode we need this object to still exist (to query phase
- * results) while all ressources need to be released, because this object will only be deleted when
- * the next benchmark starts.
+ * LocalWorker destructor, but especially in service mode we need the LocalWorker object to still
+ * exist (to query phase results) while all ressources need to be released, because the LocalWorker
+ * object will only be deleted when and if the next benchmark starts.
  */
 void LocalWorker::cleanup()
 {
 	// delete rwOffsetGen (unique ptr) to eliminate any references to progArgs data etc.
 	rwOffsetGen.reset();
+
+	// reset custom tree mode path store
+	customTreeFiles.clear();
 
 #ifdef CUFILE_SUPPORT
 	// deregister GPU buffers for DMA
@@ -1307,15 +1335,13 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 /**
  * Iterate over all directories to create or remove them.
  *
- * @doMkdir true to create dirs. Existing dir is not an error.
- * @doRmdir true to remove dirs.
  * @throw WorkerException on error.
  */
 void LocalWorker::dirModeIterateDirs()
 {
 	std::array<char, PATH_BUF_LEN> currentPath;
-	BenchPhase benchPhase = workersSharedData->currentBenchPhase;
-	size_t numDirs = progArgs->getNumDirs();
+	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+	const size_t numDirs = progArgs->getNumDirs();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
 	const bool ignoreDelErrors = progArgs->getDoDirSharing() ?
@@ -1423,6 +1449,89 @@ void LocalWorker::dirModeIterateDirs()
 		}
 	}
 
+}
+
+/**
+ * In directory mode with custom tree, iterate over all directories to create or remove them.
+ * All workers create/remove all dirs.
+ *
+ * Note: With a custom tree, multiple benchmark paths are not supported (because otherwise we
+ * 	can't ensure in file creation phase that the matching parent dir has been created for the
+ * 	current bench path).
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::dirModeIterateCustomDirs()
+{
+	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+	const int benchPathFD = progArgs->getBenchPathFDs()[0];
+	const std::string benchPathStr = progArgs->getBenchPaths()[0];
+	const bool ignoreDelErrors = true; // in custom tree mode, all workers mk/del all dirs
+	const PathList& customTreePaths = progArgs->getCustomTreeDirs().getPaths();
+	const bool reverseOrder = (benchPhase == BenchPhase_DELETEDIRS);
+
+	IF_UNLIKELY(customTreePaths.empty() )
+		return; // nothing to do here
+
+	/* note on reverse: dirs are ordered by path length, so that parents dirs come before their
+		subdirs. for tree removal, we need to remove subdirs first, hence the reverse order */
+
+	PathList::const_iterator forwardIter = customTreePaths.cbegin();
+	PathList::const_reverse_iterator reverseIter = customTreePaths.crbegin();
+
+	// create user-specified directories round-robin across all given bench paths
+	for( ; ; )
+	{
+		checkInterruptionRequest();
+
+		const PathStoreElem& currentPathElem = reverseOrder ? *reverseIter : *forwardIter;
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		if(benchPhase == BenchPhase_CREATEDIRS)
+		{ // create dir
+			int mkdirRes = mkdirat(benchPathFD, currentPathElem.path.c_str(), MKDIR_MODE);
+
+			if( (mkdirRes == -1) && (errno != EEXIST) )
+				throw WorkerException(std::string("Directory creation failed. ") +
+					"Path: " + benchPathStr + "/" + currentPathElem.path + "; "
+					"SysErr: " + strerror(errno) );
+		}
+
+		if(benchPhase == BenchPhase_DELETEDIRS)
+		{ // remove dir
+			int rmdirRes = unlinkat(benchPathFD, currentPathElem.path.c_str(), AT_REMOVEDIR);
+
+			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
+				throw WorkerException(std::string("Directory deletion failed. ") +
+					"Path: " + benchPathStr + "/" + currentPathElem.path + "; "
+					"SysErr: " + strerror(errno) );
+		}
+
+		// calc entry operations latency. (for create, this includes open/rw/close.)
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		atomicLiveOps.numEntriesDone++;
+
+		// advance iterator and check for end of list
+		if(reverseOrder)
+		{
+			reverseIter++;
+			if(reverseIter == customTreePaths.crend() )
+				break;
+		}
+		else
+		{
+			forwardIter++;
+			if(forwardIter == customTreePaths.cend() )
+				break;
+		}
+	} // end of for loop
 }
 
 /**
@@ -1573,6 +1682,149 @@ void LocalWorker::dirModeIterateFiles()
 			atomicLiveOps.numEntriesDone++;
 
 		} // end of files for loop
+	} // end of dirs for loop
+
+}
+
+/**
+ * This is for directory mode with custom files. Iterate over all files to create/read/remove them.
+ * Each worker uses a subset of the files from the non-shared.
+ *
+ * Note: With a custom tree, multiple benchmark paths are not supported (because otherwise we
+ * 	can't ensure in file creation phase that the matching parent dir has been created for the
+ * 	current bench path).
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::dirModeIterateCustomFiles()
+{
+	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+	const IntVec& benchPathFDs = progArgs->getBenchPathFDs();
+	const unsigned benchPathFDIdx = 0; // multiple bench paths not supported with custom tree
+	const int benchPathFD = progArgs->getBenchPathFDs()[0];
+	const std::string benchPathStr = progArgs->getBenchPaths()[0];
+	const int openFlags = getDirModeOpenFlags(benchPhase);
+	const size_t blockSize = progArgs->getBlockSize();
+	const bool ignoreDelErrors = true; // shared files are unliked by all workers, so no errs
+	const PathList& customTreePaths = customTreeFiles.getPaths();
+
+	int& fd = fileHandles.fdVec[0];
+	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
+
+	unsigned short numFilesDone = 0; // just for occasional interruption check (so short is ok)
+
+	// walk over each unique dir per worker
+
+	for(const PathStoreElem& currentPathElem : customTreePaths)
+	{
+		// occasional interruption check
+		if( (numFilesDone % INTERRUPTION_CHECK_INTERVAL) == 0)
+			checkInterruptionRequest();
+
+		const char* currentPath = currentPathElem.path.c_str();
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
+		{
+			const uint64_t fileSize = currentPathElem.rangeLen;
+			const uint64_t fileOffset = currentPathElem.rangeStart;
+
+			rwOffsetGen = std::make_unique<OffsetGenSequential>(
+					currentPathElem.rangeLen, fileOffset, blockSize);
+
+			fd = dirModeOpenAndPrepFile(benchPhase, benchPathFDs, benchPathFDIdx,
+				currentPathElem.path.c_str(), openFlags, fileSize);
+
+			// try-block to ensure that fd is closed in case of exception
+			try
+			{
+				((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
+
+				if(benchPhase == BenchPhase_CREATEFILES)
+				{
+					int64_t writeRes = ((*this).*funcRWBlockSized)();
+
+					IF_UNLIKELY(writeRes == -1)
+						throw WorkerException(std::string("File write failed. ") +
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+							"SysErr: " + strerror(errno) );
+
+					IF_UNLIKELY( (size_t)writeRes != currentPathElem.rangeLen)
+						throw WorkerException(std::string("Unexpected short file write. ") +
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+							"Bytes written: " + std::to_string(writeRes) + "; "
+							"Expected written: " + std::to_string(fileSize) );
+				}
+
+				if(benchPhase == BenchPhase_READFILES)
+				{
+					ssize_t readRes = ((*this).*funcRWBlockSized)();
+
+					IF_UNLIKELY(readRes == -1)
+						throw WorkerException(std::string("File read failed. ") +
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+							"SysErr: " + strerror(errno) );
+
+					IF_UNLIKELY( (size_t)readRes != fileSize)
+						throw WorkerException(std::string("Unexpected short file read. ") +
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+							"Bytes read: " + std::to_string(readRes) + "; "
+							"Expected read: " + std::to_string(fileSize) );
+				}
+			}
+			catch(...)
+			{ // ensure that we don't leak an open file fd
+				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
+
+				close(fd);
+				throw;
+			}
+
+			((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
+
+			int closeRes = close(fd);
+
+			IF_UNLIKELY(closeRes == -1)
+				throw WorkerException(std::string("File close failed. ") +
+					"Path: " + benchPathStr + "/" + currentPath + "; "
+					"FD: " + std::to_string(fd) + "; "
+					"SysErr: " + strerror(errno) );
+		}
+
+		if(benchPhase == BenchPhase_STATFILES)
+		{
+			struct stat statBuf;
+
+			int statRes = fstatat(benchPathFD, currentPath, &statBuf, 0);
+
+			if(statRes == -1)
+				throw WorkerException(std::string("File stat failed. ") +
+					"Path: " + benchPathStr + "/" + currentPath + "; "
+					"SysErr: " + strerror(errno) );
+		}
+
+		if(benchPhase == BenchPhase_DELETEFILES)
+		{
+			int unlinkRes = unlinkat(benchPathFD, currentPath, 0);
+
+			if( (unlinkRes == -1) && (!ignoreDelErrors || (errno != ENOENT) ) )
+				throw WorkerException(std::string("File delete failed. ") +
+					"Path: " + benchPathStr + "/" + currentPath + "; "
+					"SysErr: " + strerror(errno) );
+		}
+
+		// calc entry operations latency. (for create, this includes open/rw/close.)
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		atomicLiveOps.numEntriesDone++;
+		numFilesDone++;
+
 	} // end of dirs for loop
 
 }

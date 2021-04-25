@@ -4,8 +4,8 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
-EXE_VER_MINOR      ?= 8
-EXE_VER_PATCHLEVEL ?= 2
+EXE_VER_MINOR      ?= 9
+EXE_VER_PATCHLEVEL ?= 0
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -153,6 +153,7 @@ clean-all: clean clean-externals clean-packaging clean-buildhelpers
 install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-chart $(INST_PATH)/
+	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-scan-path $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME) \
 		/etc/bash_completion.d/$(EXE_NAME)
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME)-chart \
@@ -165,6 +166,7 @@ install: all
 uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
 	rm -f $(INST_PATH)/$(EXE_NAME)-chart
+	rm -f $(INST_PATH)/$(EXE_NAME)-scan-path
 	rm -f /etc/bash_completion.d/$(EXE_NAME)
 	rm -f /etc/bash_completion.d/$(EXE_NAME)-chart
 

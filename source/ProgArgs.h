@@ -8,7 +8,9 @@
 #include "Common.h"
 #include "CuFileHandleData.h"
 #include "Logger.h"
+#include "PathStore.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/SystemTk.h"
 
 
 namespace bpo = boost::program_options;
@@ -96,10 +98,20 @@ namespace bpt = boost::property_tree;
 #define ARG_RWMIXPERCENT_LONG		"rwmixpct"
 #define ARG_BLOCKVARIANCEALGO_LONG	"blockvaralgo"
 #define ARG_RANDSEEKALGO_LONG		"randalgo"
+#define ARG_TREEFILE_LONG			"treefile"
+#define ARG_FILESHARESIZE_LONG		"sharesize"
+#define ARG_TREERANDOMIZE_LONG		"treerand"
+#define ARG_TREEROUNDUP_LONG		"treeroundup"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
 #define ARGDEFAULT_SERVICEPORT_STR	STRINGIZE(ARGDEFAULT_SERVICEPORT)
+
+
+#define SERVICE_UPLOAD_BASEPATH(servicePort)	("/var/tmp/" EXE_NAME "_" + \
+												SystemTk::getUsername() + "_" + \
+												"p" + std::to_string(servicePort) )
+#define SERVICE_UPLOAD_TREEFILE					"treefile.txt"
 
 
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
@@ -134,8 +146,15 @@ class ProgArgs
 
 		bool isCuFileDriverOpen{false}; // to ensure cuFileDriverOpen/-Close is only called once
 
-		int argc; // command line argument count (as in main(argc, argv) ).
-		char** argv; // command line arg vector (as in main(argc, argv) ).
+		int argc; // command line argument count (as in main(argc, argv) )
+		char** argv; // command line arg vector (as in main(argc, argv) )
+
+		struct // file and dir paths for custom tree mode
+		{
+			PathStore dirs; // contains only dirs
+			PathStore filesNonShared; // file sizes < fileShareSize
+			PathStore filesShared; // file sizes >= fileShareSize
+		} customTree;
 
 		std::string progPath; // absolute path to program binary
 		std::string benchPathStr; // benchmark path(s), separated by BENCHPATH_DELIMITER
@@ -220,6 +239,15 @@ class ProgArgs
 		unsigned rwMixPercent; // % of blocks that should be read (the rest will be written)
 		std::string blockVarianceAlgo; // rand algo for buffer fill variance
 		std::string randOffsetAlgo; // rand algo for random offsets
+		std::string treeFilePath; // path to file containing custom tree (list of dirs and files)
+		uint64_t fileShareSize; /* in custom tree mode, file size as of which to write/read shared.
+									(default 0 means 32 times blockSize) */
+		std::string fileShareSizeOrigStr; // original fileShareSize str from user with unit
+		bool useCustomTreeRandomize; // randomize order of custom tree files
+		uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
+			(useful for directIO with its alignment reqs on some file systems. 0 disables this.) */
+		std::string treeRoundUpSizeOrigStr; // original treeRoundUpSize str from user with unit
+
 
 		void defineDefaults();
 		void convertUnitStrings();
@@ -233,6 +261,7 @@ class ProgArgs
 		void parseNumaZones();
 		void parseGPUIDs();
 		void parseRandAlgos();
+		void loadCustomTreeFile();
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
@@ -325,6 +354,13 @@ class ProgArgs
 		unsigned getRWMixPercent() const { return rwMixPercent; }
 		std::string getBlockVarianceAlgo() const { return blockVarianceAlgo; }
 		std::string getRandOffsetAlgo() const { return randOffsetAlgo; }
+		std::string getTreeFilePath() const { return treeFilePath; }
+		const PathStore& getCustomTreeDirs() const { return customTree.dirs; }
+		const PathStore& getCustomTreeFilesNonShared() const { return customTree.filesNonShared; }
+		const PathStore& getCustomTreeFilesShared() const { return customTree.filesShared; }
+		uint64_t getFileShareSize() const { return fileShareSize; }
+		bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
+		uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }
 };
 
 

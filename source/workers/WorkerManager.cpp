@@ -312,36 +312,82 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 {
 	if(progArgs.getBenchPathType() == BenchPathType_DIR)
 	{
-		switch(workersSharedData.currentBenchPhase)
-		{
-			case BenchPhase_CREATEDIRS:
-			case BenchPhase_DELETEDIRS:
+		if(progArgs.getTreeFilePath().empty() )
+		{ // standard dir mode
+			switch(workersSharedData.currentBenchPhase)
 			{
-				outNumEntriesPerWorker = progArgs.getNumDirs();
-				outNumBytesPerWorker = 0;
-			} break;
+				case BenchPhase_CREATEDIRS:
+				case BenchPhase_DELETEDIRS:
+				{
+					outNumEntriesPerWorker = progArgs.getNumDirs();
+					outNumBytesPerWorker = 0;
+				} break;
 
-			case BenchPhase_CREATEFILES:
-			case BenchPhase_READFILES:
+				case BenchPhase_CREATEFILES:
+				case BenchPhase_READFILES:
+				{
+					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+					outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
+				} break;
+
+				case BenchPhase_DELETEFILES:
+				case BenchPhase_STATFILES:
+				{
+					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+					outNumBytesPerWorker = 0;
+				} break;
+
+				default:
+				{ // e.g. sync and drop_caches
+					outNumEntriesPerWorker = 0;
+					outNumBytesPerWorker = 0;
+				}
+
+			} // end of switch
+		}
+		else
+		{ // custom tree mode
+			const size_t numDirs = progArgs.getCustomTreeDirs().getNumPaths();
+			const size_t numFilesNonShared = progArgs.getCustomTreeFilesNonShared().getNumPaths();
+			const size_t numFilesShared = progArgs.getCustomTreeFilesShared().getNumPaths();
+			const uint64_t numBytesTotal =
+				progArgs.getCustomTreeFilesNonShared().getNumBytesTotal() +
+				progArgs.getCustomTreeFilesShared().getNumBytesTotal();
+			const size_t numDataSetThreads = progArgs.getNumDataSetThreads();
+
+			switch(workersSharedData.currentBenchPhase)
 			{
-				outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
-				outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
-			} break;
+				case BenchPhase_CREATEDIRS:
+				case BenchPhase_DELETEDIRS:
+				{
+					outNumEntriesPerWorker = numDirs; // all workers create/remove all dirs
+					outNumBytesPerWorker = 0;
+				} break;
 
-			case BenchPhase_DELETEFILES:
-			case BenchPhase_STATFILES:
-			{
-				outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
-				outNumBytesPerWorker = 0;
-			} break;
+				case BenchPhase_CREATEFILES:
+				case BenchPhase_READFILES:
+				{
+					outNumEntriesPerWorker =
+						(numFilesNonShared + numFilesShared) / numDataSetThreads;
+					outNumBytesPerWorker = numBytesTotal / numDataSetThreads;
+				} break;
 
-			default:
-			{ // e.g. sync and dropcaches
-				outNumEntriesPerWorker = 0;
-				outNumBytesPerWorker = 0;
-			}
+				case BenchPhase_DELETEFILES:
+				case BenchPhase_STATFILES:
+				{
+					outNumEntriesPerWorker =
+						(numFilesNonShared + numFilesShared) / numDataSetThreads;
+					outNumBytesPerWorker = 0;
+				} break;
 
-		} // end of switch
+				default:
+				{ // e.g. sync and drop_caches
+					outNumEntriesPerWorker = 0;
+					outNumBytesPerWorker = 0;
+				}
+
+			} // end of switch
+		}
 	}
 	else
 	{ // file/blockdev mode

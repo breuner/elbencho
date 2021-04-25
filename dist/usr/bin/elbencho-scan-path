@@ -1,0 +1,261 @@
+#!/bin/bash
+#
+# Test a few simple benchmark cases.
+# This requires root privileges to setup a loopback block device for testing.
+
+SCRIPT_PATH=$(dirname "$0")
+SCRIPT_NAME=$(basename "$0")
+EXE_NAME="elbencho"
+EXE_PATH="$SCRIPT_PATH/../bin/$EXE_NAME"
+
+SCAN_PATH="" # Path to directory to scan.
+OUTPUT_PATH="" # Path to output tree file. Default is print to console.
+STATS_ONLY="0" # Don't scan, only print treefile stats
+SKIP_STATS="0" # Skip generation of statistics.
+
+OUTPUT_FILTER="cat -" # Send discovered entries to stdout or file
+
+# Print usage info and exit
+usage()
+{
+  echo "About:"
+  echo "  Create a tree file containing the names and sizes of all files and directories"
+  echo "  under the given path. The resulting tree file can be used to recreate the same"
+  echo "  tree structure in a new path via $EXE_NAME. This way, it's not only possible"
+  echo "  to use arbitrary tree structures with $EXE_NAME, but also to scan e.g. a"
+  echo "  project directory on one host and experiment with a similar structure on"
+  echo "  another host - without the need to do a full copy of the original dataset."
+  echo
+  echo "Usage:"
+  echo "  $SCRIPT_NAME [options] <SCANDIR>"
+  echo
+  echo "Mandatory Arguments:"
+  echo "  SCANDIR     Path to directory to scan. Entries in tree file will be relative"
+  echo "              to this path."
+  echo
+  echo "Optional Arguments:"
+  echo "  -o PATH     Path to tree file to which discovered entries will be appended."
+  echo "              If this is not set, then entries will be printed on console."
+  echo "  -S          Don't scan, only print statistics for given tree file. (Use with"
+  echo "              \"-o PATH\" and omit \"<SCANDIR>\".)"
+  echo "  -s          Skip generation of statistics. (Statistics can only be generated"
+  echo "              when an output file is given.)"
+  echo
+  echo "Examples:"
+  echo "  Scan /data/myproject and append discovered entries to /tmp/treefile.txt:"
+  echo "    $ $SCRIPT_NAME -o /tmp/treefile.txt /data/myproject"
+  echo
+  echo "  Let elbencho recreate the tree in a different directory using 10 threads:"
+  echo "    $ $EXE_NAME -t 10 -d -w --treefile /tmp/treefile.txt /data/myproject.new"
+  
+  
+  exit 1
+}
+
+# Parse command line arguments
+parse_args()
+{
+  local OPTIND # local to prevent effects from other subscripts
+
+  while getopts ":ho:Ss" opt; do
+    case "${opt}" in
+      h)
+        # help
+        usage
+        ;;
+      o)
+        OUTPUT_PATH="${OPTARG}"
+        OUTPUT_FILTER+=" >> \"$OUTPUT_PATH\""
+        ;;
+      S)
+        STATS_ONLY="1"
+        ;;
+      s)
+        SKIP_STATS="1"
+        ;;
+      *)
+        # Other option arguments are invalid
+        usage
+        ;;
+    esac
+  done
+
+  shift $((OPTIND-1))
+  
+  # Check if user only wants to see stats, so that we skip SCAN_PATH check
+  if [ "$STATS_ONLY" -eq 1 ]; then
+    return
+  fi
+  
+  # 1 here for the mandatory arg: SCAN_PATH
+  if [ $# -ne 1 ]; then
+    echo "ERROR: Exactly one scan path needs to be given" >&2
+    usage
+  fi
+
+  # Non-option argument is assumed to be scan path
+  SCAN_PATH="$1" # directory to scan
+}
+
+# Check if given scan path exists and is a directory
+check_scan_path()
+{
+  if [ ! -d "$SCAN_PATH" ]; then
+    echo "ERROR: Given scan path does not exist or is not a directory: \"$SCAN_PATH\"" >&2
+    exit 1
+  fi
+}
+
+# Check for existence of output file
+check_output_file()
+{
+  if [ "$STATS_ONLY" -eq 1 ] && [ -z "$OUTPUT_PATH" ]; then
+    echo "ERROR: No tree file given for stats generation." >&2
+    exit 1
+  fi
+
+  if [ "$STATS_ONLY" -eq 1 ] && [ ! -e "$OUTPUT_PATH" ]; then
+    echo "ERROR: Given tree file for stats generation not found: $OUTPUT_PATH" >&2
+    exit 1
+  fi
+  
+  # Skip remaining checks if user only wants to see stats
+  if [ "$STATS_ONLY" -eq 1 ]; then
+    return 
+  fi
+  
+  if [ -z "$OUTPUT_PATH" ]; then
+    return
+  fi 
+  
+  if [ -e "$OUTPUT_PATH" ]; then
+    echo "* Note: Output file already exists. Discovered entries will be appended." >&2
+    return
+  fi
+}
+
+# find dirs
+find_dirs()
+{
+  find "$SCAN_PATH" -mindepth 1 -type d -printf '%y %P\0' | tr '\n' '_' | tr '\0' '\n'
+  if [ $? -ne 0 ]; then
+    echo "ERROR: \"find\" command terminated with error code." >&2
+    exit 1
+  fi
+}
+
+# find files
+find_files()
+{
+  find "$SCAN_PATH" -mindepth 1 -type f -printf '%y %s %P\0' | tr '\n' '_' | tr '\0' '\n'
+  if [ $? -ne 0 ]; then
+    echo "ERROR: \"find\" command terminated with error code." >&2
+    exit 1
+  fi
+}
+
+# print stats
+print_stats()
+{
+  # check if user selected to skip stats generation
+  if [ "$SKIP_STATS" -eq "1" ]; then
+    return
+  fi
+
+  # stats can only be generated when output file is given
+  if [ -z "$OUTPUT_PATH" ]; then
+    return
+  fi
+
+  echo "* Generating statistics..." >&2
+
+  local num_dirs=$(grep -E '^d ' "$OUTPUT_PATH" | wc -l)
+  echo "  * Number of directories in output file: $num_dirs"
+
+  local num_files=$(grep -E '^f ' "$OUTPUT_PATH" | wc -l)
+  echo "  * Number of files in output file: $num_files"
+  
+  local num_bytes=0
+  local min_file_size
+  local max_file_size
+  
+  for i in $(grep -E '^f ' "$OUTPUT_PATH" | cut -d " " -f 2); do 
+    num_bytes=$(($num_bytes + $i)); 
+
+    if [ -z "$min_file_size" ]; then
+      min_file_size=$i
+    fi
+    
+    if [ "$i" -lt "$min_file_size" ]; then
+      min_file_size=$i
+    fi
+    
+    if [ -z "$max_file_size" ]; then
+      max_file_size=$i
+    fi
+
+    if [ "$i" -gt "$max_file_size" ]; then
+      max_file_size=$i
+    fi
+  done
+  
+  echo "  * Aggregate file size in output file: $num_bytes" \
+    "($(( $num_bytes / (1024*1024) )) MiB)" >&2
+    
+  if [ -n "$min_file_size" ]; then
+    echo "  * Min file size in output file: $min_file_size" \
+      "($(( $min_file_size / (1024*1024) )) MiB)" >&2
+  fi
+
+  if [ "$num_files" -gt 0 ]; then
+    local avg_file_size=$(( $num_bytes / $num_files))
+    echo "  * Avg file size in output file: $avg_file_size" \
+      "($(( $avg_file_size / (1024*1024) )) MiB)" >&2
+  fi
+  
+  if [ -n "$max_file_size" ]; then
+    echo "  * Max file size in output file: $max_file_size" \
+      "($(( $max_file_size / (1024*1024) )) MiB)" >&2
+  fi
+}
+
+############ End of function definitions #############
+
+parse_args "$@"
+
+# Check if user only wants to see statistics for tree file
+if [ "$STATS_ONLY" -eq 1 ]; then
+  check_output_file
+  
+  print_stats
+  if [ $? -ne 0 ]; then
+    exit 1
+  fi
+  
+  echo "* All done. (Runtime: ${SECONDS}s)" >&2
+  exit 0
+fi
+
+# If we get here, then user wants an actual scan (not just statistics)...
+
+check_scan_path
+check_output_file
+
+echo "* Discovering directories..." >&2
+find_dirs | eval $OUTPUT_FILTER
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
+echo "* Discovering files..." >&2
+find_files | eval $OUTPUT_FILTER
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
+print_stats
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
+echo "* All done. (Runtime: ${SECONDS}s)" >&2

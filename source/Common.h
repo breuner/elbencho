@@ -40,7 +40,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"1.8.0"
+#define HTTP_PROTOCOLVERSION	"1.9.0"
 
 
 /**
@@ -121,6 +121,7 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define XFER_PREP_BENCHPATHTYPE				"BenchPathType"
 #define XFER_PREP_ERRORHISTORY				"ErrorHistory"
 #define XFER_PREP_NUMBENCHPATHS				"NumBenchPaths"
+#define XFER_PREP_FILENAME					"FileName"
 
 #define XFER_STATS_BENCHID 					"BenchID"
 #define XFER_STATS_BENCHPHASENAME 			"PhaseName"
@@ -151,6 +152,5 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define XFER_START_BENCHPHASECODE			XFER_STATS_BENCHPHASECODE
 
 #define XFER_INTERRUPT_QUIT					"quit"
-
 
 #endif /* COMMON_H_ */
