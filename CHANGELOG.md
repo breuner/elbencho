@@ -1,5 +1,8 @@
 # Changelog of elbencho
 
+## v1.8.2 (work in progress)
+* New makefile option NO_BACKTRACE=1 to build without backtrace support for musl-libc compatibility.
+
 ## v1.8.1 (March 21, 2021)
 
 ### New Features & Enhancements

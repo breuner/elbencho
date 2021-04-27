@@ -1,5 +1,4 @@
 #include <csignal>
-#include <execinfo.h>
 #include <fcntl.h>
 #include <iostream>
 #include <sstream>
@@ -11,6 +10,10 @@
 #include "Common.h"
 #include "ProgException.h"
 #include "SignalTk.h"
+
+#if NO_BACKTRACE == 0
+#include <execinfo.h>
+#endif
 
 #define SIGNALTK_BACKTRACE_ARRAY_SIZE	32
 #define SIGNALTK_BACKTRACE_PATH			"/tmp/" EXE_NAME "_fault_trace.txt"
@@ -129,9 +132,18 @@ bool SignalTk::unblockInterruptSignals()
 
 /**
  * Log backtrace of the calling thread to file SIGNALTK_BACKTRACE_PATH and to stderr.
+ *
+ * Note: Might return an empty string if compiled without backtrace support for musl-libc
+ * compatibility.
  */
 std::string SignalTk::logBacktrace()
 {
+#if NO_BACKTRACE == 1
+
+	return ""; // no backtrace support for musl-libc compatibility
+
+#else
+
 	std::ostringstream stream; // return value
 	int backtraceLength = 0;
 	char** backtraceSymbols = NULL;
@@ -165,6 +177,7 @@ std::string SignalTk::logBacktrace()
 	SAFE_FREE(backtraceSymbols);
 
 	return stream.str();
+#endif
 }
 
 /**

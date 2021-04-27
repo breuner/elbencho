@@ -1627,6 +1627,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cufile/gds ";
 #endif
 
+#if NO_BACKTRACE == 1 // no backtraces for musl-libc compatibility
+	notIncludedStream << "backtrace ";
+#else
+	includedStream << "backtrace ";
+#endif
+
 	std::cout << "Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
 	std::cout << "Excluded optional build features: " <<

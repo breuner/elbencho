@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
 EXE_VER_MINOR      ?= 8
-EXE_VER_PATCHLEVEL ?= 0
+EXE_VER_PATCHLEVEL ?= 2
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -25,11 +25,12 @@ STRIP              ?= strip
 CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
 
+NO_BACKTRACE       ?= 0
 
 CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
-	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server -Wall \
-	-Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
+	-DNO_BACKTRACE=$(NO_BACKTRACE) -I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
+	-Wall -Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
 	-fno-strict-aliasing -pthread -ggdb -std=c++14
 CXXFLAGS_RELEASE = -O3 -Wuninitialized
 CXXFLAGS_DEBUG   = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
@@ -235,6 +236,7 @@ help:
 	@echo '                             GPUDirect Storage (GDS) through the cuFile API.'
 	@echo '                             By default, GDS support will be enabled when GDS'
 	@echo '                             is installed.'
+	@echo '   NO_BACKTRACE=1          - Build without backtrace support for musl-libc.'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
