@@ -88,7 +88,7 @@ If GPU data transfer performance is critical for you, e.g. because you are runni
 It is possible to configure elbencho from a configuration file (in addition) to the command line. For example running:
 
 ```console
-elbencho --configfile example_configuration/randomWrite.elbencho /scratch/
+elbencho --configfile tools/example_configuration/randomWrite.elbencho /scratch/
 ```
 
 Is equivalent to:
