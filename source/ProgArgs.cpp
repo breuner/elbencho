@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <iostream>
 #include <iterator>
+#include <libgen.h>
 #include <string>
 #include <sys/ioctl.h>
 #include <sys/types.h>
