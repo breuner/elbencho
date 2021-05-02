@@ -60,8 +60,10 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 		// Add the configfile option before all the other options to prevent a cycle
 
 		argsDescription.add_options()
-		/*c*/	(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
-			"Path to the file that holds the configuration. This way, results can be reproduced.");
+		(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
+			"Path to benchmark configuration file. All command line options starting with "
+			"double dashes can be used as \"OPTIONNAME=VALUE\" in the config file. Multiple "
+			"options are newline-separated. Lines starting with \"#\" are ignored.");
 
 		bpo::positional_options_description positionalArgsDescription;
 		positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
@@ -91,22 +93,21 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 	if(hasUserRequestedHelp() || hasUserRequestedVersion() )
 		return;
 
-	bpo::options_description config_file_options;
-	config_file_options.add(argsGenericDescription); // Adding same conf options from file that are available from cl
+	bpo::options_description configFileOptions;
+	configFileOptions.add(argsGenericDescription); // Adding same conf options from file that are available from cl
 
-	if(!this->configFilePath.empty())
+	if(!configFilePath.empty())
 	{
-		std::ifstream ifs{this->configFilePath.c_str()};
-		if (!ifs)
-		{
-			throw ProgException(std::string("Can not open config file: " + configFilePath));
-		}
+		std::ifstream ifs{configFilePath.c_str() };
+		if(!ifs)
+			throw ProgException(std::string("Cannot open config file: " + configFilePath) );
 		else
 		{
-			bpo::store(bpo::parse_config_file(ifs, config_file_options), argsVariablesMap);
+			bpo::store(bpo::parse_config_file(ifs, configFileOptions), argsVariablesMap);
 			bpo::notify(argsVariablesMap);
 		}
 	}
+
 	convertUnitStrings();
 	checkArgs();
 }

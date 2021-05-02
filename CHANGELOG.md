@@ -8,10 +8,12 @@
 * New Dockerfile added
   * New official elbencho Docker repository with usage examples: https://hub.docker.com/r/breuner/elbencho
 * New makefile option NO_BACKTRACE=1 to build without backtrace support for musl-libc compatibility.
+* New option to load benchmark parameters from config file (-c / --configfile).
 
 ### Contributors
 * Thanks to Zettar team (esp. Chin Fang & Oleskandr Nazarenko) for contributing in multiple ways to the new custom tree mode.
 * Thanks to first time contributor Andy Pernsteiner (VAST Data) for providing the Dockerfile and testing on Alpine Linux.
+* Thanks to first time contributor Edgar Fajardo Hernandez (Penguin Computing) for contributing the config file option.
 
 ## v1.8.1 (March 21, 2021)
 

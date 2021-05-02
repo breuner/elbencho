@@ -85,16 +85,16 @@ The built-in help (`elbencho --help`) provides many usage examples. You will be 
 
 If GPU data transfer performance is critical for you, e.g. because you are running DeepLearning applications, you will also want to include GPUs in your read/write benchmarks (`--gpuids`).
 
-It is possible to configure elbencho from a configuration file (in addition) to the command line. For example running:
+It is possible to configure elbencho from a configuration file in addition to the command line. For example running:
 
-```console
-elbencho --configfile tools/example_configuration/randomWrite.elbencho /scratch/
+```bash
+elbencho --configfile tools/example_configuration/randomWrite.elbencho /data
 ```
 
 Is equivalent to:
 
-```console
-elbencho -d -F -D --write -t 1 -n 1 -N 10 -s 1G --direct --iodepth 4 -b 1M --timelimit 10 /scratch/
+```bash
+elbencho -d -F -D --write -t 1 -n 1 -N 10 -s 1G --direct --iodepth 4 -b 1M --timelimit 10 /data
 ```
 
 ### Results & Charts

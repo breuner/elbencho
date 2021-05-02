@@ -7,6 +7,7 @@ _elbencho_opts()
 
    shortopts="
         -b
+        -c
         -d
         -D
         -F
@@ -24,6 +25,7 @@ _elbencho_opts()
         --block
         --blockvaralgo
         --blockvarpct
+        --configfile
         --cpu
         --csvfile
         --cufile
@@ -170,6 +172,10 @@ _elbencho()
         ;;
 
         # options that take a file/dir argument
+        -c)
+        ;&
+        --configfile)
+        ;&
         --csvfile)
         ;&
         --hostsfile)
