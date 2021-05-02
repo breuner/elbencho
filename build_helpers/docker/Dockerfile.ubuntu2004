@@ -1,0 +1,24 @@
+# Full elbencho rpm install of latest github master on Ubuntu 20.04
+
+FROM ubuntu:20.04 as builder
+
+RUN apt update && \
+    export DEBIAN_FRONTEND=noninteractive && \
+    apt install -y build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian && \
+    cd /root && git clone https://github.com/breuner/elbencho.git && \
+    cd elbencho && \
+    make -j "$(nproc)" && \
+    make deb
+
+FROM ubuntu:20.04
+
+COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
+
+RUN apt update && \
+    export DEBIAN_FRONTEND=noninteractive && \
+    apt install -y /tmp/elbencho*.deb && \
+    rm -f /tmp/elbencho*.deb && \
+    apt clean all && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]

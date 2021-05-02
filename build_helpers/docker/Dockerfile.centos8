@@ -1,0 +1,20 @@
+# Full elbencho rpm install of latest github master on CentOS 8
+
+FROM centos:8.3.2011 as builder
+
+RUN yum install -y boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel rpm-build && \
+    cd /root && git clone https://github.com/breuner/elbencho.git && \
+    cd elbencho && \
+    make -j "$(nproc)" && \
+    make rpm
+
+FROM centos:8.3.2011
+
+COPY --from=builder /root/elbencho/packaging/RPMS/*/elbencho*.rpm /tmp/
+
+RUN yum install -y /tmp/elbencho*.rpm && \
+    rm -f /tmp/elbencho*.rpm && \
+    yum clean all && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]

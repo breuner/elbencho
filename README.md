@@ -24,7 +24,7 @@ The built-in help (`elbencho --help`) provides simple examples to get started.
 
 ## Prerequisites
 
-Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
+You can get elbencho pre-built from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
 
 ### Dependencies for Debian/Ubuntu
 
@@ -45,8 +45,8 @@ Skip these steps on RHEL / CentOS 8.0 or newer.
 ```bash
 sudo yum install centos-release-scl # for CentOS
 # ...or alternatively for RHEL: yum-config-manager --enable rhel-server-rhscl-7-rpms
-sudo yum install devtoolset-7
-scl enable devtoolset-7 bash # alternatively: source /opt/rh/devtoolset-7/enable
+sudo yum install devtoolset-8
+scl enable devtoolset-8 bash # alternatively: source /opt/rh/devtoolset-8/enable
 ```
 
 The `scl enable` command enters a shell in which the environment variables are pointing to a newer gcc version. (The standard gcc version of the system remains unchanged.) Use this shell to run `make` later. The resulting executable can run outside of this shell.
