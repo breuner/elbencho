@@ -1,5 +1,6 @@
 #include <boost/algorithm/string.hpp>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <libgen.h>
@@ -56,6 +57,12 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 		bpo::options_description argsDescription;
 		argsDescription.add(argsGenericDescription).add(argsHiddenDescription);
 
+		// Add the configfile option before all the other options to prevent a cycle
+
+		argsDescription.add_options()
+		/*c*/	(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
+			"Path to the file that holds the configuration. This way, results can be reproduced.");
+
 		bpo::positional_options_description positionalArgsDescription;
 		positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
 
@@ -84,6 +91,22 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 	if(hasUserRequestedHelp() || hasUserRequestedVersion() )
 		return;
 
+	bpo::options_description config_file_options;
+	config_file_options.add(argsGenericDescription); // Adding same conf options from file that are available from cl
+
+	if(!this->configFilePath.empty())
+	{
+		std::ifstream ifs{this->configFilePath.c_str()};
+		if (!ifs)
+		{
+			throw ProgException(std::string("Can not open config file: " + configFilePath));
+		}
+		else
+		{
+			bpo::store(bpo::parse_config_file(ifs, config_file_options), argsVariablesMap);
+			bpo::notify(argsVariablesMap);
+		}
+	}
 	convertUnitStrings();
 	checkArgs();
 }

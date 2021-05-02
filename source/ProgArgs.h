@@ -34,6 +34,8 @@ namespace bpt = boost::property_tree;
 #define ARG_FILESIZE_SHORT 			"s"
 #define ARG_BLOCK_LONG	 			"block"
 #define ARG_BLOCK_SHORT 			"b"
+#define ARG_CONFIGFILE_LONG			"configfile"
+#define ARG_CONFIGFILE_SHORT  		"c"
 #define ARG_DIRECTIO_LONG 			"direct"
 #define ARG_NOLIVESTATS_LONG 		"nolive"
 #define ARG_IGNOREDELERR_LONG		"nodelerr"
@@ -211,6 +213,7 @@ class ProgArgs
 		bool doTruncate; // truncate files to 0 size on open for writing
 		std::string resFilePath; // results output file path (or empty for no results file)
 		size_t timeLimitSecs; // time limit in seconds for each phase (0 to disable)
+		std::string configFilePath; // Configuration input using a config file (empty for none)
 		std::string csvFilePath; // results output file path for csv format (or empty for none)
 		bool noCSVLabels; // true to not print headline with labels to csv file
 		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
@@ -329,6 +332,7 @@ class ProgArgs
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		void setTimeLimitSecs(size_t timeLimitSecs) { this->timeLimitSecs = timeLimitSecs; }
 		std::string getCSVFilePath() const { return csvFilePath; }
+		std::string getConfigFilePath() const { return configFilePath; }
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
 		std::string getGPUIDsStr() const { return gpuIDsStr; }
 		const IntVec& getGPUIDsVec() const { return gpuIDsVec; }

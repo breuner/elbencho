@@ -1,0 +1,12 @@
+threads=2
+iodepth=4
+timelimit=10
+block=1M
+direct=1
+size=1G
+files=10
+dirs=1
+deldirs=1
+delfiles=1
+mkdirs=1
+write=1
