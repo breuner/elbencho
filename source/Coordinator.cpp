@@ -189,44 +189,47 @@ void Coordinator::runSyncAndDropCaches()
  */
 void Coordinator::runBenchmarks()
 {
-	statistics.printPhaseResultsTableHeader();
+	for(size_t IterationIndex = 0; IterationIndex < progArgs.getIterations(); IterationIndex++)
+	{	
+		statistics.printPhaseResultsTableHeader();
 
-	runSyncAndDropCaches();
-
-	if(progArgs.getRunCreateDirsPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_CREATEDIRS);
 		runSyncAndDropCaches();
-	}
 
-	if(progArgs.getRunCreateFilesPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_CREATEFILES);
-		runSyncAndDropCaches();
-	}
+		if(progArgs.getRunCreateDirsPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_CREATEDIRS);
+			runSyncAndDropCaches();
+		}
 
-	if(progArgs.getRunStatFilesPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_STATFILES);
-		runSyncAndDropCaches();
-	}
+		if(progArgs.getRunCreateFilesPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_CREATEFILES);
+			runSyncAndDropCaches();
+		}
 
-	if(progArgs.getRunReadPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_READFILES);
-		runSyncAndDropCaches();
-	}
+		if(progArgs.getRunStatFilesPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_STATFILES);
+			runSyncAndDropCaches();
+		}
+	
+		if(progArgs.getRunReadPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_READFILES);
+			runSyncAndDropCaches();
+		}
+	
+		if(progArgs.getRunDeleteFilesPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_DELETEFILES);
+			runSyncAndDropCaches();
+		}
 
-	if(progArgs.getRunDeleteFilesPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_DELETEFILES);
-		runSyncAndDropCaches();
-	}
-
-	if(progArgs.getRunDeleteDirsPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_DELETEDIRS);
-		runSyncAndDropCaches();
+		if(progArgs.getRunDeleteDirsPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_DELETEDIRS);
+			runSyncAndDropCaches();
+		}
 	}
 }
 

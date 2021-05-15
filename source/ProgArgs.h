@@ -57,6 +57,8 @@ namespace bpt = boost::property_tree;
 #define ARG_NODETACH_LONG			"nodetach"
 #define ARG_HOSTS_LONG				"hosts"
 #define ARG_INTERRUPT_LONG			"interrupt"
+#define ARG_ITERATIONS_LONG			"iterations"
+#define ARG_ITERATIONS_SHORT			"i"
 #define ARG_QUIT_LONG				"quit"
 #define ARG_NOSVCPATHSHARE_LONG		"nosvcshare"
 #define ARG_RANKOFFSET_LONG			"rankoffset"
@@ -176,6 +178,8 @@ class ProgArgs
 		std::string fileSizeOrigStr; // original fileSize str from user with unit
 		size_t blockSize; // number of bytes to read/write in a single read()/write() call
 		std::string blockSizeOrigStr; // original blockSize str from user with unit
+		size_t iterations; // Number of iterations of the same benchmark
+		std::string iterationsOrigStr; // original iterations string from user input
 		bool useDirectIO; // open files with O_DIRECT
 		bool disableLiveStats; // disable live stats
 		bool ignoreDelErrors; // ignore ENOENT errors on file/dir deletion
@@ -292,6 +296,7 @@ class ProgArgs
 		size_t getNumFiles() const { return numFiles; }
 		size_t getNumThreads() const { return numThreads; }
 		size_t getNumDataSetThreads() const { return numDataSetThreads; }
+		size_t getIterations() const { return iterations; } 
 		uint64_t getFileSize() const { return fileSize; }
 		size_t getBlockSize() const { return blockSize; }
 		bool getUseDirectIO() const { return useDirectIO; }
