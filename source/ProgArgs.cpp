@@ -221,7 +221,7 @@ void ProgArgs::defineAllowedArgs()
 /*ho*/	(ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
 			"Path to file containing line-separated service hosts to use for benchmark. (Format: "
 			"hostname[:port])")
-/*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterationsOrigStr),
+/*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterations),
 			"Number of iterations to run the benchmark. (Default: 1)")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
@@ -365,7 +365,6 @@ void ProgArgs::defineDefaults()
 	this->numDirsOrigStr = "1";
 	this->numFiles = 1;
 	this->numFilesOrigStr = "1";
-	this->iterationsOrigStr = "1";
 	this->iterations = 1;
 	this->fileSize = 0;
 	this->fileSizeOrigStr = "0";
@@ -441,7 +440,6 @@ void ProgArgs::convertUnitStrings()
 	randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
 	fileShareSize = UnitTk::numHumanToBytesBinary(fileShareSizeOrigStr, false);
 	treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
-	iterations = UnitTk::numHumanToBytesBinary(iterationsOrigStr, false);
 }
 
 /**
@@ -501,6 +499,8 @@ void ProgArgs::checkArgs()
 
 	if(!numThreads)
 		throw ProgException("Number of threads may not be zero.");
+	if(!iterations)
+		throw ProgException("Number of iterations may not be zero.");
 
 	numDataSetThreads = (!hostsVec.empty() && getIsServicePathShared() ) ?
 		(numThreads * hostsVec.size() ) : numThreads;
@@ -1758,7 +1758,6 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
 	numDirs = tree.get<size_t>(ARG_NUMDIRS_LONG);
 	numFiles = tree.get<size_t>(ARG_NUMFILES_LONG);
-	iterations = tree.get<size_t>(ARG_ITERATIONS_LONG);
 	fileSize = tree.get<uint64_t>(ARG_FILESIZE_LONG);
 	blockSize = tree.get<size_t>(ARG_BLOCK_LONG);
 	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
@@ -1842,7 +1841,6 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_NUMTHREADS_LONG, numThreads);
 	outTree.put(ARG_NUMDIRS_LONG, numDirs);
 	outTree.put(ARG_NUMFILES_LONG, numFiles);
-	outTree.put(ARG_ITERATIONS_LONG, iterations);
 	outTree.put(ARG_FILESIZE_LONG, fileSize);
 	outTree.put(ARG_BLOCK_LONG, blockSize);
 	outTree.put(ARG_DIRECTIO_LONG, useDirectIO);

@@ -189,7 +189,7 @@ void Coordinator::runSyncAndDropCaches()
  */
 void Coordinator::runBenchmarks()
 {
-	for(size_t IterationIndex = 0; IterationIndex < progArgs.getIterations(); IterationIndex++)
+	for(size_t iterationIndex = 0; iterationIndex < progArgs.getIterations(); iterationIndex++)
 	{	
 		statistics.printPhaseResultsTableHeader();
 

@@ -179,7 +179,6 @@ class ProgArgs
 		size_t blockSize; // number of bytes to read/write in a single read()/write() call
 		std::string blockSizeOrigStr; // original blockSize str from user with unit
 		size_t iterations; // Number of iterations of the same benchmark
-		std::string iterationsOrigStr; // original iterations string from user input
 		bool useDirectIO; // open files with O_DIRECT
 		bool disableLiveStats; // disable live stats
 		bool ignoreDelErrors; // ignore ENOENT errors on file/dir deletion
