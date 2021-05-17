@@ -127,10 +127,10 @@ _elbencho()
         ;&
         --gpuids)
         ;&
-	-i)
-	;&
-	--iterations)
-	;&
+        -i)
+        ;&
+        --iterations)
+        ;&
         --iodepth)
         ;&
         --latpercent9s)
