@@ -12,6 +12,7 @@ _elbencho_opts()
         -D
         -F
         -h
+        -i
         -n
         -N
         -r
@@ -50,6 +51,7 @@ _elbencho_opts()
         --hosts
         --hostsfile
         --interrupt
+        --iterations
         --iodepth
         --lat
         --lathisto
@@ -124,6 +126,10 @@ _elbencho()
         --files)
         ;&
         --gpuids)
+        ;&
+        -i)
+        ;&
+        --iterations)
         ;&
         --iodepth)
         ;&

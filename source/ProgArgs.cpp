@@ -221,6 +221,8 @@ void ProgArgs::defineAllowedArgs()
 /*ho*/	(ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
 			"Path to file containing line-separated service hosts to use for benchmark. (Format: "
 			"hostname[:port])")
+/*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterations),
+			"Number of iterations to run the benchmark. (Default: 1)")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -363,6 +365,7 @@ void ProgArgs::defineDefaults()
 	this->numDirsOrigStr = "1";
 	this->numFiles = 1;
 	this->numFilesOrigStr = "1";
+	this->iterations = 1;
 	this->fileSize = 0;
 	this->fileSizeOrigStr = "0";
 	this->blockSize = 1024*1024;
@@ -496,6 +499,8 @@ void ProgArgs::checkArgs()
 
 	if(!numThreads)
 		throw ProgException("Number of threads may not be zero.");
+	if(!iterations)
+		throw ProgException("Number of iterations may not be zero.");
 
 	numDataSetThreads = (!hostsVec.empty() && getIsServicePathShared() ) ?
 		(numThreads * hostsVec.size() ) : numThreads;
