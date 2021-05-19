@@ -4,8 +4,8 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 1
-EXE_VER_MINOR      ?= 7
-EXE_VER_PATCHLEVEL ?= 1
+EXE_VER_MINOR      ?= 9
+EXE_VER_PATCHLEVEL ?= 0
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -25,11 +25,12 @@ STRIP              ?= strip
 CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
 
+NO_BACKTRACE       ?= 0
 
 CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
-	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server -Wall \
-	-Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
+	-DNO_BACKTRACE=$(NO_BACKTRACE) -I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
+	-Wall -Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
 	-fno-strict-aliasing -pthread -ggdb -std=c++14
 CXXFLAGS_RELEASE = -O3 -Wuninitialized
 CXXFLAGS_DEBUG   = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
@@ -152,6 +153,7 @@ clean-all: clean clean-externals clean-packaging clean-buildhelpers
 install: all
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-chart $(INST_PATH)/
+	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-scan-path $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME) \
 		/etc/bash_completion.d/$(EXE_NAME)
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME)-chart \
@@ -164,6 +166,7 @@ install: all
 uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
 	rm -f $(INST_PATH)/$(EXE_NAME)-chart
+	rm -f $(INST_PATH)/$(EXE_NAME)-scan-path
 	rm -f /etc/bash_completion.d/$(EXE_NAME)
 	rm -f /etc/bash_completion.d/$(EXE_NAME)-chart
 
@@ -235,6 +238,7 @@ help:
 	@echo '                             GPUDirect Storage (GDS) through the cuFile API.'
 	@echo '                             By default, GDS support will be enabled when GDS'
 	@echo '                             is installed.'
+	@echo '   NO_BACKTRACE=1          - Build without backtrace support for musl-libc.'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'

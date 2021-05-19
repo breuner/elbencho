@@ -15,6 +15,9 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define STRINGIZE(value)		_STRINGIZE(value) // 2 levels necessary for macro expansion
 #define _STRINGIZE(value)		#value
 
+
+// human-readable benchmark phase name
+
 #define PHASENAME_IDLE			"IDLE"
 #define PHASENAME_TERMINATE		"QUIT"
 #define PHASENAME_CREATEDIRS	"MKDIRS"
@@ -27,12 +30,22 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_STATFILES		"STAT"
 
 
+// human-readable entry type in current benchmark phase
+
 #define PHASEENTRYTYPE_DIRS		"dirs"
 #define PHASEENTRYTYPE_FILES	"files"
 
-#define HTTP_PROTOCOLVERSION	"1.7.0" // exchanged between client & server to check compatibility
+/*
+ * Messaging protocol version. Exchanged between master and services to check compatibility.
+ * (Only exact matches are assumed to be compatible, that's why this can differ from the program
+ * version.)
+ */
+#define HTTP_PROTOCOLVERSION	"1.9.0"
 
 
+/**
+ * Call delete() on an object pointer if it's not NULL and afterwards set it to NULL.
+ */
 #define SAFE_DELETE(objectPointer) \
 	do \
 	{ \
@@ -43,6 +56,9 @@ typedef std::vector<uint64_t> UInt64Vec;
 		}  \
 	} while(0)
 
+/**
+ * Call free on a pointer if it's not NULL and afterwards set it to NULL.
+ */
 #define SAFE_FREE(pointer) \
 	do \
 	{ \
@@ -54,6 +70,9 @@ typedef std::vector<uint64_t> UInt64Vec;
 	} while(0)
 
 
+/**
+ * Current benchmark phase.
+ */
 enum BenchPhase
 {
 	BenchPhase_IDLE = 0,
@@ -68,6 +87,10 @@ enum BenchPhase
 	BenchPhase_STATFILES,
 };
 
+
+/**
+ * Type of user-given benchmark paths.
+ */
 enum BenchPathType
 {
 	BenchPathType_DIR=0,
@@ -75,5 +98,59 @@ enum BenchPathType
 	BenchPathType_BLOCKDEV=2,
 };
 
+
+/**
+ * Retrieved by master from services as part of preparation phase.
+ */
+struct BenchPathInfo
+{
+	std::string benchPathStr;
+	BenchPathType benchPathType;
+	size_t numBenchPaths;
+	uint64_t fileSize;
+	uint64_t blockSize;
+	uint64_t randomAmount;
+};
+
+typedef std::vector<BenchPathInfo> BenchPathInfoVec;
+
+
+// http service transferred parameters (used as http GET parameters or in json document)
+
+#define XFER_PREP_PROTCOLVERSION			"ProtocolVersion"
+#define XFER_PREP_BENCHPATHTYPE				"BenchPathType"
+#define XFER_PREP_ERRORHISTORY				"ErrorHistory"
+#define XFER_PREP_NUMBENCHPATHS				"NumBenchPaths"
+#define XFER_PREP_FILENAME					"FileName"
+
+#define XFER_STATS_BENCHID 					"BenchID"
+#define XFER_STATS_BENCHPHASENAME 			"PhaseName"
+#define XFER_STATS_BENCHPHASECODE			"PhaseCode"
+#define XFER_STATS_NUMWORKERSDONE			"NumWorkersDone"
+#define XFER_STATS_NUMWORKERSDONEWITHERR	"NumWorkersDoneWithError"
+#define XFER_STATS_NUMENTRIESDONE 			"NumEntriesDone"
+#define XFER_STATS_NUMBYTESDONE 			"NumBytesDone"
+#define XFER_STATS_NUMIOPSDONE 				"NumIOPSDone"
+#define XFER_STATS_NUMBYTESDONE_RWMIXREAD	"NumBytesDoneRWMixRead"
+#define XFER_STATS_NUMIOPSDONE_RWMIXREAD	"NumIOPSDoneRWMixRead"
+#define XFER_STATS_ELAPSEDUSECLIST			"ElapsedUSecList"
+#define XFER_STATS_ELAPSEDUSECLIST_ITEM		"ElapsedUSecList.item"
+#define XFER_STATS_ELAPSEDSECS 				"ElapsedSecs"
+#define XFER_STATS_ERRORHISTORY				XFER_PREP_ERRORHISTORY
+#define XFER_STATS_LAT_PREFIX_IOPS			"IOPS_"
+#define XFER_STATS_LAT_PREFIX_ENTRIES		"Entries_"
+#define XFER_STATS_LATMICROSECTOTAL			"LatMicroSecTotal"
+#define XFER_STATS_LATNUMVALUES				"LatNumValues"
+#define XFER_STATS_LATMINMICROSEC			"LatMinMicroSec"
+#define XFER_STATS_LATMAXMICROSEC			"LatMaxMicroSec"
+#define XFER_STATS_LATHISTOLIST				"LatHistoList"
+#define XFER_STATS_LATHISTOLIST_ITEM		"LatHistoList.item"
+#define XFER_STATS_CPUUTIL_STONEWALL		"CPUUtilStoneWall"
+#define XFER_STATS_CPUUTIL					"CPUUtil"
+
+#define XFER_START_BENCHID					XFER_STATS_BENCHID
+#define XFER_START_BENCHPHASECODE			XFER_STATS_BENCHPHASECODE
+
+#define XFER_INTERRUPT_QUIT					"quit"
 
 #endif /* COMMON_H_ */

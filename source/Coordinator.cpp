@@ -52,9 +52,8 @@ int Coordinator::main()
 				goto joinall_and_exit;
 			}
 
-			// set benchmark path type as received from RemoteWorkers after preparation phase
-			BenchPathType benchPathType = workerManager.getBenchPathType();
-			progArgs.setBenchPathType(benchPathType);
+			// check that services accepted given settings and things are consistent across services
+			workerManager.checkServiceBenchPathInfos();
 		}
 
 		waitForUserDefinedStartTime();
@@ -190,44 +189,47 @@ void Coordinator::runSyncAndDropCaches()
  */
 void Coordinator::runBenchmarks()
 {
-	statistics.printPhaseResultsTableHeader();
+	for(size_t iterationIndex = 0; iterationIndex < progArgs.getIterations(); iterationIndex++)
+	{	
+		statistics.printPhaseResultsTableHeader();
 
-	runSyncAndDropCaches();
-
-	if(progArgs.getRunCreateDirsPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_CREATEDIRS);
 		runSyncAndDropCaches();
-	}
 
-	if(progArgs.getRunCreateFilesPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_CREATEFILES);
-		runSyncAndDropCaches();
-	}
+		if(progArgs.getRunCreateDirsPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_CREATEDIRS);
+			runSyncAndDropCaches();
+		}
 
-	if(progArgs.getRunStatFilesPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_STATFILES);
-		runSyncAndDropCaches();
-	}
+		if(progArgs.getRunCreateFilesPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_CREATEFILES);
+			runSyncAndDropCaches();
+		}
 
-	if(progArgs.getRunReadPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_READFILES);
-		runSyncAndDropCaches();
-	}
+		if(progArgs.getRunStatFilesPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_STATFILES);
+			runSyncAndDropCaches();
+		}
+	
+		if(progArgs.getRunReadPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_READFILES);
+			runSyncAndDropCaches();
+		}
+	
+		if(progArgs.getRunDeleteFilesPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_DELETEFILES);
+			runSyncAndDropCaches();
+		}
 
-	if(progArgs.getRunDeleteFilesPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_DELETEFILES);
-		runSyncAndDropCaches();
-	}
-
-	if(progArgs.getRunDeleteDirsPhase() )
-	{
-		runBenchmarkPhase(BenchPhase_DELETEDIRS);
-		runSyncAndDropCaches();
+		if(progArgs.getRunDeleteDirsPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_DELETEDIRS);
+			runSyncAndDropCaches();
+		}
 	}
 }
 

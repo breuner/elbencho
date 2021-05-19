@@ -312,49 +312,97 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 {
 	if(progArgs.getBenchPathType() == BenchPathType_DIR)
 	{
-		switch(workersSharedData.currentBenchPhase)
-		{
-			case BenchPhase_CREATEDIRS:
-			case BenchPhase_DELETEDIRS:
+		if(progArgs.getTreeFilePath().empty() )
+		{ // standard dir mode
+			switch(workersSharedData.currentBenchPhase)
 			{
-				outNumEntriesPerWorker = progArgs.getNumDirs();
-				outNumBytesPerWorker = 0;
-			} break;
+				case BenchPhase_CREATEDIRS:
+				case BenchPhase_DELETEDIRS:
+				{
+					outNumEntriesPerWorker = progArgs.getNumDirs();
+					outNumBytesPerWorker = 0;
+				} break;
 
-			case BenchPhase_CREATEFILES:
-			case BenchPhase_READFILES:
+				case BenchPhase_CREATEFILES:
+				case BenchPhase_READFILES:
+				{
+					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+					outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
+				} break;
+
+				case BenchPhase_DELETEFILES:
+				case BenchPhase_STATFILES:
+				{
+					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+					outNumBytesPerWorker = 0;
+				} break;
+
+				default:
+				{ // e.g. sync and drop_caches
+					outNumEntriesPerWorker = 0;
+					outNumBytesPerWorker = 0;
+				}
+
+			} // end of switch
+		}
+		else
+		{ // custom tree mode
+			const size_t numDirs = progArgs.getCustomTreeDirs().getNumPaths();
+			const size_t numFilesNonShared = progArgs.getCustomTreeFilesNonShared().getNumPaths();
+			const size_t numFilesShared = progArgs.getCustomTreeFilesShared().getNumPaths();
+			const uint64_t numBytesTotal =
+				progArgs.getCustomTreeFilesNonShared().getNumBytesTotal() +
+				progArgs.getCustomTreeFilesShared().getNumBytesTotal();
+			const size_t numDataSetThreads = progArgs.getNumDataSetThreads();
+
+			switch(workersSharedData.currentBenchPhase)
 			{
-				outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
-				outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
-			} break;
+				case BenchPhase_CREATEDIRS:
+				case BenchPhase_DELETEDIRS:
+				{
+					outNumEntriesPerWorker = numDirs; // all workers create/remove all dirs
+					outNumBytesPerWorker = 0;
+				} break;
 
-			case BenchPhase_DELETEFILES:
-			{
-				outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
-				outNumBytesPerWorker = 0;
-			} break;
+				case BenchPhase_CREATEFILES:
+				case BenchPhase_READFILES:
+				{
+					outNumEntriesPerWorker =
+						(numFilesNonShared + numFilesShared) / numDataSetThreads;
+					outNumBytesPerWorker = numBytesTotal / numDataSetThreads;
+				} break;
 
-			default:
-			{ // should never happen
-				outNumEntriesPerWorker = 0;
-				outNumBytesPerWorker = 0;
-			}
+				case BenchPhase_DELETEFILES:
+				case BenchPhase_STATFILES:
+				{
+					outNumEntriesPerWorker =
+						(numFilesNonShared + numFilesShared) / numDataSetThreads;
+					outNumBytesPerWorker = 0;
+				} break;
 
-		} // end of switch
+				default:
+				{ // e.g. sync and drop_caches
+					outNumEntriesPerWorker = 0;
+					outNumBytesPerWorker = 0;
+				}
+
+			} // end of switch
+		}
 	}
 	else
 	{ // file/blockdev mode
 		outNumEntriesPerWorker = progArgs.getBenchPaths().size();
-		uint64_t numBytesPerFile = progArgs.getUseRandomOffsets() ?
-			progArgs.getRandomAmount() : progArgs.getFileSize();
 
 		switch(workersSharedData.currentBenchPhase)
 		{
 			case BenchPhase_CREATEFILES:
 			case BenchPhase_READFILES:
 			{
-				outNumBytesPerWorker = outNumEntriesPerWorker * numBytesPerFile /
-					progArgs.getNumThreads();
+				outNumBytesPerWorker = progArgs.getUseRandomOffsets() ?
+					( progArgs.getRandomAmount() / // randamount is total, not per file
+						progArgs.getNumDataSetThreads() ) :
+					( (outNumEntriesPerWorker * progArgs.getFileSize() ) /
+						progArgs.getNumDataSetThreads() );
 			} break;
 
 			case BenchPhase_DELETEFILES:
@@ -363,7 +411,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 			} break;
 
 			default:
-			{ // should never happen
+			{ // e.g. sync and drop_caches
 				outNumBytesPerWorker = 0;
 			}
 
@@ -375,42 +423,26 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 	{
 		outNumEntriesPerWorker *= progArgs.getNumThreads();
 		outNumBytesPerWorker *= progArgs.getNumThreads();
-
-		if(progArgs.getIsServicePathShared() &&
-			(progArgs.getBenchPathType() != BenchPathType_DIR) )
-		{ // shared bench path, so each host reads/writes its own fraction
-			outNumEntriesPerWorker /= progArgs.getHostsVec().size();
-			outNumBytesPerWorker /= progArgs.getHostsVec().size();
-		}
 	}
 }
 
 /**
- * Get BenchPathType from RemoteWorkers. Only valid after prepareThreads() has been called.
+ * Check BenchPathInfo from RemoteWorkers. Only valid after prepareThreads() has been called, so
+ * that RemoteWorkers retrieved the corresponding details.
  *
- * @return BenchPathType as reported by workers as result of preparation phase.
- * @throw WorkerException if conflicting BenchPathTypes were found for different RemoteWorkers.
+ * @throw ProgException on error, e.g. conflicting BenchPathTypes found for different
+ * 		RemoteWorkers.
  */
-BenchPathType WorkerManager::getBenchPathType()
+void WorkerManager::checkServiceBenchPathInfos()
 {
 	if(progArgs.getHostsVec().empty() )
-		return progArgs.getBenchPathType();
+		return; // nothing to do if not running as master
 
-	BenchPathType globalBenchPathType =
-		static_cast<RemoteWorker*>(workerVec.at(0) )->getBenchPathType();
+	BenchPathInfoVec benchPathInfos;
+	benchPathInfos.reserve(progArgs.getHostsVec().size() );
 
 	for(Worker* worker : workerVec)
-	{
-		RemoteWorker* remoteWorker =  static_cast<RemoteWorker*>(worker);
-		BenchPathType benchPathType = remoteWorker->getBenchPathType();
+		benchPathInfos.push_back(static_cast<RemoteWorker*>(worker)->getBenchPathInfo() );
 
-		if(benchPathType != globalBenchPathType)
-			throw ProgException(
-				"Conflicting benchmark path types detected on different service hosts. "
-				"Servers with different path types: "
-				"ServerA: " + static_cast<RemoteWorker*>(workerVec.at(0) )->getHost() + "; "
-				"ServerB: " + remoteWorker->getHost() );
-	}
-
-	return globalBenchPathType;
+	progArgs.checkServiceBenchPathInfos(benchPathInfos);
 }

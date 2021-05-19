@@ -1,7 +1,10 @@
 #include <boost/algorithm/string.hpp>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <iterator>
+#include <libgen.h>
+#include <string>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -25,6 +28,9 @@
 #define GPULIST_DELIMITERS			", \n\r" // delimiters for gpuIDs string (comma or space)
 
 #define ENDL						<< std::endl << // just to make help text print lines shorter
+
+#define FILESHAREBLOCKFACTOR		32 // in custom tree mode, blockSize factor as of which to share
+#define FILESHAREBLOCKFACTOR_STR	STRINGIZE(FILESHAREBLOCKFACTOR)
 
 /**
  * Constructor.
@@ -50,6 +56,14 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 		bpo::options_description argsDescription;
 		argsDescription.add(argsGenericDescription).add(argsHiddenDescription);
+
+		// Add the configfile option before all the other options to prevent a cycle
+
+		argsDescription.add_options()
+		(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
+			"Path to benchmark configuration file. All command line options starting with "
+			"double dashes can be used as \"OPTIONNAME=VALUE\" in the config file. Multiple "
+			"options are newline-separated. Lines starting with \"#\" are ignored.");
 
 		bpo::positional_options_description positionalArgsDescription;
 		positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
@@ -78,6 +92,21 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 	if(hasUserRequestedHelp() || hasUserRequestedVersion() )
 		return;
+
+	bpo::options_description configFileOptions;
+	configFileOptions.add(argsGenericDescription); // Adding same conf options from file that are available from cl
+
+	if(!configFilePath.empty())
+	{
+		std::ifstream ifs{configFilePath.c_str() };
+		if(!ifs)
+			throw ProgException(std::string("Cannot open config file: " + configFilePath) );
+		else
+		{
+			bpo::store(bpo::parse_config_file(ifs, configFileOptions), argsVariablesMap);
+			bpo::notify(argsVariablesMap);
+		}
+	}
 
 	convertUnitStrings();
 	checkArgs();
@@ -150,7 +179,7 @@ void ProgArgs::defineAllowedArgs()
 /*d*/	(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
 			"Create directories. (Already existing dirs are not treated as error.)")
 /*di*/	(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
-			"Use direct IO.")
+			"Use direct IO to avoid caching.")
 /*di*/	(ARG_DIRSHARING_LONG, bpo::bool_switch(&this->doDirSharing),
 			"If benchmark path is a directory, all threads create their files in the same dirs "
 			"instead of using different dirs for each thread. In this case, \"-" ARG_NUMDIRS_SHORT
@@ -192,6 +221,8 @@ void ProgArgs::defineAllowedArgs()
 /*ho*/	(ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
 			"Path to file containing line-separated service hosts to use for benchmark. (Format: "
 			"hostname[:port])")
+/*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterations),
+			"Number of iterations to run the benchmark. (Default: 1)")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -204,6 +235,9 @@ void ProgArgs::defineAllowedArgs()
 			"Show latency histogram.")
 /*la*/	(ARG_LATENCYPERCENTILES_LONG, bpo::bool_switch(&this->showLatencyPercentiles),
 			"Show latency percentiles.")
+/*la*/	(ARG_LATENCYPERCENT9S_LONG, bpo::value(&this->numLatencyPercentile9s),
+			"Number of decimal nines to show in latency percentiles. 0 for 99%, 1 for 99.9%, 2 for "
+			"99.99% and so on. (Default: 0)")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
@@ -255,6 +289,11 @@ void ProgArgs::defineAllowedArgs()
 			"File size. (Default: 0)")
 /*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
 			"Run as service for distributed mode, waiting for requests from master.")
+/*sh*/	(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
+			"In custom tree mode, this defines the file size as of which files are no longer "
+			"exlusively assigned to a thread. This means multiple threads read/write different "
+			"parts of files that exceed the given size. "
+			"(Default: 0, which means " FILESHAREBLOCKFACTOR_STR " x blocksize)")
 /*st*/	(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
 			"Run file stat benchmark phase.")
 /*st*/	(ARG_STARTTIME_LONG, bpo::value(&this->startTime),
@@ -268,8 +307,24 @@ void ProgArgs::defineAllowedArgs()
 /*t*/	(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
 			"Number of I/O worker threads. (Default: 1)")
 /*ti*/	(ARG_TIMELIMITSECS_LONG, bpo::value(&this->timeLimitSecs),
-			"Time limit in seconds for each phase. If the limit is exceeded for a phase then no "
-			"further phases will run. (Default: 0 for disabled)")
+			"Time limit in seconds for each benchmark phase. If the limit is exceeded for a phase "
+			"then no further phases will run. (Default: 0 for disabled)")
+/*tr*/	(ARG_TREEFILE_LONG, bpo::value(&this->treeFilePath),
+			"The path to a treefile containing a list of dirs and filenames to use. This is called "
+			"\"custom tree mode\" and enables testing with mixed file sizes. The general benchmark "
+			"path needs to be a directory. Paths contained in treefile are used relative to the "
+			"general benchmark directory. The elbencho-scan-path tool is a way to create a "
+			"treefile based on an existing data set. Otherwise, options are similar to \"--"
+			ARG_HELPMULTIFILE_LONG "\" with the exception of file size and number of dirs/files, "
+			"as these are defined in the treefile. (Note: The file list will be split across "
+			"worker threads, but each thread create/delete all of the dirs, so don't use this for "
+			"dir create/delete performance testing.)")
+/*tr*/	(ARG_TREERANDOMIZE_LONG, bpo::bool_switch(&this->useCustomTreeRandomize),
+			"In custom tree mode: Randomize file order. Default is order by file size.")
+/*tr*/	(ARG_TREEROUNDUP_LONG, bpo::value(&this->treeRoundUpSizeOrigStr),
+			"When loading a treefile, round up all contained file sizes to a multiple of the given "
+			"size. This is useful for \"" ARG_DIRECTIO_LONG "\" with its alignment requirements on "
+			"many platforms. (Default: 0 for disabled)")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
 /*tr*/	(ARG_TRUNCTOSIZE_LONG, bpo::bool_switch(&this->doTruncToSize),
@@ -310,6 +365,7 @@ void ProgArgs::defineDefaults()
 	this->numDirsOrigStr = "1";
 	this->numFiles = 1;
 	this->numFilesOrigStr = "1";
+	this->iterations = 1;
 	this->fileSize = 0;
 	this->fileSizeOrigStr = "0";
 	this->blockSize = 1024*1024;
@@ -341,6 +397,7 @@ void ProgArgs::defineDefaults()
 	this->ioDepth = 1;
 	this->showLatency = false;
 	this->showLatencyPercentiles = false;
+	this->numLatencyPercentile9s = 0;
 	this->showLatencyHistogram = false;
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;
@@ -364,6 +421,11 @@ void ProgArgs::defineDefaults()
 	this->rwMixPercent = 0;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
 	this->randOffsetAlgo = RANDALGO_BALANCED_STR;
+	this->fileShareSize = 0;
+	this->fileShareSizeOrigStr = "0";
+	this->useCustomTreeRandomize = false;
+	this->treeRoundUpSize = 0;
+	this->treeRoundUpSizeOrigStr = "0";
 }
 
 /**
@@ -376,6 +438,8 @@ void ProgArgs::convertUnitStrings()
 	numDirs = UnitTk::numHumanToBytesBinary(numDirsOrigStr, false);
 	numFiles = UnitTk::numHumanToBytesBinary(numFilesOrigStr, false);
 	randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
+	fileShareSize = UnitTk::numHumanToBytesBinary(fileShareSizeOrigStr, false);
+	treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
 }
 
 /**
@@ -435,25 +499,16 @@ void ProgArgs::checkArgs()
 
 	if(!numThreads)
 		throw ProgException("Number of threads may not be zero.");
+	if(!iterations)
+		throw ProgException("Number of iterations may not be zero.");
 
-	numDataSetThreads = numThreads;
+	numDataSetThreads = (!hostsVec.empty() && getIsServicePathShared() ) ?
+		(numThreads * hostsVec.size() ) : numThreads;
 
-	if(fileSize && !blockSize && (runReadPhase || runCreateFilesPhase) )
-		throw ProgException("Block size may not be 0 if file size is given.");
+	if(!fileShareSize)
+		fileShareSize = FILESHAREBLOCKFACTOR * blockSize;
 
-	if(blockSize > fileSize)
-	{
-		// only log if file size is not zero, so that we actually need block size
-		if(fileSize)
-			LOGGER(Log_VERBOSE, "NOTE: Reducing block size to not exceed file size. "
-				"Old: " << blockSize << "; " <<
-				"New: " << fileSize << std::endl);
-
-		blockSize = fileSize; // to avoid allocating large buffers if file size is small
-	}
-
-	if(fileSize && !blockSize)
-		throw ProgException("Block size may not be 0 when file size is not 0.");
+	loadCustomTreeFile();
 
 	if(useCuFile && (ioDepth > 1) )
 		throw ProgException("cuFile API does not support \"IO depth > 1\"");
@@ -466,51 +521,6 @@ void ProgArgs::checkArgs()
 
 		useDirectIO = true;
 	}
-
-	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
-	{
-		if(fileSize % blockSize)
-		{
-			size_t newFileSize = fileSize - (fileSize % blockSize);
-
-			LOGGER(Log_NORMAL, "NOTE: File size for direct IO is not a multiple of block size. "
-				"Reducing file size. " <<
-				"Old: " << fileSize << "; " <<
-				"New: " << newFileSize << std::endl);
-
-			fileSize = newFileSize;
-		}
-
-		if(useRandomOffsets && !useRandomAligned)
-		{
-			LOGGER(Log_NORMAL,
-				"NOTE: Direct IO requires alignment. "
-				"Enabling \"--" ARG_RANDOMALIGN_LONG "\"." << std::endl);
-
-			useRandomAligned = true;
-		}
-
-		if(useRandomOffsets && (randomAmount % blockSize) )
-		{
-			size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
-
-			LOGGER(Log_NORMAL, "NOTE: Random amount for direct IO is not a multiple of block size. "
-				"Reducing random amount. " <<
-				"Old: " << randomAmount << "; " <<
-				"New: " << newRandomAmount << std::endl);
-
-			randomAmount = newRandomAmount;
-		}
-
-		if( (blockSize % DIRECTIO_MINSIZE) != 0)
-			throw ProgException("Block size for direct IO is not a multiple of required size. "
-				"(Note that a system's actual required size for direct IO might be even higher "
-				"depending on system page size and drive sector size.) "
-				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
-	}
-
-	if(useRandomOffsets && !randomAmount)
-		randomAmount = fileSize;
 
 	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
 		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
@@ -538,58 +548,159 @@ void ProgArgs::checkArgs()
 	if(!hostsVec.empty() )
 		return;
 
-	///////////// if we get here, we are not running in master mode...
+	///////////// if we get here, we are running in local standalone mode...
 
 	checkPathDependentArgs();
 }
 
 /**
- * Check arguments that depend on the bench path type. Not intended to be called in master mode.
+ * Check arguments that depend on the bench path type, which also includes possibly auto-detected
+ * file size in file/bdev mode. This is not intended to be called in master mode (e.g. because it
+ * uses numDataSetThreads, which is set correctly only in service mode and local standalone mode).
  *
  * @throw ProgException if a problem is found.
  */
 void ProgArgs::checkPathDependentArgs()
 {
-	if(benchPathType == BenchPathType_DIR)
+	if( (benchPathType != BenchPathType_DIR) && runStatFilesPhase)
+		throw ProgException("File stat phase can only be used when benchmark path is a directory.");
+
+	if( (benchPathType == BenchPathType_DIR) && useRandomOffsets)
+		throw ProgException("Random offsets are not allowed when benchmark path is a directory.");
+
+	// ensure bench path is dir when tree file is given
+	if( (benchPathType != BenchPathType_DIR) && !treeFilePath.empty() )
+		throw ProgException("Custom tree mode requires benchmark path to be a directory.");
+
+	/* ensure only single bench dir with tree file (otherwise we can't guarantee that the right dir
+		for each file exist in a certain bench path) */
+	if(!treeFilePath.empty() &&  (benchPathsVec.size() > 1) )
+		throw ProgException("Custom tree mode can only be used with a single benchmark path.");
+
+	// prevent blockSize==0 if fileSize>0 should be read or written
+	if(fileSize && !blockSize && (runReadPhase || runCreateFilesPhase) )
+		throw ProgException("Block size must not be 0 when file size is given.");
+
+	// reduce block size to file size (unless file size unknown in custom tree mode)
+	if( (blockSize > fileSize) && treeFilePath.empty() )
 	{
-		if(useRandomOffsets)
-			throw ProgException("Random offsets are not allowed when benchmark path is a "
-				"directory");
+		// only log if file size is not zero, so that we actually need block size
+		if(fileSize  && (runReadPhase || runCreateFilesPhase) )
+			LOGGER(Log_VERBOSE, "NOTE: Reducing block size to not exceed file size. "
+				"Old: " << blockSize << "; " <<
+				"New: " << fileSize << std::endl);
+
+		blockSize = fileSize; // to avoid allocating large buffers if file size is small
 	}
 
+	// reduce file size to multiple of block size for directIO
+	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) && (fileSize % blockSize) )
+	{
+		size_t newFileSize = fileSize - (fileSize % blockSize);
+
+		LOGGER(Log_NORMAL, "NOTE: File size for direct IO is not a multiple of block size. "
+			"Reducing file size. " <<
+			"Old: " << fileSize << "; " <<
+			"New: " << newFileSize << std::endl);
+
+		fileSize = newFileSize;
+	}
+
+	// auto-set randomAmount if not set by user
+	if(useRandomOffsets && !randomAmount)
+		randomAmount = (benchPathType == BenchPathType_DIR) ?
+			fileSize : (fileSize * benchPathsVec.size() );
+
+	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
+	{
+		if(useRandomOffsets && !useRandomAligned)
+		{
+			LOGGER(Log_VERBOSE, "NOTE: Direct IO requires alignment. "
+				"Enabling \"--" ARG_RANDOMALIGN_LONG "\"." << std::endl);
+
+			useRandomAligned = true;
+		}
+
+		if( (blockSize % DIRECTIO_MINSIZE) != 0)
+			throw ProgException("Block size for direct IO is not a multiple of required size. "
+				"(Note that a system's actual required size for direct IO might be even higher "
+				"depending on system page size and drive sector size.) "
+				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
+	}
+
+	if(useRandomOffsets && useRandomAligned && (randomAmount % blockSize) )
+	{
+		size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
+
+		LOGGER(Log_NORMAL, "NOTE: Random amount for aligned IO is not a multiple of block size. "
+			"Reducing random amount. " <<
+			"Old: " << randomAmount << "; " <<
+			"New: " << newRandomAmount << std::endl);
+
+		randomAmount = newRandomAmount;
+	}
+
+	// shared file or block device mode
 	if(benchPathType != BenchPathType_DIR)
-	{ // ensure that each thread has at least one block to write per file
+	{
+		// note: we ensure before this point that fileSize, blockSize and thread count are not 0.
 
-		// note: blockSize can be 0 if fileSize is 0 (see checkArgs() blockSize reduction)
+		const size_t numFiles = benchPathFDsVec.size();
+		const uint64_t numBlocksPerFile = (fileSize / blockSize) +
+			( (fileSize % blockSize) ? 1 : 0);
+		const uint64_t numBlocksTotal = numBlocksPerFile * numFiles; // total for all files
+		const uint64_t blockSetSize = blockSize * numDataSetThreads;
 
-		size_t minFileSize = numDataSetThreads * blockSize;
-		if(fileSize < minFileSize)
-			throw ProgException("File size must be large enough so that each I/O thread can at "
-				"least read/write one block. "
+		if(useRandomOffsets && (randomAmount < blockSetSize) )
+			throw ProgException("Random I/O amount (--" ARG_RANDOMAMOUNT_LONG ") must be large "
+				"enough so that each I/O thread can at least read/write one block. "
 				"Current block size: " + std::to_string(blockSize) + "; "
 				"Current dataset thread count: " + std::to_string(numDataSetThreads) + "; "
-				"Current file size: " + std::to_string(fileSize) + "; "
-				"Resulting min valid file size: " + std::to_string(minFileSize) );
+				"Resulting min valid random amount: " + std::to_string(blockSetSize) );
 
-		if(useRandomOffsets && (randomAmount < minFileSize) )
-			throw ProgException("Random I/O amount must be large enough so that each I/O thread "
-				"can at least read/write one block. "
-				"Current block size: " + std::to_string(blockSize) + "; "
-				"Current dataset thread count: " + std::to_string(numDataSetThreads) + "; "
-				"Resulting min valid random I/O amount: " + std::to_string(minFileSize) );
+		// reduce randomAmount to multiple of blockSetSize
+		// (check above ensures that randAmount>=blockSetSize)
+		if(useRandomOffsets && useRandomAligned && (randomAmount % blockSetSize) )
+		{
+			size_t newRandomAmount = randomAmount - (randomAmount % blockSetSize);
 
-		if(minFileSize && !useRandomOffsets && ( (fileSize % minFileSize) != 0) )
-			LOGGER(Log_NORMAL, "NOTE: File size is not a multiple of block size times number "
-				"of I/O threads, so the I/O threads write different amounts of data." << std::endl);
+			LOGGER(Log_NORMAL, "NOTE: Random amount for aligned IO is not a multiple of block size "
+				"times number of threads. Reducing random amount. " <<
+				"Old: " << randomAmount << "; " <<
+				"New: " << newRandomAmount << std::endl);
 
-		if(minFileSize && useRandomOffsets && ( (randomAmount % minFileSize) != 0) )
-			LOGGER(Log_NORMAL, "NOTE: Random amount is not a multiple of block size times number "
-				"of I/O threads, so the I/O threads write different amounts of data." << std::endl);
+			randomAmount = newRandomAmount;
+		}
 
-		if(runStatFilesPhase)
-			throw ProgException("File stat phase can only be used when benchmark path is a "
-				"directory");
+		if(!useRandomOffsets && blockSize && (numBlocksTotal < numDataSetThreads) )
+			throw ProgException("Aggregate usable file size must be large enough so that each I/O "
+				"thread can at least read/write one block. "
+				"Block size: " + std::to_string(blockSize) + "; "
+				"Dataset thread count: " + std::to_string(numDataSetThreads) + "; "
+				"Aggregate file size: " + std::to_string(numFiles*fileSize) + "; "
+				"Aggregate blocks: " + std::to_string(numBlocksTotal) );
+
+		if(useRandomOffsets && useRandomAligned && (fileSize < blockSize) )
+			throw ProgException("File size must not be smaller than block size when random I/O "
+				"with alignment is selected.");
+
+		// verbose log messages...
+
+		if(useRandomOffsets && (randomAmount % blockSetSize) )
+			LOGGER(Log_VERBOSE, "NOTE: Random amount is not a multiple of block size times "
+				"number of I/O threads, so the last I/O is not a full block." << std::endl);
+
+		if(!useRandomOffsets && (numBlocksTotal % numDataSetThreads) )
+			LOGGER(Log_VERBOSE, "NOTE: Number of blocks with given aggregate file size is not a "
+				"multiple of given I/O threads, so the number of written blocks slightly differs "
+				"among I/O threads." << std::endl);
+
 	}
+
+	// recheck randomAmount after auto-decrease above
+	if(useRandomOffsets && !randomAmount && fileSize && (runCreateFilesPhase || runReadPhase) )
+		throw ProgException("File size must not be smaller than block size when random I/O "
+			"with alignment is selected.");
 
 	if(benchPathType == BenchPathType_FILE)
 		ignoreDelErrors = true; // multiple threads will try to delete the same files
@@ -809,12 +920,16 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 
 		off_t currentFileSize = statBuf.st_size;
 
+		if(!fileSize && !statBuf.st_size && (runReadPhase || runCreateFilesPhase) )
+			throw ProgException("File size must not be 0 when benchmark path is a file. "
+				"File: " + path);
+
 		if(!fileSize)
 		{
 			LOGGER(Log_NORMAL,
 				"NOTE: Auto-setting file size. "
-				"Path: " << path << "; "
-				"Size: " << currentFileSize << std::endl);
+				"Size: " << currentFileSize << "; "
+				"Path: " << path << std::endl);
 
 			fileSize = currentFileSize;
 		}
@@ -897,6 +1012,9 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 		if(blockdevSize == -1)
 			throw ProgException("Unable to check size of blockdevice through lseek: " + path + "; "
 				"SysErr: " + strerror(errno) );
+
+		if(!blockdevSize)
+			throw ProgException("Block device size seems to be 0: " + path);
 
 		if(!fileSize)
 		{
@@ -1105,6 +1223,38 @@ void ProgArgs::parseRandAlgos()
 }
 
 /**
+ * If tree file is given, load PathStores from tree file. Otherwise do nothing.
+ *
+ * @throw ProgException on error, such as tree file not exists.
+ */
+void ProgArgs::loadCustomTreeFile()
+{
+	if(treeFilePath.empty() )
+		return; // nothing to do
+
+	if(runCreateDirsPhase || runDeleteDirsPhase)
+	{
+		customTree.dirs.loadDirsFromFile(treeFilePath);
+		customTree.dirs.sortByPathLen();
+	}
+
+	if(runCreateFilesPhase || runStatFilesPhase || runReadPhase || runDeleteFilesPhase)
+	{
+		// (note: fileShareSize is guaranteed to not be 0, thus the "fileShareSize-1" is ok)
+		customTree.filesNonShared.setBlockSize(blockSize);
+		customTree.filesNonShared.loadFilesFromFile(
+			treeFilePath, 0, fileShareSize-1, treeRoundUpSize);
+		customTree.filesNonShared.sortByFileSize();
+
+		customTree.filesShared.setBlockSize(blockSize);
+		customTree.filesShared.loadFilesFromFile(
+			treeFilePath, fileShareSize, ~0ULL, treeRoundUpSize);
+		customTree.filesNonShared.sortByFileSize();
+	}
+
+}
+
+/**
  * Turn given path into an absolute path. If given path was absolute before, it is returned
  * unmodified. Otherwise the path to the current work dir is prepended.
  *
@@ -1307,7 +1457,8 @@ void ProgArgs::printHelpBlockDev()
 		(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
 		(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmount),
-			"Number of bytes to write/read when using random offsets. (Default: Set to file size)")
+			"Number of bytes to write/read when using random offsets. (Default: Set to aggregate "
+			"file size)")
 		(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
 			"Align random offsets to block size.")
 		(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
@@ -1584,6 +1735,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cufile/gds ";
 #endif
 
+#if NO_BACKTRACE == 1 // no backtraces for musl-libc compatibility
+	notIncludedStream << "backtrace ";
+#else
+	includedStream << "backtrace ";
+#endif
+
 	std::cout << "Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
 	std::cout << "Excluded optional build features: " <<
@@ -1593,7 +1750,7 @@ void ProgArgs::printVersionAndBuildInfo()
 /**
  * Sets the arguments that are relevant for a new benchmark in service mode.
  *
- * @throw ProgException if configuration error is detected of bench dirs cannot be accessed.
+ * @throw ProgException if configuration error is detected or if bench dirs cannot be accessed.
  */
 void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 {
@@ -1633,12 +1790,33 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	rwMixPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);
 	blockVarianceAlgo = tree.get<std::string>(ARG_BLOCKVARIANCEALGO_LONG);
 	randOffsetAlgo = tree.get<std::string>(ARG_RANDSEEKALGO_LONG);
+	fileShareSize = tree.get<uint64_t>(ARG_FILESHARESIZE_LONG);
+	useCustomTreeRandomize = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
+	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
 
 	// dynamically calculated values for service hosts...
 
 	rankOffset = tree.get<size_t>(ARG_RANKOFFSET_LONG);
 
 	numDataSetThreads = tree.get<size_t>(ARG_NUMDATASETTHREADS_LONG);
+
+	// prepend upload dir to tree file
+	treeFilePath = tree.get<std::string>(ARG_TREEFILE_LONG);
+	if(!treeFilePath.empty() )
+	{
+		char* filenameDup = strdup(treeFilePath.c_str() );
+		if(!filenameDup)
+			throw ProgException("Failed to alloc mem for filename dup: " + treeFilePath);
+
+		// note: basename() ensures that there is no "../" or subdirs in the given filename
+		std::string filename = basename(filenameDup);
+
+		free(filenameDup);
+
+		treeFilePath = SERVICE_UPLOAD_BASEPATH(servicePort) + "/" + filename;
+
+		loadCustomTreeFile();
+	}
 
 	// rebuild benchPathsVec/benchPathFDsVec and check if bench dirs are accessible
 	parseAndCheckPaths();
@@ -1676,6 +1854,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_RANDOMOFFSETS_LONG, useRandomOffsets);
 	outTree.put(ARG_RANDOMALIGN_LONG, useRandomAligned);
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
+	outTree.put(ARG_NUMDATASETTHREADS_LONG, numDataSetThreads);
 	outTree.put(ARG_IODEPTH_LONG, ioDepth);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_CUFILE_LONG, useCuFile);
@@ -1694,7 +1873,9 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_RWMIXPERCENT_LONG, rwMixPercent);
 	outTree.put(ARG_BLOCKVARIANCEALGO_LONG, blockVarianceAlgo);
 	outTree.put(ARG_RANDSEEKALGO_LONG, randOffsetAlgo);
-
+	outTree.put(ARG_FILESHARESIZE_LONG, fileShareSize);
+	outTree.put(ARG_TREERANDOMIZE_LONG, useCustomTreeRandomize);
+	outTree.put(ARG_TREEROUNDUP_LONG, treeRoundUpSize);
 
 	// dynamically calculated values for service hosts...
 
@@ -1703,10 +1884,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 
 	outTree.put(ARG_RANKOFFSET_LONG, remoteRankOffset);
 
-	size_t remoteNumDataSetThreads = getIsServicePathShared() ?
-		numThreads * hostsVec.size() : numThreads;
-
-	outTree.put(ARG_NUMDATASETTHREADS_LONG, remoteNumDataSetThreads);
+	outTree.put(ARG_TREEFILE_LONG, treeFilePath.empty() ? "" : SERVICE_UPLOAD_TREEFILE);
 
 	if(!assignGPUPerService || gpuIDsVec.empty() )
 		outTree.put(ARG_GPUIDS_LONG, gpuIDsStr);
@@ -1772,7 +1950,8 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 
 /**
  * Reset benchmark path, close associated file descriptors (incl. cuFile driver) and free/reset
- * any other resources that are associated with the previous benchmark phase.
+ * any other resources that are associated with the previous benchmark phase. Intended to be used
+ * in service mode to not waste/block resources while idle.
  */
 void ProgArgs::resetBenchPath()
 {
@@ -1793,6 +1972,11 @@ void ProgArgs::resetBenchPath()
 	benchPathsVec.resize(0); // reset before reuse in service mode
 	benchPathStr = "";
 
+	// reset custom tree mode path stores
+	customTree.dirs.clear();
+	customTree.filesNonShared.clear();
+	customTree.filesShared.clear();
+
 #ifdef CUFILE_SUPPORT
 	if(isCuFileDriverOpen)
 		cuFileDriverClose();
@@ -1802,27 +1986,114 @@ void ProgArgs::resetBenchPath()
 }
 
 /**
- * Supposed to be called only in master mode after benchPathType has been received from all service
- * hosts.
+ * Get info (path type, auto-detected file size etc.) about benchmark paths. Used for reply to
+ * master as result or preparation phase.
  *
- * @benchPathType benchPathType of service hosts after having confirmed that all service hosts are
- * 		using the same type.
+ * @outTree path info for given paths.
  */
-void ProgArgs::setBenchPathType(BenchPathType benchPathType)
+void ProgArgs::getBenchPathInfoTree(bpt::ptree& outTree)
 {
-	this->benchPathType = benchPathType;
+	outTree.put(ARG_BENCHPATHS_LONG, benchPathStr);
+	outTree.put(XFER_PREP_BENCHPATHTYPE, benchPathType);
+	outTree.put(XFER_PREP_NUMBENCHPATHS, benchPathsVec.size() );
+	outTree.put(ARG_FILESIZE_LONG, fileSize);
+	outTree.put(ARG_BLOCK_LONG, blockSize);
+	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
+}
 
-	if(!fileSize)
+/**
+ * Check whether info from services is consistent among services and consistent with what master
+ * sent for preparation, so intended to be called only in master mode after BenchPathInfo has been
+ * received from services.
+ *
+ * @benchPathInfos BenchPathInfo of service hosts; element order must match getHostsVec().
+ * @throw ProgException on error, e.g. inconsitency between different services.
+ */
+void ProgArgs::checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos)
+{
+	// sanity check
+	if(benchPathInfos.size() != hostsVec.size() )
+		throw ProgException("Unexpected different number of elements for services and provided "
+			"bench path infos");
+
+	BenchPathInfo& firstInfo = benchPathInfos[0];
+
+	// compare 1st info in provided list to our current info...
+
+	if(firstInfo.numBenchPaths != benchPathsVec.size() )
+		throw ProgException(
+			"Service instance benchmark paths count does not match master paths count. "
+			"Service: " + hostsVec[0] + "; "
+			"Master paths: " + std::to_string(benchPathsVec.size() ) + " "
+				"(" + benchPathStr + "); "
+			"Service paths: " + std::to_string(firstInfo.numBenchPaths) + " "
+				"(" + firstInfo.benchPathStr + ")");
+
+	if(firstInfo.fileSize != fileSize)
+		LOGGER(Log_NORMAL, "NOTE: Service instance adapted file size. "
+			"New file size: " << firstInfo.fileSize << "; " <<
+			"Service: " << hostsVec[0] << std::endl);
+
+	if(firstInfo.blockSize != blockSize)
+		LOGGER(Log_NORMAL, "NOTE: Service instance adapted block size. "
+			"New block size: " << firstInfo.blockSize << "; " <<
+			"Service: " << hostsVec[0] << std::endl);
+
+	if(useRandomOffsets && (firstInfo.randomAmount != randomAmount) )
+		LOGGER(Log_NORMAL, "NOTE: Service instance adapted random data amount. "
+			"New random amount: " << firstInfo.randomAmount << "; " <<
+			"Service: " << hostsVec[0] << std::endl);
+
+	// apply settings provided by 1st info in list
+
+	benchPathType = firstInfo.benchPathType;
+	fileSize = firstInfo.fileSize;
+	randomAmount = firstInfo.randomAmount;
+	blockSize = firstInfo.blockSize;
+
+	// compare all other bench path infos to 1st info in list
+	for(size_t i=1; i < benchPathInfos.size(); i++)
 	{
-		/* don't allow 0 (auto-detected) file size in file/blockdev mode, because otherwise master
-			wouldn't know random amount and total amount of IO for percent done calculation. */
+		BenchPathInfo& otherInfo = benchPathInfos[i];
 
-		if(benchPathType == BenchPathType_BLOCKDEV)
-			throw ProgException("File size must be set in master mode when benchmark path is a "
-				"block devices.");
+		if(firstInfo.benchPathType != otherInfo.benchPathType)
+			throw ProgException(
+				"Conflicting benchmark path types on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A paths: " + firstInfo.benchPathStr + "; "
+				"Service_B paths: " + otherInfo.benchPathStr);
 
-		if(benchPathType == BenchPathType_FILE)
-			throw ProgException("File size must be set in master mode when benchmark path is a "
-				"file.");
+		if(firstInfo.numBenchPaths != otherInfo.numBenchPaths)
+			throw ProgException(
+				"Conflicting number of benchmark paths on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A paths: " + std::to_string(firstInfo.numBenchPaths) + "; "
+				"Service_B paths: " + std::to_string(otherInfo.numBenchPaths) );
+
+		if(firstInfo.fileSize != otherInfo.fileSize)
+			throw ProgException(
+				"Conflicting file size on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A file size: " + std::to_string(firstInfo.fileSize) + "; "
+				"Service_B file size: " + std::to_string(otherInfo.fileSize) );
+
+		if(firstInfo.blockSize != otherInfo.blockSize)
+			throw ProgException(
+				"Conflicting block sizes on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A block size: " + std::to_string(firstInfo.blockSize) + "; "
+				"Service_B block size: " + std::to_string(otherInfo.blockSize) );
+
+		if(useRandomOffsets && (firstInfo.randomAmount != otherInfo.randomAmount) )
+			throw ProgException(
+				"Conflicting random amount on different service instances. "
+				"Service_A: " + hostsVec[0] + "; "
+				"Service_B: " + hostsVec[i] + "; "
+				"Service_A random amount: " + std::to_string(firstInfo.randomAmount) + "; "
+				"Service_B random amount: " + std::to_string(otherInfo.randomAmount) );
 	}
 }

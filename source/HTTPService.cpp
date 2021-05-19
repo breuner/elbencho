@@ -1,10 +1,16 @@
+#include <fstream>
+#include <libgen.h>
 #include <pwd.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include "HTTPService.h"
 #include "ProgException.h"
+#include "toolkits/SystemTk.h"
 #include "workers/RemoteWorker.h"
+
+namespace Web = SimpleWeb;
 
 #define SERVICE_LOG_DIR			"/tmp"
 #define SERVICE_LOG_FILEPREFIX	EXE_NAME
@@ -101,6 +107,7 @@ void HTTPService::startServer()
  */
 void HTTPService::defineServerResources(HttpServer& server)
 {
+	// get info for testing (not used by master)
 	server.resource[HTTPSERVERPATH_INFO]["GET"] =
 		[](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
@@ -112,8 +119,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 		stream << "<h1>Request from " << request->remote_endpoint().address().to_string()  <<
 			":" << request->remote_endpoint().port() << "</h1>";
 
-		stream << request->method << " " << request->path << " HTTP/" <<
-			request->http_version;
+		stream << request->method << " " << request->path << " HTTP/" << request->http_version;
 
 		stream << "<h2>Query Fields</h2>";
 		auto query_fields = request->parse_query_string();
@@ -127,6 +133,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 		response->write(stream);
 	};
 
+	// get http service protocol version
 	server.resource[HTTPSERVERPATH_PROTOCOLVERSION]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
@@ -137,6 +144,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 		response->write(HTTP_PROTOCOLVERSION);
 	};
 
+	// get live statistics
 	server.resource[HTTPSERVERPATH_STATUS]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
@@ -157,6 +165,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 		response->write(stream);
 	};
 
+	// get final results after completion of benchmark phase
 	server.resource[HTTPSERVERPATH_BENCHRESULT]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
@@ -187,6 +196,89 @@ void HTTPService::defineServerResources(HttpServer& server)
 		}
 	};
 
+	// receive input files for following prepare phase, such as custom tree mode files
+	server.resource[HTTPSERVERPATH_PREPAREFILE]["POST"] =
+		[&, this](std::shared_ptr<HttpServer::Response> response,
+			std::shared_ptr<HttpServer::Request> request)
+	{
+		Logger(Log_VERBOSE) << "HTTP: " << request->path << "?" <<
+			request->query_string << std::endl;
+
+		try
+		{
+			// check protocol version for compatibility
+
+			auto query_fields = request->parse_query_string();
+
+			auto iter = query_fields.find(XFER_PREP_PROTCOLVERSION);
+			if(iter == query_fields.end() )
+				throw ProgException("Missing parameter: " XFER_PREP_PROTCOLVERSION);
+
+			std::string masterProtoVer = iter->second;
+			if(masterProtoVer != HTTP_PROTOCOLVERSION)
+				throw ProgException("Protocol version mismatch. "
+					"Service version: " HTTP_PROTOCOLVERSION "; "
+					"Received master version: " + masterProtoVer);
+
+			// get and prepare filename
+
+			iter = query_fields.find(XFER_PREP_FILENAME);
+			if(iter == query_fields.end() )
+				throw ProgException("Missing parameter: " XFER_PREP_FILENAME);
+
+			char* filenameDup = strdup(iter->second.c_str() );
+			if(!filenameDup)
+				throw ProgException("Failed to alloc mem for filename dup: " + iter->second);
+
+			// note: basename() ensures that there is no "../" or subdirs in the given filename
+			std::string filename = basename(filenameDup);
+			unsigned short servicePort = progArgs.getServicePort();
+			std::string path = SERVICE_UPLOAD_BASEPATH(servicePort) + "/" + filename;
+
+			free(filenameDup);
+
+			// prepare our upload directory
+
+			int mkRes = mkdir(SERVICE_UPLOAD_BASEPATH(servicePort).c_str(), 0777);
+			if( (mkRes == -1) && (errno != EEXIST) )
+				throw ProgException("Failed to create service tmp dir: " +
+					SERVICE_UPLOAD_BASEPATH(servicePort) );
+
+			// open upload file under given name in upload dir
+
+			std::ofstream fileOutStream(path.c_str(),
+				std::ofstream::out | std::ofstream::trunc);
+			if(!fileOutStream)
+				throw ProgException("Opening upload file failed: " + path);
+
+			// save uploaded file contents
+
+			fileOutStream << request->content.rdbuf();
+
+			// close file and final error check
+
+			fileOutStream.close();
+
+			if(!fileOutStream)
+				throw ProgException("Saving upload file failed: " + path);
+
+			// prepare response. (just signal successful completion of upload via empty reply.)
+
+			response->write("");
+		}
+		catch(const std::exception& e)
+		{
+			std::stringstream stream;
+
+			stream << "File preparation phase error: " << e.what() << std::endl;
+
+			response->write(Web::StatusCode::client_error_bad_request, stream);
+
+			//std::cerr << "File preparation phase error: " << stream.str() << std::endl;
+		}
+	};
+
+	// prepare new benchmark phase: transfer ProgArgs, prepare workers, reply when all ready
 	server.resource[HTTPSERVERPATH_PREPAREPHASE]["POST"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
@@ -236,7 +328,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 			std::stringstream replyStream;
 			bpt::ptree replyTree;
 
-			replyTree.put(XFER_PREP_BENCHPATHTYPE, progArgs.getBenchPathType() );
+			progArgs.getBenchPathInfoTree(replyTree);
 			replyTree.put(XFER_PREP_ERRORHISTORY, LoggerBase::getErrHistory() );
 
 			bpt::write_json(replyStream, replyTree, true);
@@ -265,6 +357,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 		}
 	};
 
+	// start benchmark phase after successful preparation
 	server.resource[HTTPSERVERPATH_STARTPHASE]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
@@ -300,6 +393,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 		response->write(LoggerBase::getErrHistory() );
 	};
 
+	// interrupt any running benchmark and reset everything, reply when all done
 	server.resource[HTTPSERVERPATH_INTERRUPTPHASE]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
@@ -333,11 +427,10 @@ void HTTPService::defineServerResources(HttpServer& server)
 		}
 	};
 
+	// handle server/protocol errors like disconnect
 	server.on_error = [](std::shared_ptr<HttpServer::Request> request, const Web::error_code& ec)
 	{
-		// handle server/protocol errors like disconnect here
-
-		/* connection timeouts will also call this handler with ec set to
+		/* connection timeouts will also call this handler with Web::error_code set to
 		   SimpleWeb::errc::operation_canceled */
 
 		if( (ec.category() == boost::asio::error::misc_category) &&
@@ -369,7 +462,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 void HTTPService::daemonize()
 {
 	std::string logfile = std::string(SERVICE_LOG_DIR) + "/" + SERVICE_LOG_FILEPREFIX + "_" +
-		getLogfileUsername() + "_" +
+		SystemTk::getUsername() + "_" +
 		"p" + std::to_string(progArgs.getServicePort() ) + "." // port
 		"log";
 
@@ -544,41 +637,3 @@ void HTTPService::checkPortAvailable()
 	close(sockFD);
 }
 
-/**
- * Get username for daemon logfile. Will try to get the actual username, but falls back to returning
- * the numeric user ID if this fails.
- *
- * @return username
- */
-std::string HTTPService::getLogfileUsername()
-{
-	uid_t userID = geteuid();
-
-	std::string username = "u" + std::to_string(userID); // numeric user ID as fallback
-
-	// try to get username
-
-	struct passwd passwdEntry;
-	struct passwd* passwdResultPointer; // points to passwdEntry on success
-
-	long bufSize = sysconf(_SC_GETPW_R_SIZE_MAX);
-	if(bufSize == -1)
-		bufSize = (16*1024); // fallback to 16KiB if no system default is given
-
-	char* buffer = (char*)malloc(bufSize);
-	if(!buffer)
-		return username;
-
-	getpwuid_r(userID, &passwdEntry, buffer, bufSize, &passwdResultPointer);
-	if(!passwdResultPointer)
-	{ // getting username failed
-		free(buffer);
-		return username;
-	}
-
-	username = passwdEntry.pw_name;
-
-	free(buffer);
-
-	return username;
-}

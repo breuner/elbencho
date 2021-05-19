@@ -7,10 +7,12 @@ _elbencho_opts()
 
    shortopts="
         -b
+        -c
         -d
         -D
         -F
         -h
+        -i
         -n
         -N
         -r
@@ -24,6 +26,7 @@ _elbencho_opts()
         --block
         --blockvaralgo
         --blockvarpct
+        --configfile
         --cpu
         --csvfile
         --cufile
@@ -48,10 +51,12 @@ _elbencho_opts()
         --hosts
         --hostsfile
         --interrupt
+        --iterations
         --iodepth
         --lat
         --lathisto
         --latpercent
+        --latpercent9s
         --log
         --mkdirs
         --no0usecerr
@@ -74,6 +79,7 @@ _elbencho_opts()
         --resfile
         --rwmixpct
         --service
+        --sharesize
         --size
         --start
         --stat
@@ -81,6 +87,9 @@ _elbencho_opts()
         --sync
         --threads
         --timelimit
+        --treefile
+        --treerand
+        --treeroundup
         --trunc
         --trunctosize
         --verify
@@ -118,7 +127,13 @@ _elbencho()
         ;&
         --gpuids)
         ;&
+        -i)
+        ;&
+        --iterations)
+        ;&
         --iodepth)
+        ;&
+        --latpercent9s)
         ;&
         --log)
         ;&
@@ -140,6 +155,8 @@ _elbencho()
         ;&
         -s)
         ;&
+        --sharesize)
+        ;&
         --size)
         ;&
         --start)
@@ -152,6 +169,8 @@ _elbencho()
         ;&
         --timelimit)
         ;&
+        --treeroundup)
+        ;&
         --verify)
         ;&
         --zones)
@@ -159,11 +178,17 @@ _elbencho()
         ;;
 
         # options that take a file/dir argument
+        -c)
+        ;&
+        --configfile)
+        ;&
         --csvfile)
         ;&
         --hostsfile)
         ;&
         --resfile)
+        ;&
+        --treefile)
             compopt -o filenames 2>/dev/null
             COMPREPLY=( $(compgen -f ${cur}) )
             return 0

@@ -27,7 +27,6 @@ class HTTPService
 		void defineServerResources(HttpServer& server);
 		void daemonize();
 		void checkPortAvailable();
-		std::string getLogfileUsername();
 };
 
 #endif /* HTTPSERVICE_H_ */

@@ -12,44 +12,11 @@
 #include "Worker.h"
 
 
-#define XFER_PREP_PROTCOLVERSION			"ProtocolVersion"
-#define XFER_PREP_BENCHPATHTYPE				"BenchPathType"
-#define XFER_PREP_ERRORHISTORY				"ErrorHistory"
-
-#define XFER_STATS_BENCHID 					"BenchID"
-#define XFER_STATS_BENCHPHASENAME 			"PhaseName"
-#define XFER_STATS_BENCHPHASECODE			"PhaseCode"
-#define XFER_STATS_NUMWORKERSDONE			"NumWorkersDone"
-#define XFER_STATS_NUMWORKERSDONEWITHERR	"NumWorkersDoneWithError"
-#define XFER_STATS_NUMENTRIESDONE 			"NumEntriesDone"
-#define XFER_STATS_NUMBYTESDONE 			"NumBytesDone"
-#define XFER_STATS_NUMIOPSDONE 				"NumIOPSDone"
-#define XFER_STATS_NUMBYTESDONE_RWMIXREAD	"NumBytesDoneRWMixRead"
-#define XFER_STATS_NUMIOPSDONE_RWMIXREAD	"NumIOPSDoneRWMixRead"
-#define XFER_STATS_ELAPSEDUSECLIST			"ElapsedUSecList"
-#define XFER_STATS_ELAPSEDUSECLIST_ITEM		"ElapsedUSecList.item"
-#define XFER_STATS_ELAPSEDSECS 				"ElapsedSecs"
-#define XFER_STATS_ERRORHISTORY				XFER_PREP_ERRORHISTORY
-#define XFER_STATS_LAT_PREFIX_IOPS			"IOPS_"
-#define XFER_STATS_LAT_PREFIX_ENTRIES		"Entries_"
-#define XFER_STATS_LATMICROSECTOTAL			"LatMicroSecTotal"
-#define XFER_STATS_LATNUMVALUES				"LatNumValues"
-#define XFER_STATS_LATMINMICROSEC			"LatMinMicroSec"
-#define XFER_STATS_LATMAXMICROSEC			"LatMaxMicroSec"
-#define XFER_STATS_LATHISTOLIST				"LatHistoList"
-#define XFER_STATS_LATHISTOLIST_ITEM		"LatHistoList.item"
-#define XFER_STATS_CPUUTIL_STONEWALL		"CPUUtilStoneWall"
-#define XFER_STATS_CPUUTIL					"CPUUtil"
-
-#define XFER_START_BENCHID					XFER_STATS_BENCHID
-#define XFER_START_BENCHPHASECODE			XFER_STATS_BENCHPHASECODE
-
-#define XFER_INTERRUPT_QUIT					"quit"
-
 #define HTTPCLIENTPATH_INFO					"/info"
 #define HTTPCLIENTPATH_PROTOCOLVERSION		"/protocolversion"
 #define HTTPCLIENTPATH_STATUS				"/status"
 #define HTTPCLIENTPATH_BENCHRESULT			"/benchresult"
+#define HTTPCLIENTPATH_PREPAREFILE			"/preparefile"
 #define HTTPCLIENTPATH_PREPAREPHASE			"/preparephase"
 #define HTTPCLIENTPATH_STARTPHASE			"/startphase"
 #define HTTPCLIENTPATH_INTERRUPTPHASE		"/interruptphase"
@@ -59,14 +26,13 @@
 #define HTTPSERVERPATH_PROTOCOLVERSION		MAKE_SERVER_PATH(HTTPCLIENTPATH_PROTOCOLVERSION)
 #define HTTPSERVERPATH_STATUS				MAKE_SERVER_PATH(HTTPCLIENTPATH_STATUS)
 #define HTTPSERVERPATH_BENCHRESULT			MAKE_SERVER_PATH(HTTPCLIENTPATH_BENCHRESULT)
+#define HTTPSERVERPATH_PREPAREFILE			MAKE_SERVER_PATH(HTTPCLIENTPATH_PREPAREFILE)
 #define HTTPSERVERPATH_PREPAREPHASE			MAKE_SERVER_PATH(HTTPCLIENTPATH_PREPAREPHASE)
 #define HTTPSERVERPATH_STARTPHASE			MAKE_SERVER_PATH(HTTPCLIENTPATH_STARTPHASE)
 #define HTTPSERVERPATH_INTERRUPTPHASE		MAKE_SERVER_PATH(HTTPCLIENTPATH_INTERRUPTPHASE)
 
 
 using HttpClient = SimpleWeb::Client<SimpleWeb::HTTP>;
-
-namespace Web = SimpleWeb;
 
 
 /**
@@ -93,7 +59,7 @@ class RemoteWorker : public Worker
 		size_t numWorkersDone{0};// number of threads that are through with current phase
 		size_t numWorkersDoneWithError{0}; // number of threads that failed the current phase
 
-		BenchPathType benchPathType; // set as result of preparation phase
+		BenchPathInfo benchPathInfo; // set as result of preparation phase
 
 		struct CPUUtil
 		{
@@ -105,6 +71,7 @@ class RemoteWorker : public Worker
 		virtual void run() override;
 
 		void finishPhase(bool allowExceptionThrow);
+		void prepareRemoteFile();
 		void preparePhase();
 		void startBenchPhase();
 		void waitForBenchPhaseCompletion(bool checkInterruption);
@@ -116,7 +83,7 @@ class RemoteWorker : public Worker
 	public:
 		size_t getNumWorkersDone() const { return numWorkersDone; }
 		size_t getNumWorkersDoneWithError() const { return numWorkersDoneWithError; }
-		BenchPathType getBenchPathType() const { return benchPathType; }
+		const BenchPathInfo& getBenchPathInfo() const { return benchPathInfo; }
 		std::string getHost() const { return host; }
 		unsigned getCPUUtilStoneWall() const { return cpuUtil.stoneWall; }
 		unsigned getCPUUtilLastDone() const { return cpuUtil.lastDone; }

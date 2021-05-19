@@ -5,6 +5,7 @@
 #include <vector>
 #include "CPUUtil.h"
 #include "ProgException.h"
+#include "workers/WorkersSharedData.h"
 
 #define STAT_FILE				"/proc/stat"
 #define STAT_CPU_IDLE_IDX		3 // index of idle column in STAT_FILE
@@ -28,7 +29,7 @@ void CPUUtil::update()
 	procStatStream.ignore(STAT_LINE_SKIP_CHARS, ' '); // skip the "cpu" prefix in STAT_FILE
 	for (size_t cpuTime; procStatStream >> cpuTime; cpuTimesVec.push_back(cpuTime) );
 
-	if(cpuTimesVec.size() < (STAT_IO_WAIT_IDX+1) )
+	IF_UNLIKELY(cpuTimesVec.size() < (STAT_IO_WAIT_IDX+1) )
 		throw ProgException("Unable to read CPU usage values from file: " STAT_FILE);
 
 	// rotate current cpu times to last cpu times

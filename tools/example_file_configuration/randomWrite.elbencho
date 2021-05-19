@@ -1,0 +1,20 @@
+# This is an example benchmark configuration for elbencho.
+# Any command line option starting with double dashes can be used in a config
+# file. See "--help-all" for the full list of options.
+#
+# This example config is equivalent to the following elbencho arguments:
+# $ elbencho -t 2 --iodepth 4 --timelimit 10 -b 1M --direct -s 1G \
+#   -N 10 -n1 -D -F -d -w
+
+threads=2
+iodepth=4
+timelimit=10
+block=1M
+direct=1
+size=1G
+files=10
+dirs=1
+deldirs=1
+delfiles=1
+mkdirs=1
+write=1

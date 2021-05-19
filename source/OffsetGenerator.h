@@ -81,7 +81,7 @@ class OffsetGenSequential : public OffsetGenerator
 /**
  * Generate random unaligned offsets.
  *
- * offset and len in constructor define that range in which random offsets are selected. The amount
+ * offset and len in constructor define the range in which random offsets are selected. The amount
  * of data is defined by progArgs.getRandomAmount() div progArgs.getNumDataSetThreads().
  */
 class OffsetGenRandom : public OffsetGenerator
@@ -109,7 +109,7 @@ class OffsetGenRandom : public OffsetGenerator
 	// inliners
 	public:
 		virtual void reset() override
-		{ numBytesLeft = numBytesTotal; }
+			{ numBytesLeft = numBytesTotal; }
 
 		virtual uint64_t getNextOffset() override
 			{ return randRange.next(); }
@@ -130,8 +130,11 @@ class OffsetGenRandom : public OffsetGenerator
 /**
  * Generate random offsets aligned to block size.
  *
- * offset and len in constructor define that range in which random offsets are selected. The amount
+ * offset and len in constructor define the range in which random offsets are selected. The amount
  * of data is defined by progArgs.getRandomAmount() div progArgs.getNumDataSetThreads().
+ *
+ * It's possible that the last IO is a partial block. Caller is responsible for setting
+ * randomAmount to prevent this, if desired.
  */
 class OffsetGenRandomAligned : public OffsetGenerator
 {
@@ -142,9 +145,7 @@ class OffsetGenRandomAligned : public OffsetGenerator
 			blockSize(blockSize)
 		{
 			this->numBytesTotal = progArgs.getRandomAmount() / progArgs.getNumDataSetThreads();
-
-			// "- (this->numBytesTotal % blockSize)" ensures that we don't submit partial blocks
-			this->numBytesLeft = this->numBytesTotal - (this->numBytesTotal % blockSize);
+			this->numBytesLeft = this->numBytesTotal;
 		}
 
 		virtual ~OffsetGenRandomAligned() {}
@@ -159,10 +160,7 @@ class OffsetGenRandomAligned : public OffsetGenerator
 		// inliners
 	public:
 		virtual void reset() override
-		{
-			// "- (numBytesTotal % blockSize)" ensures that we don't submit partial blocks
-			numBytesLeft = numBytesTotal - (numBytesTotal % blockSize);
-		}
+			{ numBytesLeft = numBytesTotal; }
 
 		virtual uint64_t getNextOffset() override
 			{ return randRange.next() * blockSize; }

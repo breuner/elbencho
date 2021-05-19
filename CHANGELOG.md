@@ -1,5 +1,39 @@
 # Changelog of elbencho
 
+## v1.9.0 (work in progress)
+
+### New Features & Enhancements
+* New custom tree mode option to create/read arbitrary tree structures of directories and files with different sizes (--treefile).
+  * New elbencho-scan-path tool can be used to create a tree file from an existing dataset.
+* New Dockerfile added
+  * New official elbencho Docker repository with usage examples: https://hub.docker.com/r/breuner/elbencho
+* New makefile option NO_BACKTRACE=1 to build without backtrace support for musl-libc compatibility.
+* New option to load benchmark parameters from config file (-c / --configfile).
+
+### Contributors
+* Thanks to Zettar team (esp. Chin Fang & Oleskandr Nazarenko) for contributing in multiple ways to the new custom tree mode.
+* Thanks to first time contributor Andy Pernsteiner (VAST Data) for providing the Dockerfile and testing on Alpine Linux.
+* Thanks to first time contributor Edgar Fajardo Hernandez (Penguin Computing) for contributing the config file option.
+
+## v1.8.1 (March 21, 2021)
+
+### New Features & Enhancements
+* New option for number of decimal nines to show in latency percentiles (--latpercent9s).
+
+### General Changes
+* Improved shared file/blockdev mode with multiple files/blockdevs.
+  * For random I/O, each thread now sends I/Os round-robin to the given files/blockdevs.
+    * This change was made to improve balance across different files/blockdevs.
+    * Previously, each thread started with a different file/blockdev, but then only moved on to the next one after completing its full I/O amount for a particular file/blockdev.
+  * For sequential I/O, each thread now writes a consecutive range of the aggregate file/blockdev size.
+    * This change was made to improve consecutive access per file and to reduce the minimum required file size in relation to number of threads and block size.
+    * This approach might involve multiple files/blockdevs for a certain thread, but will typically only involve a subset of the given files/blockdevs for a single thread.
+    * Previously, each thread started with a different file/blockdev, but got assigned a range in every file, thus requiring block size times number of threads as minimum usable size per file/blockdev.
+* Size of given files/blockdevs can now also be auto-detected in distributed mode.
+
+### Contributors
+* Thanks to first time contributor Wes Vaske (Micron) for helpful suggestions.
+
 ## v1.7.1 (Feb 06, 2021)
 
 ### New Features & Enhancements
