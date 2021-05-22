@@ -22,7 +22,7 @@ Table of contents
    * [A brief overview of storage benchmarking](#a-brief-overview-of-storage-benchmarking)
       * [A typical goal](#a-typical-goal)
       * [How it should be done](#how-it-should-be-done)
-      * [A common misconception](#a-common-misconception)
+      * [Properly understand storage benchmarking](#properly-understand-storage-benchmarking)
       * [Carry out your own storage benchmarking](#carry-out-your-own-storage-benchmarking)
    * [Future evolution](#future-evolution)
    * [Acknowledgments](#acknowledgments)
@@ -79,16 +79,16 @@ Before proceeding, you may wish to browse the
    option, which demands `root` privilege.
    
 Note also that your storage must be reasonably fast (*i.e. capable of
-attaining a write throughput level >= 10Gbps with appropriately sized files*)
-to use the storage sweep tools. *In this age of exponentially and fast
-growing data, using slow storage is really no longer a cost-saving
-approach, it's actually money and time wasting instead*! 
+attaining a write throughput level >= 10Gbps with appropriately sized
+files*) to use the storage sweep tools. *In this age of exponentially
+and fast growing data, using slow storage is really no longer a
+cost-saving approach, it's actually money and time wasting instead*!
 
 As a reference, on a [Zettar
 testbed](https://youtube.com/watch?v=5qTpGg57p_o), using any one of
 the two nodes (*each has a Linux software RAID 0 based on 8xNVMe
-SSDs - Intel DC P3700 1.6TB U.2*), the following provides single-run (`-N 1`) sweep timing
-information:
+SSDs - Intel DC P3700 1.6TB U.2*), the following provides single-run
+(`-N 1`) sweep timing information:
 |**Range**  | Test duration |
 |-----------|---------------|
 |**LOSF**   | 35m:58s       |
@@ -180,15 +180,16 @@ the following:
 
 1. Gain a good understanding of a file storage system in
    service.
-2. Pick the most performant candidate from several distributed,
+2. Select a file system from several candidates, e.g. EXT4, BRTFS, XFS, ZFS.
+3. Pick the most performant candidate from several distributed,
    scale-out file storage service candidates.
-3. Select the most appropriate storage devices, from multiple
+4. Select the most appropriate storage devices, from multiple
    choices, for a given file storage service.
-4. Help evaluate the impacts of a storage tuning approach.
-5. Prepare (aka condition) a large number of new SSDs using the two
+5. Help evaluate the impacts of a storage tuning approach.
+6. Prepare (aka condition) a large number of new SSDs using the two
    wrappers together with `elbencho`, recalling it's a distributed
    application.
-6. Monitor the characteristics of a batch of SSDs in production over
+7. Monitor the characteristics of a batch of SSDs in production over
    time, either visually or numerically.  Note that SSDs, except
    [Intel
    Optane](https://www.intel.com/content/www/us/en/architecture-and-technology/optane-technology/optane-enterprise-storage.html),
@@ -227,11 +228,12 @@ characteristics, typically by storage benchmarking.
 While collaborating with the DOE's Energy Sciences Network (ESnet) in
 2020, documented in [Zettar zx Evaluation for ESnet
 DTNs](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf), one
-challenge was the file size range needed to be considered -- there was
-simply not a single storage benchmarking tool that we knew of could
-meet our needs.  The timely appearance of `elbencho` was really a
-serendipity as it met our requirements perfectly.  As a result, the
-ESnet/Zettar project concluded both timely and successfully.
+challenge was the file size range and the number of files in a dataset
+that needed to be considered -- there was simply not a single storage
+benchmarking tool that we knew of could meet our needs.  The timely
+appearance of `elbencho` was really a serendipity as it met our
+requirements perfectly.  As a result, the ESnet/Zettar project
+concluded both timely and successfully.
 
 Believing what we learned and did during the project could be helpful
 to others, I decided to rewrite and consolidate the various test
@@ -274,16 +276,29 @@ characteristics to one or more selected target application(s).
 
 [Back to top](#page_top)
 
-## A common misconception
+## Properly understand storage benchmarking
 
-Often we read that a storage service can provide, e.g. 1PB/s
-throughput :grin:.
+1. A storage benchmark is not aimed to give you a single metric for
+   any storage service. A single metric for storage never exists -
+   file storage benchmark results always depend on file size
+   histograms and the number of files. How you run it also matters!
+2. It is also not aimed to get the highest value from a storage
+   service than any other application. The author of a storage
+   benchmark cannot know every application out there and be so
+   magical.
+3. The main value of a storage benchmark is to enable you to
+   reasonably easily estimate the attainable read/write throughput in
+   one or more storage clients (*if cluster*) to a target
+   application. Period.
+
+Furthermore, we often read that a storage service can provide,
+e.g. 1TB/s throughput :grin:.
 
 This number is meaningless because the lack of info about the
 following, among the others:
 
-1. How was the number obtained? What is the benchmark hardware setup?
-   How about the benchmark software?
+1. How was the number obtained? What is the topology of the test
+   setup?  How about the benchmark software?
 2. How is the benchmark software configured? 
 3. What kind of datasets was used for the measurements? e.g. their
    respective histogram?
