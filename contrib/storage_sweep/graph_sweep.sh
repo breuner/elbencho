@@ -87,7 +87,7 @@ dry_run=
 #
 # The two tools that this wrapper is used for.
 #
-mtelbencho=/usr/local/sbin/mtelbencho.sh
+mtelbencho=/usr/bin/mtelbencho.sh
 gnuplot=/usr/bin/gnuplot
 #
 # The sweep data file to be plotted using gnuplot. The CSV format is
@@ -501,14 +501,11 @@ mitigate_human_errors()
     # It has been observed enough times that some new users run
     # successive sweep runs without putting the output of each sesion
     # into different output directories using the -o option, then
-    # wondering why some graphs are missing etc.  OK, we will be nice
-    # to them :) But the following is done if only the default is
-    # used. Anyone who uses the -o option can take care of
-    # her/himself.
-    #
-    if [[ "$output_dir" == "/var/tmp" ]]; then
-       mkdir -p "$output_dir"/{losf,medium,large,full}
-    fi     	     
+    # wondering why some graphs are missing etc.  OK, we will protect
+    # such users by unconditionally pre-create the four subdirectories
+    # {losf,medium,large,full} even the -o is used
+    # 
+    mkdir -p "$output_dir"/{losf,medium,large,full}
     if [[ "$range_to_sweep" == 's' ]]; then
         output_dir="$output_dir/losf"
     elif [[ "$range_to_sweep" == 'm' ]]; then
@@ -518,6 +515,18 @@ mitigate_human_errors()
     else
         output_dir="$output_dir/full"
     fi
+}
+
+show_elbencho_version()
+{
+    local vs
+    if ! command -v elbencho &> /dev/null
+    then
+        echo "elbencho could not be found. Abort!"
+        exit 1
+    fi
+    vs=$(elbencho --version)
+    echo "$vs"
 }
 
 show_option_settings()
@@ -618,6 +627,7 @@ show_test_duration()
     sweep_csv="$output_dir"/sweep.csv
     sweep_gplt="$output_dir"/sweep.gplt
     sweep_svg="$output_dir"/sweep.svg
+    [[ "$verbose" ]] && show_elbencho_version
     [[ "$verbose" ]] && show_option_settings
     check_space_available
     [[ -z "$dry_run" ]] && verify_directory_exists "$src_data_dir"
