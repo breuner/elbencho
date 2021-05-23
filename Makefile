@@ -151,13 +151,23 @@ endif
 clean-all: clean clean-externals clean-packaging clean-buildhelpers
 
 install: all
+	@echo "Installing elbencho..."
+	
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-chart $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-scan-path $(INST_PATH)/
+	
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME) \
 		/etc/bash_completion.d/$(EXE_NAME)
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME)-chart \
 		/etc/bash_completion.d/$(EXE_NAME)-chart
+
+	@echo
+	@echo "Installing contributed tools..."
+	
+	install -p -m u=rwx,g=rx,o=rx contrib/storage_sweep/mtelbencho.sh $(INST_PATH)/
+	install -p -m u=rwx,g=rx,o=rx contrib/storage_sweep/graph_sweep.sh $(INST_PATH)/
+	
 	@echo
 	@echo "NOTE: The $(EXE_NAME) executable was installed to $(INST_PATH). The sudo"
 	@echo "  command might drop $(INST_PATH) from PATH. In case sudo is needed, the"
@@ -167,6 +177,8 @@ uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
 	rm -f $(INST_PATH)/$(EXE_NAME)-chart
 	rm -f $(INST_PATH)/$(EXE_NAME)-scan-path
+	rm -f $(INST_PATH)/mtelbencho.sh
+	rm -f $(INST_PATH)/graph_sweep.sh
 	rm -f /etc/bash_completion.d/$(EXE_NAME)
 	rm -f /etc/bash_completion.d/$(EXE_NAME)-chart
 
@@ -187,6 +199,10 @@ prepare-buildroot: | all clean-packaging
 	for file in $(shell find dist/ -mindepth 1 -type f -printf "%P\n"); do \
 		cp --preserve dist/$$file $(PACKAGING_PATH)/BUILDROOT/$$file; \
 	done
+	
+	# copy contents of contrib subdir
+	cp --preserve contrib/storage_sweep/mtelbencho.sh $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
+	cp --preserve contrib/storage_sweep/graph_sweep.sh $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 
 rpm: | prepare-buildroot
 	@echo "[PACKAGING] PREPARE RPM PACKAGE"

@@ -22,3 +22,6 @@ rm -rf %{buildroot}
 %{_bindir}/__NAME__-scan-path
 %{_sysconfdir}/bash_completion.d/__NAME__
 %{_sysconfdir}/bash_completion.d/__NAME__-chart
+# contrib tools
+%{_bindir}/mtelbencho.sh
+%{_bindir}/graph_sweep.sh

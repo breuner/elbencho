@@ -14,4 +14,7 @@ override_dh_auto_install:
 	install -D -m 0755 $$(pwd)/etc/bash_completion.d/elbencho $$(pwd)/debian/elbencho/usr/share/bash-completion/completions/elbencho
 	install -D -m 0755 $$(pwd)/etc/bash_completion.d/elbencho-chart $$(pwd)/debian/elbencho/etc/bash_completion.d/elbencho-chart
 	install -D -m 0755 $$(pwd)/etc/bash_completion.d/elbencho-chart $$(pwd)/debian/elbencho/usr/share/bash-completion/completions/elbencho-chart
-
+	# install contrib tools
+	install -D -m 0755 $$(pwd)/usr/bin/mtelbencho.sh $$(pwd)/debian/elbencho/usr/bin/mtelbencho.sh
+	install -D -m 0755 $$(pwd)/usr/bin/graph_sweep.sh $$(pwd)/debian/elbencho/usr/bin/graph_sweep.sh
+	

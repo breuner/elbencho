@@ -37,7 +37,7 @@ This directory contains two `bash` scripts:
    the graphing of storage sweeps a push-button operation as much as
    possible.  Once it's installed, type `graph_sweep.sh -h` for more
    info.
-2. **`mtelbench.sh`** (*mt: multiple test*) is a wrapper script for
+2. **`mtelbencho.sh`** (*mt: multiple test*) is a wrapper script for
    `elbencho`. Once it's installed, type `mtelbencho.sh -h` for more
    info.
 

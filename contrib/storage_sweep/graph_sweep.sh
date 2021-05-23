@@ -87,7 +87,7 @@ dry_run=
 #
 # The two tools that this wrapper is used for.
 #
-mtelbencho=/usr/bin/mtelbencho.sh
+mtelbencho=./mtelbencho.sh
 gnuplot=/usr/bin/gnuplot
 #
 # The sweep data file to be plotted using gnuplot. The CSV format is
