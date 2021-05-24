@@ -87,7 +87,11 @@ dry_run=
 #
 # The two tools that this wrapper is used for.
 #
-mtelbencho=./mtelbencho.sh
+mtelbencho=$(command -v mtelbencho.sh)
+if [[ -z "$mtelbencho" ]]; then
+    echo "mtelbencho.sh could not be found. Aborting!"
+    exit
+fi
 gnuplot=/usr/bin/gnuplot
 #
 # The sweep data file to be plotted using gnuplot. The CSV format is
@@ -529,6 +533,12 @@ show_elbencho_version()
     echo "$vs"
 }
 
+show_installed_sweep_tools()
+{
+    echo "graph_sweep.sh is installed at $(command -v graph_sweep.sh)"
+    echo "mtelbencho.sh is installed at $(command -v mtelbencho.sh)"
+}
+
 show_option_settings()
 {
     echo "range_to_sweep  : $range_to_sweep"
@@ -628,6 +638,7 @@ show_test_duration()
     sweep_gplt="$output_dir"/sweep.gplt
     sweep_svg="$output_dir"/sweep.svg
     [[ "$verbose" ]] && show_elbencho_version
+    [[ "$verbose" ]] && show_installed_sweep_tools
     [[ "$verbose" ]] && show_option_settings
     check_space_available
     [[ -z "$dry_run" ]] && verify_directory_exists "$src_data_dir"
