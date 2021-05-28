@@ -7,7 +7,9 @@ Chin Fang <`fangchin[at]zettar.com`>, Palo Alto, California, U.S.A
 Engineering](https://www.artima.com/intv/garden.html) 
 
 <a name="page_top"></a>
-Table of contents
+# Table of contents
+<details>
+<summary><b>(click to expand)</b></summary>
 =================
 
    * [Introduction](#introduction)
@@ -27,6 +29,7 @@ Table of contents
    * [Future evolution](#future-evolution)
    * [Acknowledgments](#acknowledgments)
    * [Epilogue](#epilogue)
+</details>
 
 # Introduction
 
@@ -73,10 +76,13 @@ Before proceeding, you may wish to browse the
    time*!
 2. `elbencho` version 1.6.x or later must be installed and available
    in the `root`'s `$PATH`.
-3. Both `mtelbencho.sh` and `graph_sweep.sh` must be install in
-   a directory that is part of the `root`'s `$PATH`. The key reason
-   is that `mtelbencho.sh` runs `elbencho` with its `--dropcache`
-   option, which demands `root` privilege.
+3. Both `mtelbencho.sh` and `graph_sweep.sh` are installed together
+   with `elbencho` RPM or DEB packages, likewise, when the `make
+   install` is issued.  Please note that you need to be `root` to
+   actually run both.  The key reason is that `mtelbencho.sh` runs
+   `elbencho` with its `--dropcache` option, which demands `root`
+   privilege.  You can run the dry-run mode `-n` without being a
+   `root` however.
    
 Note also that your storage must be reasonably fast (*i.e. capable of
 attaining a write throughput level >= 10Gbps with appropriately sized
@@ -89,6 +95,7 @@ testbed](https://youtube.com/watch?v=5qTpGg57p_o), using any one of
 the two nodes (*each has a Linux software RAID 0 based on 8xNVMe
 SSDs - Intel DC P3700 1.6TB U.2*), the following provides single-run
 (`-N 1`) sweep timing information:
+
 |**Range**  | Test duration |
 |-----------|---------------|
 |**LOSF**   | 35m:58s       |
@@ -259,7 +266,7 @@ characteristics to one or more selected target application(s).
 ## How it should be done
 
 1. Always configure the benchmark as closely as possible to the target
-   application's I/O patterns and storage interactions.
+   application (e.g. a database)'s I/O patterns and storage interactions.
 2. If the target application is a host-oriented one, such as a typical
    database application, then the storage benchmarking should be
    carried out on a single **storage client host** (*identical in
@@ -286,10 +293,10 @@ characteristics to one or more selected target application(s).
    service than any other application. The author of a storage
    benchmark cannot know every application out there and be so
    magical.
-3. The main value of a storage benchmark is to enable you to
-   reasonably easily estimate the attainable read/write throughput in
-   one or more storage clients (*if cluster*) to a target
-   application. Period.
+3. The main value of a storage benchmark is to enable you to easily
+   estimate the attainable read/write throughput available to a target
+   application. The application could be running in one or more
+   storage clients.
 
 Furthermore, we often read that a storage service can provide,
 e.g. 1TB/s throughput :grin:.
