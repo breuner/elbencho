@@ -14,7 +14,7 @@ The default dockerfile defines the path to the elbencho executable as an entrypo
 docker run -it breuner/elbencho --help
 ```
 
-To make your test directory available inside the container, use docker's -v option. E.g. if your benchmark files should be in /data and you want to create a single 10GiB file:
+To make your test directory available inside the container, use docker's `-v` option. E.g. if your benchmark files should be in `/data` and you want to create a single 10GiB file:
 
 ```bash
 docker run -v /data:/data -it breuner/elbencho /data/mytestfile -s 10G -w

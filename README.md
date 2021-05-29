@@ -6,6 +6,26 @@
 
 elbencho was inspired by traditional storage benchmark tools like [fio](https://github.com/axboe/fio), [mdtest](https://github.com/hpc/ior) and [ior](https://github.com/hpc/ior), but was written from scratch to replace them with a modern and easy to use unified tool for file systems and block devices.
 
+## Table of Contents
+<details>
+  <summary><b>(click to expand)</b></summary>
+
+- [Features](#features)
+- [Usage](#usage)
+- [Build Prerequisites](#build-prerequisites)
+  - [Dependencies for Debian/Ubuntu](#dependencies-for-debianubuntu)
+  - [Dependencies for RHEL/CentOS](#dependencies-for-rhelcentos)
+    - [On RHEL / CentOS 7.x: Prepare Environment with newer gcc Version](#on-rhel--centos-7x-prepare-environment-with-newer-gcc-version)
+- [Build & Install](#build--install)
+- [Now what?](#now-what)
+  - [Results & Charts](#results--charts)
+  - [Questions & Comments](#questions--comments)
+- [Optional Build Features](#optional-build-features)
+  - [Nvidia CUDA Support](#nvidia-cuda-support)
+  - [Nvidia GPUDirect Storage \(GDS\) Support](#nvidia-gpudirect-storage-gds-support)
+
+</details>
+
 ## Features
 
 * Unified latency, throughput, IOPS benchmark for file and block storage
@@ -22,7 +42,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 
 The built-in help (`elbencho --help`) provides simple examples to get started.
 
-## Prerequisites
+## Build Prerequisites
 
 You can get elbencho pre-built from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
 
