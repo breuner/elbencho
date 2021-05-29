@@ -166,7 +166,8 @@ void ProgArgs::defineAllowedArgs()
 			"MS Excel. If the file exists, results will be appended.")
 #ifdef CUFILE_SUPPORT
 /*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
-			"Use cuFile API for reads/writes to/from GPU memory.")
+			"Use cuFile API for reads/writes to/from GPU memory, also known as GPUDirect Storage "
+			"(GDS).")
 /*cu*/	(ARG_CUFILEDRIVEROPEN_LONG, bpo::bool_switch(&this->useCuFileDriverOpen),
 			"Explicitly initialize cuFile lib and open the nvida-fs driver.")
 #endif

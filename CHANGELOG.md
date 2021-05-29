@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v1.9.0 (work in progress)
+## v1.9.1 (May 29, 2021)
 
 ### New Features & Enhancements
 * New custom tree mode option to create/read arbitrary tree structures of directories and files with different sizes (--treefile).
@@ -9,11 +9,13 @@
   * New official elbencho Docker repository with usage examples: https://hub.docker.com/r/breuner/elbencho
 * New makefile option NO_BACKTRACE=1 to build without backtrace support for musl-libc compatibility.
 * New option to load benchmark parameters from config file (-c / --configfile).
+* New option to run multiple iterations of the same tests (-i / --iterations).
+* The contributed sweep tools (mtelbencho.sh & graph_sweep.sh) are now included in rpm/deb packages.
 
 ### Contributors
 * Thanks to Zettar team (esp. Chin Fang & Oleskandr Nazarenko) for contributing in multiple ways to the new custom tree mode.
 * Thanks to first time contributor Andy Pernsteiner (VAST Data) for providing the Dockerfile and testing on Alpine Linux.
-* Thanks to first time contributor Edgar Fajardo Hernandez (Penguin Computing) for contributing the config file option.
+* Thanks to first time contributor Edgar Fajardo Hernandez (Penguin Computing) for providing the config file option and support for multiple iterations.
 
 ## v1.8.1 (March 21, 2021)
 
