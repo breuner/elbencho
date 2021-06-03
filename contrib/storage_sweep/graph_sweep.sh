@@ -49,8 +49,11 @@
 #         datasets, N is the desired thread number to run elbencho,
 #         num_sweep is the number of times to repeat a sweep,
 #         output_dir is where the mtelbencho.sh's output will be
-#         stored. For other usage tips and examples, on the CLI, type
-#         graph_sweep.sh -h for more info.
+#         stored. Furthermore, four subdirectories, 'losf', 'medium',
+#         'large', and 'full' are pre-created to prevent users from
+#         accidentally having their results overwritten by different
+#         runs for different ranges.  For other usage tips and
+#         examples, on the CLI, type graph_sweep.sh -h for more info.
 #
 # References:
 # 0. https://github.com/breuner/elbencho/tree/master/contrib/storage_sweep
@@ -64,6 +67,8 @@
 # A terabyte is 1,000,000 megabytes. A megabytes is 1000000 bytes.
 # So, a terabyte is 1000000 * 1000000 bytes. We require 
 minimal_space=2000000000000
+# preferred file descriptor limit for both unlimit -Hn and -Sn
+fdlimit=262144
 range_to_sweep=
 threads=$(nproc)
 src_data_dir=/var/tmp
@@ -127,6 +132,31 @@ declare -a xlabels=('1048576x1KiB'   '1048576x2KiB'   '1048576x4KiB'
                     '8x128GiB'       '4x256GiB'       '2x512GiB'
                     '1x1TiB'
                    )
+
+#
+# The mtelbencho.sh uses individual files for the large-file range
+# sweep. Their corresponding file descriptors could be all opened at
+# the same time. Thus, the system default (often set to a modest 1024)
+# may not be enough.  This can be raised with root privileges. Since
+# this script is supposed to be run under root, so we can and will do
+# it below temporarily - an application should NEVER touch the
+# system's default settings!  In the following, both the hard and soft
+# file descriptor limits are set to the same and adequate value per
+# our experience.
+#
+set_max_open_file_descriptors()
+{
+    local hfdl
+    hfdl=$(ulimit -Hn)
+    local sfdl
+    sfdl=$(ulimit -Sn)
+    if (( "$hfdl < "$fdlimit )); then
+        ulimit -Hn "$fdlimit"
+    fi
+    if (( "$sfdl < "$fdlimit )); then
+        ulimit -Sn "$fdlimit"
+    fi
+}
 
 check_app()
 {
@@ -642,7 +672,8 @@ show_test_duration()
     [[ "$verbose" ]] && show_option_settings
     check_space_available
     [[ -z "$dry_run" ]] && verify_directory_exists "$src_data_dir"
-    [[ -z "$dry_run" ]] && verify_directory_exists "$output_dir"    
+    [[ -z "$dry_run" ]] && verify_directory_exists "$output_dir"
+    [[ -z "$dry_run" ]] && set_max_open_file_descriptors
     [[ -z "$dry_run" ]] && check_dependencies
     [[ -z "$dry_run" ]] && run_as_root
     [[ "$verbose" ]] && echo "===> Getting ready to sweep..."
