@@ -86,6 +86,8 @@
 # A terabyte is 1,000,000 megabytes. A megabytes is 1000000 bytes.
 # So, a terabyte is 1000000 * 1000000 bytes. We require 
 minimal_space=2000000000000
+# preferred file descriptor limit for both unlimit -Hn and -Sn
+fdlimit=262144
 type='w'
 verbose=
 block_size=1m
@@ -114,6 +116,35 @@ check_elbencho_version()
         echo "Installed elbencho too old. Abort!"
         exit 1
     fi    
+}
+
+#
+# NOTE: the following function is already in graph_sweep.sh, so why
+#       it's here again? Please note that this script can be run by
+#       itself too!
+#
+# The mtelbencho.sh uses individual files for the large-file range
+# sweep. Their corresponding file descriptors could be all opened at
+# the same time. Thus, the system default (often set to a modest 1024)
+# may not be enough.  This can be raised with root privileges. Since
+# this script is supposed to be run under root, so we can and will do
+# it below temporarily - an application should NEVER touch the
+# system's default settings!  In the following, both the hard and soft
+# file descriptor limits are set to the same and adequate value per
+# our experience.
+#
+set_max_open_file_descriptors()
+{
+    local hfdl
+    hfdl=$(ulimit -Hn)
+    local sfdl
+    sfdl=$(ulimit -Sn)
+    if (( "$hfdl < "$fdlimit )); then
+	ulimit -Hn "$fdlimit"
+    fi
+    if (( "$sfdl < "$fdlimit )); then
+	ulimit -Sn "$fdlimit"
+    fi
 }
 
 help()
@@ -526,6 +557,7 @@ show_option_settings()
     fi
     if ! [[ "$dry_run" ]]; then
         check_elbencho_version
+	set_max_open_file_descriptors
     fi
     if [[ "$range_to_sweep" == 's' ]]; then
         los_files
