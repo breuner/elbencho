@@ -47,7 +47,9 @@ _elbencho_opts()
         --help-all
         --help-bdev
         --help-dist
+        --help-large
         --help-multi
+        --help-s3
         --hosts
         --hostsfile
         --interrupt
@@ -78,6 +80,13 @@ _elbencho_opts()
         --refresh
         --resfile
         --rwmixpct
+        --s3endpoints
+        --s3fastget
+        --s3key
+        --s3log
+        --s3region
+        --s3secret
+        --s3transman
         --service
         --sharesize
         --size
@@ -154,6 +163,14 @@ _elbencho()
         --rwmixpct)
         ;&
         -s)
+        ;&
+        --s3endpoints)
+        ;&
+        --s3key)
+        ;&
+        --s3region)
+        ;&
+        --s3secret)
         ;&
         --sharesize)
         ;&

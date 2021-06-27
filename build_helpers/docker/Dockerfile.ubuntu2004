@@ -1,13 +1,13 @@
-# Full elbencho rpm install of latest github master on Ubuntu 20.04
+# Full elbencho deb install of latest github master on Ubuntu 20.04
 
 FROM ubuntu:20.04 as builder
 
 RUN apt update && \
     export DEBIAN_FRONTEND=noninteractive && \
-    apt install -y build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian && \
+    apt install -y build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
     cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
-    make -j "$(nproc)" && \
+    make S3_SUPPORT=1 -j "$(nproc)" && \
     make deb
 
 FROM ubuntu:20.04

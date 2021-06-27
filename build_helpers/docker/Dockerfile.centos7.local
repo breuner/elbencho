@@ -1,14 +1,18 @@
 # Full elbencho rpm install of latest github master on CentOS 7
+#
+# Run docker build from elbencho repository root dir like this:
+# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.centos7.local .
 
 FROM centos:7 as builder
+
+COPY ./ /root/elbencho
 
 RUN yum install -y boost-devel centos-release-scl gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
     yum install -y devtoolset-8 && \
     yum -y install epel-release && \
     yum install -y --enablerepo=epel cmake3 && \
     ln -vs /usr/bin/cmake3 /usr/local/bin/cmake && \
-    cd /root && git clone https://github.com/breuner/elbencho.git && \
-    cd elbencho && \
+    cd /root/elbencho && \
     source /opt/rh/devtoolset-8/enable && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm

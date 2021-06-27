@@ -2,7 +2,7 @@
 
 <img src="graphics/elbencho-logo.svg" width="50%" height="50%" alt="elbencho logo" align="center"/>
 
-**A distributed storage benchmark for file systems and block devices with support for GPUs**
+**A distributed storage benchmark for file systems, object stores & block devices with support for GPUs**
 
 elbencho was inspired by traditional storage benchmark tools like [fio](https://github.com/axboe/fio), [mdtest](https://github.com/hpc/ior) and [ior](https://github.com/hpc/ior), but was written from scratch to replace them with a modern and easy to use unified tool for file systems and block devices.
 
@@ -15,7 +15,6 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 - [Build Prerequisites](#build-prerequisites)
   - [Dependencies for Debian/Ubuntu](#dependencies-for-debianubuntu)
   - [Dependencies for RHEL/CentOS](#dependencies-for-rhelcentos)
-    - [On RHEL / CentOS 7.x: Prepare Environment with newer gcc Version](#on-rhel--centos-7x-prepare-environment-with-newer-gcc-version)
 - [Build & Install](#build--install)
 - [Now what?](#now-what)
   - [Results & Charts](#results--charts)
@@ -23,12 +22,13 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 - [Optional Build Features](#optional-build-features)
   - [Nvidia CUDA Support](#nvidia-cuda-support)
   - [Nvidia GPUDirect Storage \(GDS\) Support](#nvidia-gpudirect-storage-gds-support)
+  - [S3 Object Storage Support](#s3-object-storage-support)
 
 </details>
 
 ## Features
 
-* Unified latency, throughput, IOPS benchmark for file and block storage
+* Unified latency, throughput, IOPS benchmark for file, object & block storage
 * Supports local and shared storage through distributed service mode
 * For modern NVMe storage or classic spinning disk storage
 * GPU storage access performance testing through Nvidia CUDA or GPUDirect Storage (GDS)
@@ -131,3 +131,26 @@ CUDA support for GPU data transfers will automatically be enabled when CUDA deve
 
 GPUDirect Storage (GDS) support through the cuFile API will automatically be enabled when GDS development files (`cufile.h` and `libcufile.so`) are installed on the build system. Alternatively, elbencho GDS support can be manually enabled or disabled. See `make help` for details.
 
+#### S3 Object Storage Support
+
+S3 Object Storage support involves downloading a AWS SDK git repository of over 1GB size and increases build time from a few seconds to a few minutes. Thus, S3 support is not enabled by default, but it can easily be enabled as described below.
+
+##### S3 Dependencies for RHEL/CentOS 8.0 or newer:
+
+```bash
+sudo yum install cmake libcurl-devel openssl-devel libuuid-devel
+```
+
+##### S3 Dependencies for Ubuntu 20.04 or newer:
+
+```bash
+sudo apt install cmake libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev
+```
+
+##### Build elbencho with S3 Support
+
+To build elbencho with S3 support, just add the `S3_SUPPORT=1` parameter to the make command. (If you previously built elbencho without S3 support, then run `make clean-all` before this.)
+
+```bash
+make S3_SUPPORT=1 -j8
+```

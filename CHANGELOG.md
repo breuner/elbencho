@@ -1,5 +1,21 @@
 # Changelog of elbencho
 
+## v2.0 (work in progress)
+
+### New Features & Enhancements
+* New support for S3 object storage benchmarking.
+  * Not enabled by default due to extra build time. See README.md for easy instructions on how to enable.
+  * S3 support is included in many docker containers. 
+* New Nvidia Magnum IO based Docker container with CUDA and GPUDirect Storage (GDS) support included.
+  * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
+* New Dockerfiles to build containers from local source copy.
+  * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
+* New guide for elbencho with the Slurm Workload Manager.
+  * See here: https://github.com/breuner/elbencho/blob/master/tools/slurm-examples.md
+
+### Contributors
+* Thanks to Chin Fang (Zettar) & Andy Pernsteiner (VAST Data) for S3 support testing and feedback.
+
 ## v1.9.1 (May 29, 2021)
 
 ### New Features & Enhancements

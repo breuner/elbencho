@@ -1,19 +1,19 @@
 # Elbencho main executable on Alpine Linux for minimum image size
 
-FROM alpine:3.13 as builder
+FROM alpine:3 as builder
 
-RUN apk add boost-dev gcc g++ git libaio-dev make ncurses-dev numactl-dev bash libexecinfo-dev
+RUN apk add bash boost-dev gcc g++ git libaio-dev libexecinfo-dev make ncurses-dev numactl-dev
 
 RUN cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
-    NO_BACKTRACE=1 make -j "$(nproc)" && \
+    LDFLAGS_EXTRA="-lexecinfo" make -j "$(nproc)" && \
     make install
 
-FROM alpine:3.13
+FROM alpine:3
 
 COPY --from=builder /usr/local/bin/elbencho /usr/local/bin
 
-RUN apk add boost-regex boost-program_options libaio-dev ncurses-dev numactl-dev libexecinfo-dev && \
+RUN apk add boost-regex boost-program_options libaio ncurses numactl libexecinfo && \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho && \
     /usr/local/bin/elbencho --version
 

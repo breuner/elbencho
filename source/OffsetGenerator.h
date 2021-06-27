@@ -22,6 +22,7 @@ class OffsetGenerator
 
 		virtual void reset() = 0; // reset for reuse of object with next file
 		virtual uint64_t getNextOffset() = 0;
+		virtual size_t getBlockSize() const = 0; // tyically you want getNextBlockSizeToSubmit()
 		virtual size_t getNextBlockSizeToSubmit() const = 0;
 		virtual uint64_t getNumBytesTotal() const = 0;
 		virtual uint64_t getNumBytesLeftToSubmit() const = 0;
@@ -61,6 +62,9 @@ class OffsetGenSequential : public OffsetGenerator
 
 		virtual uint64_t getNextOffset() override
 			{ return currentOffset; }
+
+		virtual size_t getBlockSize() const override
+			{ return blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }
@@ -114,6 +118,9 @@ class OffsetGenRandom : public OffsetGenerator
 		virtual uint64_t getNextOffset() override
 			{ return randRange.next(); }
 
+		virtual size_t getBlockSize() const override
+			{ return blockSize; }
+
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }
 
@@ -140,7 +147,7 @@ class OffsetGenRandomAligned : public OffsetGenerator
 {
 	public:
 		OffsetGenRandomAligned(const ProgArgs& progArgs, RandAlgoInterface& randAlgo, uint64_t len,
-				uint64_t offset, size_t blockSize) :
+			uint64_t offset, size_t blockSize) :
 			randRange(randAlgo, 0, (offset + len - blockSize) / blockSize),
 			blockSize(blockSize)
 		{
@@ -164,6 +171,9 @@ class OffsetGenRandomAligned : public OffsetGenerator
 
 		virtual uint64_t getNextOffset() override
 			{ return randRange.next() * blockSize; }
+
+		virtual size_t getBlockSize() const override
+			{ return blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
 			{ return std::min(numBytesLeft, blockSize); }

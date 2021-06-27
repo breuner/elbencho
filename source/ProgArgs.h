@@ -19,8 +19,10 @@ namespace bpt = boost::property_tree;
 
 #define ARG_HELP_LONG 				"help"
 #define ARG_HELP_SHORT 				"h"
-#define ARG_HELPBLOCKDEV_LONG 		"help-bdev"
+#define ARG_HELPBLOCKDEV_LONG 		"help-bdev" // for backwards compat (new: help-large)
+#define ARG_HELPLARGE_LONG 			"help-large"
 #define ARG_HELPMULTIFILE_LONG 		"help-multi"
+#define ARG_HELPS3_LONG 			"help-s3"
 #define ARG_HELPDISTRIBUTED_LONG 	"help-dist"
 #define ARG_HELPALLOPTIONS_LONG	 	"help-all"
 #define ARG_BENCHPATHS_LONG			"path"
@@ -58,7 +60,7 @@ namespace bpt = boost::property_tree;
 #define ARG_HOSTS_LONG				"hosts"
 #define ARG_INTERRUPT_LONG			"interrupt"
 #define ARG_ITERATIONS_LONG			"iterations"
-#define ARG_ITERATIONS_SHORT			"i"
+#define ARG_ITERATIONS_SHORT		"i"
 #define ARG_QUIT_LONG				"quit"
 #define ARG_NOSVCPATHSHARE_LONG		"nosvcshare"
 #define ARG_RANKOFFSET_LONG			"rankoffset"
@@ -106,6 +108,13 @@ namespace bpt = boost::property_tree;
 #define ARG_FILESHARESIZE_LONG		"sharesize"
 #define ARG_TREERANDOMIZE_LONG		"treerand"
 #define ARG_TREEROUNDUP_LONG		"treeroundup"
+#define ARG_S3ENDPOINTS_LONG		"s3endpoints"
+#define ARG_S3ACCESSKEY_LONG		"s3key"
+#define ARG_S3ACCESSSECRET_LONG		"s3secret"
+#define ARG_S3REGION_LONG			"s3region"
+#define ARG_S3FASTGET_LONG			"s3fastget"
+#define ARG_S3TRANSMAN_LONG			"s3transman"
+#define ARG_S3LOGLEVEL_LONG			"s3log"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -116,6 +125,9 @@ namespace bpt = boost::property_tree;
 												SystemTk::getUsername() + "_" + \
 												"p" + std::to_string(servicePort) )
 #define SERVICE_UPLOAD_TREEFILE					"treefile.txt"
+#define S3_IMPLICIT_TREEFILE_PATH				("/var/tmp/" EXE_NAME "_" + \
+												SystemTk::getUsername() + "_" + \
+												"treefile_implicit.txt")
 
 
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
@@ -136,7 +148,7 @@ class ProgArgs
 		bool hasUserRequestedVersion();
 		void printVersionAndBuildInfo();
 		void setFromPropertyTree(bpt::ptree& tree);
-		void getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const;
+		void getAsPropertyTree(bpt::ptree& outTree, size_t serviceRank) const;
 		void getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const;
 		void resetBenchPath();
 		void getBenchPathInfoTree(bpt::ptree& outTree);
@@ -253,6 +265,15 @@ class ProgArgs
 		uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
 			(useful for directIO with its alignment reqs on some file systems. 0 disables this.) */
 		std::string treeRoundUpSizeOrigStr; // original treeRoundUpSize str from user with unit
+		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
+		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
+		std::string s3AccessKey; // s3 access key
+		std::string s3AccessSecret; // s3 access secret
+		std::string s3Region; // s3 region
+		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
+									via buffer possible, such as GPU copy or data verification) */
+		bool useS3TransferManager; // use AWS SDK TransferManager for object downloads
+		unsigned short s3LogLevel; // log level for AWS SDK
 
 
 		void defineDefaults();
@@ -260,6 +281,7 @@ class ProgArgs
 		void checkArgs();
 		void checkPathDependentArgs();
 		void parseAndCheckPaths();
+		void convertS3PathsToCustomTree();
 		void prepareBenchPathFDsVec();
 		void prepareCuFileHandleDataVec();
 		void prepareFileSize(int fd, std::string& path);
@@ -267,7 +289,9 @@ class ProgArgs
 		void parseNumaZones();
 		void parseGPUIDs();
 		void parseRandAlgos();
+		void parseS3Endpoints();
 		void loadCustomTreeFile();
+		void splitCustomTreeForSharedS3Upload();
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
@@ -276,6 +300,7 @@ class ProgArgs
 		void printHelpAllOptions();
 		void printHelpBlockDev();
 		void printHelpMultiFile();
+		void printHelpS3();
 		void printHelpDistributed();
 
 
@@ -369,6 +394,14 @@ class ProgArgs
 		uint64_t getFileShareSize() const { return fileShareSize; }
 		bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
 		uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }
+		std::string getS3EndpointsStr() const { return s3EndpointsStr; }
+		const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
+		std::string getS3AccessKey() const { return s3AccessKey; }
+		std::string getS3AccessSecret() const { return s3AccessSecret; }
+		std::string getS3Region() const { return s3Region; }
+		bool getUseS3FastRead() const { return useS3FastRead; }
+		bool getUseS3TransferManager() const { return useS3TransferManager; }
+		unsigned short getS3LogLevel() const { return s3LogLevel; }
 };
 
 

@@ -40,7 +40,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"1.9.0"
+#define HTTP_PROTOCOLVERSION	"2.0.0"
 
 
 /**
@@ -93,7 +93,7 @@ enum BenchPhase
  */
 enum BenchPathType
 {
-	BenchPathType_DIR=0,
+	BenchPathType_DIR=0, // also used for s3
 	BenchPathType_FILE=1,
 	BenchPathType_BLOCKDEV=2,
 };

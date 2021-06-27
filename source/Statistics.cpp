@@ -3,11 +3,11 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <chrono>
 #include <ncurses.h>
+#undef OK // defined by ncurses.h, but conflicts with AWS SDK CPP using OK in enum in HttpResponse.h
 #include "ProgException.h"
 #include "Statistics.h"
 #include "Terminal.h"
 #include "toolkits/TranslatorTk.h"
-#include "workers/LocalWorker.h"
 #include "workers/RemoteWorker.h"
 #include "workers/Worker.h"
 #include "workers/WorkerException.h"

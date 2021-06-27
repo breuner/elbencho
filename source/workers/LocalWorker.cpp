@@ -8,6 +8,31 @@
 	#include <cuda_runtime.h>
 #endif
 
+#ifdef S3_SUPPORT
+	#include <aws/core/auth/AWSCredentialsProvider.h>
+	#include <aws/core/Aws.h>
+	#include <aws/core/utils/HashingUtils.h>
+	#include <aws/core/utils/logging/DefaultLogSystem.h>
+	#include <aws/core/utils/logging/AWSLogging.h>
+	#include <aws/core/utils/memory/stl/AWSString.h>
+	#include <aws/core/utils/memory/AWSMemory.h>
+	#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
+	#include <aws/core/utils/stream/PreallocatedStreamBuf.h>
+	#include <aws/core/utils/StringUtils.h>
+	#include <aws/core/utils/threading/Executor.h>
+	#include <aws/core/utils/UUID.h>
+	#include <aws/s3/model/AbortMultipartUploadRequest.h>
+	#include <aws/s3/model/BucketLocationConstraint.h>
+	#include <aws/s3/model/CompleteMultipartUploadRequest.h>
+	#include <aws/s3/model/CreateBucketRequest.h>
+	#include <aws/s3/model/CreateMultipartUploadRequest.h>
+	#include <aws/s3/model/DeleteBucketRequest.h>
+	#include <aws/s3/model/DeleteObjectRequest.h>
+	#include <aws/s3/model/GetObjectRequest.h>
+	#include <aws/s3/model/PutObjectRequest.h>
+	#include <aws/s3/model/UploadPartRequest.h>
+	#include <aws/transfer/TransferManager.h>
+#endif
 
 #define PATH_BUF_LEN					64
 #define MKDIR_MODE						0777
@@ -16,6 +41,33 @@
 #define AIO_MAX_WAIT_SEC				5
 #define AIO_MAX_EVENTS					4 // max number of events to retrieve in io_getevents()
 
+
+#ifdef S3_SUPPORT
+	int LocalWorker::s3SDKRefCounter{0}; // for singleton AWS SDK init/uninit
+	std::mutex LocalWorker::s3SDKInitMutex; // for singleton AWS SDK init/uninit
+	Aws::SDKOptions* LocalWorker::s3SDKOptions = NULL; // needed for init and again for uninit later
+	S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
+#endif
+
+#ifdef S3_SUPPORT
+	namespace S3 = Aws::S3::Model;
+#endif
+
+#ifdef S3_SUPPORT
+	/**
+	 * Aws::IOStream derived in-memory stream implementation for S3 object upload/download. The
+	 * actual in-memory part comes from the streambuf that gets provided to the constructor.
+	 */
+	class S3MemoryStream : public Aws::IOStream
+	{
+		public:
+			using Base = Aws::IOStream;
+
+			S3MemoryStream(std::streambuf *buf) : Base(buf) {}
+
+			virtual ~S3MemoryStream() = default;
+	};
+#endif // S3_SUPPORT
 
 LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank) :
 	Worker(workersSharedData, workerRank)
@@ -53,6 +105,7 @@ void LocalWorker::run()
 		allocIOBuffer();
 		allocGPUIOBuffer();
 		prepareCustomTreePathStores();
+		initS3Client();
 
 		// signal coordinator that our preparations phase is done
 		phaseFinished = true; // before incNumWorkersDone(), as Coordinator can reset after done inc
@@ -78,6 +131,7 @@ void LocalWorker::run()
 					incNumWorkersDone();
 					return;
 				} break;
+
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
 				{
@@ -85,15 +139,28 @@ void LocalWorker::run()
 						throw WorkerException("Directory creation and deletion are not available "
 							"in file and block device mode.");
 
-					progArgs->getTreeFilePath().empty() ?
-						dirModeIterateDirs() : dirModeIterateCustomDirs();
+					if(progArgs->getS3EndpointsVec().empty() )
+					{
+						progArgs->getTreeFilePath().empty() ?
+							dirModeIterateDirs() : dirModeIterateCustomDirs();
+					}
+					else
+						s3ModeIterateBuckets();
+
 				} break;
+
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				{
 					if(progArgs->getBenchPathType() == BenchPathType_DIR)
-						progArgs->getTreeFilePath().empty() ?
-							dirModeIterateFiles() : dirModeIterateCustomFiles();
+					{
+						if(progArgs->getS3EndpointsVec().empty() )
+							progArgs->getTreeFilePath().empty() ?
+								dirModeIterateFiles() : dirModeIterateCustomFiles();
+						else
+							progArgs->getTreeFilePath().empty() ?
+								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+					}
 					else
 					{
 						if(!progArgs->getUseRandomOffsets() )
@@ -102,6 +169,7 @@ void LocalWorker::run()
 							fileModeIterateFilesRand();
 					}
 				} break;
+
 				case BenchPhase_STATFILES:
 				{
 					if(progArgs->getBenchPathType() != BenchPathType_DIR)
@@ -111,22 +179,32 @@ void LocalWorker::run()
 					progArgs->getTreeFilePath().empty() ?
 						dirModeIterateFiles() : dirModeIterateCustomFiles();
 				} break;
+
 				case BenchPhase_DELETEFILES:
 				{
 					if(progArgs->getBenchPathType() == BenchPathType_DIR)
-						progArgs->getTreeFilePath().empty() ?
-							dirModeIterateFiles() : dirModeIterateCustomFiles();
+					{
+						if(progArgs->getS3EndpointsVec().empty() )
+							progArgs->getTreeFilePath().empty() ?
+								dirModeIterateFiles() : dirModeIterateCustomFiles();
+						else
+							progArgs->getTreeFilePath().empty() ?
+								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+					}
 					else
 						fileModeDeleteFiles();
 				} break;
+
 				case BenchPhase_SYNC:
 				{
 					anyModeSync();
 				} break;
+
 				case BenchPhase_DROPCACHES:
 				{
 					anyModeDropCaches();
 				} break;
+
 				default:
 				{ // should never happen
 					throw WorkerException("Unknown/invalid next phase type: " +
@@ -150,13 +228,18 @@ void LocalWorker::run()
 		/* check if called twice. (happens on interrupted waitForNextPhase() while other workers
 			haven't finished the previous phase, i.e. during the end game of a phase.) */
 		if(!phaseFinished)
+		{
+			s3ModeAbortUnfinishedSharedUploads(); // abort unfinished S3 uploads
 			finishPhase(); // let coordinator know that we are done
+		}
 
 		return;
 	}
 	catch(std::exception& e)
 	{
 		ErrLogger(Log_NORMAL, progArgs->getRunAsService() ) << e.what() << std::endl;
+
+		s3ModeAbortUnfinishedSharedUploads(); // abort unfinished S3 uploads
 	}
 
 	incNumWorkersDoneWithError();
@@ -164,6 +247,9 @@ void LocalWorker::run()
 
 /**
  * Update finish time values, then signal coordinator that we're done.
+ *
+ * Nothing should run after this, because coordinator will assume that it can reset things after
+ * the done counter has been increased inside this function.
  */
 void LocalWorker::finishPhase()
 {
@@ -180,6 +266,113 @@ void LocalWorker::finishPhase()
 	phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
 
 	incNumWorkersDone();
+}
+
+/**
+ * Initialize AWS S3 SDK & S3 client object. Intended to be called at the start of each benchmark
+ * phase. Will do nothing if not built with S3 support or no S3 endpoints defined.
+ *
+ * S3 endpoints get assigned round-robin to workers based on workerRank.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::initS3Client()
+{
+#ifdef S3_SUPPORT
+
+	if(progArgs->getS3EndpointsVec().empty() )
+		return; // nothing to do
+
+	{ // L O C K E D (scoped)
+		/* note: mutex needed (in contrast to just atomic ref counter) to ensure that SDK is initialized
+			by first thread before other threads init their S3Client */
+		std::unique_lock<std::mutex> lock(s3SDKInitMutex);
+
+		s3SDKRefCounter++;
+
+		// only the first thread initializes the S3 SDK
+		if(s3SDKRefCounter == 1)
+		{
+			LOGGER(Log_DEBUG, "Initializing S3 SDK. Rank: " << workerRank << std::endl);
+
+			if(progArgs->getS3LogLevel() > 0)
+				Aws::Utils::Logging::InitializeAWSLogging(
+					Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>("DebugLogging",
+						(Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(), "aws_sdk_"));
+
+			s3SDKOptions = new Aws::SDKOptions;
+			Aws::InitAPI(*s3SDKOptions);
+		}
+
+		/* note: this is to avoid a long delay for the client config trying to contact the
+			AWS instance metadata service to retrieve credentials, although we already set them.
+			this way, it can still manually be overrideen through the environment variable. */
+		setenv("AWS_EC2_METADATA_DISABLED", "true", 0);
+	}
+
+	Aws::Client::ClientConfiguration config;
+
+	config.verifySSL = false; // to avoid self-signed certificate errors
+	config.enableEndpointDiscovery = false; // to avoid delays for discovery
+	config.connectTimeoutMs = 5000;
+	config.requestTimeoutMs = 300000;
+	config.executor = std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(1);
+
+	if(!progArgs->getS3Region().empty() )
+		config.region = progArgs->getS3Region();
+
+	Aws::Auth::AWSCredentials credentials;
+
+	if(!progArgs->getS3AccessKey().empty() )
+		credentials.SetAWSAccessKeyId(progArgs->getS3AccessKey() );
+
+	if(!progArgs->getS3AccessSecret().empty() )
+		credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
+
+	s3Client = std::make_shared<Aws::S3::S3Client>(credentials, config,
+		Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent, false);
+
+	const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
+	size_t numEndpoints = endpointsVec.size();
+	std::string endpoint = endpointsVec[workerRank % numEndpoints];
+
+	s3Client->OverrideEndpoint(endpoint);
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Uninit AWS SDK & free S3 client object. Intended to be called at the end of each benchmark phase.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::uninitS3Client()
+{
+#ifdef S3_SUPPORT
+
+	if(progArgs->getS3EndpointsVec().empty() )
+		return; // nothing to do
+
+	s3Client.reset();
+
+	{ // L O C K E D (scoped)
+		std::unique_lock<std::mutex> lock(s3SDKInitMutex);
+
+		// only the last thread shuts down the S3 SDK
+		if(s3SDKRefCounter == 1)
+		{
+			LOGGER(Log_DEBUG, "Shutting down S3 SDK. Rank: " << workerRank << std::endl);
+
+			Aws::ShutdownAPI(*s3SDKOptions);
+
+			if(progArgs->getS3LogLevel() > 0)
+				Aws::Utils::Logging::ShutdownAWSLogging();
+		}
+
+		s3SDKRefCounter--;
+	}
+
+#endif // S3_SUPPORT
 }
 
 /**
@@ -413,6 +606,10 @@ void LocalWorker::allocIOBuffer()
 	if(!progArgs->getBlockSize() )
 		return; // nothing to do here
 
+	if(!progArgs->getS3EndpointsStr().empty() && !progArgs->getRunCreateFilesPhase() &&
+		(progArgs->getUseS3FastRead() || progArgs->getUseS3TransferManager() ) )
+		return; // nothing to do if read to /dev/null is set and no writes to be done
+
 	// alloc number of IO buffers matching iodepth
 	for(size_t i=0; i < progArgs->getIODepth(); i++)
 	{
@@ -553,8 +750,29 @@ void LocalWorker::prepareCustomTreePathStores()
 	progArgs->getCustomTreeFilesNonShared().getWorkerSublistNonShared(
 		workerRank, progArgs->getNumDataSetThreads(), customTreeFiles);
 
-	progArgs->getCustomTreeFilesShared().getWorkerSublistShared(
-		workerRank, progArgs->getNumDataSetThreads(), customTreeFiles);
+	size_t numThreads = progArgs->getNumThreads();
+	size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+
+	if(progArgs->getRunAsService() && !progArgs->getS3EndpointsStr().empty() &&
+		progArgs->getRunCreateFilesPhase() && (numDataSetThreads != numThreads) )
+	{
+		/* shared s3 uploads of an object possible, but may among threads within the same
+			service instance (due to the uploadID not beeing shared among service instances).
+			in this case, ProgArgs prepared a special shared file tree that only contains files for
+			this service instance. thus we use only the local ranks, not the global ranks. */
+
+		size_t workerRankLocal = workerRank - progArgs->getRankOffset();
+
+		progArgs->getCustomTreeFilesShared().getWorkerSublistShared(
+				workerRankLocal, numThreads, customTreeFiles);
+	}
+	else
+	{
+		// this is the normal case: fair sharing across all services/workers based on blocksize
+
+		progArgs->getCustomTreeFilesShared().getWorkerSublistShared(
+			workerRank, progArgs->getNumDataSetThreads(), customTreeFiles);
+	}
 
 	if(progArgs->getUseCustomTreeRandomize() )
 		customTreeFiles.randomShuffle();
@@ -572,6 +790,8 @@ void LocalWorker::cleanup()
 {
 	// delete rwOffsetGen (unique ptr) to eliminate any references to progArgs data etc.
 	rwOffsetGen.reset();
+
+	uninitS3Client();
 
 	// reset custom tree mode path store
 	customTreeFiles.clear();
@@ -1412,7 +1632,7 @@ void LocalWorker::dirModeIterateDirs()
 					"SysErr: " + strerror(errno) );
 		}
 
-		// calc entry operations latency. (for create, this includes open/rw/close.)
+		// calc entry operations latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
 		std::chrono::microseconds ioElapsedMicroSec =
 			std::chrono::duration_cast<std::chrono::microseconds>
@@ -1536,7 +1756,8 @@ void LocalWorker::dirModeIterateCustomDirs()
 
 /**
  * This is for directory mode. Iterate over all files to create/read/remove them.
- * Uses a unique dir per worker and fills up each dir before moving on to the next.
+ * By default, this uses a unique dir per worker and fills up each dir before moving on to the next.
+ * If dir sharing is enabled, all workers will use dirs or rank 0.
  *
  * @throw WorkerException on error.
  */
@@ -1688,7 +1909,8 @@ void LocalWorker::dirModeIterateFiles()
 
 /**
  * This is for directory mode with custom files. Iterate over all files to create/read/remove them.
- * Each worker uses a subset of the files from the non-shared.
+ * Each worker uses a subset of the files from the non-shared tree and parts of files from the
+ * shared tree.
  *
  * Note: With a custom tree, multiple benchmark paths are not supported (because otherwise we
  * 	can't ensure in file creation phase that the matching parent dir has been created for the
@@ -1713,7 +1935,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so short is ok)
 
-	// walk over each unique dir per worker
+	// walk over custom tree part of this worker
 
 	for(const PathStoreElem& currentPathElem : customTreePaths)
 	{
@@ -1727,14 +1949,13 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 		if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
 		{
-			const uint64_t fileSize = currentPathElem.rangeLen;
+			const uint64_t rangeLen = currentPathElem.rangeLen;
 			const uint64_t fileOffset = currentPathElem.rangeStart;
 
-			rwOffsetGen = std::make_unique<OffsetGenSequential>(
-					currentPathElem.rangeLen, fileOffset, blockSize);
+			rwOffsetGen = std::make_unique<OffsetGenSequential>(rangeLen, fileOffset, blockSize);
 
 			fd = dirModeOpenAndPrepFile(benchPhase, benchPathFDs, benchPathFDIdx,
-				currentPathElem.path.c_str(), openFlags, fileSize);
+				currentPathElem.path.c_str(), openFlags, currentPathElem.totalLen);
 
 			// try-block to ensure that fd is closed in case of exception
 			try
@@ -1754,7 +1975,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 						throw WorkerException(std::string("Unexpected short file write. ") +
 							"Path: " + benchPathStr + "/" + currentPath + "; "
 							"Bytes written: " + std::to_string(writeRes) + "; "
-							"Expected written: " + std::to_string(fileSize) );
+							"Expected written: " + std::to_string(rangeLen) );
 				}
 
 				if(benchPhase == BenchPhase_READFILES)
@@ -1766,11 +1987,11 @@ void LocalWorker::dirModeIterateCustomFiles()
 							"Path: " + benchPathStr + "/" + currentPath + "; "
 							"SysErr: " + strerror(errno) );
 
-					IF_UNLIKELY( (size_t)readRes != fileSize)
+					IF_UNLIKELY( (size_t)readRes != rangeLen)
 						throw WorkerException(std::string("Unexpected short file read. ") +
 							"Path: " + benchPathStr + "/" + currentPath + "; "
 							"Bytes read: " + std::to_string(readRes) + "; "
-							"Expected read: " + std::to_string(fileSize) );
+							"Expected read: " + std::to_string(rangeLen) );
 				}
 			}
 			catch(...)
@@ -1825,7 +2046,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 		atomicLiveOps.numEntriesDone++;
 		numFilesDone++;
 
-	} // end of dirs for loop
+	} // end of tree elements for-loop
 
 }
 
@@ -2036,6 +2257,927 @@ std::string LocalWorker::fileModeLogPathFromFileHandlesErr()
 		return std::string("Path: unavailable; ");
 
 	return "Path: " + progArgs->getBenchPaths()[fileHandles.errorFDVecIdx] + "; ";
+}
+
+/**
+ * Iterate over all buckets to create or remove them. Each worker processes its own subset of
+ * buckets.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeIterateBuckets()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	const size_t numBuckets = bucketVec.size();
+	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+
+
+	for(unsigned bucketIndex = workerRank;
+		bucketIndex < numBuckets;
+		bucketIndex += numDataSetThreads)
+	{
+		checkInterruptionRequest();
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		// create buckets
+		if(benchPhase == BenchPhase_CREATEDIRS)
+		{
+			S3::CreateBucketRequest request;
+			request.SetBucket(bucketVec[bucketIndex] );
+
+			S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+
+			if(!createOutcome.IsSuccess() )
+			{
+				auto s3Error = createOutcome.GetError();
+
+				// bucket already existing is not an error
+				if(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU)
+				{
+					throw WorkerException(std::string("Bucket creation failed. ") +
+						"Bucket: " + bucketVec[bucketIndex] + "; "
+						"Exception: " + s3Error.GetExceptionName() + "; " +
+						"Message: " + s3Error.GetMessage() );
+				}
+			}
+		}
+
+		// delete buckets
+		if(benchPhase == BenchPhase_DELETEDIRS)
+		{
+			S3::DeleteBucketRequest request;
+			request.SetBucket(bucketVec[bucketIndex] );
+
+			S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
+
+			if(!deleteOutcome.IsSuccess() )
+			{
+				auto s3Error = deleteOutcome.GetError();
+
+				if( (s3Error.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET) ||
+					!ignoreDelErrors)
+				{
+					throw WorkerException(std::string("Bucket deletion failed. ") +
+						"Bucket: " + bucketVec[bucketIndex] + "; "
+						"Exception: " + s3Error.GetExceptionName() + "; " +
+						"Message: " + s3Error.GetMessage() );
+				}
+			}
+		}
+
+		// calc entry operations latency
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		atomicLiveOps.numEntriesDone++;
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * This is for s3 mode. Iterate over all objects to create/read/remove them.
+ * By default, this uses a unique "dir" (i.e. prefix with slashes inside a bucket) per worker and
+ * fills up each dir before moving on to the next. If dir sharing is enabled, all workers will use
+ * dirs or rank 0.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeIterateObjects()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+	const size_t numDirs = progArgs->getNumDirs();
+	const size_t numFiles = progArgs->getNumFiles();
+	const uint64_t fileSize = progArgs->getFileSize();
+	const size_t blockSize = progArgs->getBlockSize();
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+	const bool useTransMan = progArgs->getUseS3TransferManager();
+
+
+	// walk over each unique dir per worker
+
+	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
+	{
+		// occasional interruption check
+		if( (dirIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+			checkInterruptionRequest();
+
+		// fill up this dir with all files before moving on to the next dir
+
+		for(size_t fileIndex = 0; fileIndex < numFiles; fileIndex++)
+		{
+			// occasional interruption check
+			if( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+				checkInterruptionRequest();
+
+			// generate current dir path
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+				workerDirRank, dirIndex, workerRank, fileIndex);
+			if(printRes >= PATH_BUF_LEN)
+				throw WorkerException("mkdir path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) + "; "
+					"dirIndex: " + std::to_string(dirIndex) + "; "
+					"fileIndex: " + std::to_string(fileIndex) );
+
+			unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
+
+			rwOffsetGen->reset(); // reset for next file
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			if(benchPhase == BenchPhase_CREATEFILES)
+			{
+				if(blockSize < fileSize)
+					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentPath.data() );
+				else
+					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentPath.data() );
+			}
+
+			if(benchPhase == BenchPhase_READFILES)
+			{
+				if(useTransMan)
+					s3ModeDownloadObjectTransMan(bucketVec[bucketIndex], currentPath.data() );
+				else
+					s3ModeDownloadObject(bucketVec[bucketIndex], currentPath.data() );
+			}
+
+			if(benchPhase == BenchPhase_DELETEFILES)
+				s3ModeDeleteObject(bucketVec[bucketIndex], currentPath.data() );
+
+			// calc entry operations latency. (for create, this includes open/rw/close.)
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+			atomicLiveOps.numEntriesDone++;
+
+		} // end of files for loop
+	} // end of dirs for loop
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * This is for s3 mode with custom tree. Iterate over all objects to create/read/remove them. Each
+ * worker uses a subset of the files from the non-shared tree and parts of files from the shared
+ * tree.
+ *
+ * Note: With a custom tree, multiple benchmark paths are not supported. This is a limitation of
+ * dirModeIterateCustomFiles() and we keep the same limitation here for compatibility.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeIterateCustomObjects()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+	const std::string bucketName = progArgs->getBenchPaths()[0];
+	const size_t blockSize = progArgs->getBlockSize();
+	const PathList& customTreePaths = customTreeFiles.getPaths();
+	const bool useTransMan = progArgs->getUseS3TransferManager();
+
+	unsigned short numFilesDone = 0; // just for occasional interruption check (so "short" is ok)
+
+	// walk over custom tree part of this worker
+
+	for(const PathStoreElem& currentPathElem : customTreePaths)
+	{
+		// occasional interruption check
+		if( (numFilesDone % INTERRUPTION_CHECK_INTERVAL) == 0)
+			checkInterruptionRequest();
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
+		{
+			const uint64_t fileSize = currentPathElem.totalLen;
+			const uint64_t fileOffset = currentPathElem.rangeStart;
+			const uint64_t rangeLen = currentPathElem.rangeLen;
+
+			rwOffsetGen = std::make_unique<OffsetGenSequential>(rangeLen, fileOffset, blockSize);
+
+			if(benchPhase == BenchPhase_CREATEFILES)
+			{
+				if(rangeLen < fileSize)
+					s3ModeUploadObjectMultiPartShared(bucketName, currentPathElem.path, fileSize);
+				else
+				{ // this worker uploads the whole object
+					if(blockSize < fileSize)
+						s3ModeUploadObjectMultiPart(bucketName, currentPathElem.path);
+					else
+						s3ModeUploadObjectSinglePart(bucketName, currentPathElem.path);
+				}
+			}
+
+			if(benchPhase == BenchPhase_READFILES)
+			{
+				if(useTransMan)
+					s3ModeDownloadObjectTransMan(bucketName, currentPathElem.path);
+				else
+					s3ModeDownloadObject(bucketName, currentPathElem.path);
+			}
+		}
+
+		if(benchPhase == BenchPhase_DELETEFILES)
+			s3ModeDeleteObject(bucketName, currentPathElem.path);
+
+		// calc entry operations latency. (for create, this includes open/rw/close.)
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		atomicLiveOps.numEntriesDone++;
+		numFilesDone++;
+
+	} // end of tree elements for-loop
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Singlepart upload of an S3 object to an existing bucket. This assumes that progArgs fileSize
+ * is not larger than blockSize. Or in other words: This can only upload objects consisting of a
+ * single block.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
+		(unsigned char*) ioBufVec[0], blockSize);
+	std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+
+	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+	((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+	((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+	S3::PutObjectRequest request;
+	request.WithBucket(bucketName)
+		.WithKey(objectName)
+		.WithContentLength(blockSize);
+	request.SetBody(s3MemStream);
+
+	request.SetDataSentEventHandler(
+		[&](const Aws::Http::HttpRequest* request, long long numBytes)
+		{ atomicLiveOps.numBytesDone += numBytes; } );
+
+	request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+		{ return !isInterruptionRequested.load(); } );
+
+	S3::PutObjectOutcome outcome = s3Client->PutObject(request);
+
+	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Object upload failed. ") +
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() );
+	}
+
+	((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+	((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+
+	// calc io operation latency
+	std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+	std::chrono::microseconds ioElapsedMicroSec =
+		std::chrono::duration_cast<std::chrono::microseconds>
+		(ioEndT - ioStartT);
+
+	iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+	numIOPSSubmitted++;
+	rwOffsetGen->addBytesSubmitted(blockSize);
+	atomicLiveOps.numIOPSDone++;
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Block-sized multipart upload of an S3 object to an existing bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	// S T E P 1: retrieve multipart upload ID from server
+
+	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
+	createMultipartUploadRequest.SetBucket(bucketName);
+	createMultipartUploadRequest.SetKey(objectName);
+
+	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
+		createMultipartUploadRequest);
+
+	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() )
+	{
+		auto s3Error = createMultipartUploadOutcome.GetError();
+
+		throw WorkerException(std::string("Multipart upload creation failed. ") +
+			"Bucket: " + bucketName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() );
+	}
+
+	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
+
+	S3::CompletedMultipartUpload completedMultipartUpload;
+
+	// S T E P 2: upload one block-sized part in each loop pass
+
+	for(uint64_t currentPartNum=1; rwOffsetGen->getNumBytesLeftToSubmit(); currentPartNum++)
+	{
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+		/* note: streamBuf needs to be initialized in loop to have the exact remaining blockSize.
+		 	 otherwise the AWS SDK will sent full streamBuf len despite smaller contentLength */
+		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
+			(unsigned char*) ioBufVec[0], blockSize);
+		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+		// prepare part upload
+
+		S3::UploadPartRequest uploadPartRequest;
+		uploadPartRequest.WithBucket(bucketName)
+			.WithKey(objectName)
+			.WithUploadId(uploadID)
+			.WithPartNumber(currentPartNum)
+			.WithContentLength(blockSize);
+		uploadPartRequest.SetBody(s3MemStream);
+
+		uploadPartRequest.SetDataSentEventHandler(
+			[&](const Aws::Http::HttpRequest* request, long long numBytes)
+			{ atomicLiveOps.numBytesDone += numBytes; } );
+
+		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+			{ return !isInterruptionRequested.load(); } );
+
+		/* start part upload (note: "callable" returns a future to the op so that it can be executed
+			in parallel to other requests) */
+		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
+
+		/* note: there is no way to tell the server about the offset of a part within an object, so
+			concurrent part uploads might add overhead on completion for the S3 server to assemble
+			the full object in correct parts order. */
+
+		// wait for part upload to finish
+		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
+
+		checkInterruptionRequest( // (placed here to avoid outcome check on interruption)
+			[&] { s3AbortMultipartUpload(bucketName, objectName, uploadID); } );
+
+		IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
+		{
+			s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+			auto s3Error = uploadPartOutcome.GetError();
+
+			throw WorkerException(std::string("Multipart part upload failed. ") +
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Part: " + std::to_string(currentPartNum) + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() );
+		}
+
+		// mark part as completed
+
+		S3::CompletedPart completedPart;
+		completedPart.SetPartNumber(currentPartNum);
+		auto partETag = uploadPartOutcome.GetResult().GetETag();
+		completedPart.SetETag(partETag);
+
+		completedMultipartUpload.AddParts(completedPart);
+
+		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+
+		// calc io operation latency
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		numIOPSSubmitted++;
+		rwOffsetGen->addBytesSubmitted(blockSize);
+		atomicLiveOps.numIOPSDone++;
+	}
+
+	// S T E P 3: submit upload completion
+
+	S3::CompleteMultipartUploadRequest completionRequest;
+	completionRequest.WithBucket(bucketName)
+		.WithKey(objectName)
+		.WithUploadId(uploadID)
+		.WithMultipartUpload(completedMultipartUpload);
+
+	auto completionOutcome = s3Client->CompleteMultipartUpload(
+			completionRequest);
+
+	IF_UNLIKELY(!completionOutcome.IsSuccess() )
+	{
+		s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+		auto s3Error = completionOutcome.GetError();
+
+		throw WorkerException(std::string("Multipart upload completion failed. ") +
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Block-sized multipart upload of an S3 object to an existing bucket, shared by multiple workers.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
+	uint64_t objectTotalSize)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	// S T E P 1: retrieve multipart upload ID from server
+
+	Aws::String uploadID = s3SharedUploadStore.getMultipartUploadID(
+		bucketName, objectName, s3Client);
+
+	std::unique_ptr<Aws::Vector<S3::CompletedPart>> allCompletedParts; // need sort before send
+
+	// S T E P 2: upload one block-sized part in each loop pass
+
+	while(rwOffsetGen->getNumBytesLeftToSubmit() )
+	{
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+		const uint64_t currentPartNum =
+			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
+
+		/* note: streamBuf needs to be initialized in loop to have the exact remaining blockSize.
+		 	 otherwise the AWS SDK will sent full streamBuf len despite smaller contentLength */
+		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
+			(unsigned char*) ioBufVec[0], blockSize);
+		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+		// prepare part upload
+
+		S3::UploadPartRequest uploadPartRequest;
+		uploadPartRequest.WithBucket(bucketName)
+			.WithKey(objectName)
+			.WithUploadId(uploadID)
+			.WithPartNumber(currentPartNum)
+			.WithContentLength(blockSize);
+		uploadPartRequest.SetBody(s3MemStream);
+
+		uploadPartRequest.SetDataSentEventHandler(
+			[&](const Aws::Http::HttpRequest* request, long long numBytes)
+			{ atomicLiveOps.numBytesDone += numBytes; } );
+
+		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+			{ return !isInterruptionRequested.load(); } );
+
+		/* start part upload (note: "callable" returns a future to the op so that it can be executed
+			in parallel to other requests) */
+		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
+
+		/* note: there is no way to tell the server about the offset of a part within an object, so
+			concurrent part uploads might add overhead on completion for the S3 server to assemble
+			the full object in correct parts order. */
+
+		// wait for part upload to finish
+		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
+
+		checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption; abort
+			message will be sent during s3SharedUploadStore cleanup) */
+
+		IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
+		{
+			// (note: abort message will be sent during s3SharedUploadStore cleanup)
+
+			auto s3Error = uploadPartOutcome.GetError();
+
+			throw WorkerException(std::string("Shared multipart part upload failed. ") +
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Part: " + std::to_string(currentPartNum) + "; "
+				"UploadID: " + uploadID + "; "
+				"Rank: " + std::to_string(workerRank) + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() );
+		}
+
+		// mark part as completed
+
+		S3::CompletedPart completedPart;
+		completedPart.SetPartNumber(currentPartNum);
+		auto partETag = uploadPartOutcome.GetResult().GetETag();
+		completedPart.SetETag(partETag);
+
+		allCompletedParts = s3SharedUploadStore.addCompletedPart(
+			bucketName, objectName, blockSize, objectTotalSize, completedPart);
+
+		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+
+		// calc io operation latency
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		numIOPSSubmitted++;
+		rwOffsetGen->addBytesSubmitted(blockSize);
+		atomicLiveOps.numIOPSDone++;
+
+		// sanity check afer rwOffsetGen update
+		IF_UNLIKELY(allCompletedParts && rwOffsetGen->getNumBytesLeftToSubmit() )
+			throw WorkerException(std::string("Shared multipart upload logic error. ") +
+				"Completion returned by upload store, but bytes left to submit. "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Part: " + std::to_string(currentPartNum) + "; "
+				"BytesLeft: " + std::to_string(rwOffsetGen->getNumBytesLeftToSubmit() ) + "; " +
+				"ObjectSize: " + std::to_string(objectTotalSize) );
+	}
+
+	// S T E P 3: submit upload completion
+
+	if(!allCompletedParts)
+		return; // another worker still needs to upload parts, so no completion yet
+
+	// (note: part vec must be in ascending order)
+	std::sort(allCompletedParts->begin(), allCompletedParts->end(),
+		[](const S3::CompletedPart& a, const S3::CompletedPart& b) -> bool
+		{ return a.GetPartNumber() < b.GetPartNumber(); } );
+
+	S3::CompletedMultipartUpload completedMultipartUpload;
+	completedMultipartUpload.SetParts(*allCompletedParts);
+
+	S3::CompleteMultipartUploadRequest completionRequest;
+	completionRequest.WithBucket(bucketName)
+		.WithKey(objectName)
+		.WithUploadId(uploadID)
+		.WithMultipartUpload(completedMultipartUpload);
+
+	auto completionOutcome = s3Client->CompleteMultipartUpload(
+			completionRequest);
+
+	IF_UNLIKELY(!completionOutcome.IsSuccess() )
+	{
+		s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+		auto s3Error = completionOutcome.GetError();
+
+		throw WorkerException(std::string("Shared multipart upload completion failed. ") +
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Abort an incomplete S3 multipart upload.
+ *
+ * @return true if abort request succeeded, false otherwise.
+ */
+bool LocalWorker::s3AbortMultipartUpload(std::string bucketName, std::string objectName,
+	std::string uploadID)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	S3::AbortMultipartUploadRequest abortMultipartUploadRequest;
+
+	abortMultipartUploadRequest.SetBucket(bucketName);
+	abortMultipartUploadRequest.SetKey(objectName);
+	abortMultipartUploadRequest.SetUploadId(uploadID);
+
+	auto abortOutcome = s3Client->AbortMultipartUpload(abortMultipartUploadRequest);
+
+	return abortOutcome.IsSuccess();
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Abort unfinished shared multipart uploads e.g. after interruption or error. This does not throw
+ * an exception on error, because it's intended for the cleanup after a previous error or
+ * interruption.
+ */
+void LocalWorker::s3ModeAbortUnfinishedSharedUploads()
+{
+#ifdef S3_SUPPORT
+
+	// loop until no more unfinished objects are returned
+	for( ; ; )
+	{
+		std::string bucketName;
+		std::string objectName;
+		std::string uploadID;
+
+		s3SharedUploadStore.getNextUnfinishedUpload(bucketName, objectName, uploadID);
+
+		if(uploadID.empty() )
+			return; // no unfinished uploads left to abort
+
+		LOGGER(Log_DEBUG, "Aborting unfinished shared multipart upload. "
+			"Rank: " << workerRank << "; "
+			"Bucket: " << bucketName << "; "
+			"Object: " << objectName << "; " << std::endl);
+
+		bool abortSuccess = s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+		if(abortSuccess)
+			continue;
+
+		// aborting unfinished upload failed
+		ERRLOGGER(Log_NORMAL, "Aborting unfinished shared multipart upload failed. "
+			"Rank: " << workerRank << "; "
+			"Bucket: " << bucketName << "; "
+			"Object: " << objectName << "; "
+			"UploadID: " << uploadID << "; " << std::endl);
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Block-sized download of an S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const bool useS3FastRead = progArgs->getUseS3FastRead();
+
+	// download one block-sized chunk in each loop pass
+	while(rwOffsetGen->getNumBytesLeftToSubmit() )
+	{
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+		std::string objectRange = "bytes=" + std::to_string(currentOffset) + "-" +
+			std::to_string(currentOffset+blockSize-1);
+
+		char* ioBuf = useS3FastRead ? NULL : ioBufVec[0];
+		char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[0];
+		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf( (unsigned char*)ioBuf, blockSize);
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		((*this).*funcPreWriteBlockModifier)(ioBuf, blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
+
+		S3::GetObjectRequest request;
+		request.WithBucket(bucketName)
+			.WithKey(objectName)
+			.WithRange(objectRange);
+
+		if(!useS3FastRead)
+			request.SetResponseStreamFactory( [&]() { return new S3MemoryStream(&streamBuf); } );
+		else
+			request.SetResponseStreamFactory( [&]()
+			{
+				return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary);
+			} );
+
+		request.SetDataReceivedEventHandler(
+			[&](const Aws::Http::HttpRequest* request, Aws::Http::HttpResponse* response,
+			long long numBytes)
+			{ atomicLiveOps.numBytesDone += numBytes; } );
+
+		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+			{ return !isInterruptionRequested.load(); } );
+
+		S3::GetObjectOutcome outcome = s3Client->GetObject(request);
+
+		checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+		IF_UNLIKELY(!outcome.IsSuccess() )
+		{
+			auto s3Error = outcome.GetError();
+
+			throw WorkerException(std::string("Object download failed. ") +
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Range: " + objectRange + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() );
+		}
+
+		IF_UNLIKELY( (size_t)outcome.GetResult().GetContentLength() < blockSize)
+		{
+			throw WorkerException(std::string("Object too small. ") +
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Offset: " + std::to_string(currentOffset) + "; "
+				"Requested blocksize: " + std::to_string(blockSize) + "; "
+				"Received length: " + std::to_string(outcome.GetResult().GetContentLength() ) );
+		}
+
+		((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
+		((*this).*funcPostReadBlockChecker)(ioBuf, blockSize, currentOffset); // verify buf
+
+		// calc io operation latency
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		numIOPSSubmitted++;
+		rwOffsetGen->addBytesSubmitted(blockSize);
+		atomicLiveOps.numIOPSDone++;
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Chunked download of an S3 object via AWS SDK Transfer Manager.
+ *
+ * Downloads to "/dev/null" instead of memory buffer, so no post-processing like data verification
+ * or GPU transfer possible. But iodepth greater 1 is supported, translating to multiple
+ * TransferManager threads.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const uint64_t fileOffset = 0;
+	const uint64_t downloadBytes = rwOffsetGen->getNumBytesLeftToSubmit();
+	const size_t ioDepth = progArgs->getIODepth();
+	auto threadExecutor = std::make_unique<Aws::Utils::Threading::PooledThreadExecutor>(ioDepth);
+	uint64_t numBytesDownloaded = 0;
+	std::shared_ptr<Aws::Transfer::TransferHandle> transferHandle;
+
+	Aws::Transfer::TransferManagerConfiguration transferConfig(threadExecutor.get() );
+	transferConfig.s3Client = s3Client;
+
+	transferConfig.downloadProgressCallback = [&](const Aws::Transfer::TransferManager*,
+		const std::shared_ptr<const Aws::Transfer::TransferHandle> &handle)
+		{
+			if(isInterruptionRequested)
+				transferHandle->Cancel();
+
+			atomicLiveOps.numBytesDone += handle->GetBytesTransferred() - numBytesDownloaded;
+			numBytesDownloaded = handle->GetBytesTransferred();
+		};
+
+	auto transferManager = Aws::Transfer::TransferManager::Create(transferConfig);
+
+	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+	transferHandle = transferManager->DownloadFile(
+		bucketName, objectName, fileOffset, downloadBytes, [&]()
+		{ return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary); },
+		Aws::Transfer::DownloadConfiguration(), "/dev/null");
+
+	transferHandle->WaitUntilFinished();
+
+	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+	IF_UNLIKELY(transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED)
+	{
+		throw WorkerException(std::string("Object download failed. ") +
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Requested size: " + std::to_string(downloadBytes) + "; "
+			"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+	}
+
+	IF_UNLIKELY(transferHandle->GetBytesTransferred() != downloadBytes)
+	{
+		throw WorkerException(std::string("Object too small. ") +
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Requested size: " + std::to_string(downloadBytes) + "; "
+			"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+	}
+
+	// calc io operation latency
+	std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+	std::chrono::microseconds ioElapsedMicroSec =
+		std::chrono::duration_cast<std::chrono::microseconds>
+		(ioEndT - ioStartT);
+
+	iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+	numIOPSSubmitted++;
+	rwOffsetGen->addBytesSubmitted(downloadBytes);
+	atomicLiveOps.numIOPSDone++;
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Delete given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	S3::DeleteObjectRequest request;
+	request.WithBucket(bucketName)
+		.WithKey(objectName);
+
+	S3::DeleteObjectOutcome outcome = s3Client->DeleteObject(request);
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Object deletion failed. ") +
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() );
+	}
+
+#endif // S3_SUPPORT
 }
 
 /**

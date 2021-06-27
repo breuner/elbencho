@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/breuner/elbencho/master/graphics/elbencho-logo.svg" width="50%" height="50%" alt="elbencho logo" align="center"/>
 
-**A distributed storage benchmark for file systems and block devices with support for GPUs**
+**A distributed benchmark for file, object & block storage with support for GPUs**
 
 For the full description, see elbencho's readme and changelog on github: https://github.com/breuner/elbencho
 
@@ -47,6 +47,17 @@ When you're done with your distributed benchmarks and want to stop the service i
 docker run --net=host -it breuner/elbencho --quit --hosts HOST1,HOST2,...
 ```
 
+### GPUs & GPUDirect Storage (GDS)
+
+To test GPU storage access performance through Nvidia CUDA or GPUDirect Storage (GDS), use the MagnumIO container.
+
+Here is an example to read 128 large file via GDS, assuming a DGX-A100 style system with 8 GPUs and 8 NUMA zones:
+
+```bash
+nvidia-docker run --privileged -v /data:/data -it breuner/elbencho:master-magnum-io /data/mylargefile{1..128} -r -t 256 -b 4m --direct --zones "$(echo {0..7},)" --gpuids "$(echo {0..7})" --cufile --gdsbufreg 
+```
+
+If you don't have `nvidia-docker`, you can alternatively use `docker run --gpus all ...`.
 
 ## Docker Image Flavors
 
@@ -58,3 +69,17 @@ The Ubuntu and CentOS based images contain the full `.deb` / `.rpm` package inst
 docker run -it --entrypoint elbencho-scan-path breuner/elbencho:master-ubuntu2004 --help
 ```
 
+### S3 Support
+
+The following image flavor tags include elbencho's S3 support as of elbencho v2.0:
+- ubuntu2004
+- centos7, centos8
+- magnum-io
+
+### Local Image Builds
+
+To build docker images from your local elbencho git clone (e.g. because you modified the sources or want to build a particular previous version), you can find the corresponding dockerfiles in the `build_helpers/docker` subdir with a `.local` extension. To build a Ubuntu 20.04 image from your local sources, run this command:
+
+```bash
+docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2004.local .
+```

@@ -13,6 +13,13 @@
 #include "toolkits/random/RandAlgoInterface.h"
 #include "Worker.h"
 
+#ifdef S3_SUPPORT
+	#include <aws/core/Aws.h>
+	#include <aws/s3/S3Client.h>
+
+	#include "S3UploadStore.h"
+#endif
+
 // delaration for function typedefs below
 class LocalWorker;
 
@@ -95,8 +102,18 @@ class LocalWorker : public Worker
 
 		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
 
+#ifdef S3_SUPPORT
+		static int s3SDKRefCounter; // for singleton AWS SDK init/uninit
+		static std::mutex s3SDKInitMutex; // for singleton AWS SDK init/uninit
+		static Aws::SDKOptions* s3SDKOptions; // init'ed by options initializer for later uninit
+		std::shared_ptr<Aws::S3::S3Client> s3Client; // (shared_ptr expected by some SDK functions)
+		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
+#endif
+
 		void finishPhase();
 
+		void initS3Client();
+		void uninitS3Client();
 		void initPhaseFileHandleVecs();
 		void initPhaseRWOffsetGen();
 		void nullifyPhaseFunctionPointers();
@@ -113,10 +130,25 @@ class LocalWorker : public Worker
 		void dirModeIterateCustomDirs();
 		void dirModeIterateFiles();
 		void dirModeIterateCustomFiles();
+
 		void fileModeIterateFilesRand();
 		void fileModeIterateFilesSeq();
 		void fileModeDeleteFiles();
 		std::string fileModeLogPathFromFileHandlesErr();
+
+		void s3ModeIterateBuckets();
+		void s3ModeIterateObjects();
+		void s3ModeIterateCustomObjects();
+		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
+		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
+		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
+			uint64_t objectTotalSize);
+		bool s3AbortMultipartUpload(std::string bucketName, std::string objectName,
+			std::string uploadID);
+		void s3ModeAbortUnfinishedSharedUploads();
+		void s3ModeDownloadObject(std::string bucketName, std::string objectName);
+		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName);
+		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
 
 		void anyModeSync();
 		void anyModeDropCaches();

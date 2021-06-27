@@ -9,8 +9,6 @@
 #include "PathStore.h"
 #include "ProgException.h"
 
-#define PATHSTORE_DIR_LINE_PREFIX	"d"
-#define PATHSTORE_FILE_LINE_PREFIX	"f"
 
 /**
  * Load directories from file. Lines not starting with PATHSTORE_DIR_LINE_PREFIX will be ignored.
@@ -102,22 +100,24 @@ void PathStore::loadFilesFromFile(std::string path, uint64_t minFileSize, uint64
 		PathStoreElem newElem;
 		newElem.rangeStart = 0;
 
-		if(!(lineStream >> newElem.rangeLen) )
+		if(!(lineStream >> newElem.totalLen) )
 			throw ProgException("Encountered invalid file line without size in input file. "
 				"File: " + path + "; "
 				"Line number: " + std::to_string(lineNum) );
 
-		uint64_t fileSize = newElem.rangeLen; // rangeLen equals file size here at load time
+		newElem.rangeLen = newElem.totalLen; // rangeLen equals file size here at load time
 
-		// round up file size if requested
-		if(roundUpSize && (fileSize % roundUpSize) )
+		// round up file size if requested by caller
+		if(roundUpSize && (newElem.totalLen % roundUpSize) )
 		{
-			const uint64_t moduloRes = fileSize % roundUpSize;
-			fileSize = fileSize - moduloRes + roundUpSize;
-			newElem.rangeLen = fileSize;
+			const uint64_t moduloRes = newElem.totalLen % roundUpSize;
+			newElem.totalLen = newElem.totalLen - moduloRes + roundUpSize;
+			newElem.rangeLen = newElem.totalLen;
 		}
 
-		// check matching file size
+		const uint64_t fileSize = newElem.totalLen;
+
+		// check matching file size for caller's given range
 		if( (fileSize < minFileSize) || (fileSize > maxFileSize) )
 			continue; // file size not within range => skip
 
@@ -163,8 +163,8 @@ void PathStore::sortByPathLen()
 void PathStore::sortByFileSize()
 {
 	paths.sort([](const PathStoreElem& a, const PathStoreElem& b)
-		{ return (a.rangeLen < b.rangeLen) ||
-			( (a.rangeLen == b.rangeLen) && (a.path < b.path) ); } );
+		{ return (a.totalLen < b.totalLen) ||
+			( (a.totalLen == b.totalLen) && (a.path < b.path) ); } );
 }
 
 /**
@@ -222,7 +222,7 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
 
 	while(true)
 	{
-		const uint64_t fileSize = pathsIter->rangeLen;
+		const uint64_t fileSize = pathsIter->totalLen;
 		const uint64_t numFileBlocks = (fileSize / blockSize) +
 				( (fileSize % blockSize) ? 1 : 0);
 
@@ -291,7 +291,7 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 	// iterate over paths to find relevant ones and set worker's ranges in outPathStore
 	while( (pathsIter != paths.end() ) && (currentBlockIdx < endBlock) )
 	{
-		const uint64_t fileSize = pathsIter->rangeLen;
+		const uint64_t fileSize = pathsIter->totalLen;
 		const uint64_t numFileBlocks = (fileSize / blockSize) +
 				( (fileSize % blockSize) ? 1 : 0);
 		uint64_t firstFileBlock = currentBlockIdx;
@@ -353,4 +353,20 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 	}
 
 	outPathStore.numBlocksTotal += thisWorkerNumBlocks;
+}
+
+/**
+ * Generate a treefile line for a file.
+ *
+ * @param path path to file
+ * @fileSize file size
+ * @return generated file line including std::endl
+ */
+std::string PathStore::generateFileLine(std::string filePath, uint64_t fileSize)
+{
+	std::stringstream stream;
+
+	stream << PATHSTORE_FILE_LINE_PREFIX << " " << fileSize << " " << filePath << std::endl;
+
+	return stream.str();
 }

@@ -3,9 +3,9 @@
 #
 
 EXE_NAME           ?= elbencho
-EXE_VER_MAJOR      ?= 1
-EXE_VER_MINOR      ?= 9
-EXE_VER_PATCHLEVEL ?= 1
+EXE_VER_MAJOR      ?= 2
+EXE_VER_MINOR      ?= 0
+EXE_VER_PATCHLEVEL ?= 0
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -26,6 +26,7 @@ CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
 
 NO_BACKTRACE       ?= 0
+S3_SUPPORT         ?= 0
 
 CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
@@ -51,6 +52,14 @@ LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
 else
 CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_DEBUG) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_DEBUG) $(LDFLAGS_EXTRA)
+endif
+
+# Compiler and linker flags for S3 support
+# "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
+ifeq ($(S3_SUPPORT), 1)
+CXXFLAGS += -DS3_SUPPORT -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include -Wno-overloaded-virtual
+LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
+	-l ssl -l crypto -l curl -l dl -pthread
 endif
 
 # Include build helpers for auto detection
@@ -93,9 +102,9 @@ $(OBJECTS): | externals features-info
 
 externals:
 ifdef BUILD_VERBOSE
-	$(EXTERNAL_PATH)/prepare-external.sh
+	PREP_AWS_SDK=$(S3_SUPPORT) $(EXTERNAL_PATH)/prepare-external.sh
 else
-	@$(EXTERNAL_PATH)/prepare-external.sh
+	@PREP_AWS_SDK=$(S3_SUPPORT) $(EXTERNAL_PATH)/prepare-external.sh
 endif
 
 features-info:
@@ -117,6 +126,16 @@ ifeq ($(CUDA_SUPPORT),1)
 else
 	$(info [OPT] CUDA support disabled)
 endif
+ifeq ($(NO_BACKTRACE),1)
+	$(info [OPT] Backtrace support disabled)
+else
+	$(info [OPT] Backtrace support enabled)
+endif
+ifeq ($(S3_SUPPORT),1)
+	$(info [OPT] S3 support enabled)
+else
+	$(info [OPT] S3 support disabled. (Enable via S3_SUPPORT=1))
+endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
@@ -128,10 +147,12 @@ endif
 
 clean-externals:
 ifdef BUILD_VERBOSE
-	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
+	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server 
+	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
+	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 endif
 
 clean-packaging:
@@ -242,19 +263,25 @@ deb: | prepare-buildroot
 	@find $(PACKAGING_PATH) -name $(EXE_NAME)*.deb
 
 help:
-	@echo 'Optional Arguments:'
+	@echo 'Building Optional Features:'
+	@echo '   S3_SUPPORT=1            - Build with S3 support. (Note: This will fetch a'
+	@echo '                             AWS SDK git repo of over 1GB size.)'
+	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
+	@echo '                             CUDA to work with GPU memory. By default, CUDA'
+	@echo '                             support will be enabled when CUDA development files'
+	@echo '                             are found. (cuda_runtime.h and libcudart.so)'
+	@echo '   CUFILE_SUPPORT=0|1      - Manually enable (=1) or disable (=0) support for'
+	@echo '                             GPUDirect Storage (GDS) through the cuFile API.'
+	@echo '                             By default, GDS support will be enabled when GDS'
+	@echo '                             development files are found. (cufile.h and'
+	@echo '                             libcufile.so)'
+	@echo '   NO_BACKTRACE=1          - Build without backtrace support for musl-libc.'
+	@echo
+	@echo 'Optional Compile/Link Arguments:'
 	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
 	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
 	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
-	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
-	@echo '                             CUDA to work with GPU memory. By default, CUDA'
-	@echo '                             support will be enabled when CUDA is installed.'
-	@echo '   CUFILE_SUPPORT=0|1      - Manually enable (=1) or disable (=0) support for'
-	@echo '                             GPUDirect Storage (GDS) through the cuFile API.'
-	@echo '                             By default, GDS support will be enabled when GDS'
-	@echo '                             is installed.'
-	@echo '   NO_BACKTRACE=1          - Build without backtrace support for musl-libc.'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
@@ -266,6 +293,8 @@ help:
 	@echo '   rpm               - Create RPM package file'
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
+	@echo
+	@echo 'Note: Use "make clean" when changing any optional build features.'
 
 .PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
 features-info help prepare-buildroot rpm
