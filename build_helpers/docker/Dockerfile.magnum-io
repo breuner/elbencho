@@ -1,0 +1,26 @@
+# Full elbencho deb install of latest github master on Nvidia Magnum IO
+# container, including CUDA & GPUDirect Storage support:
+# https://ngc.nvidia.com/catalog/containers/nvidia:magnum-io:magnum-io
+
+FROM nvcr.io/nvidia/magnum-io/magnum-io:21.04 as builder
+
+RUN apt update && \
+    export DEBIAN_FRONTEND=noninteractive && \
+    apt install -y build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
+    cd /root && git clone https://github.com/breuner/elbencho.git && \
+    cd elbencho && \
+    make CUDA_SUPPORT=1 CUFILE_SUPPORT=1 -j "$(nproc)" && \
+    make deb
+
+FROM nvcr.io/nvidia/magnum-io/magnum-io:21.04
+
+COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
+
+RUN apt update && \
+    export DEBIAN_FRONTEND=noninteractive && \
+    apt install -y /tmp/elbencho*.deb && \
+    rm -f /tmp/elbencho*.deb && \
+    apt clean all && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]
