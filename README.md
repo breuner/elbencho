@@ -103,19 +103,11 @@ Now comes the fun part: It's time to find out what your system can deliver.
 
 The built-in help (`elbencho --help`) provides many usage examples. You will be interested in throughput and IOPS, typically for a single client and also for multiple clients. For the latter, see `--hosts` & `--service`.
 
+If your cluster is using Slurm to allocate nodes, you can find examples [here](tools/slurm-examples.md).
+
 If GPU data transfer performance is critical for you, e.g. because you are running DeepLearning applications, you will also want to include GPUs in your read/write benchmarks (`--gpuids`).
 
-It is possible to configure elbencho from a configuration file in addition to the command line. For example running:
-
-```bash
-elbencho --configfile tools/example_configuration/randomWrite.elbencho /data
-```
-
-Is equivalent to:
-
-```bash
-elbencho -d -F -D --write -t 1 -n 1 -N 10 -s 1G --direct --iodepth 4 -b 1M --timelimit 10 /data
-```
+Instead of giving benchmark parameters on the command line, you can also use a config file (`--configfile myconfig.conf`). You can find an example [here](tools/example_configuration/).
 
 ### Results & Charts
 
