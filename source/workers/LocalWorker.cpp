@@ -3304,10 +3304,17 @@ void LocalWorker::anyModeSync()
 /**
  * Prints 3 to /proc/sys/vm/drop_caches to drop cached data from the Linux page cache.
  *
+ * Only the first worker of this instance does this, otherwise the kernel-level spinlocks of the
+ * page cache make the flush extremely slow.
+ *
  * @throw WorkerException on error.
  */
 void LocalWorker::anyModeDropCaches()
 {
+	// don't do anything if this is not the first worker thread of this instance
+	if(workerRank != progArgs->getRankOffset() )
+		return;
+
 	std::string dropCachesPath = "/proc/sys/vm/drop_caches";
 	std::string dropCachesValStr = "3"; // "3" to drop page cache, dentries and inodes
 
