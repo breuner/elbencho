@@ -75,7 +75,7 @@ class RemoteWorker : public Worker
 		void preparePhase();
 		void startBenchPhase();
 		void waitForBenchPhaseCompletion(bool checkInterruption);
-		void interruptBenchPhase(bool allowExceptionThrow);
+		void interruptBenchPhase(bool allowExceptionThrow, bool logSuccessMsg=false);
 		std::string frameHostErrorMsg(std::string string);
 
 

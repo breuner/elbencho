@@ -13,7 +13,8 @@
  * state. (The upper 3 bits are always zero in the generated values.)
  *
  * Since the random numbers are weak, this internally uses a stronger random number generator for
- * occasional reseeding on request through weakReseed().
+ * occasional reseeding on request through reseed() and at the beginning of each new buffer fill
+ * via fillBuf().
  */
 class RandAlgoGoldenPrime : public RandAlgoInterface
 {

@@ -10,11 +10,14 @@
   * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
 * New Dockerfiles to build containers from local source copy.
   * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
-* New guide for elbencho with the Slurm Workload Manager.
+* New guide for using elbencho with the Slurm Workload Manager.
   * See here: https://github.com/breuner/elbencho/blob/master/tools/slurm-examples.md
+  
+### General Changes
+* Using "--quit --hosts ..." now shows whether the service instances confirmed the quit command.
 
 ### Contributors
-* Thanks to Chin Fang (Zettar) & Andy Pernsteiner (VAST Data) for S3 support testing and feedback.
+* Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback. Thanks to Paul Hargreaves for helpful comments.
 
 ## v1.9.1 (May 29, 2021)
 
