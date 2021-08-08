@@ -256,6 +256,9 @@ void ProgArgs::defineAllowedArgs()
 			"Do not print headline with labels to csv file.")
 /*nod*/	(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
+/*nod*/	(ARG_NODIRECTIOCHECK_LONG, bpo::bool_switch(&this->noDirectIOCheck),
+			"Don't check direct IO alignment. Many platforms require direct IO alignment. NFS is "
+			"a prominent exception.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
 			"Disable live statistics.")
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
@@ -350,8 +353,8 @@ void ProgArgs::defineAllowedArgs()
 			"In custom tree mode: Randomize file order. Default is order by file size.")
 /*tr*/	(ARG_TREEROUNDUP_LONG, bpo::value(&this->treeRoundUpSizeOrigStr),
 			"When loading a treefile, round up all contained file sizes to a multiple of the given "
-			"size. This is useful for \"" ARG_DIRECTIO_LONG "\" with its alignment requirements on "
-			"many platforms. (Default: 0 for disabled)")
+			"size. This is useful for \"--" ARG_DIRECTIO_LONG "\" with its alignment requirements "
+			"on many platforms. (Default: 0 for disabled)")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
 /*tr*/	(ARG_TRUNCTOSIZE_LONG, bpo::bool_switch(&this->doTruncToSize),
@@ -456,6 +459,7 @@ void ProgArgs::defineDefaults()
 	this->useS3FastRead = false;
 	this->useS3TransferManager = false;
 	this->s3LogLevel = 0;
+	this->noDirectIOCheck = false;
 }
 
 /**
@@ -655,7 +659,7 @@ void ProgArgs::checkPathDependentArgs()
 			useRandomAligned = true;
 		}
 
-		if( (blockSize % DIRECTIO_MINSIZE) != 0)
+		if(!noDirectIOCheck && ( (blockSize % DIRECTIO_MINSIZE) != 0) )
 			throw ProgException("Block size for direct IO is not a multiple of required size. "
 				"(Note that a system's actual required size for direct IO might be even higher "
 				"depending on system page size and drive sector size.) "
@@ -2083,7 +2087,7 @@ void ProgArgs::printVersionAndBuildInfo()
  *
  * @throw ProgException if configuration error is detected or if bench dirs cannot be accessed.
  */
-void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
+void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 {
 	benchPathStr = tree.get<std::string>(ARG_BENCHPATHS_LONG);
 	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
@@ -2129,7 +2133,8 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	s3AccessSecret = tree.get<std::string>(ARG_S3ACCESSSECRET_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
 	useS3FastRead = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
-	useS3TransferManager= tree.get<bool>(ARG_TREERANDOMIZE_LONG);
+	useS3TransferManager = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
+	noDirectIOCheck = tree.get<bool>(ARG_NODIRECTIOCHECK_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2174,7 +2179,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
  *
  * @workerRank to calc rankOffset for host (unless user requested all to work on same dataset)
  */
-void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t serviceRank) const
+void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRank) const
 {
 	outTree.put(ARG_BENCHPATHS_LONG, benchPathStr);
 	outTree.put(ARG_NUMTHREADS_LONG, numThreads);
@@ -2221,6 +2226,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t serviceRank) const
 	outTree.put(ARG_S3REGION_LONG, s3Region);
 	outTree.put(ARG_TREERANDOMIZE_LONG, useS3FastRead);
 	outTree.put(ARG_TREERANDOMIZE_LONG, useS3TransferManager);
+	outTree.put(ARG_NODIRECTIOCHECK_LONG, noDirectIOCheck);
 
 
 	// dynamically calculated values for service hosts...

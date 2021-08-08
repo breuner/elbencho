@@ -295,7 +295,7 @@ void RemoteWorker::prepareRemoteFile()
 void RemoteWorker::preparePhase()
 {
 	bpt::ptree tree;
-	progArgs->getAsPropertyTree(tree, workerRank);
+	progArgs->getAsPropertyTreeForService(tree, workerRank);
 	std::stringstream treeStream;
 	bpt::write_json(treeStream, tree, true);
 

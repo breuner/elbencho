@@ -15,9 +15,11 @@
   
 ### General Changes
 * Using "--quit --hosts ..." now shows whether the service instances confirmed the quit command.
+* New "--nodiocheck" parameter to skip check for direct IO alignment.
 
 ### Contributors
-* Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback. Thanks to Paul Hargreaves for helpful comments.
+* Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback.
+* Thanks to Paul Hargreaves for helpful comments and suggestions.
 
 ## v1.9.1 (May 29, 2021)
 

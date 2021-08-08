@@ -65,6 +65,7 @@ _elbencho_opts()
         --nocsvlabels
         --nodelerr
         --nodetach
+        --nodiocheck
         --nolive
         --nosvcshare
         --perthread

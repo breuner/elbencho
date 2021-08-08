@@ -319,7 +319,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 
 			LoggerBase::clearErrHistory();
 
-			progArgs.setFromPropertyTree(recvTree);
+			progArgs.setFromPropertyTreeForService(recvTree);
 
 			workerManager.prepareThreads();
 

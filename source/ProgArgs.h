@@ -115,6 +115,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3TRANSMAN_LONG			"s3transman"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
+#define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -147,8 +148,8 @@ class ProgArgs
 		void printHelp();
 		bool hasUserRequestedVersion();
 		void printVersionAndBuildInfo();
-		void setFromPropertyTree(bpt::ptree& tree);
-		void getAsPropertyTree(bpt::ptree& outTree, size_t serviceRank) const;
+		void setFromPropertyTreeForService(bpt::ptree& tree);
+		void getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRank) const;
 		void getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const;
 		void resetBenchPath();
 		void getBenchPathInfoTree(bpt::ptree& outTree);
@@ -274,6 +275,7 @@ class ProgArgs
 									via buffer possible, such as GPU copy or data verification) */
 		bool useS3TransferManager; // use AWS SDK TransferManager for object downloads
 		unsigned short s3LogLevel; // log level for AWS SDK
+		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
 
 
 		void defineDefaults();
@@ -402,6 +404,7 @@ class ProgArgs
 		bool getUseS3FastRead() const { return useS3FastRead; }
 		bool getUseS3TransferManager() const { return useS3TransferManager; }
 		unsigned short getS3LogLevel() const { return s3LogLevel; }
+		bool getNoDirectIOCheck() const { return noDirectIOCheck; }
 };
 
 

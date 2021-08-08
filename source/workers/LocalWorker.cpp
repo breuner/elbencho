@@ -806,9 +806,9 @@ void LocalWorker::cleanup()
 		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
 
 		if(deregRes.err != CU_FILE_SUCCESS)
-			std::cerr << "ERROR: GPU DMA buffer deregistration via cuFileBufDeregister failed. "
+			ERRLOGGER(Log_NORMAL, "ERROR: GPU DMA buffer deregistration via cuFileBufDeregister failed. "
 				"GPU ID: " << gpuID << "; "
-				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl;
+				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl);
 	}
 #endif
 
@@ -831,9 +831,9 @@ void LocalWorker::cleanup()
 			cudaError_t unregRes = cudaHostUnregister(ioBuf);
 
 			if(unregRes != cudaSuccess)
-				std::cerr << "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
+				ERRLOGGER(Log_NORMAL, "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
 					"GPU ID: " << gpuID << "; "
-					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl;
+					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl);
 		}
 	}
 #endif
@@ -869,10 +869,10 @@ int64_t LocalWorker::rwBlockSized()
 
 		IF_UNLIKELY(rwRes <= 0)
 		{ // unexpected result
-			std::cerr << "rw failed: " << "blockSize: " << blockSize << "; " <<
+			ERRLOGGER(Log_NORMAL, "rw failed: " << "blockSize: " << blockSize << "; " <<
 				"currentOffset:" << currentOffset << "; " <<
 				"leftToSubmit:" << rwOffsetGen->getNumBytesLeftToSubmit() << "; " <<
-				"rank:" << workerRank << std::endl;
+				"rank:" << workerRank << std::endl);
 
 			fileHandles.errorFDVecIdx = fileHandleIdx;
 
@@ -912,6 +912,7 @@ int64_t LocalWorker::rwBlockSized()
  * @fdVec if more multiple fds are given then they will be used round-robin; there is no guarantee
  * 		for which fd from the vec will be used first, so this is only suitable for random IO.
  * @return similar to pread/pwrite.
+ * @throw WorkerException on async IO framework errors.
  */
 int64_t LocalWorker::aioBlockSized()
 {
@@ -1001,17 +1002,32 @@ int64_t LocalWorker::aioBlockSized()
 
 		for(int eventIdx = 0; eventIdx < eventsRes; eventIdx++)
 		{
-			// ioEvents[].res2 is positive errno, so 0 means success
-			// ioEvents[].res is number of actually read/written bytes when res2==0
+			// ioEvents[].res2 is negative errno for aio framework errors, 0 means no error
+			// ioEvents[].res is actually read/written bytes when res2==0 or negative errno
+			/* note: all messy with res/res2, because defined as ulong, but examples need them
+				interpreted as int for errors, which can overlap valid partial writes on 64bit */
 
 			IF_UNLIKELY(ioEvents[eventIdx].res2 ||
 				(ioEvents[eventIdx].res != ioEvents[eventIdx].obj->u.c.nbytes) )
 			{ // unexpected result
 				io_queue_release(ioContext);
 
-				return (ioEvents[eventIdx].res2 != 0) ?
-					-ioEvents[eventIdx].res2 :
-					(numBytesDone + ioEvents[eventIdx].obj->u.c.nbytes);
+				if(ioEvents[eventIdx].res2)
+					throw WorkerException(std::string("Async IO framework error. ") +
+						"NumPending: " + std::to_string(numPending) + "; "
+						"res: " + std::to_string(ioEvents[eventIdx].res2) + "; "
+						"res2: " + std::to_string(ioEvents[eventIdx].res) + "; "
+						"IO size: " + std::to_string(ioEvents[eventIdx].obj->u.c.nbytes) + "; "
+						"SysErr: " + strerror(-(int)ioEvents[eventIdx].res2) );
+
+				if( (int)ioEvents[eventIdx].res < 0)
+				{
+					errno = -(int)ioEvents[eventIdx].res; // res is negative errno
+					return -1;
+				}
+
+				// partial read/write, so return what we got so far
+				return (numBytesDone + ioEvents[eventIdx].res);
 			}
 
 			const size_t ioVecIdx = (size_t)ioEvents[eventIdx].data; // caller priv data is vec idx
@@ -1825,6 +1841,8 @@ void LocalWorker::dirModeIterateFiles()
 
 						IF_UNLIKELY(writeRes == -1)
 							throw WorkerException(std::string("File write failed. ") +
+								( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+									"Can be caused by directIO misalignment. " : "") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"SysErr: " + strerror(errno) );
 
@@ -1841,6 +1859,8 @@ void LocalWorker::dirModeIterateFiles()
 
 						IF_UNLIKELY(readRes == -1)
 							throw WorkerException(std::string("File read failed. ") +
+								( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+									"Can be caused by directIO misalignment. " : "") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"SysErr: " + strerror(errno) );
 
@@ -1968,6 +1988,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 					IF_UNLIKELY(writeRes == -1)
 						throw WorkerException(std::string("File write failed. ") +
+							( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+								"Can be caused by directIO misalignment. " : "") +
 							"Path: " + benchPathStr + "/" + currentPath + "; "
 							"SysErr: " + strerror(errno) );
 
@@ -1984,6 +2006,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 					IF_UNLIKELY(readRes == -1)
 						throw WorkerException(std::string("File read failed. ") +
+							( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+								"Can be caused by directIO misalignment. " : "") +
 							"Path: " + benchPathStr + "/" + currentPath + "; "
 							"SysErr: " + strerror(errno) );
 
@@ -2068,6 +2092,8 @@ void LocalWorker::fileModeIterateFilesRand()
 
 		IF_UNLIKELY(writeRes == -1)
 			throw WorkerException(std::string("File write failed. ") +
+				( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+					"Can be caused by directIO misalignment. " : "") +
 				fileModeLogPathFromFileHandlesErr() +
 				"SysErr: " + strerror(errno) );
 
@@ -2084,6 +2110,8 @@ void LocalWorker::fileModeIterateFilesRand()
 
 		IF_UNLIKELY(readRes == -1)
 			throw WorkerException(std::string("File read failed. ") +
+				( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+					"Can be caused by directIO misalignment. " : "") +
 				fileModeLogPathFromFileHandlesErr() +
 				"SysErr: " + strerror(errno) );
 
@@ -2168,6 +2196,8 @@ void LocalWorker::fileModeIterateFilesSeq()
 
 			IF_UNLIKELY(writeRes == -1)
 				throw WorkerException(std::string("File write failed. ") +
+					( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+						"Can be caused by directIO misalignment. " : "") +
 					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
 					"SysErr: " + strerror(errno) );
 
@@ -2184,6 +2214,8 @@ void LocalWorker::fileModeIterateFilesSeq()
 
 			IF_UNLIKELY(readRes == -1)
 				throw WorkerException(std::string("File read failed. ") +
+					( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+						"Can be caused by directIO misalignment. " : "") +
 					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
 					"SysErr: " + strerror(errno) );
 
