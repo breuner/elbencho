@@ -85,6 +85,7 @@ _elbencho_opts()
         --s3fastget
         --s3key
         --s3log
+        --s3objprefix
         --s3region
         --s3secret
         --s3transman
@@ -168,6 +169,8 @@ _elbencho()
         --s3endpoints)
         ;&
         --s3key)
+        ;&
+        --s3objprefix)
         ;&
         --s3region)
         ;&

@@ -308,6 +308,9 @@ void ProgArgs::defineAllowedArgs()
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
 			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
 			"the current working directory. (Default: 0=disabled; Max: 6)")
+/*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
+			"S3 object prefix. This will be prepended to all object names when the benchmark path "
+			"is a bucket.")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
@@ -2132,9 +2135,10 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3AccessKey = tree.get<std::string>(ARG_S3ACCESSKEY_LONG);
 	s3AccessSecret = tree.get<std::string>(ARG_S3ACCESSSECRET_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
-	useS3FastRead = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
-	useS3TransferManager = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
+	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
+	useS3TransferManager = tree.get<bool>(ARG_S3TRANSMAN_LONG);
 	noDirectIOCheck = tree.get<bool>(ARG_NODIRECTIOCHECK_LONG);
+	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2224,9 +2228,10 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3ACCESSKEY_LONG, s3AccessKey);
 	outTree.put(ARG_S3ACCESSSECRET_LONG, s3AccessSecret);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
-	outTree.put(ARG_TREERANDOMIZE_LONG, useS3FastRead);
-	outTree.put(ARG_TREERANDOMIZE_LONG, useS3TransferManager);
+	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
+	outTree.put(ARG_S3TRANSMAN_LONG, useS3TransferManager);
 	outTree.put(ARG_NODIRECTIOCHECK_LONG, noDirectIOCheck);
+	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
 
 
 	// dynamically calculated values for service hosts...

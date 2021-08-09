@@ -2402,6 +2402,7 @@ void LocalWorker::s3ModeIterateObjects()
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
 	const bool useTransMan = progArgs->getUseS3TransferManager();
+	std::string objectPrefix = progArgs->getS3ObjectPrefix();
 
 
 	// walk over each unique dir per worker
@@ -2431,6 +2432,7 @@ void LocalWorker::s3ModeIterateObjects()
 					"fileIndex: " + std::to_string(fileIndex) );
 
 			unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
+			std::string currentObjectPath = objectPrefix + currentPath.data();
 
 			rwOffsetGen->reset(); // reset for next file
 
@@ -2439,21 +2441,21 @@ void LocalWorker::s3ModeIterateObjects()
 			if(benchPhase == BenchPhase_CREATEFILES)
 			{
 				if(blockSize < fileSize)
-					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentPath.data() );
+					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentObjectPath);
 				else
-					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentPath.data() );
+					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
 
 			if(benchPhase == BenchPhase_READFILES)
 			{
 				if(useTransMan)
-					s3ModeDownloadObjectTransMan(bucketVec[bucketIndex], currentPath.data() );
+					s3ModeDownloadObjectTransMan(bucketVec[bucketIndex], currentObjectPath);
 				else
-					s3ModeDownloadObject(bucketVec[bucketIndex], currentPath.data() );
+					s3ModeDownloadObject(bucketVec[bucketIndex], currentObjectPath);
 			}
 
 			if(benchPhase == BenchPhase_DELETEFILES)
-				s3ModeDeleteObject(bucketVec[bucketIndex], currentPath.data() );
+				s3ModeDeleteObject(bucketVec[bucketIndex], currentObjectPath);
 
 			// calc entry operations latency. (for create, this includes open/rw/close.)
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();

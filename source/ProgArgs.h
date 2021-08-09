@@ -116,6 +116,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3TRANSMAN_LONG			"s3transman"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
 #define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
+#define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -276,6 +277,7 @@ class ProgArgs
 		bool useS3TransferManager; // use AWS SDK TransferManager for object downloads
 		unsigned short s3LogLevel; // log level for AWS SDK
 		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
+		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
 
 
 		void defineDefaults();
@@ -405,6 +407,7 @@ class ProgArgs
 		bool getUseS3TransferManager() const { return useS3TransferManager; }
 		unsigned short getS3LogLevel() const { return s3LogLevel; }
 		bool getNoDirectIOCheck() const { return noDirectIOCheck; }
+		std::string getS3ObjectPrefix() const { return s3ObjectPrefix; }
 };
 
 
