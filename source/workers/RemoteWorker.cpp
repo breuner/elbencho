@@ -51,7 +51,8 @@ void RemoteWorker::run()
 				{
 					/* interrupt remote threads and close open FDs on service host or make remote
 						service quit if requested by user */
-					interruptBenchPhase(false, true);
+					interruptBenchPhase(false,
+						progArgs->getInterruptServices() || progArgs->getQuitServices() );
 					return;
 				} break;
 				case BenchPhase_CREATEDIRS:
