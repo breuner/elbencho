@@ -107,6 +107,7 @@ class LocalWorker : public Worker
 		static std::mutex s3SDKInitMutex; // for singleton AWS SDK init/uninit
 		static Aws::SDKOptions* s3SDKOptions; // init'ed by options initializer for later uninit
 		std::shared_ptr<Aws::S3::S3Client> s3Client; // (shared_ptr expected by some SDK functions)
+		std::string s3EndpointStr; // set after s3Client initialized
 		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 #endif
 

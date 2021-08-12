@@ -19,7 +19,7 @@
 
 ### Contributors
 * Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback.
-* Thanks to Paul Hargreaves for helpful comments and suggestions.
+* Thanks to Paul Hargreaves & Michael Bloom for helpful comments and suggestions.
 
 ## v1.9.1 (May 29, 2021)
 

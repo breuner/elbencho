@@ -338,6 +338,8 @@ void LocalWorker::initS3Client()
 
 	s3Client->OverrideEndpoint(endpoint);
 
+	s3EndpointStr = endpoint;
+
 #endif // S3_SUPPORT
 }
 
@@ -2334,6 +2336,7 @@ void LocalWorker::s3ModeIterateBuckets()
 				if(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU)
 				{
 					throw WorkerException(std::string("Bucket creation failed. ") +
+						"Endpoint: " + s3EndpointStr + "; "
 						"Bucket: " + bucketVec[bucketIndex] + "; "
 						"Exception: " + s3Error.GetExceptionName() + "; " +
 						"Message: " + s3Error.GetMessage() );
@@ -2425,7 +2428,7 @@ void LocalWorker::s3ModeIterateObjects()
 			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
 				workerDirRank, dirIndex, workerRank, fileIndex);
 			if(printRes >= PATH_BUF_LEN)
-				throw WorkerException("mkdir path too long for static buffer. "
+				throw WorkerException("object path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) + "; "
 					"dirIndex: " + std::to_string(dirIndex) + "; "
@@ -2603,6 +2606,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 		auto s3Error = outcome.GetError();
 
 		throw WorkerException(std::string("Object upload failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
@@ -2652,6 +2656,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		auto s3Error = createMultipartUploadOutcome.GetError();
 
 		throw WorkerException(std::string("Multipart upload creation failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
 			"Message: " + s3Error.GetMessage() );
@@ -2717,6 +2722,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			auto s3Error = uploadPartOutcome.GetError();
 
 			throw WorkerException(std::string("Multipart part upload failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
 				"Object: " + objectName + "; "
 				"Part: " + std::to_string(currentPartNum) + "; "
@@ -2767,6 +2773,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		auto s3Error = completionOutcome.GetError();
 
 		throw WorkerException(std::string("Multipart upload completion failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
@@ -2854,6 +2861,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			auto s3Error = uploadPartOutcome.GetError();
 
 			throw WorkerException(std::string("Shared multipart part upload failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
 				"Object: " + objectName + "; "
 				"Part: " + std::to_string(currentPartNum) + "; "
@@ -2892,6 +2900,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		IF_UNLIKELY(allCompletedParts && rwOffsetGen->getNumBytesLeftToSubmit() )
 			throw WorkerException(std::string("Shared multipart upload logic error. ") +
 				"Completion returned by upload store, but bytes left to submit. "
+				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
 				"Object: " + objectName + "; "
 				"Part: " + std::to_string(currentPartNum) + "; "
@@ -2928,6 +2937,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		auto s3Error = completionOutcome.GetError();
 
 		throw WorkerException(std::string("Shared multipart upload completion failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
@@ -2986,6 +2996,7 @@ void LocalWorker::s3ModeAbortUnfinishedSharedUploads()
 
 		LOGGER(Log_DEBUG, "Aborting unfinished shared multipart upload. "
 			"Rank: " << workerRank << "; "
+			"Endpoint: " << s3EndpointStr << "; "
 			"Bucket: " << bucketName << "; "
 			"Object: " << objectName << "; " << std::endl);
 
@@ -2997,6 +3008,7 @@ void LocalWorker::s3ModeAbortUnfinishedSharedUploads()
 		// aborting unfinished upload failed
 		ERRLOGGER(Log_NORMAL, "Aborting unfinished shared multipart upload failed. "
 			"Rank: " << workerRank << "; "
+			"Endpoint: " << s3EndpointStr << "; "
 			"Bucket: " << bucketName << "; "
 			"Object: " << objectName << "; "
 			"UploadID: " << uploadID << "; " << std::endl);
@@ -3066,6 +3078,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			auto s3Error = outcome.GetError();
 
 			throw WorkerException(std::string("Object download failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
 				"Object: " + objectName + "; "
 				"Range: " + objectRange + "; "
@@ -3076,6 +3089,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		IF_UNLIKELY( (size_t)outcome.GetResult().GetContentLength() < blockSize)
 		{
 			throw WorkerException(std::string("Object too small. ") +
+				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
 				"Object: " + objectName + "; "
 				"Offset: " + std::to_string(currentOffset) + "; "
@@ -3153,6 +3167,7 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 	IF_UNLIKELY(transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED)
 	{
 		throw WorkerException(std::string("Object download failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Requested size: " + std::to_string(downloadBytes) + "; "
@@ -3162,6 +3177,7 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 	IF_UNLIKELY(transferHandle->GetBytesTransferred() != downloadBytes)
 	{
 		throw WorkerException(std::string("Object too small. ") +
+			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Requested size: " + std::to_string(downloadBytes) + "; "
@@ -3205,6 +3221,7 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 		auto s3Error = outcome.GetError();
 
 		throw WorkerException(std::string("Object deletion failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
