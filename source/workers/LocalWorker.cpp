@@ -3313,10 +3313,17 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
  * Calls the general sync() command to commit dirty pages from the linux page cache to stable
  * storage.
  *
+ * Only the first worker of this instance does this, otherwise the kernel-level spinlocks of the
+ * page cache make the sync extremely slow.
+ *
  * @throw WorkerException on error.
  */
 void LocalWorker::anyModeSync()
 {
+	// don't do anything if this is not the first worker thread of this instance
+	if(workerRank != progArgs->getRankOffset() )
+		return;
+
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
 
