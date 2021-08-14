@@ -195,6 +195,9 @@ void ProgArgs::defineAllowedArgs()
 			ARG_SYNCPHASE_LONG "\", because only data on stable storage can be dropped from cache. "
 			"Note for distributed file systems that this only drops caches on the clients where "
 			"elbencho runs, but there might still be cached data on the server.")
+/*dr*/	(ARG_DRYRUN_LONG,
+			"Don't run any benchmark phase, just print the number of expected entries and dataset "
+			"size per benchmark phase.")
 /*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT,
 			bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
@@ -2037,6 +2040,19 @@ void ProgArgs::printHelpDistributed()
 bool ProgArgs::hasUserRequestedVersion()
 {
 	if(argsVariablesMap.count(ARG_VERSION_LONG) )
+		return true;
+
+	return false;
+}
+
+/**
+ * Check if user gave the argument to do only a dry run.
+ *
+ * @return true if dry run requested.
+ */
+bool ProgArgs::hasUserRequestedDryRun()
+{
+	if(argsVariablesMap.count(ARG_DRYRUN_LONG) )
 		return true;
 
 	return false;

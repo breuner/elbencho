@@ -117,6 +117,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LOGLEVEL_LONG			"s3log"
 #define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
+#define ARG_DRYRUN_LONG				"dryrun"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -148,7 +149,9 @@ class ProgArgs
 		bool hasUserRequestedHelp();
 		void printHelp();
 		bool hasUserRequestedVersion();
+		bool hasUserRequestedDryRun();
 		void printVersionAndBuildInfo();
+		void printDryRunInfo();
 		void setFromPropertyTreeForService(bpt::ptree& tree);
 		void getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRank) const;
 		void getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const;

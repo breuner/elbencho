@@ -56,9 +56,14 @@ int Coordinator::main()
 			workerManager.checkServiceBenchPathInfos();
 		}
 
-		waitForUserDefinedStartTime();
+		if(progArgs.hasUserRequestedDryRun() )
+			statistics.printDryRunInfo();
+		else
+		{
+			waitForUserDefinedStartTime();
 
-		runBenchmarks();
+			runBenchmarks();
+		}
 
 		// signal workers to self-terminate
 		workerManager.startNextPhase(BenchPhase_TERMINATE);

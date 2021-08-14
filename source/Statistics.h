@@ -74,6 +74,8 @@ class Statistics
 		void getLiveStatsAsPropertyTree(bpt::ptree& outTree);
 		void getBenchResultAsPropertyTree(bpt::ptree& outTree);
 
+		void printDryRunInfo();
+
 	private:
 		const ProgArgs& progArgs;
 		WorkerManager& workerManager;
@@ -116,6 +118,8 @@ class Statistics
 		void printWholeScreenLiveStats();
 
 		bool checkCSVFileEmpty();
+
+		void printDryRunPhaseInfo(BenchPhase benchPhase);
 
 	// inliners
 	public:

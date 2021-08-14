@@ -38,6 +38,7 @@ _elbencho_opts()
         --dirs
         --dirsharing
         --dropcache
+        --dryrun
         --files
         --foreground
         --gdsbufreg

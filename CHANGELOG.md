@@ -16,6 +16,7 @@
 ### General Changes
 * Using "--quit --hosts ..." now shows whether the service instances confirmed the quit command.
 * New "--nodiocheck" parameter to skip check for direct IO alignment.
+* New "--dryrun" option to see dataset size and number of entries.
 
 ### Contributors
 * Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback.

@@ -1417,3 +1417,69 @@ bool Statistics::checkCSVFileEmpty()
 
 	return (statBuf.st_size == 0);
 }
+
+/**
+ * Print dry run info (number of entries and dataset size) for each of the user-given phases.
+ */
+void Statistics::printDryRunInfo()
+{
+	if(progArgs.getRunCreateDirsPhase() )
+		printDryRunPhaseInfo(BenchPhase_CREATEDIRS);
+
+	if(progArgs.getRunDeleteDirsPhase() )
+		printDryRunPhaseInfo(BenchPhase_DELETEDIRS);
+
+	if(progArgs.getRunCreateFilesPhase() )
+		printDryRunPhaseInfo(BenchPhase_CREATEFILES);
+
+	if(progArgs.getRunReadPhase() )
+		printDryRunPhaseInfo(BenchPhase_READFILES);
+
+	if(progArgs.getRunDeleteFilesPhase() )
+		printDryRunPhaseInfo(BenchPhase_DELETEFILES);
+
+	if(progArgs.getRunStatFilesPhase() )
+		printDryRunPhaseInfo(BenchPhase_STATFILES);
+}
+
+/**
+ * Print dry run info (num entries and dataset size) for a particular phase.
+ */
+void Statistics::printDryRunPhaseInfo(BenchPhase benchPhase)
+{
+	size_t numEntriesPerThread;
+	uint64_t numBytesPerThread;
+
+	WorkerManager::getPhaseNumEntriesAndBytes(progArgs, benchPhase, progArgs.getBenchPathType(),
+		numEntriesPerThread, numBytesPerThread);
+
+	std::string perUnitStr = progArgs.getHostsVec().empty() ?
+		"thread" : "service";
+
+	uint64_t totalMultiplier = progArgs.getHostsVec().empty() ?
+		progArgs.getNumThreads() : progArgs.getHostsVec().size();
+
+	uint64_t numEntriesTotal = numEntriesPerThread * totalMultiplier;
+	uint64_t numBytesTotal = numBytesPerThread * totalMultiplier;
+
+	std::string benchPhaseStr = TranslatorTk::benchPhaseToPhaseName(benchPhase, &progArgs);
+
+	std::cout << "Phase: " << benchPhaseStr << std::endl;
+	std::cout << "* Entries per " << perUnitStr << ": " << numEntriesPerThread << " | " <<
+		(numEntriesPerThread / 1000) << " K" " | " <<
+		(numEntriesPerThread / (1000*1000) ) << " M" << std::endl;
+	std::cout << "* Entries total:      " << numEntriesTotal << " | " <<
+		(numEntriesTotal / 1000) << " K" " | " <<
+		(numEntriesTotal / (1000*1000) ) << " M" << std::endl;
+
+	// show bytes info only for create/write & read phases
+	if( (benchPhase != BenchPhase_CREATEFILES) && (benchPhase != BenchPhase_READFILES) )
+		return;
+
+	std::cout << "* Bytes per " << perUnitStr << ":   " << numBytesPerThread << " | " <<
+		(numBytesPerThread / (1024*1024) ) << " MiB" " | " <<
+		(numBytesPerThread / (1024*1024*1024) ) << " GiB" << std::endl;
+	std::cout << "* Bytes total:        " << numBytesTotal << " | " <<
+		(numBytesTotal / (1024*1024) ) << " MiB" " | " <<
+		(numBytesTotal / (1024*1024*1024) ) << " GiB" << std::endl;
+}
