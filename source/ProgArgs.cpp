@@ -622,10 +622,10 @@ void ProgArgs::checkPathDependentArgs()
 		throw ProgException("Custom tree mode requires benchmark path to be a directory.");
 
 	if(s3ListObjectsNum && (benchPathType != BenchPathType_DIR) )
-		throw WorkerException("Object listing requires a bucket name as benchmark path.");
+		throw ProgException("Object listing requires a bucket name as benchmark path.");
 
 	if(s3ListObjectsNum && s3EndpointsVec.empty() )
-		throw WorkerException("Object listing requires S3 endpoints definition.");
+		throw ProgException("Object listing requires S3 endpoints definition.");
 
 	if(s3ListObjectsNum && !treeFilePath.empty() )
 		LOGGER(Log_NORMAL, "NOTE: Ignoring custom tree file for object listing." << std::endl);
