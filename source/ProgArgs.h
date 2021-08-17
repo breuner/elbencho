@@ -118,6 +118,7 @@ namespace bpt = boost::property_tree;
 #define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_DRYRUN_LONG				"dryrun"
+#define ARG_S3LISTOBJ_LONG			"s3listobj"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -281,6 +282,7 @@ class ProgArgs
 		unsigned short s3LogLevel; // log level for AWS SDK
 		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
+		uint64_t s3ListObjectsNum; // run list objects phase if >0, given number is listing limit
 
 
 		void defineDefaults();
@@ -411,6 +413,9 @@ class ProgArgs
 		unsigned short getS3LogLevel() const { return s3LogLevel; }
 		bool getNoDirectIOCheck() const { return noDirectIOCheck; }
 		std::string getS3ObjectPrefix() const { return s3ObjectPrefix; }
+		uint64_t getS3ListObjectsNum() const { return s3ListObjectsNum; }
+		bool getRunListObjectsPhase() const { return (s3ListObjectsNum > 0); }
+
 };
 
 

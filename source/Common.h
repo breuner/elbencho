@@ -28,6 +28,7 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_SYNC			"SYNC"
 #define PHASENAME_DROPCACHES	"DROPCACHE"
 #define PHASENAME_STATFILES		"STAT"
+#define PHASENAME_LISTOBJECTS	"LISTOBJ"
 
 
 // human-readable entry type in current benchmark phase
@@ -40,7 +41,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"2.0.1"
+#define HTTP_PROTOCOLVERSION	"2.0.2"
 
 
 /**
@@ -85,6 +86,7 @@ enum BenchPhase
 	BenchPhase_SYNC,
 	BenchPhase_DROPCACHES,
 	BenchPhase_STATFILES,
+	BenchPhase_LISTOBJECTS,
 };
 
 

@@ -150,6 +150,7 @@ class LocalWorker : public Worker
 		void s3ModeDownloadObject(std::string bucketName, std::string objectName);
 		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName);
 		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
+		void s3ModeListObjects();
 
 		void anyModeSync();
 		void anyModeDropCaches();

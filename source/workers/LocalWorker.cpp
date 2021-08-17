@@ -29,6 +29,7 @@
 	#include <aws/s3/model/DeleteBucketRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
+	#include <aws/s3/model/ListObjectsV2Request.h>
 	#include <aws/s3/model/PutObjectRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
 	#include <aws/transfer/TransferManager.h>
@@ -178,6 +179,11 @@ void LocalWorker::run()
 
 					progArgs->getTreeFilePath().empty() ?
 						dirModeIterateFiles() : dirModeIterateCustomFiles();
+				} break;
+
+				case BenchPhase_LISTOBJECTS:
+				{
+					s3ModeListObjects();
 				} break;
 
 				case BenchPhase_DELETEFILES:
@@ -3226,6 +3232,82 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
 			"Message: " + s3Error.GetMessage() );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * List objects in given buckets with user-defined limit for number of entries and .
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeListObjects()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	const size_t numBuckets = bucketVec.size();
+	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+
+	for(unsigned bucketIndex = workerRank;
+		bucketIndex < numBuckets;
+		bucketIndex += numDataSetThreads)
+	{
+		uint64_t numObjectsLeft = progArgs->getS3ListObjectsNum();
+		std::string nextContinuationToken;
+		bool isTruncated; // true if S3 server reports more objects left to retrieve
+
+		do
+		{
+			checkInterruptionRequest();
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			S3::ListObjectsV2Request request;
+			request.SetBucket(bucketVec[bucketIndex] );
+			request.SetPrefix(objectPrefix);
+			request.SetMaxKeys( (numObjectsLeft > 1000) ? 1000 : numObjectsLeft); // can't be >1000
+
+			if(!nextContinuationToken.empty() )
+				request.SetContinuationToken(nextContinuationToken);
+
+			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
+
+			IF_UNLIKELY(!outcome.IsSuccess() )
+			{
+				auto s3Error = outcome.GetError();
+
+				throw WorkerException(std::string("Object listing v2 failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketVec[bucketIndex] + "; "
+					"Prefix: " + objectPrefix + "; "
+					"ContinuationToken: " + nextContinuationToken + "; "
+					"NumObjectsLeft: " + std::to_string(numObjectsLeft) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() );
+			}
+
+			// calc entry operations latency
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+			unsigned keyCount = outcome.GetResult().GetKeyCount();
+
+			atomicLiveOps.numEntriesDone += keyCount;
+			numObjectsLeft -= keyCount;
+
+			nextContinuationToken = outcome.GetResult().GetNextContinuationToken();
+			isTruncated = outcome.GetResult().GetIsTruncated();
+
+		} while(isTruncated && numObjectsLeft); // end of while numObjectsLeft loop
 	}
 
 #endif // S3_SUPPORT

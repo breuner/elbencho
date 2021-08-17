@@ -308,6 +308,10 @@ void ProgArgs::defineAllowedArgs()
 			"GPU data transfer.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
 			"S3 access key.")
+/*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->s3ListObjectsNum),
+			"List objects. The given number is the maximum number of objects to retrieve. Use "
+			"--\"" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
+			"threads will only be effecive if multiple buckets are given.)")
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
 			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
 			"the current working directory. (Default: 0=disabled; Max: 6)")
@@ -466,6 +470,7 @@ void ProgArgs::defineDefaults()
 	this->useS3TransferManager = false;
 	this->s3LogLevel = 0;
 	this->noDirectIOCheck = false;
+	this->s3ListObjectsNum = 0;
 }
 
 /**
@@ -615,6 +620,15 @@ void ProgArgs::checkPathDependentArgs()
 	// ensure bench path is dir when tree file is given
 	if( (benchPathType != BenchPathType_DIR) && !treeFilePath.empty() )
 		throw ProgException("Custom tree mode requires benchmark path to be a directory.");
+
+	if(s3ListObjectsNum && (benchPathType != BenchPathType_DIR) )
+		throw WorkerException("Object listing requires a bucket name as benchmark path.");
+
+	if(s3ListObjectsNum && s3EndpointsVec.empty() )
+		throw WorkerException("Object listing requires S3 endpoints definition.");
+
+	if(s3ListObjectsNum && !treeFilePath.empty() )
+		LOGGER(Log_NORMAL, "NOTE: Ignoring custom tree file for object listing." << std::endl);
 
 	/* ensure only single bench dir with tree file (otherwise we can't guarantee that the right dir
 		for each file exist in a certain bench path) */
@@ -2155,6 +2169,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useS3TransferManager = tree.get<bool>(ARG_S3TRANSMAN_LONG);
 	noDirectIOCheck = tree.get<bool>(ARG_NODIRECTIOCHECK_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
+	s3ListObjectsNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2248,6 +2263,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3TRANSMAN_LONG, useS3TransferManager);
 	outTree.put(ARG_NODIRECTIOCHECK_LONG, noDirectIOCheck);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
+	outTree.put(ARG_S3LISTOBJ_LONG, s3ListObjectsNum);
 
 
 	// dynamically calculated values for service hosts...

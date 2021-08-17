@@ -5,7 +5,7 @@
 ### New Features & Enhancements
 * New support for S3 object storage benchmarking.
   * Not enabled by default due to extra build time. See README.md for easy instructions on how to enable.
-  * S3 support is included in many docker containers. 
+  * S3 support is included in the default docker container.
 * New Nvidia Magnum IO based Docker container with CUDA and GPUDirect Storage (GDS) support included.
   * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
 * New Dockerfiles to build containers from local source copy.

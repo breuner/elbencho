@@ -217,7 +217,13 @@ void Coordinator::runBenchmarks()
 			runBenchmarkPhase(BenchPhase_STATFILES);
 			runSyncAndDropCaches();
 		}
-	
+
+		if(progArgs.getRunListObjectsPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_LISTOBJECTS);
+			runSyncAndDropCaches();
+		}
+
 		if(progArgs.getRunReadPhase() )
 		{
 			runBenchmarkPhase(BenchPhase_READFILES);
