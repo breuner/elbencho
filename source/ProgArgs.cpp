@@ -308,10 +308,18 @@ void ProgArgs::defineAllowedArgs()
 			"GPU data transfer.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
 			"S3 access key.")
-/*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->s3ListObjectsNum),
+/*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
 			"List objects. The given number is the maximum number of objects to retrieve. Use "
 			"--\"" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
 			"threads will only be effecive if multiple buckets are given.)")
+/*s3l*/	(ARG_S3LISTOBJPARALLEL_LONG, bpo::bool_switch(&this->runS3ListObjParallel),
+			"List objects in parallel. Requires a dataset created via \"-" ARG_NUMDIRS_SHORT "\" "
+			"and \"-" ARG_NUMFILES_SHORT "\" options and parallelizes by using different S3 "
+			"listing prefixes for each thread.")
+/*s3l*/	(ARG_S3LISTOBJVERIFY_LONG, bpo::bool_switch(&this->doS3ListObjVerify),
+			"Verify the correctness of S3 server object listing results in combination with "
+			"\"--" ARG_S3LISTOBJPARALLEL_LONG "\". This requires the dataset to be created with "
+			"the same values for \"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT "\".")
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
 			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
 			"the current working directory. (Default: 0=disabled; Max: 6)")
@@ -470,7 +478,9 @@ void ProgArgs::defineDefaults()
 	this->useS3TransferManager = false;
 	this->s3LogLevel = 0;
 	this->noDirectIOCheck = false;
-	this->s3ListObjectsNum = 0;
+	this->runS3ListObjNum = 0;
+	this->runS3ListObjParallel = false;
+	this->doS3ListObjVerify = false;
 }
 
 /**
@@ -621,13 +631,13 @@ void ProgArgs::checkPathDependentArgs()
 	if( (benchPathType != BenchPathType_DIR) && !treeFilePath.empty() )
 		throw ProgException("Custom tree mode requires benchmark path to be a directory.");
 
-	if(s3ListObjectsNum && (benchPathType != BenchPathType_DIR) )
+	if(runS3ListObjNum && (benchPathType != BenchPathType_DIR) )
 		throw ProgException("Object listing requires a bucket name as benchmark path.");
 
-	if(s3ListObjectsNum && s3EndpointsVec.empty() )
+	if(runS3ListObjNum && s3EndpointsVec.empty() )
 		throw ProgException("Object listing requires S3 endpoints definition.");
 
-	if(s3ListObjectsNum && !treeFilePath.empty() )
+	if(runS3ListObjNum && !treeFilePath.empty() )
 		LOGGER(Log_NORMAL, "NOTE: Ignoring custom tree file for object listing." << std::endl);
 
 	/* ensure only single bench dir with tree file (otherwise we can't guarantee that the right dir
@@ -2169,7 +2179,9 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useS3TransferManager = tree.get<bool>(ARG_S3TRANSMAN_LONG);
 	noDirectIOCheck = tree.get<bool>(ARG_NODIRECTIOCHECK_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
-	s3ListObjectsNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
+	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
+	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
+	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2263,7 +2275,9 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3TRANSMAN_LONG, useS3TransferManager);
 	outTree.put(ARG_NODIRECTIOCHECK_LONG, noDirectIOCheck);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
-	outTree.put(ARG_S3LISTOBJ_LONG, s3ListObjectsNum);
+	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
+	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
+	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 
 
 	// dynamically calculated values for service hosts...

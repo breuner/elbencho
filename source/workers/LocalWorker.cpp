@@ -30,6 +30,7 @@
 	#include <aws/s3/model/DeleteObjectRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
+	#include <aws/s3/model/Object.h>
 	#include <aws/s3/model/PutObjectRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
 	#include <aws/transfer/TransferManager.h>
@@ -184,6 +185,15 @@ void LocalWorker::run()
 				case BenchPhase_LISTOBJECTS:
 				{
 					s3ModeListObjects();
+				} break;
+
+				case BenchPhase_LISTOBJPARALLEL:
+				{
+					if(!progArgs->getTreeFilePath().empty() )
+						throw WorkerException("Parallel object listing is not available in custom "
+							"tree mode.");
+
+					s3ModeListObjParallel();
 				} break;
 
 				case BenchPhase_DELETEFILES:
@@ -1604,7 +1614,7 @@ void LocalWorker::dirModeIterateDirs()
 
 			// generate path
 			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
-			if(printRes >= PATH_BUF_LEN)
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 				throw WorkerException("mkdir path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) );
@@ -1626,7 +1636,7 @@ void LocalWorker::dirModeIterateDirs()
 		// generate current dir path
 		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu",
 			workerDirRank, dirIndex);
-		if(printRes >= PATH_BUF_LEN)
+		IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 			throw WorkerException("mkdir path too long for static buffer. "
 				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 				"dirIndex: " + std::to_string(dirIndex) + "; "
@@ -1679,7 +1689,7 @@ void LocalWorker::dirModeIterateDirs()
 
 			// generate path
 			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
-			if(printRes >= PATH_BUF_LEN)
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 				throw WorkerException("mkdir path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) );
@@ -1820,7 +1830,7 @@ void LocalWorker::dirModeIterateFiles()
 			// generate current dir path
 			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
 				workerDirRank, dirIndex, workerRank, fileIndex);
-			if(printRes >= PATH_BUF_LEN)
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 				throw WorkerException("mkdir path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) + "; "
@@ -2433,7 +2443,7 @@ void LocalWorker::s3ModeIterateObjects()
 			// generate current dir path
 			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
 				workerDirRank, dirIndex, workerRank, fileIndex);
-			if(printRes >= PATH_BUF_LEN)
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 				throw WorkerException("object path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) + "; "
@@ -3238,7 +3248,7 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 }
 
 /**
- * List objects in given buckets with user-defined limit for number of entries and .
+ * List objects in given buckets with user-defined limit for number of entries.
  *
  * @throw WorkerException on error.
  */
@@ -3257,7 +3267,7 @@ void LocalWorker::s3ModeListObjects()
 		bucketIndex < numBuckets;
 		bucketIndex += numDataSetThreads)
 	{
-		uint64_t numObjectsLeft = progArgs->getS3ListObjectsNum();
+		uint64_t numObjectsLeft = progArgs->getS3ListObjNum();
 		std::string nextContinuationToken;
 		bool isTruncated; // true if S3 server reports more objects left to retrieve
 
@@ -3308,6 +3318,186 @@ void LocalWorker::s3ModeListObjects()
 			isTruncated = outcome.GetResult().GetIsTruncated();
 
 		} while(isTruncated && numObjectsLeft); // end of while numObjectsLeft loop
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * This is for s3 mode parallel listing of objects. Expects a dataset created via
+ * s3ModeIterateObjects() and uses different prefixes per worker thread to parallelize, so that each
+ * worker requests the listing of the dirs/objs that it created in s3ModeIterateObjects().
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeListObjParallel()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const size_t numDirs = progArgs->getNumDirs();
+	const size_t numFiles = progArgs->getNumFiles();
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool doListObjVerify = progArgs->getDoListObjVerify();
+
+
+	// walk over each unique dir per worker
+
+	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
+	{
+		uint64_t numObjectsLeft = numFiles;
+		std::string nextContinuationToken;
+		bool isTruncated; // true if S3 server reports more objects left to retrieve
+		StringList receivedObjs; // for verification (if requested by user)
+		StringSet expectedObjs; // for verification (if requested by user)
+
+		// generate list prefix for current dir
+		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-",
+			workerDirRank, dirIndex, workerRank);
+		IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+			throw WorkerException("object path too long for static buffer. "
+				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+				"workerRank: " + std::to_string(workerRank) + "; "
+				"dirIndex: " + std::to_string(dirIndex) );
+
+		unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
+		std::string currentListPrefix = objectPrefix + currentPath.data();
+
+		// build list of expected objs in dir for verification. (std::set for alphabetic order)
+		for(size_t fileIndex = 0; doListObjVerify && (fileIndex < numFiles); fileIndex++)
+		{
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+				workerDirRank, dirIndex, workerRank, fileIndex);
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("Verification object path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) + "; "
+					"dirIndex: " + std::to_string(dirIndex) + "; "
+					"fileIndex: " + std::to_string(fileIndex) );
+
+			std::string currentObjectPath = objectPrefix + currentPath.data();
+
+			expectedObjs.insert(currentObjectPath);
+		}
+
+		// receive listing of current dir
+		do
+		{
+			checkInterruptionRequest();
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			S3::ListObjectsV2Request request;
+			request.SetBucket(bucketVec[bucketIndex] );
+			request.SetPrefix(currentListPrefix);
+			request.SetMaxKeys( (numObjectsLeft > 1000) ? 1000 : numObjectsLeft); // can't be >1000
+
+			if(!nextContinuationToken.empty() )
+				request.SetContinuationToken(nextContinuationToken);
+
+			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
+
+			IF_UNLIKELY(!outcome.IsSuccess() )
+			{
+				auto s3Error = outcome.GetError();
+
+				throw WorkerException(std::string("Object listing v2 failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketVec[bucketIndex] + "; "
+					"Prefix: " + objectPrefix + "; "
+					"ContinuationToken: " + nextContinuationToken + "; "
+					"NumObjectsLeft: " + std::to_string(numObjectsLeft) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() );
+			}
+
+			// calc entry operations latency
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+			unsigned keyCount = outcome.GetResult().GetKeyCount();
+
+			atomicLiveOps.numEntriesDone += keyCount;
+			numObjectsLeft -= keyCount;
+
+			nextContinuationToken = outcome.GetResult().GetNextContinuationToken();
+			isTruncated = outcome.GetResult().GetIsTruncated();
+
+			// build list of received keys. (std::list to preserve order; must be alphabetic)
+			IF_UNLIKELY(doListObjVerify)
+				for(const Aws::S3::Model::Object& obj : outcome.GetResult().GetContents() )
+					receivedObjs.push_back(obj.GetKey() );
+
+		} while(isTruncated && numObjectsLeft); // end of while numObjectsLeft in dir loop
+
+		IF_UNLIKELY(doListObjVerify)
+			s3ModeVerifyListing(expectedObjs, receivedObjs, bucketVec[bucketIndex],
+				currentListPrefix);
+
+	} // end of dirs for-loop
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Verify expected and received dir listing. This includes a verification of the entry order
+ * inside the listing.
+ *
+ * @listPrefix the prefix that was used in the object listing request.
+ *
+ * @throw WorkerException on error (e.g. mismatch between expected and received).
+ */
+void LocalWorker::s3ModeVerifyListing(StringSet& expectedSet, StringList& receivedList,
+	std::string bucketName, std::string listPrefix)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	if(expectedSet.size() != receivedList.size() )
+		throw WorkerException(std::string("Object listing v2 verification failed. ") +
+			"Number of expected and number of received entries differ. "
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Prefix: " + listPrefix + "; "
+			"NumObjectsExpected: " + std::to_string(expectedSet.size() ) + "; " +
+			"NumObjectsReceived: " + std::to_string(receivedList.size() ) );
+
+	uint64_t currentOffset = 0; // offset inside listing
+
+	while(!expectedSet.empty() && !receivedList.empty() )
+	{
+		if(*expectedSet.begin() == *receivedList.begin() )
+		{ // all good with this entry, so delete and move on to the next one
+			expectedSet.erase(expectedSet.begin() );
+			receivedList.erase(receivedList.begin() );
+
+			currentOffset++;
+
+			continue;
+		}
+
+		// entries differ, so verification failed
+
+		throw WorkerException(std::string("Object listing v2 verification failed. ") +
+			"Found object differs from expected object at offset. "
+			"FoundObject: " + *receivedList.begin() + "; "
+			"ExpectedObject: " + *expectedSet.begin() + "; "
+			"ListingOffset: " + std::to_string(currentOffset) + "; "
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Prefix: " + listPrefix + "; "
+			"NumObjectsExpected: " + std::to_string(expectedSet.size() ) + "; " +
+			"NumObjectsReceived: " + std::to_string(receivedList.size() ) );
 	}
 
 #endif // S3_SUPPORT

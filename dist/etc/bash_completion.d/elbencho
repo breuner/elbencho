@@ -86,6 +86,8 @@ _elbencho_opts()
         --s3fastget
         --s3key
         --s3listobj
+        --s3listobjpar
+        --s3listverify
         --s3log
         --s3objprefix
         --s3region

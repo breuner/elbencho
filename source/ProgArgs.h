@@ -119,6 +119,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_DRYRUN_LONG				"dryrun"
 #define ARG_S3LISTOBJ_LONG			"s3listobj"
+#define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
+#define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -282,7 +284,9 @@ class ProgArgs
 		unsigned short s3LogLevel; // log level for AWS SDK
 		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
-		uint64_t s3ListObjectsNum; // run list objects phase if >0, given number is listing limit
+		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
+		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
+		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 
 
 		void defineDefaults();
@@ -413,8 +417,10 @@ class ProgArgs
 		unsigned short getS3LogLevel() const { return s3LogLevel; }
 		bool getNoDirectIOCheck() const { return noDirectIOCheck; }
 		std::string getS3ObjectPrefix() const { return s3ObjectPrefix; }
-		uint64_t getS3ListObjectsNum() const { return s3ListObjectsNum; }
-		bool getRunListObjectsPhase() const { return (s3ListObjectsNum > 0); }
+		uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
+		bool getRunListObjPhase() const { return (runS3ListObjNum > 0); }
+		bool getRunListObjParallelPhase() const { return runS3ListObjParallel; }
+		bool getDoListObjVerify() const { return doS3ListObjVerify; }
 
 };
 

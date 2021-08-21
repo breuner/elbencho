@@ -218,9 +218,15 @@ void Coordinator::runBenchmarks()
 			runSyncAndDropCaches();
 		}
 
-		if(progArgs.getRunListObjectsPhase() )
+		if(progArgs.getRunListObjPhase() )
 		{
 			runBenchmarkPhase(BenchPhase_LISTOBJECTS);
+			runSyncAndDropCaches();
+		}
+
+		if(progArgs.getRunListObjParallelPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_LISTOBJPARALLEL);
 			runSyncAndDropCaches();
 		}
 

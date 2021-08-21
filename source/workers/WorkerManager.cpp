@@ -332,6 +332,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 
 				case BenchPhase_DELETEFILES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_LISTOBJPARALLEL:
 				{
 					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
 					outNumBytesPerWorker = 0;

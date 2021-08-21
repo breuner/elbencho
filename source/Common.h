@@ -1,10 +1,14 @@
 #ifndef COMMON_H_
 #define COMMON_H_
 
+#include <list>
+#include <set>
 #include <string>
 #include <unistd.h>
 #include <vector>
 
+typedef std::list<std::string> StringList;
+typedef std::set<std::string> StringSet;
 typedef std::vector<std::string> StringVec;
 typedef std::vector<int> IntVec;
 typedef std::vector<char*> BufferVec;
@@ -29,6 +33,7 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_DROPCACHES	"DROPCACHE"
 #define PHASENAME_STATFILES		"STAT"
 #define PHASENAME_LISTOBJECTS	"LISTOBJ"
+#define PHASENAME_LISTOBJPAR	"LISTOBJ_P"
 
 
 // human-readable entry type in current benchmark phase
@@ -41,7 +46,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"2.0.2"
+#define HTTP_PROTOCOLVERSION	"2.0.3"
 
 
 /**
@@ -87,6 +92,7 @@ enum BenchPhase
 	BenchPhase_DROPCACHES,
 	BenchPhase_STATFILES,
 	BenchPhase_LISTOBJECTS,
+	BenchPhase_LISTOBJPARALLEL,
 };
 
 

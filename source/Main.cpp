@@ -51,6 +51,7 @@ int main(int argc, char** argv)
 			"read: " << progArgs.getRunReadPhase() << "; " <<
 			"rmfi: " << progArgs.getRunDeleteFilesPhase() << "; " <<
 			"rmdi: " << progArgs.getRunDeleteDirsPhase() << "; " <<
+			"lsobjp: " << progArgs.getRunListObjParallelPhase() << "; " <<
 			"starttime: " << progArgs.getStartTime() << "; " <<
 			"waittime: " << waittimeSec << std::endl);
 
