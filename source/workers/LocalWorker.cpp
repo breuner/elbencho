@@ -2435,7 +2435,9 @@ void LocalWorker::s3ModeIterateObjects()
 		all workers use the dirs of worker rank 0 */
 	const bool useTransMan = progArgs->getUseS3TransferManager();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
-
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (benchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumS3RWMixReadThreads() ) );
 
 	// walk over each unique dir per worker
 
@@ -2470,7 +2472,7 @@ void LocalWorker::s3ModeIterateObjects()
 
 			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-			if(benchPhase == BenchPhase_CREATEFILES)
+			if( (benchPhase == BenchPhase_CREATEFILES) && !isRWMixedReader)
 			{
 				if(blockSize < fileSize)
 					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentObjectPath);
@@ -2478,12 +2480,14 @@ void LocalWorker::s3ModeIterateObjects()
 					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
 
-			if(benchPhase == BenchPhase_READFILES)
+			if( (benchPhase == BenchPhase_READFILES) || isRWMixedReader)
 			{
 				if(useTransMan)
-					s3ModeDownloadObjectTransMan(bucketVec[bucketIndex], currentObjectPath);
+					s3ModeDownloadObjectTransMan(bucketVec[bucketIndex], currentObjectPath,
+						isRWMixedReader);
 				else
-					s3ModeDownloadObject(bucketVec[bucketIndex], currentObjectPath);
+					s3ModeDownloadObject(bucketVec[bucketIndex], currentObjectPath,
+						isRWMixedReader);
 			}
 
 			if(benchPhase == BenchPhase_DELETEFILES)
@@ -2568,9 +2572,9 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			if(benchPhase == BenchPhase_READFILES)
 			{
 				if(useTransMan)
-					s3ModeDownloadObjectTransMan(bucketName, currentPathElem.path);
+					s3ModeDownloadObjectTransMan(bucketName, currentPathElem.path, false);
 				else
-					s3ModeDownloadObject(bucketName, currentPathElem.path);
+					s3ModeDownloadObject(bucketName, currentPathElem.path, false);
 			}
 		}
 
@@ -3067,9 +3071,13 @@ void LocalWorker::s3ModeAbortUnfinishedSharedUploads()
 /**
  * Block-sized download of an S3 object.
  *
+ * @isRWMixedReader true if this is a reader of a mixed read/write phase, so that the corresponding
+ * 		statistics get increased.
+ *
  * @throw WorkerException on error.
  */
-void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objectName)
+void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objectName,
+	const bool isRWMixedReader)
 {
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
@@ -3111,7 +3119,12 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		request.SetDataReceivedEventHandler(
 			[&](const Aws::Http::HttpRequest* request, Aws::Http::HttpResponse* response,
 			long long numBytes)
-			{ atomicLiveOps.numBytesDone += numBytes; } );
+			{
+				atomicLiveOps.numBytesDone += numBytes;
+
+				if(isRWMixedReader)
+					atomicLiveRWMixReadOps.numBytesDone += numBytes;
+			} );
 
 		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
@@ -3158,6 +3171,9 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(blockSize);
 		atomicLiveOps.numIOPSDone++;
+
+		if(isRWMixedReader)
+			atomicLiveRWMixReadOps.numIOPSDone++;
 	}
 
 #endif // S3_SUPPORT
@@ -3170,9 +3186,13 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
  * or GPU transfer possible. But iodepth greater 1 is supported, translating to multiple
  * TransferManager threads.
  *
+ * @isRWMixedReader true if this is a reader of a mixed read/write phase, so that the corresponding
+ *		statistics get increased.
+ *
  * @throw WorkerException on error.
  */
-void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName)
+void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
+	const bool isRWMixedReader)
 {
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
@@ -3194,7 +3214,13 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 			if(isInterruptionRequested)
 				transferHandle->Cancel();
 
-			atomicLiveOps.numBytesDone += handle->GetBytesTransferred() - numBytesDownloaded;
+			const uint64_t numBytesDone = handle->GetBytesTransferred() - numBytesDownloaded;
+
+			atomicLiveOps.numBytesDone += numBytesDone;
+
+			if(isRWMixedReader)
+				atomicLiveRWMixReadOps.numBytesDone += numBytesDone;
+
 			numBytesDownloaded = handle->GetBytesTransferred();
 		};
 
@@ -3242,6 +3268,9 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 	numIOPSSubmitted++;
 	rwOffsetGen->addBytesSubmitted(downloadBytes);
 	atomicLiveOps.numIOPSDone++;
+
+	if(isRWMixedReader)
+		atomicLiveRWMixReadOps.numIOPSDone++;
 
 #endif // S3_SUPPORT
 }

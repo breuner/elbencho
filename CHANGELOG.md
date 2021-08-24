@@ -17,6 +17,11 @@
 * Using "--quit --hosts ..." now shows whether the service instances confirmed the quit command.
 * New "--nodiocheck" parameter to skip check for direct IO alignment.
 * New "--dryrun" option to see dataset size and number of entries.
+* Additional columns appended to csv files for rwmix read results.
+* Additional aggregate read info row in fullscreen live stats for mixed read+write mode.
+
+### Fixes
+* Read result in "last done" column for "--rwmixpct" option used completion time of first done thread for calulation of IOPS and throughput.
 
 ### Contributors
 * Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback.

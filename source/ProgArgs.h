@@ -122,6 +122,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 #define ARG_REVERSESEQOFFSETS_LONG	"backward"
+#define ARG_S3RWMIXTHREADS_LONG		"s3rwmixthr"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -289,6 +290,7 @@ class ProgArgs
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doReverseSeqOffsets; // backwards sequential read/write
+		size_t numS3RWMixReadThreads; // number of rwmix read threads in write phase (req "-n"/"-N")
 
 
 		void defineDefaults();
@@ -424,6 +426,7 @@ class ProgArgs
 		bool getRunListObjParallelPhase() const { return runS3ListObjParallel; }
 		bool getDoListObjVerify() const { return doS3ListObjVerify; }
 		bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
+		size_t getNumS3RWMixReadThreads() const { return numS3RWMixReadThreads; }
 
 };
 

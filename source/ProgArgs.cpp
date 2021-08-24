@@ -330,6 +330,11 @@ void ProgArgs::defineAllowedArgs()
 			"is a bucket.")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
+/*s3r*/	(ARG_S3RWMIXTHREADS_LONG, bpo::value(&this->numS3RWMixReadThreads),
+			"Number of threads that should do reads in a write phase for mixed read/write. The "
+			"given number is out of the total number of threads per host (\"-" ARG_NUMTHREADS_SHORT
+			"\"). This requires usage of \"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT
+			"\" and the full dataset needs to be precreated with a normal write.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
 			"S3 access secret.")
 /*s3t*/	(ARG_S3TRANSMAN_LONG, bpo::bool_switch(&this->useS3TransferManager),
@@ -484,6 +489,7 @@ void ProgArgs::defineDefaults()
 	this->runS3ListObjParallel = false;
 	this->doS3ListObjVerify = false;
 	this->doReverseSeqOffsets = false;
+	this->numS3RWMixReadThreads = 0;
 }
 
 /**
@@ -2186,6 +2192,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
+	numS3RWMixReadThreads = tree.get<size_t>(ARG_S3RWMIXTHREADS_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2283,6 +2290,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
+	outTree.put(ARG_S3RWMIXTHREADS_LONG, numS3RWMixReadThreads);
 
 
 	// dynamically calculated values for service hosts...

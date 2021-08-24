@@ -147,8 +147,10 @@ class LocalWorker : public Worker
 		bool s3AbortMultipartUpload(std::string bucketName, std::string objectName,
 			std::string uploadID);
 		void s3ModeAbortUnfinishedSharedUploads();
-		void s3ModeDownloadObject(std::string bucketName, std::string objectName);
-		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName);
+		void s3ModeDownloadObject(std::string bucketName, std::string objectName,
+			const bool isRWMixedReader);
+		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
+			const bool isRWMixedReader);
 		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
 		void s3ModeListObjects();
 		void s3ModeListObjParallel();

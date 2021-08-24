@@ -214,7 +214,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixPercent() ) )
+			(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
 		{
 			atomicLiveRWMixReadOps.numBytesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
@@ -432,7 +432,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixPercent() ) )
+				(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
 			{
 				atomicLiveRWMixReadOps.numBytesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
@@ -449,7 +449,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			if(numWorkersDone && !stoneWallTriggered)
 			{
 				for(Worker* worker : *workersSharedData->workerVec)
-							worker->createStoneWallStats();
+					worker->createStoneWallStats();
 			}
 
 			firstRound = false;

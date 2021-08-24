@@ -2,7 +2,8 @@
 #include "ProgException.h"
 #include "TranslatorTk.h"
 
-#define TRANSLATORTK_PHASENAME_RWMIX	"RWMIX"
+#define TRANSLATORTK_PHASENAME_RWMIX	"RWMIX" // rwmix with read percentage
+#define TRANSLATORTK_PHASENAME_S3MIXTH	"MIX-T" // s3 rwmix with separate reader threads
 
 /**
  * Get name of a phase from bench phase.
@@ -20,6 +21,10 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_DELETEDIRS: return PHASENAME_DELETEDIRS;
 		case BenchPhase_CREATEFILES:
 		{
+			if(!progArgs->getS3EndpointsVec().empty() && progArgs->getNumS3RWMixReadThreads() )
+				return TRANSLATORTK_PHASENAME_S3MIXTH +
+					std::to_string(progArgs->getNumS3RWMixReadThreads() );
+			else
 			if(progArgs->getRWMixPercent() )
 				return TRANSLATORTK_PHASENAME_RWMIX + std::to_string(progArgs->getRWMixPercent() );
 			else

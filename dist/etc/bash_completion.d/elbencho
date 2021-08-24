@@ -92,6 +92,7 @@ _elbencho_opts()
         --s3log
         --s3objprefix
         --s3region
+        --s3rwmixthr
         --s3secret
         --s3transman
         --service
@@ -180,6 +181,8 @@ _elbencho()
         --s3objprefix)
         ;&
         --s3region)
+        ;&
+        --s3rwmixthr)
         ;&
         --s3secret)
         ;&
