@@ -83,6 +83,72 @@ class OffsetGenSequential : public OffsetGenerator
 };
 
 /**
+ * Generate reverse sequential offsets.
+ */
+class OffsetGenReverseSeq : public OffsetGenerator
+{
+	public:
+		OffsetGenReverseSeq(uint64_t len, uint64_t offset, size_t blockSize) :
+			numBytesTotal(len), numBytesLeft(len), startOffset(offset), currentOffset(offset),
+			blockSize(blockSize)
+		{
+			reset();
+		}
+
+		virtual ~OffsetGenReverseSeq() {}
+
+	protected:
+		const uint64_t numBytesTotal;
+		uint64_t numBytesLeft;
+		const uint64_t startOffset;
+		uint64_t currentOffset;
+		const size_t blockSize;
+
+	// inliners
+	public:
+		virtual void reset() override
+		{
+			numBytesLeft = numBytesTotal;
+
+			// avoid division by 0 for blockSize
+			IF_UNLIKELY(!numBytesTotal)
+			{
+				currentOffset = 0;
+				return;
+			}
+
+			// check if last block is a full block or partial block
+			size_t lastBlockRemainder = numBytesTotal % blockSize;
+
+			if(lastBlockRemainder)
+				currentOffset = startOffset + numBytesTotal - lastBlockRemainder;
+			else
+				currentOffset = startOffset + numBytesTotal - blockSize;
+		}
+
+		virtual uint64_t getNextOffset() override
+			{ return currentOffset; }
+
+		virtual size_t getBlockSize() const override
+			{ return blockSize; }
+
+		virtual size_t getNextBlockSizeToSubmit() const override
+			{ return std::min(startOffset + numBytesTotal - currentOffset, blockSize); }
+
+		virtual uint64_t getNumBytesTotal() const override
+			{ return numBytesTotal; }
+
+		virtual uint64_t getNumBytesLeftToSubmit() const override
+			{ return numBytesLeft; }
+
+		virtual void addBytesSubmitted(size_t numBytes) override
+		{
+			numBytesLeft -= numBytes;
+			currentOffset -= blockSize;
+		}
+};
+
+/**
  * Generate random unaligned offsets.
  *
  * offset and len in constructor define the range in which random offsets are selected. The amount

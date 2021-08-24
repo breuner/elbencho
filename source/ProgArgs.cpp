@@ -153,6 +153,8 @@ void ProgArgs::defineAllowedArgs()
 			"Show elapsed time to completion of each I/O worker thread.")
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
+/*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
+			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
 			"Random number algorithm for \"--" ARG_BLOCKVARIANCE_LONG "\". Values: \""
 			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
@@ -481,6 +483,7 @@ void ProgArgs::defineDefaults()
 	this->runS3ListObjNum = 0;
 	this->runS3ListObjParallel = false;
 	this->doS3ListObjVerify = false;
+	this->doReverseSeqOffsets = false;
 }
 
 /**
@@ -2182,6 +2185,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
+	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2278,6 +2282,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
+	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
 
 
 	// dynamically calculated values for service hosts...

@@ -23,6 +23,7 @@ _elbencho_opts()
 
    longopts="
         --allelapsed
+        --backward
         --block
         --blockvaralgo
         --blockvarpct

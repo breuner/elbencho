@@ -476,7 +476,11 @@ void LocalWorker::initPhaseRWOffsetGen()
 
 	// note: file/bdev mode sequential is done per-file in fileModeIterateFilesSeq()
 
-	if(!progArgs->getUseRandomOffsets() ) // sequential
+	if(progArgs->getDoReverseSeqOffsets() ) // sequential backward
+		rwOffsetGen = std::make_unique<OffsetGenReverseSeq>(
+			fileSize, 0, blockSize);
+	else
+	if(!progArgs->getUseRandomOffsets() ) // sequential forward
 		rwOffsetGen = std::make_unique<OffsetGenSequential>(
 			fileSize, 0, blockSize);
 	else
@@ -1967,6 +1971,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 	const size_t blockSize = progArgs->getBlockSize();
 	const bool ignoreDelErrors = true; // shared files are unliked by all workers, so no errs
 	const PathList& customTreePaths = customTreeFiles.getPaths();
+	const bool doReverseSeq = progArgs->getDoReverseSeqOffsets();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -1990,7 +1995,11 @@ void LocalWorker::dirModeIterateCustomFiles()
 			const uint64_t rangeLen = currentPathElem.rangeLen;
 			const uint64_t fileOffset = currentPathElem.rangeStart;
 
-			rwOffsetGen = std::make_unique<OffsetGenSequential>(rangeLen, fileOffset, blockSize);
+			rwOffsetGen = doReverseSeq ?
+				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenReverseSeq>(
+					rangeLen, fileOffset, blockSize) :
+				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenSequential>(
+					rangeLen, fileOffset, blockSize);
 
 			fd = dirModeOpenAndPrepFile(benchPhase, benchPathFDs, benchPathFDIdx,
 				currentPathElem.path.c_str(), openFlags, currentPathElem.totalLen);
@@ -2156,6 +2165,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 	const size_t blockSize = progArgs->getBlockSize();
 	const size_t numThreads = progArgs->getNumDataSetThreads();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
+	const bool doReverseSeq = progArgs->getDoReverseSeqOffsets();
 
 	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 		( (fileSize % blockSize) ? 1 : 0);
@@ -2203,8 +2213,11 @@ void LocalWorker::fileModeIterateFilesSeq()
 		const uint64_t currentIOLen = std::min(remainingWorkerLen, remainingFileLen);
 
 		// prep offset generator for current file range
-		rwOffsetGen = std::make_unique<OffsetGenSequential>(
-			currentIOLen, currentIOStart, blockSize);
+		rwOffsetGen = doReverseSeq ?
+			(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenReverseSeq>(
+				currentIOLen, currentIOStart, blockSize) :
+			(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenSequential>(
+				currentIOLen, currentIOStart, blockSize);
 
 		// write/read our range of this file
 
@@ -2513,6 +2526,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 	const size_t blockSize = progArgs->getBlockSize();
 	const PathList& customTreePaths = customTreeFiles.getPaths();
 	const bool useTransMan = progArgs->getUseS3TransferManager();
+	const bool doReverseSeq = progArgs->getDoReverseSeqOffsets();
 
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so "short" is ok)
 
@@ -2532,7 +2546,11 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			const uint64_t fileOffset = currentPathElem.rangeStart;
 			const uint64_t rangeLen = currentPathElem.rangeLen;
 
-			rwOffsetGen = std::make_unique<OffsetGenSequential>(rangeLen, fileOffset, blockSize);
+			rwOffsetGen = doReverseSeq ?
+				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenReverseSeq>(
+					rangeLen, fileOffset, blockSize) :
+				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenSequential>(
+					rangeLen, fileOffset, blockSize);
 
 			if(benchPhase == BenchPhase_CREATEFILES)
 			{
@@ -2684,10 +2702,12 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	// S T E P 2: upload one block-sized part in each loop pass
 
-	for(uint64_t currentPartNum=1; rwOffsetGen->getNumBytesLeftToSubmit(); currentPartNum++)
+	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		const uint64_t currentPartNum =
+			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
 
 		/* note: streamBuf needs to be initialized in loop to have the exact remaining blockSize.
 		 	 otherwise the AWS SDK will sent full streamBuf len despite smaller contentLength */
@@ -2773,6 +2793,17 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	// S T E P 3: submit upload completion
 
+	if(progArgs->getDoReverseSeqOffsets() )
+	{ // we need to reverse the parts vector for ascending order
+		const Aws::Vector<S3::CompletedPart>& reversePartsVec = completedMultipartUpload.GetParts();
+		Aws::Vector<S3::CompletedPart> forwardPartsVec(reversePartsVec.size() );
+
+		std::reverse_copy(std::begin(reversePartsVec), std::end(reversePartsVec),
+			std::begin(forwardPartsVec) );
+
+		completedMultipartUpload.SetParts(forwardPartsVec);
+	}
+
 	S3::CompleteMultipartUploadRequest completionRequest;
 	completionRequest.WithBucket(bucketName)
 		.WithKey(objectName)
@@ -2823,8 +2854,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 		const uint64_t currentPartNum =
 			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
 
