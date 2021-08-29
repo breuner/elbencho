@@ -337,6 +337,8 @@ void ProgArgs::defineAllowedArgs()
 			"\" and the full dataset needs to be precreated with a normal write.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
 			"S3 access secret.")
+/*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
+			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
 /*s3t*/	(ARG_S3TRANSMAN_LONG, bpo::bool_switch(&this->useS3TransferManager),
 			"Use AWS SDK TransferManager for object downloads. This enables iodepth greater than "
 			"1, but is incompatible with post-processing options similar to "
@@ -490,6 +492,7 @@ void ProgArgs::defineDefaults()
 	this->doS3ListObjVerify = false;
 	this->doReverseSeqOffsets = false;
 	this->numS3RWMixReadThreads = 0;
+	this->s3SignPolicy = 0;
 }
 
 /**
@@ -2193,6 +2196,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
 	numS3RWMixReadThreads = tree.get<size_t>(ARG_S3RWMIXTHREADS_LONG);
+	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2291,6 +2295,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
 	outTree.put(ARG_S3RWMIXTHREADS_LONG, numS3RWMixReadThreads);
+	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
 
 
 	// dynamically calculated values for service hosts...

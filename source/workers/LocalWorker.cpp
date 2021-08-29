@@ -346,7 +346,7 @@ void LocalWorker::initS3Client()
 		credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
 
 	s3Client = std::make_shared<Aws::S3::S3Client>(credentials, config,
-		Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent, false);
+		(Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(), false);
 
 	const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
 	size_t numEndpoints = endpointsVec.size();

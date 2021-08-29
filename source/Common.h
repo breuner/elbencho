@@ -46,7 +46,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"2.0.5"
+#define HTTP_PROTOCOLVERSION	"2.0.6"
 
 
 /**

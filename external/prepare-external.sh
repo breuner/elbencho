@@ -57,7 +57,7 @@ prepare_webserver()
 # exitsted and tag changed, then clean/uninstall previous build before switching tag.
 prepare_awssdk()
 {
-	local REQUIRED_TAG="1.9.85"
+	local REQUIRED_TAG="1.9.85-elbencho-tag"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
@@ -68,7 +68,7 @@ prepare_awssdk()
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
 		echo "Cloning AWS SDK git repo..."
-		git clone --recursive https://github.com/aws/aws-sdk-cpp $CLONE_DIR
+		git clone --recursive https://github.com/breuner/aws-sdk-cpp.git $CLONE_DIR
 		if [ $? -ne 0 ]; then
 			exit 1
 		fi
