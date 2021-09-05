@@ -9,6 +9,9 @@
 #include "PathStore.h"
 #include "ProgException.h"
 
+#ifndef ARG_TREEROUNDUP_LONG // because we can't include ProgArgs.h here
+	#define ARG_TREEROUNDUP_LONG		"treeroundup"
+#endif
 
 /**
  * Load directories from file. Lines not starting with PATHSTORE_DIR_LINE_PREFIX will be ignored.
@@ -17,6 +20,7 @@
  * 	PATHSTORE_DIR_LINE_PREFIX <relative_path>
  *
  * @path path to file from which directories should be loaded.
+ *
  * @throw ProgException on error, such as file not exists.
  */
 void PathStore::loadDirsFromFile(std::string path)
@@ -70,6 +74,7 @@ void PathStore::loadDirsFromFile(std::string path)
  * @minFileSize skip files smaller than this size.
  * @maxFileSize skip files larger than this size.
  * @roundUpSize round up file sizes to a multiple of given size; 0 disables rounding up.
+ *
  * @throw ProgException on error, such as file not exists.
  */
 void PathStore::loadFilesFromFile(std::string path, uint64_t minFileSize, uint64_t maxFileSize,
@@ -207,10 +212,14 @@ void PathStore::randomShuffle()
  *
  * @workerRank the rank of this worker for which to get the sublist.
  * @numDataSetThreads as defined in ProgArgs.
+ * @throwOnFileSmallerBlock true to throw an exception if a file size is found that is smaller than
+ * 		the given block size; this is useful for random IO checks.
  * @outPathStore the store to which the result list should be added.
+ *
+ * @throw ProgException if throwOnFileSmallerBlock condition found.
  */
 void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataSetThreads,
-	PathStore& outPathStore) const
+	bool throwOnFileSmallerBlock, PathStore& outPathStore) const
 {
 	if(workerRank >= numPaths)
 		return; // not even a single element in this store for the given worker rank
@@ -225,6 +234,13 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
 		const uint64_t fileSize = pathsIter->totalLen;
 		const uint64_t numFileBlocks = (fileSize / blockSize) +
 				( (fileSize % blockSize) ? 1 : 0);
+
+		if(throwOnFileSmallerBlock && (fileSize < blockSize) )
+			throw ProgException("Found file that is smaller than block size. Consider using "
+				"\"--" ARG_TREEROUNDUP_LONG "\". "
+				"File: " + pathsIter->path + "; "
+				"FileSize: " + std::to_string(fileSize) + "; "
+				"BlockSize: " + std::to_string(blockSize) );
 
 		// add to outPathStore
 		outPathStore.paths.push_back(*pathsIter);
@@ -253,10 +269,14 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
  *
  * @workerRank the rank of this worker for which to get the sublist.
  * @numDataSetThreads as defined in ProgArgs.
+ * @throwOnSliceSmallerBlock true to throw an exception if a file slice is found that is smaller
+ * 		than the given block size; this is useful for random IO checks.
  * @outPathStore the store to which the result list should be added.
+ *
+ * @throw ProgException if throwOnSliceSmallerBlock condition found.
  */
 void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetThreads,
-	PathStore& outPathStore) const
+	bool throwOnSliceSmallerBlock, PathStore& outPathStore) const
 {
 	if(paths.empty() )
 		return;
@@ -341,6 +361,14 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 		PathStoreElem pathElem = *pathsIter;
 		pathElem.rangeStart = rangeStart;
 		pathElem.rangeLen = rangeLen;
+
+		if(throwOnSliceSmallerBlock && (rangeLen < blockSize) )
+			throw ProgException("Found file slice that is smaller than block size. Consider using "
+				"\"--" ARG_TREEROUNDUP_LONG "\". "
+				"File: " + pathsIter->path + "; "
+				"RangeStart: " + std::to_string(rangeStart) + "; "
+				"RangeLength: " + std::to_string(rangeLen) + "; "
+				"BlockSize: " + std::to_string(blockSize) );
 
 		// add to outPathStore
 		outPathStore.paths.push_back(pathElem);

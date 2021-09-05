@@ -287,7 +287,8 @@ void ProgArgs::defineAllowedArgs()
 /*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
 			"Align random offsets to block size.")
 /*ra*/	(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmountOrigStr),
-			"Number of bytes to write/read when using random offsets. (Default: Set to file size)")
+			"Number of bytes to write/read when using random offsets. Only effective when "
+			"benchmark path is a file or block device. (Default: Set to file size)")
 /*ra*/	(ARG_RANKOFFSET_LONG, bpo::value(&this->rankOffset),
 			"Rank offset for worker threads. (Default: 0)")
 /*re*/	(ARG_LIVESLEEPSEC_LONG, bpo::value(&this->liveStatsSleepSec),
@@ -312,7 +313,7 @@ void ProgArgs::defineAllowedArgs()
 			"S3 access key.")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
 			"List objects. The given number is the maximum number of objects to retrieve. Use "
-			"--\"" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
+			"\"--" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
 			"threads will only be effecive if multiple buckets are given.)")
 /*s3l*/	(ARG_S3LISTOBJPARALLEL_LONG, bpo::bool_switch(&this->runS3ListObjParallel),
 			"List objects in parallel. Requires a dataset created via \"-" ARG_NUMDIRS_SHORT "\" "
@@ -341,8 +342,8 @@ void ProgArgs::defineAllowedArgs()
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
 /*s3t*/	(ARG_S3TRANSMAN_LONG, bpo::bool_switch(&this->useS3TransferManager),
 			"Use AWS SDK TransferManager for object downloads. This enables iodepth greater than "
-			"1, but is incompatible with post-processing options similar to "
-			"\"--" ARG_S3FASTGET_LONG "\".")
+			"1, but only supports simple sequential downloads. This is incompatible with "
+			"post-processing options similar to \"--" ARG_S3FASTGET_LONG "\".")
 #endif // S3_SUPPORT
 /*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
 			"Run as service for distributed mode, waiting for requests from master.")
@@ -590,6 +591,13 @@ void ProgArgs::checkArgs()
 		useDirectIO = true;
 	}
 
+	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
+		throw ProgException("S3 write/upload cannot be used with random offsets. Consider using "
+			"\"--" ARG_REVERSESEQOFFSETS_LONG "\" as an alternative.");
+
+	if(useRandomOffsets && !s3EndpointsStr.empty() && useS3TransferManager)
+		throw ProgException("S3 TransferManager does not support random offsets.");
+
 	if(useCuFile && !s3EndpointsStr.empty() )
 		throw ProgException("cuFile API cannot be used with S3");
 
@@ -635,9 +643,6 @@ void ProgArgs::checkPathDependentArgs()
 {
 	if( (benchPathType != BenchPathType_DIR) && runStatFilesPhase)
 		throw ProgException("File stat phase can only be used when benchmark path is a directory.");
-
-	if( (benchPathType == BenchPathType_DIR) && useRandomOffsets)
-		throw ProgException("Random offsets are not allowed when benchmark path is a directory.");
 
 	// ensure bench path is dir when tree file is given
 	if( (benchPathType != BenchPathType_DIR) && !treeFilePath.empty() )
@@ -687,9 +692,8 @@ void ProgArgs::checkPathDependentArgs()
 	}
 
 	// auto-set randomAmount if not set by user
-	if(useRandomOffsets && !randomAmount)
-		randomAmount = (benchPathType == BenchPathType_DIR) ?
-			fileSize : (fileSize * benchPathsVec.size() );
+	if(useRandomOffsets && !randomAmount && (benchPathType != BenchPathType_DIR) )
+		randomAmount = fileSize * benchPathsVec.size();
 
 	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
 	{
@@ -708,7 +712,8 @@ void ProgArgs::checkPathDependentArgs()
 				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
 	}
 
-	if(useRandomOffsets && useRandomAligned && (randomAmount % blockSize) )
+	if(useRandomOffsets && useRandomAligned && (randomAmount % blockSize) &&
+		(benchPathType != BenchPathType_DIR) )
 	{
 		size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
 
@@ -719,6 +724,10 @@ void ProgArgs::checkPathDependentArgs()
 
 		randomAmount = newRandomAmount;
 	}
+
+	if( (benchPathType == BenchPathType_DIR) && useRandomOffsets && (fileSize < blockSize) &&
+		treeFilePath.empty() )
+		throw ProgException("For random offsets, file size must not be smaller than block size.");
 
 	// shared file or block device mode
 	if(benchPathType != BenchPathType_DIR)
@@ -775,12 +784,11 @@ void ProgArgs::checkPathDependentArgs()
 				"multiple of given I/O threads, so the number of written blocks slightly differs "
 				"among I/O threads." << std::endl);
 
+		// recheck randomAmount after alignment auto-decrease above
+		if(useRandomOffsets && !randomAmount && fileSize && (runCreateFilesPhase || runReadPhase) )
+			throw ProgException("File size must not be smaller than block size when random I/O "
+				"with alignment is selected.");
 	}
-
-	// recheck randomAmount after auto-decrease above
-	if(useRandomOffsets && !randomAmount && fileSize && (runCreateFilesPhase || runReadPhase) )
-		throw ProgException("File size must not be smaller than block size when random I/O "
-			"with alignment is selected.");
 
 	if(benchPathType == BenchPathType_FILE)
 		ignoreDelErrors = true; // multiple threads will try to delete the same files
@@ -1486,7 +1494,7 @@ void ProgArgs::loadCustomTreeFile()
 			// apply individual list of shared files for this worker
 			// (note: getWorkerSublistNonShared() to get full files, not parts of files)
 			customTree.filesShared.setBlockSize(blockSize);
-			filesSharedTemp.getWorkerSublistNonShared(serviceRank, numServiceRanksTotal,
+			filesSharedTemp.getWorkerSublistNonShared(serviceRank, numServiceRanksTotal, false,
 				customTree.filesShared);
 		}
 		else
@@ -2397,6 +2405,8 @@ void ProgArgs::resetBenchPath()
 	customTree.dirs.clear();
 	customTree.filesNonShared.clear();
 	customTree.filesShared.clear();
+
+	s3EndpointsVec.clear();
 
 #ifdef CUFILE_SUPPORT
 	if(isCuFileDriverOpen)

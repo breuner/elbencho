@@ -108,6 +108,8 @@ class LocalWorker : public Worker
 		static Aws::SDKOptions* s3SDKOptions; // init'ed by options initializer for later uninit
 		std::shared_ptr<Aws::S3::S3Client> s3Client; // (shared_ptr expected by some SDK functions)
 		std::string s3EndpointStr; // set after s3Client initialized
+		bool s3GotSDKRef{false}; /* true if we inc'ed s3SDKRefCounter (avoids cleanup prob on throw
+								in preparation phase before we got a S3 SDK ref) */
 		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 #endif
 

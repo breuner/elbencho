@@ -43,9 +43,9 @@ class PathStore
 		void randomShuffle();
 
 		void getWorkerSublistNonShared(unsigned workerRank, unsigned numDataSetThreads,
-			PathStore& outPathStore) const;
+			bool throwOnFileSmallerBlock, PathStore& outPathStore) const;
 		void getWorkerSublistShared(unsigned workerRank, unsigned numDataSetThreads,
-			PathStore& outPathStore) const;
+			bool throwOnSliceSmallerBlock, PathStore& outPathStore) const;
 
 		static std::string generateFileLine(std::string path, uint64_t fileSize);
 

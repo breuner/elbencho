@@ -35,6 +35,16 @@ class RandAlgoRange
 
 		// inliners
 	public:
+		void reset(uint64_t min, uint64_t max)
+		{
+			start = min;
+			lengthPlusOne = max-min+1;
+
+			if(max < min)
+				throw ProgException("RandAlgoRange: \"max < min\" not allowed. "
+					"Min: " + std::to_string(min) + "; " + "max: " + std::to_string(max) );
+		}
+
 		uint64_t next()
 		{
 			uint64_t nextVal = randAlgo.next() % lengthPlusOne;

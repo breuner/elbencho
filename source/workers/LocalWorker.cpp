@@ -289,8 +289,6 @@ void LocalWorker::finishPhase()
  * phase. Will do nothing if not built with S3 support or no S3 endpoints defined.
  *
  * S3 endpoints get assigned round-robin to workers based on workerRank.
- *
- * @throw WorkerException on error.
  */
 void LocalWorker::initS3Client()
 {
@@ -305,6 +303,7 @@ void LocalWorker::initS3Client()
 		std::unique_lock<std::mutex> lock(s3SDKInitMutex);
 
 		s3SDKRefCounter++;
+		s3GotSDKRef = true;
 
 		// only the first thread initializes the S3 SDK
 		if(s3SDKRefCounter == 1)
@@ -361,14 +360,19 @@ void LocalWorker::initS3Client()
 
 /**
  * Uninit AWS SDK & free S3 client object. Intended to be called at the end of each benchmark phase.
- *
- * @throw WorkerException on error.
  */
 void LocalWorker::uninitS3Client()
 {
 #ifdef S3_SUPPORT
 
 	if(progArgs->getS3EndpointsVec().empty() )
+		return; // nothing to do
+
+	/* note: we may not reduce an sdk ref that we never got. this can happen if an exception was
+		thrown in preparation phase before this thread called its initS3Client(). in that case,
+		another thread might still be running without error and could be in the middle of its
+		initS3Client(), so we can't kill the s3 SDK and would get to a negative ref counter. */
+	if(!s3GotSDKRef)
 		return; // nothing to do
 
 	s3Client.reset();
@@ -388,6 +392,7 @@ void LocalWorker::uninitS3Client()
 		}
 
 		s3SDKRefCounter--;
+		s3GotSDKRef = false;
 	}
 
 #endif // S3_SUPPORT
@@ -469,12 +474,17 @@ void LocalWorker::initPhaseRWOffsetGen()
 	const size_t blockSize = progArgs->getBlockSize();
 	const uint64_t fileSize = progArgs->getFileSize();
 
+	/* in dir mode randAmount is file size, for file/bdev it's the total amount for this thread
+		across all given files/bdevs */
+	const uint64_t randomAmount = (progArgs->getBenchPathType() == BenchPathType_DIR) ?
+		fileSize : progArgs->getRandomAmount() / progArgs->getNumDataSetThreads();
+
 	// init random algos
 	randOffsetAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo() );
 	randBlockVarAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getBlockVarianceAlgo() );
 	randBlockVarReseed = std::make_unique<RandAlgoXoshiro256ss>();
 
-	// note: file/bdev mode sequential is done per-file in fileModeIterateFilesSeq()
+	// note: in some cases these defs get overridden per-file later (e.g. for custom tree)
 
 	if(progArgs->getDoReverseSeqOffsets() ) // sequential backward
 		rwOffsetGen = std::make_unique<OffsetGenReverseSeq>(
@@ -485,10 +495,14 @@ void LocalWorker::initPhaseRWOffsetGen()
 			fileSize, 0, blockSize);
 	else
 	if(progArgs->getUseRandomAligned() ) // random aligned
-		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(*progArgs, *randOffsetAlgo,
+	{
+		//if(randomAmount % blockSize) // todo
+
+		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
 			fileSize, 0, blockSize);
+	}
 	else // random unaligned
-		rwOffsetGen = std::make_unique<OffsetGenRandom>(*progArgs, *randOffsetAlgo,
+		rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
 			fileSize, 0, blockSize);
 }
 
@@ -769,8 +783,10 @@ void LocalWorker::prepareCustomTreePathStores()
 	if(progArgs->getTreeFilePath().empty() )
 		return; // nothing to do here
 
-	progArgs->getCustomTreeFilesNonShared().getWorkerSublistNonShared(
-		workerRank, progArgs->getNumDataSetThreads(), customTreeFiles);
+	bool throwOnSmallerThanBlockSize = progArgs->getUseRandomOffsets();
+
+	progArgs->getCustomTreeFilesNonShared().getWorkerSublistNonShared(workerRank,
+		progArgs->getNumDataSetThreads(), throwOnSmallerThanBlockSize, customTreeFiles);
 
 	size_t numThreads = progArgs->getNumThreads();
 	size_t numDataSetThreads = progArgs->getNumDataSetThreads();
@@ -778,22 +794,22 @@ void LocalWorker::prepareCustomTreePathStores()
 	if(progArgs->getRunAsService() && !progArgs->getS3EndpointsStr().empty() &&
 		progArgs->getRunCreateFilesPhase() && (numDataSetThreads != numThreads) )
 	{
-		/* shared s3 uploads of an object possible, but may among threads within the same
+		/* shared s3 uploads of an object possible, but only among threads within the same
 			service instance (due to the uploadID not beeing shared among service instances).
 			in this case, ProgArgs prepared a special shared file tree that only contains files for
 			this service instance. thus we use only the local ranks, not the global ranks. */
 
 		size_t workerRankLocal = workerRank - progArgs->getRankOffset();
 
-		progArgs->getCustomTreeFilesShared().getWorkerSublistShared(
-				workerRankLocal, numThreads, customTreeFiles);
+		progArgs->getCustomTreeFilesShared().getWorkerSublistShared(workerRankLocal,
+			numThreads, throwOnSmallerThanBlockSize, customTreeFiles);
 	}
 	else
 	{
 		// this is the normal case: fair sharing across all services/workers based on blocksize
 
-		progArgs->getCustomTreeFilesShared().getWorkerSublistShared(
-			workerRank, progArgs->getNumDataSetThreads(), customTreeFiles);
+		progArgs->getCustomTreeFilesShared().getWorkerSublistShared(workerRank,
+			progArgs->getNumDataSetThreads(), throwOnSmallerThanBlockSize, customTreeFiles);
 	}
 
 	if(progArgs->getUseCustomTreeRandomize() )
@@ -1968,10 +1984,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 	const int benchPathFD = progArgs->getBenchPathFDs()[0];
 	const std::string benchPathStr = progArgs->getBenchPaths()[0];
 	const int openFlags = getDirModeOpenFlags(benchPhase);
-	const size_t blockSize = progArgs->getBlockSize();
 	const bool ignoreDelErrors = true; // shared files are unliked by all workers, so no errs
 	const PathList& customTreePaths = customTreeFiles.getPaths();
-	const bool doReverseSeq = progArgs->getDoReverseSeqOffsets();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -1995,11 +2009,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 			const uint64_t rangeLen = currentPathElem.rangeLen;
 			const uint64_t fileOffset = currentPathElem.rangeStart;
 
-			rwOffsetGen = doReverseSeq ?
-				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenReverseSeq>(
-					rangeLen, fileOffset, blockSize) :
-				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenSequential>(
-					rangeLen, fileOffset, blockSize);
+			rwOffsetGen->reset(rangeLen, fileOffset);
 
 			fd = dirModeOpenAndPrepFile(benchPhase, benchPathFDs, benchPathFDIdx,
 				currentPathElem.path.c_str(), openFlags, currentPathElem.totalLen);
@@ -2165,7 +2175,6 @@ void LocalWorker::fileModeIterateFilesSeq()
 	const size_t blockSize = progArgs->getBlockSize();
 	const size_t numThreads = progArgs->getNumDataSetThreads();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
-	const bool doReverseSeq = progArgs->getDoReverseSeqOffsets();
 
 	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 		( (fileSize % blockSize) ? 1 : 0);
@@ -2213,11 +2222,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 		const uint64_t currentIOLen = std::min(remainingWorkerLen, remainingFileLen);
 
 		// prep offset generator for current file range
-		rwOffsetGen = doReverseSeq ?
-			(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenReverseSeq>(
-				currentIOLen, currentIOStart, blockSize) :
-			(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenSequential>(
-				currentIOLen, currentIOStart, blockSize);
+		rwOffsetGen->reset(currentIOLen, currentIOStart);
 
 		// write/read our range of this file
 
@@ -2530,7 +2535,6 @@ void LocalWorker::s3ModeIterateCustomObjects()
 	const size_t blockSize = progArgs->getBlockSize();
 	const PathList& customTreePaths = customTreeFiles.getPaths();
 	const bool useTransMan = progArgs->getUseS3TransferManager();
-	const bool doReverseSeq = progArgs->getDoReverseSeqOffsets();
 
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so "short" is ok)
 
@@ -2550,11 +2554,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			const uint64_t fileOffset = currentPathElem.rangeStart;
 			const uint64_t rangeLen = currentPathElem.rangeLen;
 
-			rwOffsetGen = doReverseSeq ?
-				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenReverseSeq>(
-					rangeLen, fileOffset, blockSize) :
-				(std::unique_ptr<OffsetGenerator>)std::make_unique<OffsetGenSequential>(
-					rangeLen, fileOffset, blockSize);
+			rwOffsetGen->reset(rangeLen, fileOffset);
 
 			if(benchPhase == BenchPhase_CREATEFILES)
 			{
@@ -3198,7 +3198,7 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const uint64_t fileOffset = 0;
+	const uint64_t fileOffset = rwOffsetGen->getNextOffset(); // offset within object to download
 	const uint64_t downloadBytes = rwOffsetGen->getNumBytesLeftToSubmit();
 	const size_t ioDepth = progArgs->getIODepth();
 	auto threadExecutor = std::make_unique<Aws::Utils::Threading::PooledThreadExecutor>(ioDepth);
