@@ -1989,7 +1989,7 @@ void ProgArgs::printHelpS3()
 		"        -D -F -t 2 -n 3 -N 4 mybucket" ENDL
 		std::endl <<
 		"  Shared upload of 4 1GiB objects via 8 threads in 16MiB blocks:" ENDL
-		"    $ " EXE_NAME " --s3endponts http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
+		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
 		"        -w -t 8 -s 1g -b 16m mybucket/myobject{1..4}" <<
 		std::endl;
 }
