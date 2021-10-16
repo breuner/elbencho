@@ -326,8 +326,19 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				{
-					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
-					outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
+					if( (benchPhase == BenchPhase_READFILES) &&
+						!progArgs.getS3EndpointsVec().empty() &&
+						progArgs.getUseS3RandObjSelect() )
+					{ // special case: s3 random object selection is based on randomAmount
+						outNumEntriesPerWorker = 0;
+						outNumBytesPerWorker = progArgs.getRandomAmount() /
+								progArgs.getNumDataSetThreads(); // randamount is total, not per obj
+					}
+					else
+					{ // normal case: based on number of dirs and files per dir
+						outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+						outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
+					}
 				} break;
 
 				case BenchPhase_DELETEFILES:

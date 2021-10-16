@@ -329,6 +329,11 @@ void ProgArgs::defineAllowedArgs()
 /*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
 			"is a bucket.")
+/*s3r*/	(ARG_S3RANDOBJ_LONG, bpo::bool_switch(&this->useS3RandObjSelect),
+			"Read at random offsets and randomly select a new object for each S3 block read. Only "
+			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
+			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
+			ARG_RANDOMAMOUNT_LONG "\".")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3r*/	(ARG_S3RWMIXTHREADS_LONG, bpo::value(&this->numS3RWMixReadThreads),
@@ -494,6 +499,7 @@ void ProgArgs::defineDefaults()
 	this->doReverseSeqOffsets = false;
 	this->numS3RWMixReadThreads = 0;
 	this->s3SignPolicy = 0;
+	this->useS3RandObjSelect = false;
 }
 
 /**
@@ -692,8 +698,14 @@ void ProgArgs::checkPathDependentArgs()
 	}
 
 	// auto-set randomAmount if not set by user
-	if(useRandomOffsets && !randomAmount && (benchPathType != BenchPathType_DIR) )
-		randomAmount = fileSize * benchPathsVec.size();
+	if(!randomAmount)
+	{
+		if( (benchPathType != BenchPathType_DIR) && useRandomOffsets)
+			randomAmount = fileSize * benchPathsVec.size();
+		else
+		if( (benchPathType == BenchPathType_DIR) && !s3EndpointsVec.empty() && useS3RandObjSelect)
+			randomAmount = fileSize * numDirs * numFiles * numDataSetThreads;
+	}
 
 	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
 	{
@@ -2168,7 +2180,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runDeleteDirsPhase = tree.get<bool>(ARG_DELETEDIRS_LONG);
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useRandomAligned = tree.get<bool>(ARG_RANDOMALIGN_LONG);
-	randomAmount = tree.get<size_t>(ARG_RANDOMAMOUNT_LONG);
+	randomAmount = tree.get<uint64_t>(ARG_RANDOMAMOUNT_LONG);
 	ioDepth = tree.get<size_t>(ARG_IODEPTH_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	gpuIDsStr = tree.get<std::string>(ARG_GPUIDS_LONG);
@@ -2205,6 +2217,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
 	numS3RWMixReadThreads = tree.get<size_t>(ARG_S3RWMIXTHREADS_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
+	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2304,6 +2317,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
 	outTree.put(ARG_S3RWMIXTHREADS_LONG, numS3RWMixReadThreads);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
+	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 
 
 	// dynamically calculated values for service hosts...

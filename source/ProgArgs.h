@@ -124,6 +124,7 @@ namespace bpt = boost::property_tree;
 #define ARG_REVERSESEQOFFSETS_LONG	"backward"
 #define ARG_S3RWMIXTHREADS_LONG		"s3rwmixthr"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
+#define ARG_S3RANDOBJ_LONG			"s3randobj"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -229,7 +230,7 @@ class ProgArgs
 		size_t liveStatsSleepSec; // sleep interval between live stats console refresh
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRandomAligned; // use block-aligned random offsets (when randomOffsets is used)
-		size_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
+		uint64_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
 		std::string randomAmountOrigStr; // original randomAmount str from user with unit
 		size_t ioDepth; // depth of io queue per thread for libaio
 		bool showLatency; // show min/avg/max latency
@@ -293,6 +294,7 @@ class ProgArgs
 		bool doReverseSeqOffsets; // backwards sequential read/write
 		size_t numS3RWMixReadThreads; // number of rwmix read threads in write phase (req "-n"/"-N")
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
+		bool useS3RandObjSelect; // random object selection for each read
 
 
 		void defineDefaults();
@@ -369,7 +371,7 @@ class ProgArgs
 		size_t getLiveStatsSleepSec() const { return liveStatsSleepSec; }
 		bool getUseRandomOffsets() const { return useRandomOffsets; }
 		bool getUseRandomAligned() const { return useRandomAligned; }
-		size_t getRandomAmount() const { return randomAmount; }
+		uint64_t getRandomAmount() const { return randomAmount; }
 		size_t getIODepth() const { return ioDepth; }
 		bool getShowLatency() const { return showLatency; }
 		bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
@@ -430,6 +432,7 @@ class ProgArgs
 		bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
 		size_t getNumS3RWMixReadThreads() const { return numS3RWMixReadThreads; }
 		unsigned short getS3SignPolicy() const { return s3SignPolicy; }
+		bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
 
 };
 

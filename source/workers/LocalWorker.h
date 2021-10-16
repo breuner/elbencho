@@ -141,6 +141,7 @@ class LocalWorker : public Worker
 
 		void s3ModeIterateBuckets();
 		void s3ModeIterateObjects();
+		void s3ModeIterateObjectsRand();
 		void s3ModeIterateCustomObjects();
 		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);

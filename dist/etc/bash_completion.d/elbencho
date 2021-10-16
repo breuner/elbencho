@@ -91,6 +91,7 @@ _elbencho_opts()
         --s3listverify
         --s3log
         --s3objprefix
+        --s3randobj
         --s3region
         --s3rwmixthr
         --s3secret

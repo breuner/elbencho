@@ -496,8 +496,6 @@ void LocalWorker::initPhaseRWOffsetGen()
 	else
 	if(progArgs->getUseRandomAligned() ) // random aligned
 	{
-		//if(randomAmount % blockSize) // todo
-
 		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
 			fileSize, 0, blockSize);
 	}
@@ -2430,6 +2428,13 @@ void LocalWorker::s3ModeIterateObjects()
 #else
 
 	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+
+	if( (benchPhase == BenchPhase_READFILES) && progArgs->getUseS3RandObjSelect() )
+	{
+		s3ModeIterateObjectsRand();
+		return;
+	}
+
 	const size_t numDirs = progArgs->getNumDirs();
 	const size_t numFiles = progArgs->getNumFiles();
 	const uint64_t fileSize = progArgs->getFileSize();
@@ -2513,6 +2518,86 @@ void LocalWorker::s3ModeIterateObjects()
 
 #endif // S3_SUPPORT
 }
+
+/**
+ * This is for s3 mode and only valid for reads. Randomly selects the next object and does one
+ * random offset read within each object. Number of ops is defined by ProgArgs::randomAmount.
+ *
+ * This inits all of the used random generators (for offset, dir index, file index) internally.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeIterateObjectsRand()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const size_t numDirs = progArgs->getNumDirs();
+	const size_t numFiles = progArgs->getNumFiles();
+	const uint64_t fileSize = progArgs->getFileSize();
+	const size_t blockSize = progArgs->getBlockSize();
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+
+	// init random generators for dir & file index selection
+
+	OffsetGenRandom randDirIndexGen(~(uint64_t)0, *randOffsetAlgo, numDirs, 0, 1);
+	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, numFiles, 0, 1);
+
+	// init random offset gen for one read per file
+
+	const uint64_t randomAmount = progArgs->getRandomAmount() / progArgs->getNumDataSetThreads();
+	if(progArgs->getUseRandomAligned() ) // random aligned
+	{
+		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(blockSize, *randOffsetAlgo,
+			fileSize, 0, blockSize);
+	}
+	else // random unaligned
+		rwOffsetGen = std::make_unique<OffsetGenRandom>(blockSize, *randOffsetAlgo,
+			fileSize, 0, blockSize);
+
+	// randomly select objects and do one random offset read from each
+
+	uint64_t numBytesDone = 0;
+	uint64_t interruptCheckBytes = blockSize * INTERRUPTION_CHECK_INTERVAL;
+
+	while(numBytesDone < randomAmount)
+	{
+		// occasional interruption check
+		if( (numBytesDone % interruptCheckBytes) == 0)
+			checkInterruptionRequest();
+
+		const size_t dirIndex = randDirIndexGen.getNextOffset();
+		const size_t fileIndex = randFileIndexGen.getNextOffset();
+		const uint64_t currentBlockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+		// generate current dir path
+		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+			workerDirRank, dirIndex, workerRank, fileIndex);
+		IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+			throw WorkerException("object path too long for static buffer. "
+				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+				"workerRank: " + std::to_string(workerRank) + "; "
+				"dirIndex: " + std::to_string(dirIndex) + "; "
+				"fileIndex: " + std::to_string(fileIndex) );
+
+		const unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
+		std::string currentObjectPath = objectPrefix + currentPath.data();
+
+		s3ModeDownloadObject(bucketVec[bucketIndex], currentObjectPath, false);
+
+		rwOffsetGen->reset(); // reset for next rand read op
+		numBytesDone += currentBlockSize;
+	}
+
+
+#endif // S3_SUPPORT
+}
+
 
 /**
  * This is for s3 mode with custom tree. Iterate over all objects to create/read/remove them. Each
