@@ -29,6 +29,7 @@
 	#include <aws/s3/model/DeleteBucketRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
+	#include <aws/s3/model/HeadObjectRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
 	#include <aws/s3/model/Object.h>
 	#include <aws/s3/model/PutObjectRequest.h>
@@ -178,8 +179,12 @@ void LocalWorker::run()
 						throw WorkerException("File stat operation not available in file and block "
 							"device mode.");
 
-					progArgs->getTreeFilePath().empty() ?
-						dirModeIterateFiles() : dirModeIterateCustomFiles();
+					if(progArgs->getS3EndpointsVec().empty() )
+						progArgs->getTreeFilePath().empty() ?
+							dirModeIterateFiles() : dirModeIterateCustomFiles();
+					else
+						progArgs->getTreeFilePath().empty() ?
+							s3ModeIterateObjects() : s3ModeIterateCustomObjects();
 				} break;
 
 				case BenchPhase_LISTOBJECTS:
@@ -2500,6 +2505,9 @@ void LocalWorker::s3ModeIterateObjects()
 						isRWMixedReader);
 			}
 
+			if(benchPhase == BenchPhase_STATFILES)
+				s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
+
 			if(benchPhase == BenchPhase_DELETEFILES)
 				s3ModeDeleteObject(bucketVec[bucketIndex], currentObjectPath);
 
@@ -2663,6 +2671,9 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			}
 		}
 
+		if(benchPhase == BenchPhase_STATFILES)
+			s3ModeStatObject(bucketName, currentPathElem.path);
+
 		if(benchPhase == BenchPhase_DELETEFILES)
 			s3ModeDeleteObject(bucketName, currentPathElem.path);
 
@@ -2698,20 +2709,30 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 
-	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
-		(unsigned char*) ioBufVec[0], blockSize);
-	std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+	std::shared_ptr<Aws::IOStream> s3MemStream;
+
+	if(blockSize)
+	{
+		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
+			(unsigned char*) ioBufVec[0], blockSize);
+		s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+	}
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-	((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
-	((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+	if(blockSize)
+	{
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+	}
 
 	S3::PutObjectRequest request;
 	request.WithBucket(bucketName)
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
-	request.SetBody(s3MemStream);
+
+	if(blockSize)
+		request.SetBody(s3MemStream);
 
 	request.SetDataSentEventHandler(
 		[&](const Aws::Http::HttpRequest* request, long long numBytes)
@@ -2736,8 +2757,11 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 			"Message: " + s3Error.GetMessage() );
 	}
 
-	((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-	((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+	if(blockSize)
+	{
+		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+	}
 
 	// calc io operation latency
 	std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3356,6 +3380,39 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 	if(isRWMixedReader)
 		atomicLiveRWMixReadOps.numIOPSDone++;
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Retrieve object metadata by sending a HeadObject request (the equivalent of a stat() call in the
+ * file world).
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	S3::HeadObjectRequest request;
+	request.WithBucket(bucketName)
+		.WithKey(objectName);
+
+	S3::HeadObjectOutcome outcome = s3Client->HeadObject(request);
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Object metadata retrieval via HeadObject failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() );
+	}
 
 #endif // S3_SUPPORT
 }

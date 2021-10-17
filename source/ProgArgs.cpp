@@ -1928,6 +1928,8 @@ void ProgArgs::printHelpS3()
 			"Write/upload objects.")
 		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read/download objects.")
+		(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
+			"Read object status attributes (size etc).")
 		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT,
 			bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete objects.")
