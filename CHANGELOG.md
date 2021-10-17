@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v2.0 (work in progress)
+## v2.0.1 (Oct 17, 2021)
 
 ### New Features & Enhancements
 * New support for S3 object storage benchmarking.
@@ -14,7 +14,7 @@
   * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
 * New guide for using elbencho with the Slurm Workload Manager.
   * See here: https://github.com/breuner/elbencho/blob/master/tools/slurm-examples.md
-  
+
 ### General Changes
 * Using "--quit --hosts ..." now shows whether the service instances confirmed the quit command.
 * New "--nodiocheck" parameter to skip check for direct IO alignment.
@@ -27,7 +27,7 @@
 
 ### Contributors
 * Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback.
-* Thanks to Paul Hargreaves & Michael Bloom for helpful comments and suggestions.
+* Thanks to Paul Hargreaves, Michael Bloom & Glenn K. Lockwood for helpful comments and suggestions.
 
 ## v1.9.1 (May 29, 2021)
 
