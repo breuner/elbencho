@@ -2,9 +2,9 @@
 
 <img src="graphics/elbencho-logo.svg" width="50%" height="50%" alt="elbencho logo" align="center"/>
 
-**A distributed storage benchmark for file systems, object stores & block devices with support for GPUs**
+**A distributed storage benchmark for files, objects & blocks with support for GPUs**
 
-elbencho was inspired by traditional storage benchmark tools like [fio](https://github.com/axboe/fio), [mdtest](https://github.com/hpc/ior) and [ior](https://github.com/hpc/ior), but was written from scratch to replace them with a modern and easy to use unified tool for file systems and block devices.
+elbencho was inspired by traditional storage benchmark tools like [fio](https://github.com/axboe/fio), [mdtest](https://github.com/hpc/ior) and [ior](https://github.com/hpc/ior), but was written from scratch to replace them with a modern and easy to use unified tool for file systems, object stores & block devices.
 
 ## Table of Contents
 <details>
@@ -80,12 +80,14 @@ git clone https://github.com/breuner/elbencho.git
 cd elbencho
 ```
 
-`make help` will show you all build, install and rpm/deb packaging options.
+`make help` will show you all build & install options.
 
-This is the standard build command ("`-j8`" for 8 parallel build threads):
+(Note that S3 support is not enabled by default due to longer build time, but can easily be enabled. See the additional build info below.)
+
+This is the standard build command:
 
 ```bash
-make -j8
+make -j $(nproc)
 ```
 
 You can run elbencho directly from the bin subdir (`bin/elbencho`), but you probably want to run `make rpm` or `make deb` now to build a package and install it. On Ubuntu, run this:
@@ -133,15 +135,15 @@ GPUDirect Storage (GDS) support through the cuFile API will automatically be ena
 
 #### S3 Object Storage Support
 
-S3 Object Storage support involves downloading a AWS SDK git repository of over 1GB size and increases build time from a few seconds to a few minutes. Thus, S3 support is not enabled by default, but it can easily be enabled as described below.
+Enabling S3 Object Storage support will automatically download a AWS SDK git repository of over 1GB size and increases build time from a few seconds to a few minutes. Thus, S3 support is not enabled by default, but it can easily be enabled as described below.
 
-##### S3 Dependencies for RHEL/CentOS 8.0 or newer:
+##### S3 Dependencies for RHEL/CentOS 8.0 or newer
 
 ```bash
 sudo yum install cmake libcurl-devel openssl-devel libuuid-devel
 ```
 
-##### S3 Dependencies for Ubuntu 20.04 or newer:
+##### S3 Dependencies for Ubuntu 20.04 or newer
 
 ```bash
 sudo apt install cmake libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev
@@ -152,5 +154,5 @@ sudo apt install cmake libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev
 To build elbencho with S3 support, just add the `S3_SUPPORT=1` parameter to the make command. (If you previously built elbencho without S3 support, then run `make clean-all` before this.)
 
 ```bash
-make S3_SUPPORT=1 -j8
+make S3_SUPPORT=1 -j $(nproc)
 ```

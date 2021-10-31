@@ -10,10 +10,7 @@
 
 #ifdef S3_SUPPORT
 	#include <aws/core/auth/AWSCredentialsProvider.h>
-	#include <aws/core/Aws.h>
 	#include <aws/core/utils/HashingUtils.h>
-	#include <aws/core/utils/logging/DefaultLogSystem.h>
-	#include <aws/core/utils/logging/AWSLogging.h>
 	#include <aws/core/utils/memory/stl/AWSString.h>
 	#include <aws/core/utils/memory/AWSMemory.h>
 	#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
@@ -46,9 +43,6 @@
 
 
 #ifdef S3_SUPPORT
-	int LocalWorker::s3SDKRefCounter{0}; // for singleton AWS SDK init/uninit
-	std::mutex LocalWorker::s3SDKInitMutex; // for singleton AWS SDK init/uninit
-	Aws::SDKOptions* LocalWorker::s3SDKOptions = NULL; // needed for init and again for uninit later
 	S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
 #endif
 
@@ -302,38 +296,11 @@ void LocalWorker::initS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	{ // L O C K E D (scoped)
-		/* note: mutex needed (in contrast to just atomic ref counter) to ensure that SDK is initialized
-			by first thread before other threads init their S3Client */
-		std::unique_lock<std::mutex> lock(s3SDKInitMutex);
-
-		s3SDKRefCounter++;
-		s3GotSDKRef = true;
-
-		// only the first thread initializes the S3 SDK
-		if(s3SDKRefCounter == 1)
-		{
-			LOGGER(Log_DEBUG, "Initializing S3 SDK. Rank: " << workerRank << std::endl);
-
-			if(progArgs->getS3LogLevel() > 0)
-				Aws::Utils::Logging::InitializeAWSLogging(
-					Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>("DebugLogging",
-						(Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(), "aws_sdk_"));
-
-			s3SDKOptions = new Aws::SDKOptions;
-			Aws::InitAPI(*s3SDKOptions);
-		}
-
-		/* note: this is to avoid a long delay for the client config trying to contact the
-			AWS instance metadata service to retrieve credentials, although we already set them.
-			this way, it can still manually be overrideen through the environment variable. */
-		setenv("AWS_EC2_METADATA_DISABLED", "true", 0);
-	}
-
 	Aws::Client::ClientConfiguration config;
 
 	config.verifySSL = false; // to avoid self-signed certificate errors
 	config.enableEndpointDiscovery = false; // to avoid delays for discovery
+	config.maxConnections = progArgs->getIODepth();
 	config.connectTimeoutMs = 5000;
 	config.requestTimeoutMs = 300000;
 	config.executor = std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(1);
@@ -364,7 +331,7 @@ void LocalWorker::initS3Client()
 }
 
 /**
- * Uninit AWS SDK & free S3 client object. Intended to be called at the end of each benchmark phase.
+ * Free S3 client object. Intended to be called at the end of each benchmark phase.
  */
 void LocalWorker::uninitS3Client()
 {
@@ -373,32 +340,7 @@ void LocalWorker::uninitS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	/* note: we may not reduce an sdk ref that we never got. this can happen if an exception was
-		thrown in preparation phase before this thread called its initS3Client(). in that case,
-		another thread might still be running without error and could be in the middle of its
-		initS3Client(), so we can't kill the s3 SDK and would get to a negative ref counter. */
-	if(!s3GotSDKRef)
-		return; // nothing to do
-
 	s3Client.reset();
-
-	{ // L O C K E D (scoped)
-		std::unique_lock<std::mutex> lock(s3SDKInitMutex);
-
-		// only the last thread shuts down the S3 SDK
-		if(s3SDKRefCounter == 1)
-		{
-			LOGGER(Log_DEBUG, "Shutting down S3 SDK. Rank: " << workerRank << std::endl);
-
-			Aws::ShutdownAPI(*s3SDKOptions);
-
-			if(progArgs->getS3LogLevel() > 0)
-				Aws::Utils::Logging::ShutdownAWSLogging();
-		}
-
-		s3SDKRefCounter--;
-		s3GotSDKRef = false;
-	}
 
 #endif // S3_SUPPORT
 }
@@ -1206,6 +1148,9 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
  */
 void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset)
 {
+	IF_UNLIKELY(!bufLen)
+		return;
+
 	char* verifyBuf = (char*)malloc(bufLen);
 
 	IF_UNLIKELY(!verifyBuf)

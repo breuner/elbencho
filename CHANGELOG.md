@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v2.0.2 (work in progress)
+
+### Fixes
+* Fixed init of AWS S3 SDK. Avoids memory errors for repeated S3 tests in service mode, caused by dynamic init/uninit of the SDK, which it is not made for.
+
 ## v2.0.1 (Oct 17, 2021)
 
 ### New Features & Enhancements

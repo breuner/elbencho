@@ -724,7 +724,7 @@ void ProgArgs::checkPathDependentArgs()
 				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
 	}
 
-	if(useRandomOffsets && useRandomAligned && (randomAmount % blockSize) &&
+	if(useRandomOffsets && useRandomAligned && blockSize && (randomAmount % blockSize) &&
 		(benchPathType != BenchPathType_DIR) )
 	{
 		size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
