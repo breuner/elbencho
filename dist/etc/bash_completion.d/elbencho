@@ -54,9 +54,10 @@ _elbencho_opts()
         --help-s3
         --hosts
         --hostsfile
+        --infloop
         --interrupt
-        --iterations
         --iodepth
+        --iterations
         --lat
         --lathisto
         --latpercent

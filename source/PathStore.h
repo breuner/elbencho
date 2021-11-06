@@ -22,6 +22,7 @@ struct PathStoreElem
 };
 
 typedef std::list<PathStoreElem> PathList;
+typedef PathList::const_iterator PathListCIter;
 
 /**
  * Stores a list of paths. Typically used to store either a list of files or dirs to process by

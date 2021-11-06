@@ -501,7 +501,7 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 
 	stream << boost::format(tableHeadlineFormat)
 		% "Total"
-		% liveResults.percentDone
+		% std::min(liveResults.percentDone, (size_t)100)
 		% (liveResults.newLiveOps.numBytesDone / (1024*1024) )
 		% (liveResults.liveOpsPerSec.numBytesDone / (1024*1024) )
 		% liveResults.liveOpsPerSec.numIOPSDone;
@@ -575,7 +575,7 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 
 		stream << boost::format(tableHeadlineFormat)
 			% i
-			% workerPercentDone
+			% std::min(workerPercentDone, (size_t)100)
 			% (workerDone.numBytesDone / (1024*1024) )
 			% (workerDonePerSec.numBytesDone / (1024*1024) )
 			% workerDonePerSec.numIOPSDone;

@@ -114,119 +114,128 @@ void LocalWorker::run()
 			waitForNextPhase(currentBenchID);
 
 			currentBenchID = workersSharedData->currentBenchID;
+			bool doInfiniteIOLoop = progArgs->getDoInfiniteIOLoop();
 
-			initPhaseFileHandleVecs();
-			initPhaseRWOffsetGen();
-			initPhaseFunctionPointers();
-
-			switch(workersSharedData->currentBenchPhase)
+			do // for infinite I/O loop
 			{
-				case BenchPhase_TERMINATE:
-				{
-					LOGGER(Log_DEBUG, "Terminating as requested. Rank: " << workerRank << "; "
-						"(Offset: " << progArgs->getRankOffset() << ")" << std::endl);
-					incNumWorkersDone();
-					return;
-				} break;
+				initPhaseFileHandleVecs();
+				initPhaseRWOffsetGen();
+				initPhaseFunctionPointers();
 
-				case BenchPhase_CREATEDIRS:
-				case BenchPhase_DELETEDIRS:
+				switch(workersSharedData->currentBenchPhase)
 				{
-					if(progArgs->getBenchPathType() != BenchPathType_DIR)
-						throw WorkerException("Directory creation and deletion are not available "
-							"in file and block device mode.");
-
-					if(progArgs->getS3EndpointsVec().empty() )
+					case BenchPhase_TERMINATE:
 					{
-						progArgs->getTreeFilePath().empty() ?
-							dirModeIterateDirs() : dirModeIterateCustomDirs();
-					}
-					else
-						s3ModeIterateBuckets();
+						LOGGER(Log_DEBUG, "Terminating as requested. Rank: " << workerRank << "; "
+							"(Offset: " << progArgs->getRankOffset() << ")" << std::endl);
+						incNumWorkersDone();
+						return;
+					} break;
 
-				} break;
-
-				case BenchPhase_CREATEFILES:
-				case BenchPhase_READFILES:
-				{
-					if(progArgs->getBenchPathType() == BenchPathType_DIR)
+					case BenchPhase_CREATEDIRS:
+					case BenchPhase_DELETEDIRS:
 					{
+						if(progArgs->getBenchPathType() != BenchPathType_DIR)
+							throw WorkerException("Directory creation and deletion are not "
+								"available in file and block device mode.");
+
+						if(progArgs->getS3EndpointsVec().empty() )
+						{
+							progArgs->getTreeFilePath().empty() ?
+								dirModeIterateDirs() : dirModeIterateCustomDirs();
+						}
+						else
+							s3ModeIterateBuckets();
+
+					} break;
+
+					case BenchPhase_CREATEFILES:
+					case BenchPhase_READFILES:
+					{
+						if(progArgs->getBenchPathType() == BenchPathType_DIR)
+						{
+							if(progArgs->getS3EndpointsVec().empty() )
+								progArgs->getTreeFilePath().empty() ?
+									dirModeIterateFiles() : dirModeIterateCustomFiles();
+							else
+								progArgs->getTreeFilePath().empty() ?
+									s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+						}
+						else
+						{
+							if(!progArgs->getUseRandomOffsets() )
+								fileModeIterateFilesSeq();
+							else
+								fileModeIterateFilesRand();
+						}
+					} break;
+
+					case BenchPhase_STATFILES:
+					{
+						if(progArgs->getBenchPathType() != BenchPathType_DIR)
+							throw WorkerException("File stat operation not available in file and "
+								"block device mode.");
+
 						if(progArgs->getS3EndpointsVec().empty() )
 							progArgs->getTreeFilePath().empty() ?
 								dirModeIterateFiles() : dirModeIterateCustomFiles();
 						else
 							progArgs->getTreeFilePath().empty() ?
 								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
-					}
-					else
+					} break;
+
+					case BenchPhase_LISTOBJECTS:
 					{
-						if(!progArgs->getUseRandomOffsets() )
-							fileModeIterateFilesSeq();
-						else
-							fileModeIterateFilesRand();
-					}
-				} break;
+						s3ModeListObjects();
+					} break;
 
-				case BenchPhase_STATFILES:
-				{
-					if(progArgs->getBenchPathType() != BenchPathType_DIR)
-						throw WorkerException("File stat operation not available in file and block "
-							"device mode.");
-
-					if(progArgs->getS3EndpointsVec().empty() )
-						progArgs->getTreeFilePath().empty() ?
-							dirModeIterateFiles() : dirModeIterateCustomFiles();
-					else
-						progArgs->getTreeFilePath().empty() ?
-							s3ModeIterateObjects() : s3ModeIterateCustomObjects();
-				} break;
-
-				case BenchPhase_LISTOBJECTS:
-				{
-					s3ModeListObjects();
-				} break;
-
-				case BenchPhase_LISTOBJPARALLEL:
-				{
-					if(!progArgs->getTreeFilePath().empty() )
-						throw WorkerException("Parallel object listing is not available in custom "
-							"tree mode.");
-
-					s3ModeListObjParallel();
-				} break;
-
-				case BenchPhase_DELETEFILES:
-				{
-					if(progArgs->getBenchPathType() == BenchPathType_DIR)
+					case BenchPhase_LISTOBJPARALLEL:
 					{
-						if(progArgs->getS3EndpointsVec().empty() )
-							progArgs->getTreeFilePath().empty() ?
-								dirModeIterateFiles() : dirModeIterateCustomFiles();
+						if(!progArgs->getTreeFilePath().empty() )
+							throw WorkerException("Parallel object listing is not available in "
+								"custom tree mode.");
+
+						s3ModeListObjParallel();
+					} break;
+
+					case BenchPhase_DELETEFILES:
+					{
+						if(progArgs->getBenchPathType() == BenchPathType_DIR)
+						{
+							if(progArgs->getS3EndpointsVec().empty() )
+								progArgs->getTreeFilePath().empty() ?
+									dirModeIterateFiles() : dirModeIterateCustomFiles();
+							else
+								progArgs->getTreeFilePath().empty() ?
+									s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+						}
 						else
-							progArgs->getTreeFilePath().empty() ?
-								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
-					}
-					else
-						fileModeDeleteFiles();
-				} break;
+							fileModeDeleteFiles();
+					} break;
 
-				case BenchPhase_SYNC:
-				{
-					anyModeSync();
-				} break;
+					case BenchPhase_SYNC:
+					{
+						anyModeSync();
+						doInfiniteIOLoop = false;
+					} break;
 
-				case BenchPhase_DROPCACHES:
-				{
-					anyModeDropCaches();
-				} break;
+					case BenchPhase_DROPCACHES:
+					{
+						anyModeDropCaches();
+						doInfiniteIOLoop = false;
+					} break;
 
-				default:
-				{ // should never happen
-					throw WorkerException("Unknown/invalid next phase type: " +
-						std::to_string(workersSharedData->currentBenchPhase) );
-				} break;
+					default:
+					{ // should never happen
+						throw WorkerException("Unknown/invalid next phase type: " +
+							std::to_string(workersSharedData->currentBenchPhase) );
+					} break;
 
-			} // end of switch
+				} // end of switch
+
+				checkInterruptionRequest(); // for infinite loop workers with no work
+
+			} while(doInfiniteIOLoop); // end of infinite loop
 
 			// let coordinator know that we are done
 			finishPhase();

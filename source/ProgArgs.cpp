@@ -232,6 +232,10 @@ void ProgArgs::defineAllowedArgs()
 			"hostname[:port])")
 /*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterations),
 			"Number of iterations to run the benchmark. (Default: 1)")
+/*in*/	(ARG_INFINITEIOLOOP_LONG, bpo::bool_switch(&this->doInfiniteIOLoop),
+			"Let I/O threads run in an infinite loop, i.e. they restart from the beginning when "
+			"the reach the end of the specified workload. Terminate this via ctrl+c or by using "
+			"\"--" ARG_TIMELIMITSECS_LONG "\"")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -497,6 +501,7 @@ void ProgArgs::defineDefaults()
 	this->runS3ListObjParallel = false;
 	this->doS3ListObjVerify = false;
 	this->doReverseSeqOffsets = false;
+	this->doInfiniteIOLoop = false;
 	this->numS3RWMixReadThreads = 0;
 	this->s3SignPolicy = 0;
 	this->useS3RandObjSelect = false;
@@ -2217,6 +2222,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
+	doInfiniteIOLoop = tree.get<bool>(ARG_INFINITEIOLOOP_LONG);
 	numS3RWMixReadThreads = tree.get<size_t>(ARG_S3RWMIXTHREADS_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
@@ -2317,6 +2323,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
+	outTree.put(ARG_INFINITEIOLOOP_LONG, doInfiniteIOLoop);
 	outTree.put(ARG_S3RWMIXTHREADS_LONG, numS3RWMixReadThreads);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
