@@ -4,6 +4,8 @@ Elbencho can be used with the Slurm Workload Manager in [interactive mode](#inte
 
 > **_NOTE:_** For the examples below, we assume that the elbencho rpm or deb package is installed on all nodes, so that we don't need to provide a path to elbencho. Alternative, you could build and run it from a git checkout in your shared home directory or use the `sbcast` command to transfer the executable from your job submission node to all allocated nodes of a job. 
 
+> **_NOTE:_** If the examples below don't work for you because your Slurm configuration doesn't allow processes to daemonize into the background and you get "Communication error in preparation phase: Connection refused", then check out Glenn Lockwood's alternative elbencho slurm example [here](https://www.glennklockwood.com/benchmarks/elbencho.html).
+
 ## Interactive Mode
 
 In this example, we use an interactive Slurm session on 3 nodes to write a single shared 10GiB file from all 3 nodes, assuming `/mnt/shared` is a shared filesystem mountpoint on all 3 nodes.
