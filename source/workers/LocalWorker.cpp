@@ -2664,13 +2664,11 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 
 	std::shared_ptr<Aws::IOStream> s3MemStream;
+	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
+		(unsigned char*) (blockSize ? ioBufVec[0] : NULL), blockSize);
 
 	if(blockSize)
-	{
-		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
-			(unsigned char*) ioBufVec[0], blockSize);
 		s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
-	}
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 

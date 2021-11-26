@@ -7,6 +7,7 @@
 
 ### Fixes
 * Fixed init of AWS S3 SDK. Avoids memory errors for repeated S3 tests in service mode, caused by dynamic init/uninit of the SDK, which it is not made for.
+* Fixed memory cleanup problem with S3 single-part uploads.
 
 ## v2.0.1 (Oct 17, 2021)
 
