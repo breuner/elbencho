@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v2.0.2 (work in progress)
+## v2.0.3 (Nov 26, 2021)
 
 ### New Features & Enhancements
 * New option for infinite workload loop ("--infloop") to let I/O worker threads restart from the beginning instead of terminating when they reach the end of their workload specification. Use ctrl+c or time limit to interrupt.
