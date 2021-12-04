@@ -5,6 +5,9 @@
 ### New Features & Enhancements
 * New option for infinite workload loop ("--infloop") to let I/O worker threads restart from the beginning instead of terminating when they reach the end of their workload specification. Use ctrl+c or time limit to interrupt.
 
+### General Changes
+* New support for static linking on Alpine Linux.
+
 ### Fixes
 * Fixed init of AWS S3 SDK. Avoids memory errors for repeated S3 tests in service mode, caused by dynamic init/uninit of the SDK, which it is not made for.
 * Fixed memory cleanup problem with S3 single-part uploads.

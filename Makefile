@@ -36,7 +36,7 @@ CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST
 CXXFLAGS_RELEASE = -O3 -Wuninitialized
 CXXFLAGS_DEBUG   = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON   = -rdynamic -pthread -lrt -lnuma -laio -lncurses $(LDFLAGS_BOOST)
+LDFLAGS_COMMON   = -rdynamic -pthread -lrt -lnuma -laio $(LDFLAGS_BOOST)
 LDFLAGS_RELASE   = -O3
 LDFLAGS_DEBUG    = -O0
 
@@ -54,12 +54,22 @@ CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_DEBUG) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_DEBUG) $(LDFLAGS_EXTRA)
 endif
 
+# Dynamic or static linking
+ifeq ($(BUILD_STATIC), 1)
+LDFLAGS            += -static -lncursesw
+LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec -l brotlicommon \
+	-l dl
+else # dynamic linking
+LDFLAGS += -lncurses
+LDFLAGS_S3_DYNAMIC += -l curl -l ssl -l crypto -l dl
+endif
+
 # Compiler and linker flags for S3 support
 # "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
 ifeq ($(S3_SUPPORT), 1)
 CXXFLAGS += -DS3_SUPPORT -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include -Wno-overloaded-virtual
-LDFLAGS  += -pthread -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
-	-l ssl -l crypto -l curl -l dl
+LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
+	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
 endif
 
 # Include build helpers for auto detection
@@ -262,6 +272,9 @@ deb: | prepare-buildroot
 	@echo "All done. Your package is here:"
 	@find $(PACKAGING_PATH) -name $(EXE_NAME)*.deb
 
+version:
+	@echo $(EXE_VERSION)
+
 help:
 	@echo 'Building Optional Features:'
 	@echo '   S3_SUPPORT=1            - Build with S3 support. (Note: This will fetch a'
@@ -282,6 +295,8 @@ help:
 	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
 	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
+	@echo '   BUILD_STATIC=1          - Generate a static binary without dependencies.'
+	@echo '                             (Tested only on Alpine Linux.)'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
@@ -297,7 +312,7 @@ help:
 	@echo 'Note: Use "make clean" when changing any optional build features.'
 
 .PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
-features-info help prepare-buildroot rpm
+features-info help prepare-buildroot rpm version
 
 .DEFAULT_GOAL := all
 
