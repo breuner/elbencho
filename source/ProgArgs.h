@@ -268,6 +268,7 @@ class ProgArgs
 		bool doDirectVerify; // verify data integrity by reading immediately after write
 		unsigned blockVariancePercent; // % of blocks that should differ between writes
 		unsigned rwMixPercent; // % of blocks that should be read (the rest will be written)
+		bool useRWMixPercent; // implicitly set in case of rwmixpct (even if ==0)
 		std::string blockVarianceAlgo; // rand algo for buffer fill variance
 		std::string randOffsetAlgo; // rand algo for random offsets
 		std::string treeFilePath; // path to file containing custom tree (list of dirs and files)
@@ -300,6 +301,7 @@ class ProgArgs
 
 
 		void defineDefaults();
+		void initImplicitValues();
 		void convertUnitStrings();
 		void checkArgs();
 		void checkPathDependentArgs();
@@ -408,6 +410,7 @@ class ProgArgs
 		bool getDoDirectVerify() const { return doDirectVerify; }
 		unsigned getBlockVariancePercent() const { return blockVariancePercent; }
 		unsigned getRWMixPercent() const { return rwMixPercent; }
+		bool hasUserSetRWMixPercent() const { return useRWMixPercent; }
 		std::string getBlockVarianceAlgo() const { return blockVarianceAlgo; }
 		std::string getRandOffsetAlgo() const { return randOffsetAlgo; }
 		std::string getTreeFilePath() const { return treeFilePath; }

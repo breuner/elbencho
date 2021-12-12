@@ -109,6 +109,7 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 		}
 	}
 
+	initImplicitValues();
 	convertUnitStrings();
 	checkArgs();
 }
@@ -486,6 +487,7 @@ void ProgArgs::defineDefaults()
 	this->doDirectVerify = false;
 	this->blockVariancePercent = 0;
 	this->rwMixPercent = 0;
+	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
 	this->randOffsetAlgo = RANDALGO_BALANCED_STR;
 	this->fileShareSize = 0;
@@ -505,6 +507,16 @@ void ProgArgs::defineDefaults()
 	this->numS3RWMixReadThreads = 0;
 	this->s3SignPolicy = 0;
 	this->useS3RandObjSelect = false;
+}
+
+/**
+ * Initialize implicit values that depend e.g. on user config but are not directly given as user
+ * config values.
+ */
+void ProgArgs::initImplicitValues()
+{
+	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
+		useRWMixPercent = true;
 }
 
 /**

@@ -25,7 +25,7 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 				return TRANSLATORTK_PHASENAME_S3MIXTH +
 					std::to_string(progArgs->getNumS3RWMixReadThreads() );
 			else
-			if(progArgs->getRWMixPercent() )
+			if(progArgs->hasUserSetRWMixPercent() )
 				return TRANSLATORTK_PHASENAME_RWMIX + std::to_string(progArgs->getRWMixPercent() );
 			else
 				return PHASENAME_CREATEFILES;

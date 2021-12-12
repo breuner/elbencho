@@ -1,5 +1,15 @@
 # Changelog of elbencho
 
+## v2.0.4 (work in progress)
+
+### General Changes ###
+* Added S3 support to Alpine Linux docker container.
+* Updated to latest AWS SDK CPP v1.9.162.
+* Label results as "RWMIX0" if "--rwmixpct 0" is given (instead of previously labeling as "WRITE" in this case).
+
+### Contributors
+* Thanks to Matt Gustafson for helpful comments and suggestions.
+
 ## v2.0.3 (Nov 26, 2021)
 
 ### New Features & Enhancements
