@@ -5,20 +5,22 @@
 
 FROM alpine:3 as builder
 
-RUN apk add bash boost-dev gcc g++ git libaio-dev libexecinfo-dev make ncurses-dev numactl-dev
+RUN apk add bash boost-dev cmake curl-dev gcc g++ git libaio-dev libexecinfo-dev make \
+        numactl-dev ncurses ncurses-dev sudo
 
 COPY ./ /root/elbencho
 
 RUN cd /root/elbencho && \
     make clean-all && \
-    LDFLAGS_EXTRA="-lexecinfo" make -j "$(nproc)" && \
+    LDFLAGS_EXTRA="-lexecinfo" S3_SUPPORT=1 make -j "$(nproc)" && \
     make install
 
 FROM alpine:3
 
 COPY --from=builder /usr/local/bin/elbencho /usr/local/bin
 
-RUN apk add boost-regex boost-program_options libaio libexecinfo libstdc++ ncurses numactl && \
+RUN apk add boost-regex boost-program_options libaio libcurl libexecinfo libstdc++ ncurses \
+        numactl && \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho && \
     /usr/local/bin/elbencho --version
 
