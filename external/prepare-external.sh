@@ -57,7 +57,7 @@ prepare_webserver()
 # exitsted and tag changed, then clean/uninstall previous build before switching tag.
 prepare_awssdk()
 {
-	local REQUIRED_TAG="1.9.130-elbencho-tag"
+	local REQUIRED_TAG="1.9.162-elbencho-tag"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
