@@ -845,11 +845,15 @@ void LocalWorker::cleanup()
  */
 int64_t LocalWorker::rwBlockSized()
 {
+	OffsetGenRandom randFileIndexGen(
+		~(uint64_t)0, *randOffsetAlgo, fileHandles.fdVecPtr->size(), 0, 1);
+
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
 		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const size_t fileHandleIdx = numIOPSSubmitted % fileHandles.fdVecPtr->size();
+		const size_t fileHandleIdx = (fileHandles.fdVecPtr->size() > 1) ?
+			randFileIndexGen.getNextOffset() : 0;
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -920,6 +924,9 @@ int64_t LocalWorker::aioBlockSized()
 	struct io_event ioEvents[AIO_MAX_EVENTS];
 	struct timespec ioTimeout;
 
+	OffsetGenRandom randFileIndexGen(
+		~(uint64_t)0, *randOffsetAlgo, fileHandles.fdVecPtr->size(), 0, 1);
+
 	int initRes = io_queue_init(maxIODepth, &ioContext);
 	IF_UNLIKELY(initRes)
 		throw WorkerException(std::string("Initializing async IO (io_queue_init) failed. ") +
@@ -932,7 +939,9 @@ int64_t LocalWorker::aioBlockSized()
 	{
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		const int fd = (*fileHandles.fdVecPtr)[numIOPSSubmitted % fileHandles.fdVecPtr->size() ];
+		const size_t fileHandlesIdx = (fileHandles.fdVecPtr->size() > 1) ?
+			randFileIndexGen.getNextOffset() : 0;
+		const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 		const size_t ioVecIdx = numPending; // iocbVec index
 
 		iocbPointerVec[ioVecIdx] = &iocbVec[ioVecIdx];
@@ -1061,7 +1070,8 @@ int64_t LocalWorker::aioBlockSized()
 
 			const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 			const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-			const size_t fileHandlesIdx = numIOPSSubmitted % fileHandles.fdVecPtr->size();
+			const size_t fileHandlesIdx = (fileHandles.fdVecPtr->size() > 1) ?
+				randFileIndexGen.getNextOffset() : 0;
 			const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
 			((*this).*funcAioRwPrepper)(ioEvents[eventIdx].obj, fd, ioBufVec[ioVecIdx], blockSize,

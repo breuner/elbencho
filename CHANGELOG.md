@@ -6,6 +6,8 @@
 * Added S3 support to Alpine Linux docker container.
 * Updated to latest AWS SDK CPP v1.9.162.
 * Label results as "RWMIX0" if "--rwmixpct 0" is given (instead of previously labeling as "WRITE" in this case).
+* When "--rand" is used and multiple files/blockdevs are given directly as parameters then each thread now randomly selects the next file/blockdev.
+  * Previously each thread iterated over all files/blockdevs in a round-robin fashion.
 
 ### Contributors
 * Thanks to Matt Gustafson for helpful comments and suggestions.
