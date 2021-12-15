@@ -9,6 +9,9 @@
 * When "--rand" is used and multiple files/blockdevs are given directly as parameters then each thread now randomly selects the next file/blockdev.
   * Previously each thread iterated over all files/blockdevs in a round-robin fashion.
 
+### Fixes
+* Previously, block variance (--blockvarpct) was calculated for all blocks in rwmix mode (--rwmixpct). Now we do it only for blocks that are actually being written and skip the read blocks to avoid unnecessary CPU overhead.
+
 ### Contributors
 * Thanks to Matt Gustafson for helpful comments and suggestions.
 

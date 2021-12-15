@@ -1220,6 +1220,10 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
 		work for this because aio would not inc counter directly on submission.) */
 
+	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
+	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
+		return; // this is a read in rwmix mode, so no need for refill in this round
+
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getBlockVariancePercent() )
 		return;
@@ -1234,7 +1238,7 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
  * defined in progArgs::blockVariancePercent.
  *
  * Note: The only reason why this function exists separate from preWriteBufRandRefill() which does
- * the same with RandAlgoGoldenPrime::fillBuf() is that test have shown 30% lower perf for
+ * the same with RandAlgoGoldenPrime::fillBuf() is that tests have shown 30% lower perf for
  * "-w -t 1 -b 128k --iodepth 128 --blockvarpct 100 --rand --direct" when the function in the
  * RandAlgo object is called (which is quite mysterious).
  */
@@ -1245,6 +1249,10 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
 		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
 		work for this because aio would not inc counter directly on submission.) */
+
+	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
+	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
+		return; // this is a read in rwmix mode, so no need for refill in this round
 
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getBlockVariancePercent() )
@@ -1311,6 +1319,7 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 		work for this because aio would not inc counter directly on submission.) */
 
 	// note: workerRank is used to have skew between different worker threads
+	// note: this same logic is used in preWriteBufRandRefill/preWriteBufRandRefillFast
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
 		io_prep_pwrite(iocb, fd, buf, count, offset);
 	else
