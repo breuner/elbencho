@@ -112,7 +112,7 @@ prepare_awssdk()
 	cd "$CLONE_DIR" && \
 		cmake . -DBUILD_ONLY="s3;transfer" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=14 \
 			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF \
-			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_BUILD_TYPE=Release -DBYO_CRYPTO=ON \
 			"-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR" && \
 		make -j $(nproc) install && \
 		cd "$EXTERNAL_BASE_DIR"

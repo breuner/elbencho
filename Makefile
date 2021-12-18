@@ -168,11 +168,17 @@ endif
 clean-packaging:
 ifdef BUILD_VERBOSE
 	rm -rf \
+		$(EXE)-*-static-* \
+		$(PACKAGING_PATH)/$(EXE_NAME)-*-static-*.tar.* \
+	rm -rf \
 		$(PACKAGING_PATH)/BUILDROOT \
 		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
 	bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
 else
 	@echo "[DELETE] PACKAGING_FILES"
+	@rm -rf \
+		$(EXE)-*-static-* \
+		$(PACKAGING_PATH)/$(EXE_NAME)-*-static-*.tar.* \
 	@rm -rf \
 		$(PACKAGING_PATH)/BUILDROOT \
 		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
