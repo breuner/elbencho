@@ -25,7 +25,8 @@
 #define HOSTLIST_DELIMITERS			", \n\r" // delimiters for hosts string (comma or space)
 #define HOST_PORT_SEPARATOR			":" // separator for hostname:port
 #define ZONELIST_DELIMITERS			", " // delimiters for numa zones string (comma or space)
-#define GPULIST_DELIMITERS			", \n\r" // delimiters for gpuIDs string (comma or space)
+#define GPULIST_DELIMITERS			", \n\r" // delimiters for gpuIDs string
+#define S3ENDPOINTS_DELIMITERS		", \n\r" // delimiters for S3 endpoints list string
 
 #define ENDL						<< std::endl << // just to make help text print lines shorter
 
@@ -108,6 +109,7 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 		}
 	}
 
+	initImplicitValues();
 	convertUnitStrings();
 	checkArgs();
 }
@@ -139,7 +141,9 @@ void ProgArgs::defineAllowedArgs()
 			"benchmark.")
 		(ARG_HELP_LONG "," ARG_HELP_SHORT, "Print this help message.")
 		(ARG_HELPBLOCKDEV_LONG, "Print block device & large shared file help message.")
+		(ARG_HELPLARGE_LONG, "Print block device & large shared file help message.")
 		(ARG_HELPMULTIFILE_LONG, "Print multi-file / multi-directory help message.")
+		(ARG_HELPS3_LONG, "Print S3 object storage help message.")
 		(ARG_HELPDISTRIBUTED_LONG, "Print distributed benchmark help message.")
 		(ARG_HELPALLOPTIONS_LONG, "Print all available options help message.")
 	;
@@ -150,6 +154,8 @@ void ProgArgs::defineAllowedArgs()
 			"Show elapsed time to completion of each I/O worker thread.")
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
+/*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
+			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
 			"Random number algorithm for \"--" ARG_BLOCKVARIANCE_LONG "\". Values: \""
 			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
@@ -192,6 +198,9 @@ void ProgArgs::defineAllowedArgs()
 			ARG_SYNCPHASE_LONG "\", because only data on stable storage can be dropped from cache. "
 			"Note for distributed file systems that this only drops caches on the clients where "
 			"elbencho runs, but there might still be cached data on the server.")
+/*dr*/	(ARG_DRYRUN_LONG,
+			"Don't run any benchmark phase, just print the number of expected entries and dataset "
+			"size per benchmark phase.")
 /*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT,
 			bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
@@ -224,6 +233,10 @@ void ProgArgs::defineAllowedArgs()
 			"hostname[:port])")
 /*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterations),
 			"Number of iterations to run the benchmark. (Default: 1)")
+/*in*/	(ARG_INFINITEIOLOOP_LONG, bpo::bool_switch(&this->doInfiniteIOLoop),
+			"Let I/O threads run in an infinite loop, i.e. they restart from the beginning when "
+			"the reach the end of the specified workload. Terminate this via ctrl+c or by using "
+			"\"--" ARG_TIMELIMITSECS_LONG "\"")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -253,6 +266,9 @@ void ProgArgs::defineAllowedArgs()
 			"Do not print headline with labels to csv file.")
 /*nod*/	(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
+/*nod*/	(ARG_NODIRECTIOCHECK_LONG, bpo::bool_switch(&this->noDirectIOCheck),
+			"Don't check direct IO alignment. Many platforms require direct IO alignment. NFS is "
+			"a prominent exception.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
 			"Disable live statistics.")
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
@@ -276,7 +292,8 @@ void ProgArgs::defineAllowedArgs()
 /*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
 			"Align random offsets to block size.")
 /*ra*/	(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmountOrigStr),
-			"Number of bytes to write/read when using random offsets. (Default: Set to file size)")
+			"Number of bytes to write/read when using random offsets. Only effective when "
+			"benchmark path is a file or block device. (Default: Set to file size)")
 /*ra*/	(ARG_RANKOFFSET_LONG, bpo::value(&this->rankOffset),
 			"Rank offset for worker threads. (Default: 0)")
 /*re*/	(ARG_LIVESLEEPSEC_LONG, bpo::value(&this->liveStatsSleepSec),
@@ -288,6 +305,56 @@ void ProgArgs::defineAllowedArgs()
 			"Percentage of blocks that should be read in a write phase. (Default: 0; Max: 100)")
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0)")
+#ifdef S3_SUPPORT
+/*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
+			"Comma-separated list of S3 endpoints. When this argument is used, the given benchmark "
+			"paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & \"--"
+			ARG_S3ACCESSSECRET_LONG "\". (Format: [http(s)://]hostname[:port])")
+/*s3f*/	(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3FastRead),
+			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
+			"is incompatible with any buffer post-processing options like data verification or "
+			"GPU data transfer.")
+/*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
+			"S3 access key.")
+/*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
+			"List objects. The given number is the maximum number of objects to retrieve. Use "
+			"\"--" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
+			"threads will only be effecive if multiple buckets are given.)")
+/*s3l*/	(ARG_S3LISTOBJPARALLEL_LONG, bpo::bool_switch(&this->runS3ListObjParallel),
+			"List objects in parallel. Requires a dataset created via \"-" ARG_NUMDIRS_SHORT "\" "
+			"and \"-" ARG_NUMFILES_SHORT "\" options and parallelizes by using different S3 "
+			"listing prefixes for each thread.")
+/*s3l*/	(ARG_S3LISTOBJVERIFY_LONG, bpo::bool_switch(&this->doS3ListObjVerify),
+			"Verify the correctness of S3 server object listing results in combination with "
+			"\"--" ARG_S3LISTOBJPARALLEL_LONG "\". This requires the dataset to be created with "
+			"the same values for \"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT "\".")
+/*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
+			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
+			"the current working directory. (Default: 0=disabled; Max: 6)")
+/*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
+			"S3 object prefix. This will be prepended to all object names when the benchmark path "
+			"is a bucket.")
+/*s3r*/	(ARG_S3RANDOBJ_LONG, bpo::bool_switch(&this->useS3RandObjSelect),
+			"Read at random offsets and randomly select a new object for each S3 block read. Only "
+			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
+			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
+			ARG_RANDOMAMOUNT_LONG "\".")
+/*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
+			"S3 region.")
+/*s3r*/	(ARG_S3RWMIXTHREADS_LONG, bpo::value(&this->numS3RWMixReadThreads),
+			"Number of threads that should do reads in a write phase for mixed read/write. The "
+			"given number is out of the total number of threads per host (\"-" ARG_NUMTHREADS_SHORT
+			"\"). This requires usage of \"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT
+			"\" and the full dataset needs to be precreated with a normal write.")
+/*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
+			"S3 access secret.")
+/*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
+			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
+/*s3t*/	(ARG_S3TRANSMAN_LONG, bpo::bool_switch(&this->useS3TransferManager),
+			"Use AWS SDK TransferManager for object downloads. This enables iodepth greater than "
+			"1, but only supports simple sequential downloads. This is incompatible with "
+			"post-processing options similar to \"--" ARG_S3FASTGET_LONG "\".")
+#endif // S3_SUPPORT
 /*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
 			"Run as service for distributed mode, waiting for requests from master.")
 /*sh*/	(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
@@ -324,8 +391,8 @@ void ProgArgs::defineAllowedArgs()
 			"In custom tree mode: Randomize file order. Default is order by file size.")
 /*tr*/	(ARG_TREEROUNDUP_LONG, bpo::value(&this->treeRoundUpSizeOrigStr),
 			"When loading a treefile, round up all contained file sizes to a multiple of the given "
-			"size. This is useful for \"" ARG_DIRECTIO_LONG "\" with its alignment requirements on "
-			"many platforms. (Default: 0 for disabled)")
+			"size. This is useful for \"--" ARG_DIRECTIO_LONG "\" with its alignment requirements "
+			"on many platforms. (Default: 0 for disabled)")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
 /*tr*/	(ARG_TRUNCTOSIZE_LONG, bpo::bool_switch(&this->doTruncToSize),
@@ -420,6 +487,7 @@ void ProgArgs::defineDefaults()
 	this->doDirectVerify = false;
 	this->blockVariancePercent = 0;
 	this->rwMixPercent = 0;
+	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
 	this->randOffsetAlgo = RANDALGO_BALANCED_STR;
 	this->fileShareSize = 0;
@@ -427,6 +495,28 @@ void ProgArgs::defineDefaults()
 	this->useCustomTreeRandomize = false;
 	this->treeRoundUpSize = 0;
 	this->treeRoundUpSizeOrigStr = "0";
+	this->useS3FastRead = false;
+	this->useS3TransferManager = false;
+	this->s3LogLevel = 0;
+	this->noDirectIOCheck = false;
+	this->runS3ListObjNum = 0;
+	this->runS3ListObjParallel = false;
+	this->doS3ListObjVerify = false;
+	this->doReverseSeqOffsets = false;
+	this->doInfiniteIOLoop = false;
+	this->numS3RWMixReadThreads = 0;
+	this->s3SignPolicy = 0;
+	this->useS3RandObjSelect = false;
+}
+
+/**
+ * Initialize implicit values that depend e.g. on user config but are not directly given as user
+ * config values.
+ */
+void ProgArgs::initImplicitValues()
+{
+	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
+		useRWMixPercent = true;
 }
 
 /**
@@ -489,6 +579,7 @@ void ProgArgs::checkArgs()
 	parseHosts();
 	parseGPUIDs();
 	parseRandAlgos();
+	parseS3Endpoints();
 
 	if( (interruptServices || quitServices) && hostsVec.empty() )
 		throw ProgException("Service interruption/termination requires a host list.");
@@ -522,6 +613,16 @@ void ProgArgs::checkArgs()
 
 		useDirectIO = true;
 	}
+
+	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
+		throw ProgException("S3 write/upload cannot be used with random offsets. Consider using "
+			"\"--" ARG_REVERSESEQOFFSETS_LONG "\" as an alternative.");
+
+	if(useRandomOffsets && !s3EndpointsStr.empty() && useS3TransferManager)
+		throw ProgException("S3 TransferManager does not support random offsets.");
+
+	if(useCuFile && !s3EndpointsStr.empty() )
+		throw ProgException("cuFile API cannot be used with S3");
 
 	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
 		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
@@ -566,12 +667,18 @@ void ProgArgs::checkPathDependentArgs()
 	if( (benchPathType != BenchPathType_DIR) && runStatFilesPhase)
 		throw ProgException("File stat phase can only be used when benchmark path is a directory.");
 
-	if( (benchPathType == BenchPathType_DIR) && useRandomOffsets)
-		throw ProgException("Random offsets are not allowed when benchmark path is a directory.");
-
 	// ensure bench path is dir when tree file is given
 	if( (benchPathType != BenchPathType_DIR) && !treeFilePath.empty() )
 		throw ProgException("Custom tree mode requires benchmark path to be a directory.");
+
+	if(runS3ListObjNum && (benchPathType != BenchPathType_DIR) )
+		throw ProgException("Object listing requires a bucket name as benchmark path.");
+
+	if(runS3ListObjNum && s3EndpointsVec.empty() )
+		throw ProgException("Object listing requires S3 endpoints definition.");
+
+	if(runS3ListObjNum && !treeFilePath.empty() )
+		LOGGER(Log_NORMAL, "NOTE: Ignoring custom tree file for object listing." << std::endl);
 
 	/* ensure only single bench dir with tree file (otherwise we can't guarantee that the right dir
 		for each file exist in a certain bench path) */
@@ -608,9 +715,14 @@ void ProgArgs::checkPathDependentArgs()
 	}
 
 	// auto-set randomAmount if not set by user
-	if(useRandomOffsets && !randomAmount)
-		randomAmount = (benchPathType == BenchPathType_DIR) ?
-			fileSize : (fileSize * benchPathsVec.size() );
+	if(!randomAmount)
+	{
+		if( (benchPathType != BenchPathType_DIR) && useRandomOffsets)
+			randomAmount = fileSize * benchPathsVec.size();
+		else
+		if( (benchPathType == BenchPathType_DIR) && !s3EndpointsVec.empty() && useS3RandObjSelect)
+			randomAmount = fileSize * numDirs * numFiles * numDataSetThreads;
+	}
 
 	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
 	{
@@ -622,14 +734,15 @@ void ProgArgs::checkPathDependentArgs()
 			useRandomAligned = true;
 		}
 
-		if( (blockSize % DIRECTIO_MINSIZE) != 0)
+		if(!noDirectIOCheck && ( (blockSize % DIRECTIO_MINSIZE) != 0) )
 			throw ProgException("Block size for direct IO is not a multiple of required size. "
 				"(Note that a system's actual required size for direct IO might be even higher "
 				"depending on system page size and drive sector size.) "
 				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
 	}
 
-	if(useRandomOffsets && useRandomAligned && (randomAmount % blockSize) )
+	if(useRandomOffsets && useRandomAligned && blockSize && (randomAmount % blockSize) &&
+		(benchPathType != BenchPathType_DIR) )
 	{
 		size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
 
@@ -640,6 +753,10 @@ void ProgArgs::checkPathDependentArgs()
 
 		randomAmount = newRandomAmount;
 	}
+
+	if( (benchPathType == BenchPathType_DIR) && useRandomOffsets && (fileSize < blockSize) &&
+		treeFilePath.empty() )
+		throw ProgException("For random offsets, file size must not be smaller than block size.");
 
 	// shared file or block device mode
 	if(benchPathType != BenchPathType_DIR)
@@ -696,12 +813,11 @@ void ProgArgs::checkPathDependentArgs()
 				"multiple of given I/O threads, so the number of written blocks slightly differs "
 				"among I/O threads." << std::endl);
 
+		// recheck randomAmount after alignment auto-decrease above
+		if(useRandomOffsets && !randomAmount && fileSize && (runCreateFilesPhase || runReadPhase) )
+			throw ProgException("File size must not be smaller than block size when random I/O "
+				"with alignment is selected.");
 	}
-
-	// recheck randomAmount after auto-decrease above
-	if(useRandomOffsets && !randomAmount && fileSize && (runCreateFilesPhase || runReadPhase) )
-		throw ProgException("File size must not be smaller than block size when random I/O "
-			"with alignment is selected.");
 
 	if(benchPathType == BenchPathType_FILE)
 		ignoreDelErrors = true; // multiple threads will try to delete the same files
@@ -736,7 +852,11 @@ void ProgArgs::parseAndCheckPaths()
 			benchPathStr = "";
 
 			for(std::string path : benchPathsVec)
-				benchPathStr += absolutePath(path) + std::string(BENCHPATH_DELIMITER)[0];
+			{
+				// resolve absolute path if path is not an s3 bucket
+				benchPathStr += s3EndpointsStr.empty() ? absolutePath(path) : path;
+				benchPathStr += std::string(BENCHPATH_DELIMITER)[0];
+			}
 		}
 		else // no override given, use benchPathStr from master
 			boost::split(benchPathsVec, benchPathStr, boost::is_any_of(BENCHPATH_DELIMITER),
@@ -757,10 +877,16 @@ void ProgArgs::parseAndCheckPaths()
 		if(argsVariablesMap.count(ARG_BENCHPATHS_LONG) )
 			benchPathsVec = argsVariablesMap[ARG_BENCHPATHS_LONG].as<StringVec>();
 
+		convertS3PathsToCustomTree();
+
 		// update benchPathStr to contain absolute paths (for distributed run & for verbose print)
 		benchPathStr = "";
 		for(std::string path : benchPathsVec)
-			benchPathStr += absolutePath(path) + std::string(BENCHPATH_DELIMITER)[0];
+		{
+			// resolve absolute path if path is not an s3 bucket
+			benchPathStr += s3EndpointsStr.empty() ? absolutePath(path) : path;
+			benchPathStr += std::string(BENCHPATH_DELIMITER)[0];
+		}
 	}
 
 	if(benchPathsVec.empty() || benchPathStr.empty() )
@@ -772,8 +898,95 @@ void ProgArgs::parseAndCheckPaths()
 
 	// if we get here then this is not the master of a distributed run...
 
+	// skip open of local paths for S3
+	if(!s3EndpointsStr.empty() )
+	{
+		benchPathType = BenchPathType_DIR;
+		return;
+	}
+
 	prepareBenchPathFDsVec();
 	prepareCuFileHandleDataVec();
+}
+
+/**
+ * If S3 endpoints are given and also paths with slashes, then user wants to do shared uploads/
+ * downloads. The logic for this is slightly complicated, especially for shared uploads from
+ * multiple hosts. So instead of implementing this logic again, we just convert this to a custom
+ * tree file and run this as custom tree mode.
+ *
+ * This assumes that benchPathsVec has already been set and that the custom tree file will be
+ * loaded afterwards.
+ *
+ * This assumes that all paths use the same bucketName or throws exception otherwise.
+ *
+ * @throw ProgException on error.
+ */
+void ProgArgs::convertS3PathsToCustomTree()
+{
+	// nothing to do if not s3 mode or already a treefile specified by user
+	if(s3EndpointsStr.empty() || !treeFilePath.empty() || benchPathsVec.empty() )
+		return;
+
+	// nothing to do if paths don't contain slashes. (search non-leading slashes, hence pos "1")
+	if(benchPathsVec[0].find("/", 1) == std::string::npos)
+		return;
+
+	LOGGER(Log_VERBOSE,
+		"Implicit conversion of given S3 paths to custom tree mode for shared upload/download "
+		"support. File: " << S3_IMPLICIT_TREEFILE_PATH << std::endl);
+
+	std::ofstream fileStream(S3_IMPLICIT_TREEFILE_PATH, std::ofstream::trunc);
+	if(!fileStream)
+		throw ProgException("Opening output tree file failed: " + S3_IMPLICIT_TREEFILE_PATH);
+
+	std::string bucketName;
+
+	for(std::string& currentPath : benchPathsVec)
+	{
+		StringVec currentPathVec;
+		std::string currentPathCopy = currentPath;
+
+		// remove multiple leading/trailing slashes
+		boost::trim_if(currentPath, boost::is_any_of("/") );
+
+		boost::split(currentPathVec, currentPath, boost::is_any_of("/"), boost::token_compress_on);
+
+		// ensure we have a bucketName and objectName in each user-given path
+		if(currentPathVec.size() < 2)
+			throw ProgException("Conversion to S3 custom tree mode failed because a path without "
+				"multiple elements was found: " + currentPath);
+
+		// ensure all paths have the same bucketName
+		if(bucketName.empty() )
+			bucketName = currentPathVec[0];
+		else
+		if(bucketName != currentPathVec[0])
+			throw ProgException("Different bucket names are not suppported in this mode. "
+				"BucketName1: " + bucketName + "; "
+				"BucketName2: " + currentPathVec[0] );
+
+		std::string objectName;
+
+		// re-assemble objectName without bucketName
+		for(unsigned i=1; i < currentPathVec.size(); i++)
+		{
+			if(i > 1)
+				objectName += "/";
+
+			objectName += currentPathVec[i];
+		}
+
+		// write new line to treefile
+		fileStream << PathStore::generateFileLine(objectName, fileSize);
+	}
+
+	// set bucket name as only path
+	benchPathsVec.resize(1);
+	benchPathsVec[0] = bucketName;
+
+	// set treefile path
+	treeFilePath = S3_IMPLICIT_TREEFILE_PATH;
 }
 
 /**
@@ -1208,6 +1421,40 @@ void ProgArgs::parseGPUIDs()
 }
 
 /**
+ * Parse S3 endpoints string to fill s3EndpointsVec. Do nothing if s3 endpoints string is empty.
+ *
+ * @throw ProgException if a problem is found, e.g. s3 endpoints string was not empty, but parsed
+ * 		result is empty.
+ */
+void ProgArgs::parseS3Endpoints()
+{
+#ifndef S3_SUPPORT
+	if(!s3EndpointsStr.empty() )
+		throw ProgException("S3 endpoints defined, but built without S3 support.");
+#endif // S3_SUPPORT
+
+	if(s3EndpointsStr.empty() )
+		return; // nothing to do
+
+	boost::split(s3EndpointsVec, s3EndpointsStr, boost::is_any_of(S3ENDPOINTS_DELIMITERS),
+		boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(s3EndpointsVec.begin(), s3EndpointsVec.end(), "");
+		if(iter == s3EndpointsVec.end() )
+			break;
+
+		s3EndpointsVec.erase(iter);
+	}
+
+	if(s3EndpointsVec.empty() )
+		throw ProgException("S3 endpoints defined, but parsing resulted in an empty list: " +
+			s3EndpointsStr);
+}
+
+/**
  * Parse random number generator selection for random offsets and block variance..
  */
 void ProgArgs::parseRandAlgos()
@@ -1233,26 +1480,62 @@ void ProgArgs::loadCustomTreeFile()
 	if(treeFilePath.empty() )
 		return; // nothing to do
 
+	// load directory tree
+
 	if(runCreateDirsPhase || runDeleteDirsPhase)
 	{
 		customTree.dirs.loadDirsFromFile(treeFilePath);
 		customTree.dirs.sortByPathLen();
 	}
 
+	// load file trees
+
 	if(runCreateFilesPhase || runStatFilesPhase || runReadPhase || runDeleteFilesPhase)
 	{
+		// load tree of non-shared files (i.e. files that are equal to or smaller than blocksize)
+
 		// (note: fileShareSize is guaranteed to not be 0, thus the "fileShareSize-1" is ok)
 		customTree.filesNonShared.setBlockSize(blockSize);
 		customTree.filesNonShared.loadFilesFromFile(
 			treeFilePath, 0, fileShareSize-1, treeRoundUpSize);
 		customTree.filesNonShared.sortByFileSize();
 
-		customTree.filesShared.setBlockSize(blockSize);
-		customTree.filesShared.loadFilesFromFile(
-			treeFilePath, fileShareSize, ~0ULL, treeRoundUpSize);
-		customTree.filesNonShared.sortByFileSize();
-	}
+		// load tree of shared files (i.e. files that are greater than blocksize)
 
+		// (note: workers use the same condition to decide special handing of tree file)
+		if(runAsService && !s3EndpointsStr.empty() && runCreateFilesPhase &&
+			(numDataSetThreads != numThreads) )
+		{
+			/* shared s3 uploads of an object possible, but may among threads within the same
+				service instance (due to the uploadID not beeing shared among service instances).
+				thus we split into full files per service according to rank offset. workers can
+				afterwards grab shared files from this by subtracting the service's rank offset */
+
+			size_t serviceRank = rankOffset / numThreads;
+			size_t numServiceRanksTotal = numDataSetThreads / numThreads;
+			PathStore filesSharedTemp;
+
+			// build temporary list of files that are sharable based on their size
+			filesSharedTemp.setBlockSize(blockSize);
+			filesSharedTemp.loadFilesFromFile(treeFilePath, fileShareSize, ~0ULL, treeRoundUpSize);
+			filesSharedTemp.sortByFileSize();
+
+			// apply individual list of shared files for this worker
+			// (note: getWorkerSublistNonShared() to get full files, not parts of files)
+			customTree.filesShared.setBlockSize(blockSize);
+			filesSharedTemp.getWorkerSublistNonShared(serviceRank, numServiceRanksTotal, false,
+				customTree.filesShared);
+		}
+		else
+		{
+			// this is the normal case: fair sharing across all services/workers based on blocksize
+
+			customTree.filesShared.setBlockSize(blockSize);
+			customTree.filesShared.loadFilesFromFile(
+				treeFilePath, fileShareSize, ~0ULL, treeRoundUpSize);
+			customTree.filesNonShared.sortByFileSize();
+		}
+	}
 }
 
 /**
@@ -1351,7 +1634,9 @@ bool ProgArgs::hasUserRequestedHelp()
 	if(argsVariablesMap.count(ARG_HELP_LONG) ||
 		argsVariablesMap.count(ARG_HELP_SHORT) ||
 		argsVariablesMap.count(ARG_HELPBLOCKDEV_LONG) ||
+		argsVariablesMap.count(ARG_HELPLARGE_LONG) ||
 		argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) ||
+		argsVariablesMap.count(ARG_HELPS3_LONG) ||
 		argsVariablesMap.count(ARG_HELPDISTRIBUTED_LONG) ||
 		argsVariablesMap.count(ARG_HELPALLOPTIONS_LONG) )
 		return true;
@@ -1368,12 +1653,18 @@ void ProgArgs::printHelp()
 		argsVariablesMap.count(ARG_HELP_SHORT) )
 		printHelpOverview();
 	else
-	if(argsVariablesMap.count(ARG_HELPBLOCKDEV_LONG) )
+	if(argsVariablesMap.count(ARG_HELPBLOCKDEV_LONG) ||
+		argsVariablesMap.count(ARG_HELPLARGE_LONG) )
 		printHelpBlockDev();
 	else
 	if(argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) )
 		printHelpMultiFile();
 	else
+#ifdef S3_SUPPORT
+	if(argsVariablesMap.count(ARG_HELPS3_LONG) )
+		printHelpS3();
+	else
+#endif // S3_SUPPORT
 	if(argsVariablesMap.count(ARG_HELPDISTRIBUTED_LONG) )
 		printHelpDistributed();
 	else
@@ -1384,7 +1675,7 @@ void ProgArgs::printHelp()
 void ProgArgs::printHelpOverview()
 {
 	std::cout <<
-		EXE_NAME " - A distributed benchmark for file systems and block devices" ENDL
+		EXE_NAME " - A distributed benchmark for files, objects and blocks" ENDL
 		std::endl <<
 		"Version: " EXE_VERSION ENDL
 		std::endl <<
@@ -1393,13 +1684,18 @@ void ProgArgs::printHelpOverview()
 		std::endl <<
 		"Get started by selecting what you want to test..." ENDL
 		std::endl <<
-		"Block devices or large shared files:" ENDL
-		"  $ " EXE_NAME " --" ARG_HELPBLOCKDEV_LONG ENDL
+		"Large shared files or block devices (e.g. streaming or random IOPS):" ENDL
+		"  $ " EXE_NAME " --" ARG_HELPLARGE_LONG ENDL
 		std::endl <<
-		"Many files in different directories:" ENDL
+		"Many files in different directories (e.g. lots of small files):" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPMULTIFILE_LONG ENDL
 		std::endl <<
-		"Multiple clients:" ENDL
+#ifdef S3_SUPPORT
+		"S3 object storage:" ENDL
+		"  $ " EXE_NAME " --" ARG_HELPS3_LONG ENDL
+		std::endl <<
+#endif // S3_SUPPORT
+		"Multiple clients (e.g. shared file systems):" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPDISTRIBUTED_LONG ENDL
 		std::endl <<
 		"See all available options (e.g. csv file output):" ENDL
@@ -1488,20 +1784,17 @@ void ProgArgs::printHelpBlockDev()
 
     std::cout <<
     	"Examples:" ENDL
-		"  Test 4KiB block random read latency of device /dev/nvme0n1:" ENDL
-		"    $ " EXE_NAME " -r -b 4K --lat --direct --rand /dev/nvme0n1" ENDL
+		"  Sequentially write 4 large files and test random read IOPS for max 20 seconds:" ENDL
+		"    $ " EXE_NAME " -w -b 4M -t 16 --direct -s 20g /mnt/myfs/file{1..4}" ENDL
+		"    $ " EXE_NAME " -r -b 4k -t 16 --iodepth 16 --direct --rand --timelimit 20 \\" ENDL
+		"        /mnt/myfs/file{1..4}" ENDL
 		std::endl <<
 		"  Test 4KiB multi-threaded write IOPS of devices /dev/nvme0n1 & /dev/nvme1n1:" ENDL
 		"    $ " EXE_NAME " -w -b 4K -t 16 --iodepth 16 --direct --rand \\" ENDL
 		"        /dev/nvme0n1 /dev/nvme1n1" ENDL
 		std::endl <<
-		"  Test 1MiB multi-threaded sequential read throughput of device /dev/nvme0n1:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --iodepth 4 --direct /dev/nvme0n1" ENDL
-		std::endl <<
-		"  Create large file and test random read IOPS for max 20 seconds:" ENDL
-		"    $ " EXE_NAME " -w -b 4M --direct --size 20g /mnt/myfs/file1" ENDL
-		"    $ " EXE_NAME " -r -b 4k -t 16 --iodepth 16 --direct --rand --timelimit 20 \\" ENDL
-		"        /mnt/myfs/file1" ENDL
+		"  Test 4KiB block random read latency of device /dev/nvme0n1:" ENDL
+		"    $ " EXE_NAME " -r -b 4K --lat --direct --rand /dev/nvme0n1" ENDL
 #ifdef CUDA_SUPPORT
 		std::endl <<
 		"  Stream data from large file into memory of first 2 GPUs via CUDA:" ENDL
@@ -1531,13 +1824,15 @@ void ProgArgs::printHelpMultiFile()
 	argsMultiFileBasicDescription.add_options()
 		(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
 			"Create directories. (Already existing dirs are not treated as error.)")
-		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
+		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT,
+			bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
 		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read files.")
 		(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
 			"Read file status attributes (file size, owner etc).")
-		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT, bpo::bool_switch(&this->runDeleteFilesPhase),
+		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT,
+			bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
 		(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
 			"Delete directories.")
@@ -1613,6 +1908,120 @@ void ProgArgs::printHelpMultiFile()
 		std::endl <<
 		"  Delete files and directories created by example above:" ENDL
 		"    $ " EXE_NAME " -t 2 -n 3 -N 4 -F -D /data/testdir" <<
+		std::endl;
+}
+
+void ProgArgs::printHelpS3()
+{
+	std::cout <<
+		"S3 object storage testing. (The options here are intentionally similar to" ENDL
+		"\"--" ARG_HELPMULTIFILE_LONG "\" to enable multi-protocol storage testing.)" ENDL
+		std::endl <<
+		"Usage: ./" EXE_NAME " [OPTIONS] BUCKET [MORE_BUCKETS]" ENDL
+		std::endl;
+
+	bpo::options_description argsS3ServiceArgsDescription(
+		"S3 Service Arguments", Terminal::getTerminalLineLength(80) );
+
+	argsS3ServiceArgsDescription.add_options()
+		(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
+			"Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
+		(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
+			"S3 access key.")
+		(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
+			"S3 access secret.")
+    ;
+
+    std::cout << argsS3ServiceArgsDescription << std::endl;
+
+	bpo::options_description argsS3BasicDescription(
+		"Basic Options", Terminal::getTerminalLineLength(80) );
+
+	argsS3BasicDescription.add_options()
+		(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
+			"Create buckets. (Already existing buckets are not treated as error.)")
+		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT,
+			bpo::bool_switch(&this->runCreateFilesPhase),
+			"Write/upload objects.")
+		(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
+			"Read/download objects.")
+		(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
+			"Read object status attributes (size etc).")
+		(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT,
+			bpo::bool_switch(&this->runDeleteFilesPhase),
+			"Delete objects.")
+		(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
+			"Delete buckets.")
+		(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
+			"Number of I/O worker threads. (Default: 1)")
+		(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirs),
+			"Number of directories per I/O worker thread. Directories are slash-separated object "
+			"key prefixes. (Default: 1)")
+		(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
+			"Number of objects per thread per directory. (Default: 1) Example: \""
+			"-" ARG_NUMTHREADS_SHORT "2 -" ARG_NUMDIRS_SHORT "3 -" ARG_NUMFILES_SHORT "4\" will "
+			"use 2x3x4=24 objects.")
+		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
+			"Object size. (Default: 0)")
+		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
+			"Number of bytes to read/write in a single operation. (Default: 1M)")
+    ;
+
+    std::cout << argsS3BasicDescription << std::endl;
+
+	bpo::options_description argsS3FrequentDescription(
+		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+
+	argsS3FrequentDescription.add_options()
+		(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3TransferManager),
+			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
+			"is incompatible with any buffer post-processing options like data verification or "
+			"GPU data transfer.")
+		(ARG_TREEFILE_LONG, bpo::value(&this->treeFilePath),
+			"The path to a treefile containing a list of object names to use for shared upload or "
+			"download if the object size exceeds \"--" ARG_FILESHARESIZE_LONG "\".")
+		(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
+			"Show minimum, average and maximum latency for PUT/GET operations and for complete "
+			"upload/download in case of chunked transfers.")
+	;
+
+    std::cout << argsS3FrequentDescription << std::endl;
+
+	bpo::options_description argsS3MiscDescription(
+		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+
+	argsS3MiscDescription.add_options()
+		(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
+			"In custom tree mode or when object keys are given directly as arguments, this defines "
+			"the object size as of which multiple threads are used to upload/download an object. "
+			"(Default: 0, which means " FILESHAREBLOCKFACTOR_STR " x blocksize)")
+		(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
+			"S3 region.")
+		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
+			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
+			"given, then worker threads are bound round-robin to the zones. "
+			"(Hint: See 'lscpu' for available NUMA zones.)")
+	;
+
+    std::cout << argsS3MiscDescription << std::endl;
+
+    std::cout <<
+    	"Examples:" ENDL
+		"  Create bucket \"mybucket\":" ENDL
+		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
+		"        -d mybucket" ENDL
+		std::endl <<
+		"  Test 2 threads, each creating 3 directories with 4 10MiB objects inside:" ENDL
+		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
+		"        -w -t 2 -n 3 -N 4 -s 10m -b 5m mybucket" ENDL
+		std::endl <<
+		"  Delete objects and bucket created by example above:" ENDL
+		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
+		"        -D -F -t 2 -n 3 -N 4 mybucket" ENDL
+		std::endl <<
+		"  Shared upload of 4 1GiB objects via 8 threads in 16MiB blocks:" ENDL
+		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
+		"        -w -t 8 -s 1g -b 16m mybucket/myobject{1..4}" <<
 		std::endl;
 }
 
@@ -1712,6 +2121,19 @@ bool ProgArgs::hasUserRequestedVersion()
 }
 
 /**
+ * Check if user gave the argument to do only a dry run.
+ *
+ * @return true if dry run requested.
+ */
+bool ProgArgs::hasUserRequestedDryRun()
+{
+	if(argsVariablesMap.count(ARG_DRYRUN_LONG) )
+		return true;
+
+	return false;
+}
+
+/**
  * Print version and included optional build features.
  */
 void ProgArgs::printVersionAndBuildInfo()
@@ -1742,6 +2164,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	includedStream << "backtrace ";
 #endif
 
+#ifdef S3_SUPPORT
+	includedStream << "s3 ";
+#else
+	notIncludedStream << "s3 ";
+#endif
+
 	std::cout << "Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
 	std::cout << "Excluded optional build features: " <<
@@ -1753,7 +2181,7 @@ void ProgArgs::printVersionAndBuildInfo()
  *
  * @throw ProgException if configuration error is detected or if bench dirs cannot be accessed.
  */
-void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
+void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 {
 	benchPathStr = tree.get<std::string>(ARG_BENCHPATHS_LONG);
 	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
@@ -1771,7 +2199,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	runDeleteDirsPhase = tree.get<bool>(ARG_DELETEDIRS_LONG);
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useRandomAligned = tree.get<bool>(ARG_RANDOMALIGN_LONG);
-	randomAmount = tree.get<size_t>(ARG_RANDOMAMOUNT_LONG);
+	randomAmount = tree.get<uint64_t>(ARG_RANDOMAMOUNT_LONG);
 	ioDepth = tree.get<size_t>(ARG_IODEPTH_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	gpuIDsStr = tree.get<std::string>(ARG_GPUIDS_LONG);
@@ -1794,6 +2222,22 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 	fileShareSize = tree.get<uint64_t>(ARG_FILESHARESIZE_LONG);
 	useCustomTreeRandomize = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
+	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
+	s3AccessKey = tree.get<std::string>(ARG_S3ACCESSKEY_LONG);
+	s3AccessSecret = tree.get<std::string>(ARG_S3ACCESSSECRET_LONG);
+	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
+	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
+	useS3TransferManager = tree.get<bool>(ARG_S3TRANSMAN_LONG);
+	noDirectIOCheck = tree.get<bool>(ARG_NODIRECTIOCHECK_LONG);
+	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
+	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
+	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
+	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
+	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
+	doInfiniteIOLoop = tree.get<bool>(ARG_INFINITEIOLOOP_LONG);
+	numS3RWMixReadThreads = tree.get<size_t>(ARG_S3RWMIXTHREADS_LONG);
+	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
+	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -1819,6 +2263,8 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
 		loadCustomTreeFile();
 	}
 
+	parseS3Endpoints();
+
 	// rebuild benchPathsVec/benchPathFDsVec and check if bench dirs are accessible
 	parseAndCheckPaths();
 
@@ -1836,7 +2282,7 @@ void ProgArgs::setFromPropertyTree(bpt::ptree& tree)
  *
  * @workerRank to calc rankOffset for host (unless user requested all to work on same dataset)
  */
-void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
+void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRank) const
 {
 	outTree.put(ARG_BENCHPATHS_LONG, benchPathStr);
 	outTree.put(ARG_NUMTHREADS_LONG, numThreads);
@@ -1877,11 +2323,28 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 	outTree.put(ARG_FILESHARESIZE_LONG, fileShareSize);
 	outTree.put(ARG_TREERANDOMIZE_LONG, useCustomTreeRandomize);
 	outTree.put(ARG_TREEROUNDUP_LONG, treeRoundUpSize);
+	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
+	outTree.put(ARG_S3ACCESSKEY_LONG, s3AccessKey);
+	outTree.put(ARG_S3ACCESSSECRET_LONG, s3AccessSecret);
+	outTree.put(ARG_S3REGION_LONG, s3Region);
+	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
+	outTree.put(ARG_S3TRANSMAN_LONG, useS3TransferManager);
+	outTree.put(ARG_NODIRECTIOCHECK_LONG, noDirectIOCheck);
+	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
+	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
+	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
+	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
+	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
+	outTree.put(ARG_INFINITEIOLOOP_LONG, doInfiniteIOLoop);
+	outTree.put(ARG_S3RWMIXTHREADS_LONG, numS3RWMixReadThreads);
+	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
+	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
+
 
 	// dynamically calculated values for service hosts...
 
 	size_t remoteRankOffset = getIsServicePathShared() ?
-		rankOffset + (workerRank * numThreads) : rankOffset;
+		rankOffset + (serviceRank * numThreads) : rankOffset;
 
 	outTree.put(ARG_RANKOFFSET_LONG, remoteRankOffset);
 
@@ -1891,7 +2354,7 @@ void ProgArgs::getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const
 		outTree.put(ARG_GPUIDS_LONG, gpuIDsStr);
 	else
 	{ // assign one GPU per service instance
-		size_t gpuIndex = workerRank % gpuIDsVec.size();
+		size_t gpuIndex = serviceRank % gpuIDsVec.size();
 		outTree.put(ARG_GPUIDS_LONG, std::to_string(gpuIDsVec[gpuIndex] ) );
 	}
 
@@ -1977,6 +2440,8 @@ void ProgArgs::resetBenchPath()
 	customTree.dirs.clear();
 	customTree.filesNonShared.clear();
 	customTree.filesShared.clear();
+
+	s3EndpointsVec.clear();
 
 #ifdef CUFILE_SUPPORT
 	if(isCuFileDriverOpen)

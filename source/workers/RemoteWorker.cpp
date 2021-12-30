@@ -51,7 +51,8 @@ void RemoteWorker::run()
 				{
 					/* interrupt remote threads and close open FDs on service host or make remote
 						service quit if requested by user */
-					interruptBenchPhase(false);
+					interruptBenchPhase(false,
+						progArgs->getInterruptServices() || progArgs->getQuitServices() );
 					return;
 				} break;
 				case BenchPhase_CREATEDIRS:
@@ -62,6 +63,8 @@ void RemoteWorker::run()
 				case BenchPhase_SYNC:
 				case BenchPhase_DROPCACHES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_LISTOBJECTS:
+				case BenchPhase_LISTOBJPARALLEL:
 				{
 					startBenchPhase();
 
@@ -159,8 +162,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 			Logger(Log_DEBUG) << "HTTP status code: " + response->status_code << std::endl;
 
 			THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow,
-				"Service host encountered an error. "
-				"Server: " + host + "; "
+				"Service instance encountered an error. "
+				"Service: " + host + "; "
 				"Phase: Finalization; "
 				"Message: " + response->content.string() );
 		}
@@ -173,8 +176,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		IF_UNLIKELY(workersSharedData->currentBenchID != currentBenchID)
 			THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow,
-				"Service host got hijacked for a different benchmark. "
-				"Server: " + host);
+				"Service instance got hijacked for a different benchmark. "
+				"Service: " + host);
 
 		numWorkersDone = resultTree.get<size_t>(XFER_STATS_NUMWORKERSDONE);
 		numWorkersDoneWithError = resultTree.get<size_t>(XFER_STATS_NUMWORKERSDONEWITHERR);
@@ -187,9 +190,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		IF_UNLIKELY(numWorkersDone < progArgs->getNumThreads() )
 			THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow,
-				"Phase finish handler was called before all workers on service "
-				"host completed. "
-				"Server: " + host + "; "
+				"Phase finish handler was called before all workers of service instance completed. "
+				"Service: " + host + "; "
 				"numWorkersDone: " + host + "; "
 				"numWorkersDoneWithError: " + host + "; "
 				"numThreads: " + host + "; ");
@@ -212,7 +214,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixPercent() ) )
+			(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
 		{
 			atomicLiveRWMixReadOps.numBytesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
@@ -228,7 +230,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 	{
 		THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow,
 			std::string("HTTP client error in finish benchmark phase: ") + e.what() + ". "
-			"Server: " + host);
+			"Service: " + host);
 
 		phaseFinished = true; // before incNumWorkersDone because Coordinator can reset after inc
 
@@ -275,14 +277,14 @@ void RemoteWorker::prepareRemoteFile()
 
 		IF_UNLIKELY(response->content.size() )
 			throw WorkerException(
-				"Service host sent unexpected non-empty reply as remote file preparation result. "
-				"Server: " + host);
+				"Service sent unexpected non-empty reply as remote file preparation result. "
+				"Service: " + host);
 	}
 	catch(Web::system_error& e)
 	{
 		throw WorkerException(
 			std::string("Communication error in remote file preparation phase: ") + e.what() + ". "
-			"Server: " + host);
+			"Service: " + host);
 	}
 }
 
@@ -296,7 +298,7 @@ void RemoteWorker::prepareRemoteFile()
 void RemoteWorker::preparePhase()
 {
 	bpt::ptree tree;
-	progArgs->getAsPropertyTree(tree, workerRank);
+	progArgs->getAsPropertyTreeForService(tree, workerRank);
 	std::stringstream treeStream;
 	bpt::write_json(treeStream, tree, true);
 
@@ -318,8 +320,8 @@ void RemoteWorker::preparePhase()
 		}
 
 		IF_UNLIKELY(!response->content.size() )
-			throw WorkerException("Service host sent unexpected empty reply as preparation result. "
-				"Server: " + host);
+			throw WorkerException("Service sent unexpected empty reply as preparation result. "
+				"Service: " + host);
 
 		// read bench path info and error history from service...
 
@@ -343,7 +345,7 @@ void RemoteWorker::preparePhase()
 	{
 		throw WorkerException(
 			std::string("Communication error in preparation phase: ") + e.what() + ". "
-			"Server: " + host);
+			"Service: " + host);
 	}
 }
 
@@ -374,7 +376,7 @@ void RemoteWorker::startBenchPhase()
 	{
 		throw WorkerException(
 			std::string("HTTP client error in benchmark phase: ") + e.what() + ". "
-			"Server: " + host);
+			"Service: " + host);
 	}
 }
 
@@ -406,8 +408,8 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			IF_UNLIKELY(response->status_code != Web::status_code(Web::StatusCode::success_ok) )
 			{
 				throw WorkerException(
-					"Service host encountered an error. "
-					"Server: " + host + "; "
+					"Service encountered an error. "
+					"Service: " + host + "; "
 					"Phase: Wait for benchmark completion; "
 					"HTTP status code: " + response->status_code);
 			}
@@ -419,8 +421,8 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			buuids::uuid currentBenchID = uuidGen(statusTree.get<std::string>(XFER_STATS_BENCHID) );
 
 			IF_UNLIKELY(workersSharedData->currentBenchID != currentBenchID)
-				throw WorkerException("Service host got hijacked for a different benchmark. "
-					"Server: " + host);
+				throw WorkerException("Service got hijacked for a different benchmark. "
+					"Service: " + host);
 
 			numWorkersDone = statusTree.get<size_t>(XFER_STATS_NUMWORKERSDONE);
 			numWorkersDoneWithError = statusTree.get<size_t>(XFER_STATS_NUMWORKERSDONEWITHERR);
@@ -430,7 +432,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixPercent() ) )
+				(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
 			{
 				atomicLiveRWMixReadOps.numBytesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
@@ -447,7 +449,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			if(numWorkersDone && !stoneWallTriggered)
 			{
 				for(Worker* worker : *workersSharedData->workerVec)
-							worker->createStoneWallStats();
+					worker->createStoneWallStats();
 			}
 
 			firstRound = false;
@@ -456,19 +458,22 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 		{
 			throw WorkerException(
 				std::string("HTTP client error in benchmark phase: ") + e.what() + ". "
-				"Server: " + host);
+				"Service: " + host);
 		}
 	} // end of while loop
 
 }
 
 /**
- * Interrupt the currently running benchmark phase on the service host.
+ * Interrupt the currently running benchmark phase on the service host and quit the service if
+ * progArgs->getQuitServices() is set.
  *
  * @allowExceptionThrow false to log errors instead of throwing an exception.
+ * @logSuccessMsg log output for whether service confirmed or not (the latter typically meaning
+ * that the service was not running)
  * @throw if allowExceptionThrow is true, WorkerException on error, e.g. http client problem
  */
-void RemoteWorker::interruptBenchPhase(bool allowExceptionThrow)
+void RemoteWorker::interruptBenchPhase(bool allowExceptionThrow, bool logSuccessMsg)
 {
 	try
 	{
@@ -481,25 +486,37 @@ void RemoteWorker::interruptBenchPhase(bool allowExceptionThrow)
 
 		IF_UNLIKELY(response->status_code != Web::status_code(Web::StatusCode::success_ok) )
 		{
-			std::string errorMsg = "Service host encountered an error. "
-				"Server: " + host + "; "
+			std::string errorMsg = "Service instance encountered an error. "
+				"Service: " + host + "; "
 				"Phase: Interruption; "
 				"HTTP status code: " + response->status_code;
 
 			THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow, errorMsg);
 		}
+
+		// log human-friendly success confirmation message
+		if(logSuccessMsg)
+			LOGGER(Log_NORMAL, host << ": " << "OK" << std::endl);
+
 	}
 	catch(Web::system_error& e)
 	{
+		// log human-friendly success confirmation message
+		if(logSuccessMsg && (e.code() == boost::asio::error::connection_refused) )
+			LOGGER(Log_NORMAL, host << ": " <<
+				"Service unreachable" << std::endl);
+
+		// log error details...
+
 		std::string errorMsg =
 			std::string("HTTP client error on benchmark interruption: ") + e.what() + ". "
-			"Server: " + host;
+			"Service: " + host;
 
 		// in case of quit request, connection_refused will be returned by client - ignore that.
 
 		bool logConnRefused = (progArgs->getLogLevel() > Log_NORMAL);
 
-		if(!progArgs->getQuitServices() ||
+		if(!logSuccessMsg ||
 			(e.code() != boost::asio::error::connection_refused) || logConnRefused)
 			THROW_WORKEREXCEPTION_OR_LOG_ERR(allowExceptionThrow, errorMsg);
 	}

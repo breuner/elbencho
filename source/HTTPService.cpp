@@ -319,7 +319,7 @@ void HTTPService::defineServerResources(HttpServer& server)
 
 			LoggerBase::clearErrHistory();
 
-			progArgs.setFromPropertyTree(recvTree);
+			progArgs.setFromPropertyTreeForService(recvTree);
 
 			workerManager.prepareThreads();
 
@@ -419,6 +419,8 @@ void HTTPService::defineServerResources(HttpServer& server)
 
 		if(quitAfterInterrupt)
 		{
+			response->send(); // (otherwise send() would only happen after server.stop() below)
+
 			LOGGER(Log_NORMAL, "Shutting down as requested by client. "
 				"Client: " << request->remote_endpoint().address().to_string() << std::endl);
 

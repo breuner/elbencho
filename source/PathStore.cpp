@@ -9,8 +9,9 @@
 #include "PathStore.h"
 #include "ProgException.h"
 
-#define PATHSTORE_DIR_LINE_PREFIX	"d"
-#define PATHSTORE_FILE_LINE_PREFIX	"f"
+#ifndef ARG_TREEROUNDUP_LONG // because we can't include ProgArgs.h here
+	#define ARG_TREEROUNDUP_LONG		"treeroundup"
+#endif
 
 /**
  * Load directories from file. Lines not starting with PATHSTORE_DIR_LINE_PREFIX will be ignored.
@@ -19,6 +20,7 @@
  * 	PATHSTORE_DIR_LINE_PREFIX <relative_path>
  *
  * @path path to file from which directories should be loaded.
+ *
  * @throw ProgException on error, such as file not exists.
  */
 void PathStore::loadDirsFromFile(std::string path)
@@ -72,6 +74,7 @@ void PathStore::loadDirsFromFile(std::string path)
  * @minFileSize skip files smaller than this size.
  * @maxFileSize skip files larger than this size.
  * @roundUpSize round up file sizes to a multiple of given size; 0 disables rounding up.
+ *
  * @throw ProgException on error, such as file not exists.
  */
 void PathStore::loadFilesFromFile(std::string path, uint64_t minFileSize, uint64_t maxFileSize,
@@ -102,22 +105,24 @@ void PathStore::loadFilesFromFile(std::string path, uint64_t minFileSize, uint64
 		PathStoreElem newElem;
 		newElem.rangeStart = 0;
 
-		if(!(lineStream >> newElem.rangeLen) )
+		if(!(lineStream >> newElem.totalLen) )
 			throw ProgException("Encountered invalid file line without size in input file. "
 				"File: " + path + "; "
 				"Line number: " + std::to_string(lineNum) );
 
-		uint64_t fileSize = newElem.rangeLen; // rangeLen equals file size here at load time
+		newElem.rangeLen = newElem.totalLen; // rangeLen equals file size here at load time
 
-		// round up file size if requested
-		if(roundUpSize && (fileSize % roundUpSize) )
+		// round up file size if requested by caller
+		if(roundUpSize && (newElem.totalLen % roundUpSize) )
 		{
-			const uint64_t moduloRes = fileSize % roundUpSize;
-			fileSize = fileSize - moduloRes + roundUpSize;
-			newElem.rangeLen = fileSize;
+			const uint64_t moduloRes = newElem.totalLen % roundUpSize;
+			newElem.totalLen = newElem.totalLen - moduloRes + roundUpSize;
+			newElem.rangeLen = newElem.totalLen;
 		}
 
-		// check matching file size
+		const uint64_t fileSize = newElem.totalLen;
+
+		// check matching file size for caller's given range
 		if( (fileSize < minFileSize) || (fileSize > maxFileSize) )
 			continue; // file size not within range => skip
 
@@ -163,8 +168,8 @@ void PathStore::sortByPathLen()
 void PathStore::sortByFileSize()
 {
 	paths.sort([](const PathStoreElem& a, const PathStoreElem& b)
-		{ return (a.rangeLen < b.rangeLen) ||
-			( (a.rangeLen == b.rangeLen) && (a.path < b.path) ); } );
+		{ return (a.totalLen < b.totalLen) ||
+			( (a.totalLen == b.totalLen) && (a.path < b.path) ); } );
 }
 
 /**
@@ -207,10 +212,14 @@ void PathStore::randomShuffle()
  *
  * @workerRank the rank of this worker for which to get the sublist.
  * @numDataSetThreads as defined in ProgArgs.
+ * @throwOnFileSmallerBlock true to throw an exception if a file size is found that is smaller than
+ * 		the given block size; this is useful for random IO checks.
  * @outPathStore the store to which the result list should be added.
+ *
+ * @throw ProgException if throwOnFileSmallerBlock condition found.
  */
 void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataSetThreads,
-	PathStore& outPathStore) const
+	bool throwOnFileSmallerBlock, PathStore& outPathStore) const
 {
 	if(workerRank >= numPaths)
 		return; // not even a single element in this store for the given worker rank
@@ -222,9 +231,16 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
 
 	while(true)
 	{
-		const uint64_t fileSize = pathsIter->rangeLen;
+		const uint64_t fileSize = pathsIter->totalLen;
 		const uint64_t numFileBlocks = (fileSize / blockSize) +
 				( (fileSize % blockSize) ? 1 : 0);
+
+		if(throwOnFileSmallerBlock && (fileSize < blockSize) )
+			throw ProgException("Found file that is smaller than block size. Consider using "
+				"\"--" ARG_TREEROUNDUP_LONG "\". "
+				"File: " + pathsIter->path + "; "
+				"FileSize: " + std::to_string(fileSize) + "; "
+				"BlockSize: " + std::to_string(blockSize) );
 
 		// add to outPathStore
 		outPathStore.paths.push_back(*pathsIter);
@@ -253,10 +269,14 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
  *
  * @workerRank the rank of this worker for which to get the sublist.
  * @numDataSetThreads as defined in ProgArgs.
+ * @throwOnSliceSmallerBlock true to throw an exception if a file slice is found that is smaller
+ * 		than the given block size; this is useful for random IO checks.
  * @outPathStore the store to which the result list should be added.
+ *
+ * @throw ProgException if throwOnSliceSmallerBlock condition found.
  */
 void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetThreads,
-	PathStore& outPathStore) const
+	bool throwOnSliceSmallerBlock, PathStore& outPathStore) const
 {
 	if(paths.empty() )
 		return;
@@ -291,7 +311,7 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 	// iterate over paths to find relevant ones and set worker's ranges in outPathStore
 	while( (pathsIter != paths.end() ) && (currentBlockIdx < endBlock) )
 	{
-		const uint64_t fileSize = pathsIter->rangeLen;
+		const uint64_t fileSize = pathsIter->totalLen;
 		const uint64_t numFileBlocks = (fileSize / blockSize) +
 				( (fileSize % blockSize) ? 1 : 0);
 		uint64_t firstFileBlock = currentBlockIdx;
@@ -342,6 +362,14 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 		pathElem.rangeStart = rangeStart;
 		pathElem.rangeLen = rangeLen;
 
+		if(throwOnSliceSmallerBlock && (rangeLen < blockSize) )
+			throw ProgException("Found file slice that is smaller than block size. Consider using "
+				"\"--" ARG_TREEROUNDUP_LONG "\". "
+				"File: " + pathsIter->path + "; "
+				"RangeStart: " + std::to_string(rangeStart) + "; "
+				"RangeLength: " + std::to_string(rangeLen) + "; "
+				"BlockSize: " + std::to_string(blockSize) );
+
 		// add to outPathStore
 		outPathStore.paths.push_back(pathElem);
 		outPathStore.numPaths++;
@@ -353,4 +381,20 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 	}
 
 	outPathStore.numBlocksTotal += thisWorkerNumBlocks;
+}
+
+/**
+ * Generate a treefile line for a file.
+ *
+ * @param path path to file
+ * @fileSize file size
+ * @return generated file line including std::endl
+ */
+std::string PathStore::generateFileLine(std::string filePath, uint64_t fileSize)
+{
+	std::stringstream stream;
+
+	stream << PATHSTORE_FILE_LINE_PREFIX << " " << fileSize << " " << filePath << std::endl;
+
+	return stream.str();
 }

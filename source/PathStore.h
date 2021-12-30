@@ -6,17 +6,23 @@
 #include "Common.h"
 #include "ProgException.h"
 
+#define PATHSTORE_DIR_LINE_PREFIX	"d"
+#define PATHSTORE_FILE_LINE_PREFIX	"f"
+
+
 /**
  * Elements of PathStore.
  */
 struct PathStoreElem
 {
 	std::string path; // relative path to file or dir
-	uint64_t rangeStart{0}; // offset for read or write in case this path refers to a file
-	uint64_t rangeLen{0}; // length to read or write in case this path refers to a file
+	uint64_t totalLen{0}; // total size of file/object
+	uint64_t rangeStart{0}; // offset for read or write in case this path refers to a file/object
+	uint64_t rangeLen{0}; // length to read or write in case this path refers to a file/object
 };
 
 typedef std::list<PathStoreElem> PathList;
+typedef PathList::const_iterator PathListCIter;
 
 /**
  * Stores a list of paths. Typically used to store either a list of files or dirs to process by
@@ -38,9 +44,11 @@ class PathStore
 		void randomShuffle();
 
 		void getWorkerSublistNonShared(unsigned workerRank, unsigned numDataSetThreads,
-			PathStore& outPathStore) const;
+			bool throwOnFileSmallerBlock, PathStore& outPathStore) const;
 		void getWorkerSublistShared(unsigned workerRank, unsigned numDataSetThreads,
-			PathStore& outPathStore) const;
+			bool throwOnSliceSmallerBlock, PathStore& outPathStore) const;
+
+		static std::string generateFileLine(std::string path, uint64_t fileSize);
 
 	private:
 		uint64_t blockSize{0}; // progArgs blockSize

@@ -5,3 +5,4 @@ BUILDROOT/
 /*.build
 /*.buildinfo
 /*.changes
+/*.tar.gz

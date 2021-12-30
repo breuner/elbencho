@@ -50,8 +50,11 @@ class LiveResults
 		int winWidth; // current width of terminal window
 
 		LiveOps lastLiveOps = {}; // live ops from last round for per-sec diff
+		LiveOps lastRWMixReadLiveOps = {}; // live ops from last round for per-sec diff
 		LiveOps newLiveOps; // live ops from current round
+		LiveOps newRWMixReadLiveOps; // live ops from current round
 		LiveOps liveOpsPerSec; // live ops per sec from diff of new and last live ops
+		LiveOps rwMixReadliveOpsPerSec; // live ops per sec from diff of new and last live ops
 		size_t percentDone; // total percent done based on bytes (if any) or num entries in phase
 };
 
@@ -73,6 +76,8 @@ class Statistics
 		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps);
 		void getLiveStatsAsPropertyTree(bpt::ptree& outTree);
 		void getBenchResultAsPropertyTree(bpt::ptree& outTree);
+
+		void printDryRunInfo();
 
 	private:
 		const ProgArgs& progArgs;
@@ -102,8 +107,8 @@ class Statistics
 		void printLiveCountdownLine(unsigned long long waittimeSec);
 
 		void printSingleLineLiveStatsLine(const char* phaseName, const char* phaseEntryType,
-			LiveOps& liveOpsPerSec, LiveOps& liveOps, unsigned long long numWorkersLeft,
-			size_t cpuUtil, unsigned long long elapsedSec);
+			LiveOps& liveOpsPerSec, LiveOps& rwMixReadLiveOpsPerSec, LiveOps& liveOps,
+			unsigned long long numWorkersLeft, size_t cpuUtil, unsigned long long elapsedSec);
 		void deleteSingleLineLiveStatsLine();
 		void printSingleLineLiveStats();
 		void wholeScreenLiveStatsUpdateRemoteInfo(LiveResults& liveResults);
@@ -116,6 +121,8 @@ class Statistics
 		void printWholeScreenLiveStats();
 
 		bool checkCSVFileEmpty();
+
+		void printDryRunPhaseInfo(BenchPhase benchPhase);
 
 	// inliners
 	public:

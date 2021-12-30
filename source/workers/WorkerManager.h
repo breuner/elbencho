@@ -23,7 +23,8 @@ class WorkerManager
 
 		void startNextPhase(BenchPhase newBenchPhase, std::string* benchID = NULL);
 
-		void getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerThread,
+		static void getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPhase benchPhase,
+			BenchPathType benchPathType, size_t& outNumEntriesPerThread,
 			uint64_t& outNumBytesPerThread);
 
 		void checkServiceBenchPathInfos();
@@ -42,6 +43,13 @@ class WorkerManager
 		WorkerVec& getWorkerVec() { return workerVec; }
 		WorkersSharedData& getWorkersSharedData() { return workersSharedData; }
 		size_t& getNumWorkersDoneWithError() { return workersSharedData.numWorkersDoneWithError; }
+
+		void getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerThread,
+			uint64_t& outNumBytesPerThread)
+		{
+			getPhaseNumEntriesAndBytes(progArgs, workersSharedData.currentBenchPhase,
+				progArgs.getBenchPathType(), outNumEntriesPerThread, outNumBytesPerThread);
+		}
 };
 
 #endif /* WORKERS_WORKERMANAGER_H_ */

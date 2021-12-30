@@ -19,8 +19,10 @@ namespace bpt = boost::property_tree;
 
 #define ARG_HELP_LONG 				"help"
 #define ARG_HELP_SHORT 				"h"
-#define ARG_HELPBLOCKDEV_LONG 		"help-bdev"
+#define ARG_HELPBLOCKDEV_LONG 		"help-bdev" // for backwards compat (new: help-large)
+#define ARG_HELPLARGE_LONG 			"help-large"
 #define ARG_HELPMULTIFILE_LONG 		"help-multi"
+#define ARG_HELPS3_LONG 			"help-s3"
 #define ARG_HELPDISTRIBUTED_LONG 	"help-dist"
 #define ARG_HELPALLOPTIONS_LONG	 	"help-all"
 #define ARG_BENCHPATHS_LONG			"path"
@@ -58,7 +60,7 @@ namespace bpt = boost::property_tree;
 #define ARG_HOSTS_LONG				"hosts"
 #define ARG_INTERRUPT_LONG			"interrupt"
 #define ARG_ITERATIONS_LONG			"iterations"
-#define ARG_ITERATIONS_SHORT			"i"
+#define ARG_ITERATIONS_SHORT		"i"
 #define ARG_QUIT_LONG				"quit"
 #define ARG_NOSVCPATHSHARE_LONG		"nosvcshare"
 #define ARG_RANKOFFSET_LONG			"rankoffset"
@@ -106,6 +108,24 @@ namespace bpt = boost::property_tree;
 #define ARG_FILESHARESIZE_LONG		"sharesize"
 #define ARG_TREERANDOMIZE_LONG		"treerand"
 #define ARG_TREEROUNDUP_LONG		"treeroundup"
+#define ARG_S3ENDPOINTS_LONG		"s3endpoints"
+#define ARG_S3ACCESSKEY_LONG		"s3key"
+#define ARG_S3ACCESSSECRET_LONG		"s3secret"
+#define ARG_S3REGION_LONG			"s3region"
+#define ARG_S3FASTGET_LONG			"s3fastget"
+#define ARG_S3TRANSMAN_LONG			"s3transman"
+#define ARG_S3LOGLEVEL_LONG			"s3log"
+#define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
+#define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
+#define ARG_DRYRUN_LONG				"dryrun"
+#define ARG_S3LISTOBJ_LONG			"s3listobj"
+#define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
+#define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
+#define ARG_REVERSESEQOFFSETS_LONG	"backward"
+#define ARG_INFINITEIOLOOP_LONG		"infloop"
+#define ARG_S3RWMIXTHREADS_LONG		"s3rwmixthr"
+#define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
+#define ARG_S3RANDOBJ_LONG			"s3randobj"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -116,6 +136,9 @@ namespace bpt = boost::property_tree;
 												SystemTk::getUsername() + "_" + \
 												"p" + std::to_string(servicePort) )
 #define SERVICE_UPLOAD_TREEFILE					"treefile.txt"
+#define S3_IMPLICIT_TREEFILE_PATH				("/var/tmp/" EXE_NAME "_" + \
+												SystemTk::getUsername() + "_" + \
+												"treefile_implicit.txt")
 
 
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
@@ -134,9 +157,11 @@ class ProgArgs
 		bool hasUserRequestedHelp();
 		void printHelp();
 		bool hasUserRequestedVersion();
+		bool hasUserRequestedDryRun();
 		void printVersionAndBuildInfo();
-		void setFromPropertyTree(bpt::ptree& tree);
-		void getAsPropertyTree(bpt::ptree& outTree, size_t workerRank) const;
+		void printDryRunInfo();
+		void setFromPropertyTreeForService(bpt::ptree& tree);
+		void getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRank) const;
 		void getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const;
 		void resetBenchPath();
 		void getBenchPathInfoTree(bpt::ptree& outTree);
@@ -206,7 +231,7 @@ class ProgArgs
 		size_t liveStatsSleepSec; // sleep interval between live stats console refresh
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRandomAligned; // use block-aligned random offsets (when randomOffsets is used)
-		size_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
+		uint64_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
 		std::string randomAmountOrigStr; // original randomAmount str from user with unit
 		size_t ioDepth; // depth of io queue per thread for libaio
 		bool showLatency; // show min/avg/max latency
@@ -243,6 +268,7 @@ class ProgArgs
 		bool doDirectVerify; // verify data integrity by reading immediately after write
 		unsigned blockVariancePercent; // % of blocks that should differ between writes
 		unsigned rwMixPercent; // % of blocks that should be read (the rest will be written)
+		bool useRWMixPercent; // implicitly set in case of rwmixpct (even if ==0)
 		std::string blockVarianceAlgo; // rand algo for buffer fill variance
 		std::string randOffsetAlgo; // rand algo for random offsets
 		std::string treeFilePath; // path to file containing custom tree (list of dirs and files)
@@ -253,13 +279,34 @@ class ProgArgs
 		uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
 			(useful for directIO with its alignment reqs on some file systems. 0 disables this.) */
 		std::string treeRoundUpSizeOrigStr; // original treeRoundUpSize str from user with unit
+		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
+		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
+		std::string s3AccessKey; // s3 access key
+		std::string s3AccessSecret; // s3 access secret
+		std::string s3Region; // s3 region
+		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
+									via buffer possible, such as GPU copy or data verification) */
+		bool useS3TransferManager; // use AWS SDK TransferManager for object downloads
+		unsigned short s3LogLevel; // log level for AWS SDK
+		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
+		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
+		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
+		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
+		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
+		bool doReverseSeqOffsets; // backwards sequential read/write
+		bool doInfiniteIOLoop; // start I/O from the beginning when reaching the end
+		size_t numS3RWMixReadThreads; // number of rwmix read threads in write phase (req "-n"/"-N")
+		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
+		bool useS3RandObjSelect; // random object selection for each read
 
 
 		void defineDefaults();
+		void initImplicitValues();
 		void convertUnitStrings();
 		void checkArgs();
 		void checkPathDependentArgs();
 		void parseAndCheckPaths();
+		void convertS3PathsToCustomTree();
 		void prepareBenchPathFDsVec();
 		void prepareCuFileHandleDataVec();
 		void prepareFileSize(int fd, std::string& path);
@@ -267,7 +314,9 @@ class ProgArgs
 		void parseNumaZones();
 		void parseGPUIDs();
 		void parseRandAlgos();
+		void parseS3Endpoints();
 		void loadCustomTreeFile();
+		void splitCustomTreeForSharedS3Upload();
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
@@ -276,6 +325,7 @@ class ProgArgs
 		void printHelpAllOptions();
 		void printHelpBlockDev();
 		void printHelpMultiFile();
+		void printHelpS3();
 		void printHelpDistributed();
 
 
@@ -325,7 +375,7 @@ class ProgArgs
 		size_t getLiveStatsSleepSec() const { return liveStatsSleepSec; }
 		bool getUseRandomOffsets() const { return useRandomOffsets; }
 		bool getUseRandomAligned() const { return useRandomAligned; }
-		size_t getRandomAmount() const { return randomAmount; }
+		uint64_t getRandomAmount() const { return randomAmount; }
 		size_t getIODepth() const { return ioDepth; }
 		bool getShowLatency() const { return showLatency; }
 		bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
@@ -360,6 +410,7 @@ class ProgArgs
 		bool getDoDirectVerify() const { return doDirectVerify; }
 		unsigned getBlockVariancePercent() const { return blockVariancePercent; }
 		unsigned getRWMixPercent() const { return rwMixPercent; }
+		bool hasUserSetRWMixPercent() const { return useRWMixPercent; }
 		std::string getBlockVarianceAlgo() const { return blockVarianceAlgo; }
 		std::string getRandOffsetAlgo() const { return randOffsetAlgo; }
 		std::string getTreeFilePath() const { return treeFilePath; }
@@ -369,6 +420,26 @@ class ProgArgs
 		uint64_t getFileShareSize() const { return fileShareSize; }
 		bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
 		uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }
+		std::string getS3EndpointsStr() const { return s3EndpointsStr; }
+		const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
+		std::string getS3AccessKey() const { return s3AccessKey; }
+		std::string getS3AccessSecret() const { return s3AccessSecret; }
+		std::string getS3Region() const { return s3Region; }
+		bool getUseS3FastRead() const { return useS3FastRead; }
+		bool getUseS3TransferManager() const { return useS3TransferManager; }
+		unsigned short getS3LogLevel() const { return s3LogLevel; }
+		bool getNoDirectIOCheck() const { return noDirectIOCheck; }
+		std::string getS3ObjectPrefix() const { return s3ObjectPrefix; }
+		uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
+		bool getRunListObjPhase() const { return (runS3ListObjNum > 0); }
+		bool getRunListObjParallelPhase() const { return runS3ListObjParallel; }
+		bool getDoListObjVerify() const { return doS3ListObjVerify; }
+		bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
+		bool getDoInfiniteIOLoop() const { return doInfiniteIOLoop; }
+		size_t getNumS3RWMixReadThreads() const { return numS3RWMixReadThreads; }
+		unsigned short getS3SignPolicy() const { return s3SignPolicy; }
+		bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
+
 };
 
 

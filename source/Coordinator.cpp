@@ -4,6 +4,7 @@
 #include "HTTPService.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
+#include "toolkits/S3Tk.h"
 #include "toolkits/SignalTk.h"
 #include "workers/WorkerException.h"
 
@@ -21,7 +22,7 @@ int Coordinator::main()
 	try
 	{
 		SignalTk::registerFaultSignalHandlers();
-		workerManager.prepareThreads();
+		S3Tk::initS3Global(progArgs);
 
 		// HTTP service mode
 		// note: no other threads may be running when HTTPService.startServer() daemonizes.
@@ -36,6 +37,8 @@ int Coordinator::main()
 			workerManager.interruptAndNotifyWorkers();
 			goto joinall_and_exit;
 		}
+
+		workerManager.prepareThreads();
 
 		/* register signal handlers for clean worker stop and stats print after ctrl+c. This is not
 			done in service mode, because a service shall just quit on an interrupt signal. */
@@ -56,9 +59,14 @@ int Coordinator::main()
 			workerManager.checkServiceBenchPathInfos();
 		}
 
-		waitForUserDefinedStartTime();
+		if(progArgs.hasUserRequestedDryRun() )
+			statistics.printDryRunInfo();
+		else
+		{
+			waitForUserDefinedStartTime();
 
-		runBenchmarks();
+			runBenchmarks();
+		}
 
 		// signal workers to self-terminate
 		workerManager.startNextPhase(BenchPhase_TERMINATE);
@@ -96,6 +104,8 @@ joinall_and_exit:
 		std::cerr << LoggerBase::getErrHistory();
 		LoggerBase::clearErrHistory();
 	}
+
+	S3Tk::uninitS3Global(progArgs);
 
 	if( (retVal != EXIT_SUCCESS) || workerManager.getNumWorkersDoneWithError() )
 		return EXIT_FAILURE;
@@ -212,7 +222,19 @@ void Coordinator::runBenchmarks()
 			runBenchmarkPhase(BenchPhase_STATFILES);
 			runSyncAndDropCaches();
 		}
-	
+
+		if(progArgs.getRunListObjPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_LISTOBJECTS);
+			runSyncAndDropCaches();
+		}
+
+		if(progArgs.getRunListObjParallelPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_LISTOBJPARALLEL);
+			runSyncAndDropCaches();
+		}
+
 		if(progArgs.getRunReadPhase() )
 		{
 			runBenchmarkPhase(BenchPhase_READFILES);

@@ -2,7 +2,8 @@
 #include "ProgException.h"
 #include "TranslatorTk.h"
 
-#define TRANSLATORTK_PHASENAME_RWMIX	"RWMIX"
+#define TRANSLATORTK_PHASENAME_RWMIX	"RWMIX" // rwmix with read percentage
+#define TRANSLATORTK_PHASENAME_S3MIXTH	"MIX-T" // s3 rwmix with separate reader threads
 
 /**
  * Get name of a phase from bench phase.
@@ -20,7 +21,11 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_DELETEDIRS: return PHASENAME_DELETEDIRS;
 		case BenchPhase_CREATEFILES:
 		{
-			if(progArgs->getRWMixPercent() )
+			if(!progArgs->getS3EndpointsVec().empty() && progArgs->getNumS3RWMixReadThreads() )
+				return TRANSLATORTK_PHASENAME_S3MIXTH +
+					std::to_string(progArgs->getNumS3RWMixReadThreads() );
+			else
+			if(progArgs->hasUserSetRWMixPercent() )
 				return TRANSLATORTK_PHASENAME_RWMIX + std::to_string(progArgs->getRWMixPercent() );
 			else
 				return PHASENAME_CREATEFILES;
@@ -30,6 +35,8 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_SYNC: return PHASENAME_SYNC;
 		case BenchPhase_DROPCACHES: return PHASENAME_DROPCACHES;
 		case BenchPhase_STATFILES: return PHASENAME_STATFILES;
+		case BenchPhase_LISTOBJECTS: return PHASENAME_LISTOBJECTS;
+		case BenchPhase_LISTOBJPARALLEL: return PHASENAME_LISTOBJPAR;
 		default:
 		{ // should never happen
 			throw ProgException("Phase name requested for unknown/invalid phase type: " +
@@ -63,6 +70,8 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool
 		case BenchPhase_SYNC:
 		case BenchPhase_DROPCACHES:
 		case BenchPhase_STATFILES:
+		case BenchPhase_LISTOBJECTS:
+		case BenchPhase_LISTOBJPARALLEL:
 		{
 			retVal = PHASEENTRYTYPE_FILES;
 		} break;

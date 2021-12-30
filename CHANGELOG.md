@@ -1,5 +1,61 @@
 # Changelog of elbencho
 
+## v2.0.4 (work in progress)
+
+### General Changes ###
+* Added S3 support to Alpine Linux docker container.
+* Updated to latest AWS SDK CPP v1.9.162.
+* Label results as "RWMIX0" if "--rwmixpct 0" is given (instead of previously labeling as "WRITE" in this case).
+* When "--rand" is used and multiple files/blockdevs are given directly as parameters then each thread now randomly selects the next file/blockdev.
+  * Previously each thread iterated over all files/blockdevs in a round-robin fashion.
+
+### Fixes
+* Previously, block variance (--blockvarpct) was calculated for all blocks in rwmix mode (--rwmixpct). Now we do it only for blocks that are actually being written and skip the read blocks to avoid unnecessary CPU overhead.
+
+### Contributors
+* Thanks to Matt Gustafson for helpful comments and suggestions.
+
+## v2.0.3 (Nov 26, 2021)
+
+### New Features & Enhancements
+* New option for infinite workload loop ("--infloop") to let I/O worker threads restart from the beginning instead of terminating when they reach the end of their workload specification. Use ctrl+c or time limit to interrupt.
+
+### General Changes
+* New support for static linking on Alpine Linux.
+
+### Fixes
+* Fixed init of AWS S3 SDK. Avoids memory errors for repeated S3 tests in service mode, caused by dynamic init/uninit of the SDK, which it is not made for.
+* Fixed memory cleanup problem with S3 single-part uploads.
+
+## v2.0.1 (Oct 17, 2021)
+
+### New Features & Enhancements
+* New support for S3 object storage benchmarking.
+  * Not enabled by default due to extra build time. See README.md for easy instructions on how to enable.
+  * S3 support is included in the default docker container.
+* New support for random IO ("--rand") when benchmark path is a directory.
+  * Can now be used in combination with "-n"/"-N" or custom tree files.
+* New Nvidia Magnum IO based Docker container with CUDA and GPUDirect Storage (GDS) support included.
+  * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
+* New Dockerfiles to build containers from local source copy.
+  * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
+* New guide for using elbencho with the Slurm Workload Manager.
+  * See here: https://github.com/breuner/elbencho/blob/master/tools/slurm-examples.md
+
+### General Changes
+* Using "--quit --hosts ..." now shows whether the service instances confirmed the quit command.
+* New "--nodiocheck" parameter to skip check for direct IO alignment.
+* New "--dryrun" option to see dataset size and number of entries.
+* Additional columns appended to csv files for rwmix read results.
+* Additional aggregate read info row in fullscreen live stats for mixed read+write mode.
+
+### Fixes
+* Read result in "last done" column for "--rwmixpct" option used completion time of first done thread for calulation of IOPS and throughput.
+
+### Contributors
+* Thanks to Chin Fang & Andy Pernsteiner for S3 support testing and feedback.
+* Thanks to Paul Hargreaves, Michael Bloom & Glenn K. Lockwood for helpful comments and suggestions.
+
 ## v1.9.1 (May 29, 2021)
 
 ### New Features & Enhancements

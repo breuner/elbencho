@@ -302,19 +302,19 @@ void WorkerManager::startNextPhase(BenchPhase newBenchPhase, std::string* benchI
 
 /**
  * Returns the total number of entries to be read/written and number of bytes to be read/written in
- * the current phase.
+ * the given benchmark phase.
  *
  * The returned numbers are per worker, so for local benchmarks they are per LocalWorker; if this
  * is the master of a distributed benchmark then they are per RemoteWorker.
  */
-void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
-	uint64_t& outNumBytesPerWorker)
+void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPhase benchPhase,
+	BenchPathType benchPathType, size_t& outNumEntriesPerWorker, uint64_t& outNumBytesPerWorker)
 {
-	if(progArgs.getBenchPathType() == BenchPathType_DIR)
+	if(benchPathType == BenchPathType_DIR)
 	{
 		if(progArgs.getTreeFilePath().empty() )
 		{ // standard dir mode
-			switch(workersSharedData.currentBenchPhase)
+			switch(benchPhase)
 			{
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
@@ -326,12 +326,24 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				{
-					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
-					outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
+					if( (benchPhase == BenchPhase_READFILES) &&
+						!progArgs.getS3EndpointsVec().empty() &&
+						progArgs.getUseS3RandObjSelect() )
+					{ // special case: s3 random object selection is based on randomAmount
+						outNumEntriesPerWorker = 0;
+						outNumBytesPerWorker = progArgs.getRandomAmount() /
+								progArgs.getNumDataSetThreads(); // randamount is total, not per obj
+					}
+					else
+					{ // normal case: based on number of dirs and files per dir
+						outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+						outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
+					}
 				} break;
 
 				case BenchPhase_DELETEFILES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_LISTOBJPARALLEL:
 				{
 					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
 					outNumBytesPerWorker = 0;
@@ -355,7 +367,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 				progArgs.getCustomTreeFilesShared().getNumBytesTotal();
 			const size_t numDataSetThreads = progArgs.getNumDataSetThreads();
 
-			switch(workersSharedData.currentBenchPhase)
+			switch(benchPhase)
 			{
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
@@ -393,7 +405,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerWorker,
 	{ // file/blockdev mode
 		outNumEntriesPerWorker = progArgs.getBenchPaths().size();
 
-		switch(workersSharedData.currentBenchPhase)
+		switch(benchPhase)
 		{
 			case BenchPhase_CREATEFILES:
 			case BenchPhase_READFILES:
