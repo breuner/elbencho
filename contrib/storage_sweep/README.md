@@ -33,7 +33,7 @@ Engineering](https://www.artima.com/intv/garden.html)
 
 # Introduction
 
-This directory contains two `bash` scripts:
+This directory contains three `bash` scripts:
 
 1. **`graph_sweep.sh`** is a wrapper script of `mtelbencho.sh` and
    [`gnuplot`](http://www.gnuplot.info).  Its main purpose is to make
@@ -43,6 +43,8 @@ This directory contains two `bash` scripts:
 2. **`mtelbencho.sh`** (*mt: multiple test*) is a wrapper script for
    `elbencho`. Once it's installed, type `mtelbencho.sh -h` for more
    info.
+3. **`dgen.sh`** (*data generator*) is also a wrapper script for
+   `elbencho`. Once it's installed, type `dgen.sh -h` for more info.
 
 `elbencho` is a modern, distributed, fast, storage space efficient,
 and easy to use storage benchmarking application. There is no need to
@@ -60,6 +62,9 @@ is used in real production/test environment.  `mtelbencho.sh` provides
 a simple, production grade, useful, and extensible example.
 `graph_sweep.sh` enables you to graph the obtained results in a push
 button manner.
+`dgen.sh` enables you to quickly and flexibly to generate hyperscale
+test datasets, where the term "hyperscale datasets" means a dataset that
+contains >= 1M files, or overall size >= 1TB, or both.
 
 Before proceeding, you may wish to browse the
 **[`QUICKSTART.md`](QUICKSTART.md)** first.
@@ -76,13 +81,13 @@ Before proceeding, you may wish to browse the
    time*!
 2. `elbencho` version 1.6.x or later must be installed and available
    in the `root`'s `$PATH`.
-3. Both `mtelbencho.sh` and `graph_sweep.sh` are installed together
-   with `elbencho` RPM or DEB packages, likewise, when the `make
-   install` is issued.  Please note that you need to be `root` to
-   actually run both.  The key reason is that `mtelbencho.sh` runs
-   `elbencho` with its `--dropcache` option, which demands `root`
-   privilege.  You can run the dry-run mode `-n` without being a
-   `root` however.
+3. `mtelbencho.sh`, `graph_sweep.sh`, and `dgen.sh` are installed
+   together with `elbencho` RPM or DEB packages, likewise, when the
+   `make install` is issued.  Please note that you need to be `root`
+   to actually run them.  The key reason is that `mtelbencho.sh` and
+   `dgen.sh` run `elbencho` with its `--dropcache` option, which
+   demands `root` privilege.  You can run the dry-run mode `-n`
+   without being a `root` however.
    
 Note also that your storage must be reasonably fast (*i.e. capable of
 attaining a write throughput level >= 10Gbps with appropriately sized
@@ -114,7 +119,8 @@ This directory contains
 
 1. `graph_sweep.sh` 
 2. `mtelbencho.sh` 
-3. A '`sw_tests`' subdirectory.  Please review the
+3. `dgen.sh`
+4. '`sw_tests`' subdirectory.  Please review the
    [`README_sw_tests.md`](sw_tests/README_sw_tests.md) in this subdirectory.
 
 # Goals and possible uses
@@ -156,7 +162,7 @@ Note that
 1. Due to the gradual changes of the performance characteristics of
    SSDs, the shape of the graphs above may change over time.  More
    below in the next subsection.
-2. This set of tools is the outcome of [an ESnet/Zettar
+2. This pair of tools is the outcome of [an ESnet/Zettar
 collaboration](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf)
 about moving data at scale and *speed*.  In this space, using bps is
 the norm. Furthermore, modern storage tends to be networked; in the
@@ -167,6 +173,15 @@ unit.
 3. The storage sweep tools are meant to be applied to reasonably fast
    storage. As such, **Gbps** and **GB/s** are used.  No smaller units are
    planned.
+   
+### dgen.sh 
+
+This wrapper is the outcome of the NVIDIA SC21 Virtual Theater talk
+"Accelerating At-Scale AI Data Migration" https://nvda.ws/3qQxEwg The
+wrapper also serves to show that `elbencho` can have some novel uses
+too, other than just a storage benchmark! It can be used to generate
+various test datasets very flexibly. `dgen.sh` only shows some
+possibilities.
 
 The following shows the two sweep plots of using bps and Bps. They
 were generated on [a Zettar
@@ -207,6 +222,7 @@ the following:
    sweep plots ![the six full sweep
    plots](pics/6_overall_sweep_plots.png) should make it evident that
    although they are similar, but not identical.
+8. Generate various test datasets flexibly.
 
 Many other uses are possible. It's up to one's creativity and
 imagination.
@@ -244,7 +260,18 @@ concluded both timely and successfully.
 
 Believing what we learned and did during the project could be helpful
 to others, I decided to rewrite and consolidate the various test
-scripts that I wrote for the project into a pair of `bash` wrappers. 
+scripts that I wrote for the project into a pair of `bash` wrappers.
+
+In 2021, NVIDIA invited Zettar to collaborate with DataDirect Networks
+(DDN) for a Supercomputing 2021 (SC21) Virtual Theater solution
+showcase. The production-ready, fully optimized solution is for
+accelerating at-scale AI data migration. An endeavor that's fast
+gaining importance as large-scale AI traing sessions need more and
+more data that must be efficiently and conveniently migrated over to
+the GPU clusters. During the preparation, other than `mtelbencho.sh`
+and `graph_sweep.sh`, I recognize the need to generate test datasets
+conveniently, thus I wrote `dgen.sh` leveraging some little known
+`elbencho`'s capabilities.
 
 [Back to top](#page_top)
 
@@ -332,11 +359,19 @@ empower you to do so conveniently.
 
 `elbencho` is a distributed storage benchmark for file systems and
 block devices with support for GPUs.  It is far more capable than the
-two wrappers cover.  In addition, they don't directly handle the
-benchmarking of scale-out storage.  Although coupled with something
-like [Ansible](https://www.ansible.com) and `elbencho`'s service mode
-(see `elbencho --help-all`), it can be done.  Future improvement and
-evolution are definitely possible.
+the first two wrappers cover.  In addition, the pair doesn't directly
+handle the benchmarking of scale-out storage.  Although coupled with
+something like [Ansible](https://www.ansible.com) and `elbencho`'s
+service mode (see `elbencho --help-all`), it can be done.  Future
+improvement and evolution are definitely possible.
+
+Sven and other contributors have been adding new features and
+functionalities to `elbencho` from time to time.  Perhaps in the
+future, when opportunities arises, I will create a read benchmark
+wrapper and introduce the ability to sweep AWS S3 compatible object
+storage. `dgen.ch` can be made even more flexible as well.  You are
+also encouraged to try to consider your own contributions along such
+directions.
 
 [Back to top](#page_top)
 
@@ -353,7 +388,7 @@ evolution are definitely possible.
 
 # Epilogue
 
-I hope you enjoy using the two modest wrappers as much as I did creating
+I hope you enjoy using the three modest wrappers as much as I did creating
 them!
 
 [Back to top](#page_top)
