@@ -19,6 +19,7 @@ Engineering](https://www.artima.com/intv/garden.html)
       * [Primary goal of each wrapper and the main use](#primary-goal-of-each-wrapper-and-the-main-use)
          * [mtelbencho.sh](#mtelbenchosh)
          * [graph_sweep.sh](#graph_sweepsh)
+		 * [dgen.sh](#dgensh)
       * [Other uses](#other-uses)
    * [Motivation](#motivation)
    * [A brief overview of storage benchmarking](#a-brief-overview-of-storage-benchmarking)
@@ -37,9 +38,8 @@ This directory contains three `bash` scripts:
 
 1. **`graph_sweep.sh`** is a wrapper script of `mtelbencho.sh` and
    [`gnuplot`](http://www.gnuplot.info).  Its main purpose is to make
-   the graphing of storage sweeps a push-button operation as much as
-   possible.  Once it's installed, type `graph_sweep.sh -h` for more
-   info.
+   the graphing of storage sweeps a push-button operation.  Once it's
+   installed, type `graph_sweep.sh -h` for more info.
 2. **`mtelbencho.sh`** (*mt: multiple test*) is a wrapper script for
    `elbencho`. Once it's installed, type `mtelbencho.sh -h` for more
    info.
@@ -61,10 +61,9 @@ Nevertheless, it should be helpful to see how this versatile program
 is used in real production/test environment.  `mtelbencho.sh` provides
 a simple, production grade, useful, and extensible example.
 `graph_sweep.sh` enables you to graph the obtained results in a push
-button manner.
-`dgen.sh` enables you to quickly and flexibly to generate hyperscale
-test datasets, where the term "hyperscale datasets" means a dataset that
-contains >= 1M files, or overall size >= 1TB, or both.
+button manner.  `dgen.sh` enables you to quickly and flexibly generate
+hyperscale test datasets, where the term "hyperscale datasets" is
+defined in [the next section](#requirements).
 
 Before proceeding, you may wish to browse the
 **[`QUICKSTART.md`](QUICKSTART.md)** first.
@@ -120,7 +119,7 @@ This directory contains
 1. `graph_sweep.sh` 
 2. `mtelbencho.sh` 
 3. `dgen.sh`
-4. '`sw_tests`' subdirectory.  Please review the
+4. `sw_tests` subdirectory.  Please review the
    [`README_sw_tests.md`](sw_tests/README_sw_tests.md) in this subdirectory.
 
 # Goals and possible uses
@@ -134,7 +133,9 @@ benchmarking](#a-brief-overview-of-storage-benchmarking)** sections
 below*) is a simple and effective way to learn about *the current*
 performance and characteristics of a storage service. Such a sweep
 should be carried out by any IT professional responsible for an
-organization's storage, especially a new deployment.
+organization's storage, especially a new deployment.  The results
+provide an overview of the storage in question agnostic about
+application / use case.
 
 The foremost goal of `mtelbencho.sh` is to simplify the already easy
 `elbencho` usage even more for carrying out a storage sweep over a
@@ -164,25 +165,17 @@ Note that
    below in the next subsection.
 2. This pair of tools is the outcome of [an ESnet/Zettar
 collaboration](https://www.es.net/assets/Uploads/zettar-zx-dtn-report.pdf)
-about moving data at scale and *speed*.  In this space, using bps is
-the norm. Furthermore, modern storage tends to be networked; in the
-networking world, bps has also been the unit to use. Thus the default
-output unit is Gbps. Nevertheless, the `graph_sweep.sh` has a `-T`
-(traditional) option which enables GB/s as a storage oriented output
-unit.
+on [High-Performance Data Movement Services –
+DTNaaS](https://www.youtube.com/watch?v=LIQxIZVAxks).  In this space,
+using bps is the norm. Furthermore, modern storage tends to be
+networked; in the networking world, bps has also been the unit to
+use. Thus the default output unit is Gbps. Nevertheless, the
+`graph_sweep.sh` has a `-T` (traditional) option which enables GB/s as
+a storage oriented output unit.
 3. The storage sweep tools are meant to be applied to reasonably fast
    storage. As such, **Gbps** and **GB/s** are used.  No smaller units are
    planned.
    
-### dgen.sh 
-
-This wrapper is the outcome of the NVIDIA SC21 Virtual Theater talk
-"Accelerating At-Scale AI Data Migration" https://nvda.ws/3qQxEwg The
-wrapper also serves to show that `elbencho` can have some novel uses
-too, other than just a storage benchmark! It can be used to generate
-various test datasets very flexibly. `dgen.sh` only shows some
-possibilities.
-
 The following shows the two sweep plots of using bps and Bps. They
 were generated on [a Zettar
 testbed](https://youtube.com/watch?v=5qTpGg57p_o), using the following
@@ -192,6 +185,16 @@ two commands:
 
 |![full sweep graph in Gbps](pics/full_sweep_Gbps.svg)      | ![full_sweep_graph_in_GBps](pics/full_sweep_GBps.svg)|
 |-----------------------------------------------|-------------------------------------------------|
+
+### dgen.sh 
+
+This wrapper is the outcome of the [NVIDIA SC21 Virtual Theater talk
+"Accelerating At-Scale AI Data
+Migration"](https://resources.nvidia.com/en-us-supercomputing-2021-virtual-theater/ai-data-migration)
+The wrapper also serves to show that other than for storage
+benchmarking, `elbencho` can have some novel uses! For example, it can
+be used to generate various test datasets very flexibly. `dgen.sh`
+only shows some possibilities.
 
 [Back to top](#page_top)
 
@@ -231,8 +234,8 @@ imagination.
 
 # Motivation
 
-My professional focus and specialty is moving data at scale and when
-feasible, at speed.  Since 2015, my company, [Zettar
+My professional focus and specialty is at-scale data movement, such as
+for large-scale AI/ML/DL training.  Since 2015, my company, [Zettar
 Inc.](https://zettar.com/) has been engaged to support the ambitious
 data movement requirements of [Linac Coherent Light Source II
 (LCLS-II)](https://lcls.slac.stanford.edu/lcls-ii/design-and-performance),
@@ -263,15 +266,19 @@ to others, I decided to rewrite and consolidate the various test
 scripts that I wrote for the project into a pair of `bash` wrappers.
 
 In 2021, NVIDIA invited Zettar to collaborate with DataDirect Networks
-(DDN) for a Supercomputing 2021 (SC21) Virtual Theater solution
-showcase. The production-ready, fully optimized solution is for
-accelerating at-scale AI data migration. An endeavor that's fast
-gaining importance as large-scale AI traing sessions need more and
-more data that must be efficiently and conveniently migrated over to
-the GPU clusters. During the preparation, other than `mtelbencho.sh`
-and `graph_sweep.sh`, I recognize the need to generate test datasets
-conveniently, thus I wrote `dgen.sh` leveraging some little known
-`elbencho`'s capabilities.
+(DDN) for a [Supercomputing 2021 (SC21) Virtual Theater solution
+showcase](https://www.hpcwire.com/off-the-wire/zettar-to-showcase-accelerating-at-scale-ai-data-migration-at-sc21/). The
+production-ready, fully optimized solution is for accelerating
+at-scale AI data migration. An endeavor that's fast gaining importance
+as large-scale AI/ML/DL traing sessions need more and more data that
+must be efficiently and conveniently migrated over to the GPU
+clusters. But an often overlooked factor is that time needed for
+moving data to the ingestion storage for AI processing often takes
+signficant percentage of the overall session time! During the
+preparation, other than `mtelbencho.sh` and `graph_sweep.sh`, I
+recognize the need to generate test datasets conveniently, thus I
+wrote `dgen.sh` leveraging some little known `elbencho`'s
+capabilities.
 
 [Back to top](#page_top)
 
