@@ -1,19 +1,34 @@
 # Changelog of elbencho
 
-## v2.0.4 (work in progress)
+## v2.0.6 (work in progress)
+
+### New Features & Enhancements
+* New option "--rwmixthr N" to define the number of reader threads in a write phase. In contrast to "--rwmixpct N" (where each thread performs reads & writes and thus has to complete a certain number of writes before it can continue with reads), this removes the direct coupling of read and write speed by letting the readers run completely separate from the writers.
+* In read/write mix mode (--rwmixpct, --rwmixthr) read latency is now measured separate from write latency.
+  * Separate read latency rows will now be shown on console when "--lat" is given.
+  * Corresponding rwmix read latency columns were added to csv result files.
+* New option "--live1" to show single line live statistics instead of using full screen mode.
+* New option "--label" to defined custom labels for benchmark run, which will be printed in result files and csv files.
+* CSV files now contain columns for elbencho version and complete command line arguments.
+* The contributed sweep tools were extended with a new dataset generator script (dgen.sh).
 
 ### General Changes ###
+* Added new GPUDirect Storage option "--gds" as shortcut for "--direct --cufile --gdsbufreg".
 * Added S3 support to Alpine Linux docker container.
 * Updated to latest AWS SDK CPP v1.9.162.
 * Label results as "RWMIX0" if "--rwmixpct 0" is given (instead of previously labeling as "WRITE" in this case).
 * When "--rand" is used and multiple files/blockdevs are given directly as parameters then each thread now randomly selects the next file/blockdev.
   * Previously each thread iterated over all files/blockdevs in a round-robin fashion.
+* Block variance percentage (--blockvarpct) now defines the percentage of bytes within each written block to be randomly generated. 
+  * Previously this defined the number out of 100 written blocks to be randomly filled. This change is intended to avoid longer sequences of identical blocks, e.g. in case of "--blockvarpct 50". (The result for "--blockvarpct 100" is the same as before.)
+* The option "--s3rwmixthr" has been removed and is now replaced by the new option "--rwmixthr", which also works for S3.
 
 ### Fixes
 * Previously, block variance (--blockvarpct) was calculated for all blocks in rwmix mode (--rwmixpct). Now we do it only for blocks that are actually being written and skip the read blocks to avoid unnecessary CPU overhead.
 
 ### Contributors
 * Thanks to Matt Gustafson for helpful comments and suggestions.
+* Thanks to Chin Fang for extending the contributed storage sweep tools.
 
 ## v2.0.3 (Nov 26, 2021)
 

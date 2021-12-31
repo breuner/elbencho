@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 2
 EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 4
+EXE_VER_PATCHLEVEL ?= 6
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -108,7 +108,7 @@ else
 	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -o $(@)
 endif
 
-$(OBJECTS): | externals features-info
+$(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on Makefile change
 
 externals:
 ifdef BUILD_VERBOSE

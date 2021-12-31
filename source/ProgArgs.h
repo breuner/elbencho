@@ -123,9 +123,12 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 #define ARG_REVERSESEQOFFSETS_LONG	"backward"
 #define ARG_INFINITEIOLOOP_LONG		"infloop"
-#define ARG_S3RWMIXTHREADS_LONG		"s3rwmixthr"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
+#define ARG_RWMIXTHREADS_LONG		"rwmixthr"
+#define ARG_BRIEFLIFESTATS_LONG		"live1"
+#define ARG_GPUDIRECTSSTORAGE_LONG	"gds"
+#define ARG_BENCHLABEL_LONG			"label"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -166,6 +169,7 @@ class ProgArgs
 		void resetBenchPath();
 		void getBenchPathInfoTree(bpt::ptree& outTree);
 		void checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos);
+		bool checkCSVFileEmpty() const;
 
 
 	private:
@@ -295,9 +299,12 @@ class ProgArgs
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doReverseSeqOffsets; // backwards sequential read/write
 		bool doInfiniteIOLoop; // start I/O from the beginning when reaching the end
-		size_t numS3RWMixReadThreads; // number of rwmix read threads in write phase (req "-n"/"-N")
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3RandObjSelect; // random object selection for each read
+		size_t numRWMixReadThreads; // number of rwmix read threads in file/bdev write phase
+		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
+		bool useBriefLiveStats; // single-line live stats
+		std::string benchLabel; // user-defined label for benchmark run
 
 
 		void defineDefaults();
@@ -320,6 +327,7 @@ class ProgArgs
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
+		void checkCSVFileCompatibility();
 
 		void printHelpOverview();
 		void printHelpAllOptions();
@@ -436,9 +444,12 @@ class ProgArgs
 		bool getDoListObjVerify() const { return doS3ListObjVerify; }
 		bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
 		bool getDoInfiniteIOLoop() const { return doInfiniteIOLoop; }
-		size_t getNumS3RWMixReadThreads() const { return numS3RWMixReadThreads; }
 		unsigned short getS3SignPolicy() const { return s3SignPolicy; }
 		bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
+		size_t getNumRWMixReadThreads() const { return numRWMixReadThreads; }
+		bool hasUserSetRWMixReadThreads() const { return useRWMixReadThreads; }
+		bool getUseBriefLiveStats() const { return useBriefLiveStats; }
+		std::string getBenchLabel() const { return benchLabel; }
 
 };
 

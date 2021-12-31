@@ -33,6 +33,8 @@
 #define FILESHAREBLOCKFACTOR		32 // in custom tree mode, blockSize factor as of which to share
 #define FILESHAREBLOCKFACTOR_STR	STRINGIZE(FILESHAREBLOCKFACTOR)
 
+#define CSVFILE_EXPECTED_COMMAS		54 // to check if existing csv was written with other version
+
 /**
  * Constructor.
  *
@@ -111,6 +113,7 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 	initImplicitValues();
 	convertUnitStrings();
+	checkCSVFileCompatibility();
 	checkArgs();
 }
 
@@ -162,9 +165,10 @@ void ProgArgs::defineAllowedArgs()
 			"\" for good balance of speed and randomness; \"" RANDALGO_STRONG_STR "\" for high CPU "
 			"cost but strong randomness. (Default: " RANDALGO_FAST_STR ")")
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
-			"Percentage of blocks that should be refilled with random data between writes. This "
-			"can be used to control how well the generated data can be compressed or deduplicated. "
-			"(Default: 0; Max: 100)")
+			"Percentage of each block that will be refilled with random data between writes. "
+			"This can be used to defeat compression/deduplication. (Default: 0; Max: 100)")
+/*br*/	(ARG_BRIEFLIFESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
+			"Use brief live statistics format, i.e. a single line instead of full screen stats.")
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
 			"Show CPU utilization in phase stats results.")
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
@@ -208,6 +212,9 @@ void ProgArgs::defineAllowedArgs()
 			"When running as service, stay in foreground and connected to console instead of "
 			"detaching from console and daemonizing into backgorund.")
 #ifdef CUFILE_SUPPORT
+/*gd*/	(ARG_GPUDIRECTSSTORAGE_LONG,
+			"Use Nvidia GPUDirect Storage API. Enables \"--" ARG_DIRECTIO_LONG "\", \"--"
+			ARG_CUFILE_LONG "\", \"--" ARG_GDSBUFREG_LONG "\".")
 /*gd*/	(ARG_GDSBUFREG_LONG, bpo::bool_switch(&this->useGDSBufReg),
 			"Register GPU buffers for GPUDirect Storage (GDS) when using cuFile API.")
 #endif
@@ -242,6 +249,8 @@ void ProgArgs::defineAllowedArgs()
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
 			"Depth of I/O queue per thread for asynchronous I/O. Setting this to 2 or higher "
 			"turns on async I/O. (Default: 1)")
+/*cs*/	(ARG_BENCHLABEL_LONG, bpo::value(&this->benchLabel),
+			"Custom label to identify benchmark run in result files.")
 /*la*/	(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
 			"Show minimum, average and maximum latency for read/write operations and entries. "
 			"In read and write phases, entry latency includes file open, read/write and close.")
@@ -303,6 +312,12 @@ void ProgArgs::defineAllowedArgs()
 			"exists, new results will be appended.")
 /*rw*/	(ARG_RWMIXPERCENT_LONG, bpo::value(&this->rwMixPercent),
 			"Percentage of blocks that should be read in a write phase. (Default: 0; Max: 100)")
+/*rw*/	(ARG_RWMIXTHREADS_LONG, bpo::value(&this->numRWMixReadThreads),
+			"Number of threads that should do reads in a write phase for mixed read/write. The "
+			"given number is out of the total number of threads per host (\"-" ARG_NUMTHREADS_SHORT
+			"\"). This assumes that the full dataset has been precreated via normal write. "
+			"In S3 mode, this only works in combination with \"-" ARG_NUMDIRS_SHORT "\" and \"-"
+			ARG_NUMFILES_SHORT "\".")
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0)")
 #ifdef S3_SUPPORT
@@ -341,11 +356,6 @@ void ProgArgs::defineAllowedArgs()
 			ARG_RANDOMAMOUNT_LONG "\".")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
-/*s3r*/	(ARG_S3RWMIXTHREADS_LONG, bpo::value(&this->numS3RWMixReadThreads),
-			"Number of threads that should do reads in a write phase for mixed read/write. The "
-			"given number is out of the total number of threads per host (\"-" ARG_NUMTHREADS_SHORT
-			"\"). This requires usage of \"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT
-			"\" and the full dataset needs to be precreated with a normal write.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
 			"S3 access secret.")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
@@ -504,9 +514,11 @@ void ProgArgs::defineDefaults()
 	this->doS3ListObjVerify = false;
 	this->doReverseSeqOffsets = false;
 	this->doInfiniteIOLoop = false;
-	this->numS3RWMixReadThreads = 0;
 	this->s3SignPolicy = 0;
 	this->useS3RandObjSelect = false;
+	this->numRWMixReadThreads = 0;
+	this->useRWMixReadThreads = false;
+	this->useBriefLiveStats = false;
 }
 
 /**
@@ -515,8 +527,24 @@ void ProgArgs::defineDefaults()
  */
 void ProgArgs::initImplicitValues()
 {
+	/* note: boost bool type options are always present (because they default to false), so can't
+		just be checked via argsVariablesMap.count(). */
+
 	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
 		useRWMixPercent = true;
+
+	if(argsVariablesMap.count(ARG_RWMIXTHREADS_LONG) )
+		useRWMixReadThreads = true;
+
+	numRWMixReadThreads = std::min(numRWMixReadThreads, numThreads);
+
+	if(argsVariablesMap.count(ARG_GPUDIRECTSSTORAGE_LONG) )
+	{
+		useDirectIO = true;
+		useCuFile = true;
+		useGDSBufReg = true;
+	}
+
 }
 
 /**
@@ -624,17 +652,25 @@ void ProgArgs::checkArgs()
 	if(useCuFile && !s3EndpointsStr.empty() )
 		throw ProgException("cuFile API cannot be used with S3");
 
+	if(hasUserSetRWMixPercent() && !s3EndpointsStr.empty() )
+		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
+			"Consider \"--" ARG_RWMIXTHREADS_LONG "\" as alternative.");
+
+	if(hasUserSetRWMixPercent() && hasUserSetRWMixReadThreads() )
+		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
+			"\"--" ARG_RWMIXTHREADS_LONG "\"");
+
 	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
-		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
+		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
 			"GPU memory copy");
 
 	if(integrityCheckSalt && rwMixPercent)
 		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
-			"option --" ARG_INTEGRITYCHECK_LONG);
+			"option \"--" ARG_INTEGRITYCHECK_LONG "\"");
 
 	if(integrityCheckSalt && blockVariancePercent)
-		throw ProgException("Option --" ARG_BLOCKVARIANCE_LONG " cannot be used together with "
-			"option --" ARG_INTEGRITYCHECK_LONG);
+		throw ProgException("Option \"--" ARG_BLOCKVARIANCE_LONG "\" cannot be used together with "
+			"option \"--" ARG_INTEGRITYCHECK_LONG "\"");
 
 	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
 		throw ProgException("Integrity check writes are not supported in combination with random "
@@ -1798,13 +1834,13 @@ void ProgArgs::printHelpBlockDev()
 #ifdef CUDA_SUPPORT
 		std::endl <<
 		"  Stream data from large file into memory of first 2 GPUs via CUDA:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --cuhostbufreg \\" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 \\" ENDL
 		"        /mnt/myfs/file1" ENDL
 #endif
 #ifdef CUFILE_SUPPORT
 		std::endl <<
 		"  Stream data from large file into memory of first 2 GPUs via GPUDirect Storage:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --cufile --gdsbufreg --direct \\" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --gds \\" ENDL
 		"        /mnt/myfs/file1" ENDL
 #endif
 		std::endl;
@@ -1897,13 +1933,13 @@ void ProgArgs::printHelpMultiFile()
 		std::endl <<
 		"  As above, but also copy data into memory of first 2 GPUs via CUDA:" ENDL
 		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
-		"        --gpuids 0,1 --cuhostbufreg /data/testdir" ENDL
+		"        --gpuids 0,1 /data/testdir" ENDL
 #endif
 #ifdef CUFILE_SUPPORT
 		std::endl <<
 		"  As above, but read data into memory of first 2 GPUs via GPUDirect Storage:" ENDL
 		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
-		"        --gpuids 0,1 --cufile --gdsbufreg --direct /data/testdir" ENDL
+		"        --gpuids 0,1 --gds /data/testdir" ENDL
 #endif
 		std::endl <<
 		"  Delete files and directories created by example above:" ENDL
@@ -2235,9 +2271,10 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
 	doInfiniteIOLoop = tree.get<bool>(ARG_INFINITEIOLOOP_LONG);
-	numS3RWMixReadThreads = tree.get<size_t>(ARG_S3RWMIXTHREADS_LONG);
+	numRWMixReadThreads = tree.get<size_t>(ARG_RWMIXTHREADS_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
+	benchLabel = tree.get<std::string>(ARG_BENCHLABEL_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2336,9 +2373,10 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
 	outTree.put(ARG_INFINITEIOLOOP_LONG, doInfiniteIOLoop);
-	outTree.put(ARG_S3RWMIXTHREADS_LONG, numS3RWMixReadThreads);
+	outTree.put(ARG_RWMIXTHREADS_LONG, numRWMixReadThreads);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
+	outTree.put(ARG_BENCHLABEL_LONG, benchLabel);
 
 
 	// dynamically calculated values for service hosts...
@@ -2365,8 +2403,14 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
  */
 void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const
 {
+	std::string benchLabelNoCommas(benchLabel);
+	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
+
+	outLabelsVec.push_back("label");
+	outValuesVec.push_back(benchLabelNoCommas);
+
 	outLabelsVec.push_back("path type");
-	outValuesVec.push_back(TranslatorTk::benchPathTypeToStr(benchPathType) );
+	outValuesVec.push_back(TranslatorTk::benchPathTypeToStr(benchPathType, this) );
 
 	outLabelsVec.push_back("paths");
 	outValuesVec.push_back(std::to_string(benchPathsVec.size() ) );
@@ -2397,9 +2441,6 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 
 	outLabelsVec.push_back("random aligned");
 	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(useRandomAligned) );
-
-	outLabelsVec.push_back("random amount");
-	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(randomAmount) );
 
 	outLabelsVec.push_back("IO depth");
 	outValuesVec.push_back(std::to_string(ioDepth) );
@@ -2562,4 +2603,63 @@ void ProgArgs::checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos)
 				"Service_A random amount: " + std::to_string(firstInfo.randomAmount) + "; "
 				"Service_B random amount: " + std::to_string(otherInfo.randomAmount) );
 	}
+}
+
+/**
+ * Check if CSV file is empty or not existing yet.
+ *
+ * @return true if not exists or empty (or if size could not be retrieved), false otherwise
+ */
+bool ProgArgs::checkCSVFileEmpty() const
+{
+	struct stat statBuf;
+
+	int statRes = stat(csvFilePath.c_str(), &statBuf);
+	if(statRes == -1)
+	{
+		if(errno == ENOENT)
+			return true;
+
+		std::cerr << "ERROR: Getting CSV file size failed. "
+			"Path: " << csvFilePath <<
+			"SysErr: " << strerror(errno) << std::endl;
+
+		return true;
+	}
+
+	return (statBuf.st_size == 0);
+}
+
+/**
+ * Check an existing non-empty CSV file for compatibility. This means we count the number of commas
+ * in the header line to see if it matches the current number of commas. This way, we can avoid
+ * adding to a CSV file that was written with a different version and thus uses a different number
+ * of columns.
+ *
+ * @throw ProgException on incompatibility
+ */
+void ProgArgs::checkCSVFileCompatibility()
+{
+	if(csvFilePath.empty() )
+		return; // nothing to do
+
+	if(checkCSVFileEmpty() )
+		return; // no csv file yet or file is empty, so nothing to do
+
+	std::string lineStr;
+
+	std::ifstream fileStream(csvFilePath.c_str() );
+	if(!fileStream)
+		throw ProgException("Opening csv file for compatibility check failed: " + csvFilePath);
+
+	// read first line
+	std::getline(fileStream, lineStr);
+
+	int numCommas = std::count(lineStr.begin(), lineStr.end(), ',');
+
+	if(numCommas != CSVFILE_EXPECTED_COMMAS)
+		throw ProgException("CSV file compatibility check failed. "
+			"Was this file written with a different version? "
+			"Found commas: " + std::to_string(numCommas) + "; "
+			"Expected commas: " + std::to_string(CSVFILE_EXPECTED_COMMAS) );
 }

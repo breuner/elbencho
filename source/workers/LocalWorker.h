@@ -85,9 +85,13 @@ class LocalWorker : public Worker
 
 		uint64_t numIOPSSubmitted{0}; // internal sequential counter, not reset between phases
 
+		// phase-dependent variables
+		BenchPhase benchPhase{BenchPhase_IDLE};
+
 		// phase-dependent function & offsetGen pointers
 		RW_BLOCKSIZED funcRWBlockSized; // pointer to sync or async read/write
-		POSITIONAL_RW funcPositionalRW; // pread/write, cuFileRead/Write for sync read/write
+		POSITIONAL_RW funcPositionalWrite; // pwrite, cuFileWrite for sync write
+		POSITIONAL_RW funcPositionalRead; // pread, cuFileRead for sync read
 		AIO_RW_PREPPER funcAioRwPrepper; // io_prep_pwrite/io_prep_read for async read/write
 		BLOCK_MODIFIER funcPreWriteBlockModifier; // mod block buf before write (e.g. integrity chk)
 		BLOCK_MODIFIER funcPostReadBlockChecker; // check block buf post read (e.g. integrity check)
@@ -108,10 +112,13 @@ class LocalWorker : public Worker
 		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 #endif
 
+		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
+
 		void finishPhase();
 
 		void initS3Client();
 		void uninitS3Client();
+		void initThreadPhaseVars();
 		void initPhaseFileHandleVecs();
 		void initPhaseRWOffsetGen();
 		void nullifyPhaseFunctionPointers();

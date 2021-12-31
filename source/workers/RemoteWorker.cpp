@@ -202,6 +202,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		cpuUtil.stoneWall = resultTree.get<unsigned>(XFER_STATS_CPUUTIL_STONEWALL);
 		cpuUtil.lastDone = resultTree.get<unsigned>(XFER_STATS_CPUUTIL);
+		cpuUtil.live = 0;
 
 		elapsedUSecVec.resize(0);
 		elapsedUSecVec.reserve(progArgs->getNumThreads() );
@@ -214,12 +215,19 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
+			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
 		{
-			atomicLiveRWMixReadOps.numBytesDone =
+			atomicLiveOpsReadMix.numEntriesDone =
+					resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
+			atomicLiveOpsReadMix.numBytesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
-			atomicLiveRWMixReadOps.numIOPSDone =
+			atomicLiveOpsReadMix.numIOPSDone =
 					resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
+
+			iopsLatHistoReadMix.setFromPropertyTree(
+				resultTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
+			entriesLatHistoReadMix.setFromPropertyTree(
+				resultTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
 		}
 
 		phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
@@ -432,11 +440,13 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
+				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
 			{
-				atomicLiveRWMixReadOps.numBytesDone =
+				atomicLiveOpsReadMix.numEntriesDone =
+					statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
+				atomicLiveOpsReadMix.numBytesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
-				atomicLiveRWMixReadOps.numIOPSDone =
+				atomicLiveOpsReadMix.numIOPSDone =
 					statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
 			}
 

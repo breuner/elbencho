@@ -118,6 +118,7 @@ void LocalWorker::run()
 
 			do // for infinite I/O loop
 			{
+				initThreadPhaseVars();
 				initPhaseFileHandleVecs();
 				initPhaseRWOffsetGen();
 				initPhaseFunctionPointers();
@@ -355,6 +356,22 @@ void LocalWorker::uninitS3Client()
 }
 
 /**
+ * Init thread-local phase values.
+ */
+void LocalWorker::initThreadPhaseVars()
+{
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+
+	if(isRWMixedReader)
+		benchPhase = BenchPhase_READFILES;
+	else
+		benchPhase = globalBenchPhase;
+}
+
+/**
  * Init fileHandle vectors for current phase.
  */
 void LocalWorker::initPhaseFileHandleVecs()
@@ -466,7 +483,8 @@ void LocalWorker::initPhaseRWOffsetGen()
 void LocalWorker::nullifyPhaseFunctionPointers()
 {
 	funcRWBlockSized = NULL;
-	funcPositionalRW = NULL;
+	funcPositionalWrite = NULL;
+	funcPositionalRead = NULL;
 	funcAioRwPrepper = NULL;
 	funcPreWriteCudaMemcpy = NULL;
 	funcPostReadCudaMemcpy = NULL;
@@ -482,7 +500,6 @@ void LocalWorker::nullifyPhaseFunctionPointers()
  */
 void LocalWorker::initPhaseFunctionPointers()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const size_t ioDepth = progArgs->getIODepth();
 	const bool useCuFileAPI = progArgs->getUseCuFile();
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
@@ -496,19 +513,23 @@ void LocalWorker::initPhaseFunctionPointers()
 
 	nullifyPhaseFunctionPointers(); // set all function pointers to NULL
 
+
+	// independent of whether current phase is read or write...
+	// (these need to be set above the phase-dependent settings because those can override
+
+	funcPositionalWrite = useCuFileAPI ?
+		&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
+
+	funcPositionalRead = useCuFileAPI ?
+		&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
+
+
+	// phase-dependent settings...
+
 	if(benchPhase == BenchPhase_CREATEFILES)
 	{
 		funcRWBlockSized = (ioDepth == 1) ?
 			&LocalWorker::rwBlockSized : &LocalWorker::aioBlockSized;
-
-		funcPositionalRW = useCuFileAPI ?
-			&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
-
-		if(rwMixPercent && (funcPositionalRW == &LocalWorker::pwriteWrapper) )
-			funcPositionalRW = &LocalWorker::pwriteRWMixWrapper;
-		else
-		if(rwMixPercent && (funcPositionalRW == &LocalWorker::cuFileWriteWrapper) )
-			funcPositionalRW = &LocalWorker::cuFileRWMixWrapper;
 
 		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioWritePrepper;
 
@@ -538,10 +559,10 @@ void LocalWorker::initPhaseFunctionPointers()
 		if(doDirectVerify)
 		{
 			if(!useCuFileAPI)
-				funcPositionalRW = &LocalWorker::pwriteAndReadWrapper;
+				funcPositionalWrite = &LocalWorker::pwriteAndReadWrapper;
 			else
 			{
-				funcPositionalRW = &LocalWorker::cuFileWriteAndReadWrapper;
+				funcPositionalWrite = &LocalWorker::cuFileWriteAndReadWrapper;
 				funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 			}
 
@@ -552,9 +573,6 @@ void LocalWorker::initPhaseFunctionPointers()
 	{
 		funcRWBlockSized = (ioDepth == 1) ?
 			&LocalWorker::rwBlockSized : &LocalWorker::aioBlockSized;
-
-		funcPositionalRW = useCuFileAPI ?
-			&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
 
 		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioReadPrepper;
 
@@ -798,7 +816,7 @@ void LocalWorker::cleanup()
 		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
 
 		if(deregRes.err != CU_FILE_SUCCESS)
-			ERRLOGGER(Log_NORMAL, "ERROR: GPU DMA buffer deregistration via cuFileBufDeregister failed. "
+			ERRLOGGER(Log_VERBOSE, "GPU DMA buffer deregistration via cuFileBufDeregister failed. "
 				"GPU ID: " << gpuID << "; "
 				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl);
 	}
@@ -823,7 +841,8 @@ void LocalWorker::cleanup()
 			cudaError_t unregRes = cudaHostUnregister(ioBuf);
 
 			if(unregRes != cudaSuccess)
-				ERRLOGGER(Log_NORMAL, "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
+				ERRLOGGER(Log_VERBOSE,
+					"CPU DMA buffer deregistration via cudaHostUnregister failed. "
 					"GPU ID: " << gpuID << "; "
 					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl);
 		}
@@ -845,6 +864,9 @@ void LocalWorker::cleanup()
  */
 int64_t LocalWorker::rwBlockSized()
 {
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const unsigned rwMixPercent = progArgs->getRWMixPercent();
+
 	OffsetGenRandom randFileIndexGen(
 		~(uint64_t)0, *randOffsetAlgo, fileHandles.fdVecPtr->size(), 0, 1);
 
@@ -854,21 +876,44 @@ int64_t LocalWorker::rwBlockSized()
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 		const size_t fileHandleIdx = (fileHandles.fdVecPtr->size() > 1) ?
 			randFileIndexGen.getNextOffset() : 0;
+		bool isRWMixRead = false;
+		ssize_t rwRes;
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
-		ssize_t rwRes = ((*this).*funcPositionalRW)(
-			fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		if(benchPhase == BenchPhase_READFILES)
+		{ // this is a read, but could be a rwmix read thread
+			isRWMixRead = (benchPhase != globalBenchPhase);
+
+			rwRes = ((*this).*funcPositionalRead)(
+				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		}
+		else // this is a write or rwmixpct read
+		if(rwMixPercent &&
+			( ( (workerRank + numIOPSSubmitted) % 100) < rwMixPercent) )
+		{ // this is a rwmix read
+			isRWMixRead = true;
+
+			rwRes = ((*this).*funcPositionalRead)(
+				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		}
+		else
+		{ // this is a plain write
+			rwRes = ((*this).*funcPositionalWrite)(
+				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		}
 
 		IF_UNLIKELY(rwRes <= 0)
 		{ // unexpected result
-			ERRLOGGER(Log_NORMAL, "rw failed: " << "blockSize: " << blockSize << "; " <<
+			ERRLOGGER(Log_NORMAL, "IO failed: " << "blockSize: " << blockSize << "; " <<
 				"currentOffset:" << currentOffset << "; " <<
 				"leftToSubmit:" << rwOffsetGen->getNumBytesLeftToSubmit() << "; " <<
-				"rank:" << workerRank << std::endl);
+				"rank:" << workerRank << "; " <<
+				"return code: " << rwRes << "; " <<
+				"errno: " << errno << std::endl);
 
 			fileHandles.errorFDVecIdx = fileHandleIdx;
 
@@ -886,12 +931,21 @@ int64_t LocalWorker::rwBlockSized()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+		if(isRWMixRead)
+		{ // inc special rwmix read stats
+			iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOpsReadMix.numBytesDone += rwRes;
+			atomicLiveOpsReadMix.numIOPSDone++;
+		}
+		else
+		{
+			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numBytesDone += rwRes;
+			atomicLiveOps.numIOPSDone++;
+		}
 
 		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(rwRes);
-		atomicLiveOps.numBytesDone += rwRes;
-		atomicLiveOps.numIOPSDone++;
 
 		checkInterruptionRequest();
 	}
@@ -912,6 +966,7 @@ int64_t LocalWorker::rwBlockSized()
  */
 int64_t LocalWorker::aioBlockSized()
 {
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t maxIODepth = progArgs->getIODepth();
 
 	size_t numPending = 0; // num requests submitted and pending for completion
@@ -1044,18 +1099,21 @@ int64_t LocalWorker::aioBlockSized()
 				std::chrono::duration_cast<std::chrono::microseconds>
 				(ioEndT - ioStartTimeVec[ioVecIdx] );
 
-			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
-
 			numBytesDone += ioEvents[eventIdx].res;
-			atomicLiveOps.numBytesDone += ioEvents[eventIdx].res;
-			atomicLiveOps.numIOPSDone++;
 
-			// inc rwmix stats
-			if( (funcAioRwPrepper == &LocalWorker::aioRWMixPrepper) &&
-				(ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) )
+			// inc special rwmix read stats
+			if(	(ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) &&
+				(globalBenchPhase == BenchPhase_CREATEFILES) )
+			{ // this is a read in a write phase => inc rwmix read stats
+				iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numBytesDone += ioEvents[eventIdx].res;
+				atomicLiveOpsReadMix.numIOPSDone++;
+			}
+			else
 			{
-				atomicLiveRWMixReadOps.numBytesDone += ioEvents[eventIdx].res;
-				atomicLiveRWMixReadOps.numIOPSDone++;
+				iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numBytesDone += ioEvents[eventIdx].res;
+				atomicLiveOps.numIOPSDone++;
 			}
 
 			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
@@ -1209,33 +1267,58 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 }
 
 /**
- * Refill some percentage of buffers with random data. The percentage of buffers to refill is
- * defined in progArgs::blockVariancePercent.
+ * Fill buffer with given value. In contrast to memset() this can full 64bit values to at least
+ * make simple dedupe less likely among all the different non-variable block remainders.
+ */
+void LocalWorker::bufFill(char* buf, uint64_t fillValue, size_t bufLen)
+{
+	size_t numBytesDone = 0;
+
+	for(uint64_t i=0; i < (bufLen / sizeof(uint64_t) ); i++)
+	{
+		uint64_t* uint64Buf = (uint64_t*)buf;
+		*uint64Buf = fillValue;
+
+		buf += sizeof(uint64_t);
+		numBytesDone += sizeof(uint64_t);
+	}
+
+	if(numBytesDone == bufLen)
+		return; // all done, complete buffer filled
+
+	// we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
+	memcpy(buf, &fillValue, bufLen - numBytesDone);
+}
+
+/**
+ * Refill some percentage of the buffer with random data. The percentage to refill is defined via
+ * progArgs::blockVariancePercent.
  */
 void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset)
 {
-	// example: 40% means we refill 40 out of 100 buffers and the remaining 60 buffers are identical
-
-	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
-		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
-		work for this because aio would not inc counter directly on submission.) */
-
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
 		return; // this is a read in rwmix mode, so no need for refill in this round
 
-	// note: workerRank is used to have skew between different worker threads
-	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getBlockVariancePercent() )
-		return;
-
 	// refill buffer with random data
 
-	randBlockVarAlgo->fillBuf(buf, bufLen);
+	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+	const uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
+	const size_t constFillRemainderLen = bufLen - varFillLen;
+
+	randBlockVarAlgo->fillBuf(buf, varFillLen);
+
+	if(!constFillRemainderLen)
+		return;
+
+	// fill constant (i.e. non variable) remainder of buffer
+	// note: rand algo is used to not always have the same remainder and defeat dedupe
+	bufFill(&buf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**
- * Refill some percentage of buffers with random data. The percentage of buffers to refill is
- * defined in progArgs::blockVariancePercent.
+ * Refill some percentage of the buffer with random data. The percentage to refill is defined via
+ * progArgs::blockVariancePercent.
  *
  * Note: The only reason why this function exists separate from preWriteBufRandRefill() which does
  * the same with RandAlgoGoldenPrime::fillBuf() is that tests have shown 30% lower perf for
@@ -1244,12 +1327,6 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
  */
 void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset)
 {
-	// example: 40% means we refill 40 out of 100 buffers and the remaining 60 buffers are identical
-
-	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
-		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
-		work for this because aio would not inc counter directly on submission.) */
-
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
 		return; // this is a read in rwmix mode, so no need for refill in this round
@@ -1260,11 +1337,15 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 	// refill buffer with random data
 
+	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+	const uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
+	const size_t constFillRemainderLen = bufLen - varFillLen;
+
 	uint64_t state = randBlockVarReseed->next();
 
 	size_t numBytesDone = 0;
 
-	for(uint64_t i=0; i < (bufLen / sizeof(uint64_t) ); i++)
+	for(uint64_t i=0; i < (varFillLen / sizeof(uint64_t) ); i++)
 	{
 		uint64_t* uint64Buf = (uint64_t*)buf;
 		state *= RANDALGO_GOLDEN_RATIO_PRIME;
@@ -1275,15 +1356,21 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 		numBytesDone += sizeof(uint64_t);
 	}
 
-	if(numBytesDone == bufLen)
-		return; // all done, complete buffer filled
+	if(numBytesDone < varFillLen)
+	{ // we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
+		state *= RANDALGO_GOLDEN_RATIO_PRIME;
+		state >>= 3;
+		uint64_t randUint64 = state;
 
-	// we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
-	state *= RANDALGO_GOLDEN_RATIO_PRIME;
-	state >>= 3;
-	uint64_t randUint64 = state;
+		memcpy(buf, &randUint64, bufLen - numBytesDone);
+	}
 
-	memcpy(buf, &randUint64, bufLen - numBytesDone);
+	if(!constFillRemainderLen)
+		return;
+
+	// fill constant (i.e. non variable) remainder of buffer
+	// note: rand algo is used to not always have the same remainder and defeat dedupe
+	bufFill(&buf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**
@@ -1477,17 +1564,7 @@ ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
 		return pwrite(fd, buf, nbytes, offset);
 	else
-	{
-		ssize_t readRes = pread(fd, buf, nbytes, offset);
-
-		IF_UNLIKELY(readRes <= 0)
-			return readRes;
-
-		atomicLiveRWMixReadOps.numBytesDone += readRes;
-		atomicLiveRWMixReadOps.numIOPSDone++;
-
-		return readRes;
-	}
+		return pread(fd, buf, nbytes, offset);
 }
 
 /**
@@ -1567,18 +1644,8 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 		return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
 	else
-	{
-		ssize_t readRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+		return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
-
-		IF_UNLIKELY(readRes <= 0)
-			return readRes;
-
-		atomicLiveRWMixReadOps.numBytesDone += readRes;
-		atomicLiveRWMixReadOps.numIOPSDone++;
-
-		return readRes;
-	}
 #endif
 }
 
@@ -1590,7 +1657,6 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 void LocalWorker::dirModeIterateDirs()
 {
 	std::array<char, PATH_BUF_LEN> currentPath;
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const size_t numDirs = progArgs->getNumDirs();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
@@ -1713,7 +1779,6 @@ void LocalWorker::dirModeIterateDirs()
  */
 void LocalWorker::dirModeIterateCustomDirs()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const int benchPathFD = progArgs->getBenchPathFDs()[0];
 	const std::string benchPathStr = progArgs->getBenchPaths()[0];
 	const bool ignoreDelErrors = true; // in custom tree mode, all workers mk/del all dirs
@@ -1793,7 +1858,6 @@ void LocalWorker::dirModeIterateCustomDirs()
  */
 void LocalWorker::dirModeIterateFiles()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const size_t numDirs = progArgs->getNumDirs();
 	const size_t numFiles = progArgs->getNumFiles();
 	const uint64_t fileSize = progArgs->getFileSize();
@@ -1803,6 +1867,10 @@ void LocalWorker::dirModeIterateFiles()
 	std::array<char, PATH_BUF_LEN> currentPath;
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -1932,9 +2000,17 @@ void LocalWorker::dirModeIterateFiles()
 				std::chrono::duration_cast<std::chrono::microseconds>
 				(ioEndT - ioStartT);
 
-			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
-
-			atomicLiveOps.numEntriesDone++;
+			// inc special rwmix thread stats
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
 
 		} // end of files for loop
 	} // end of dirs for loop
@@ -1954,7 +2030,6 @@ void LocalWorker::dirModeIterateFiles()
  */
 void LocalWorker::dirModeIterateCustomFiles()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const IntVec& benchPathFDs = progArgs->getBenchPathFDs();
 	const unsigned benchPathFDIdx = 0; // multiple bench paths not supported with custom tree
 	const int benchPathFD = progArgs->getBenchPathFDs()[0];
@@ -1962,6 +2037,10 @@ void LocalWorker::dirModeIterateCustomFiles()
 	const int openFlags = getDirModeOpenFlags(benchPhase);
 	const bool ignoreDelErrors = true; // shared files are unliked by all workers, so no errs
 	const PathList& customTreePaths = customTreeFiles.getPaths();
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2078,9 +2157,18 @@ void LocalWorker::dirModeIterateCustomFiles()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+		// inc special rwmix thread stats
+		if(isRWMixedReader)
+		{
+			entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOpsReadMix.numEntriesDone++;
+		}
+		else
+		{
+			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numEntriesDone++;
+		}
 
-		atomicLiveOps.numEntriesDone++;
 		numFilesDone++;
 
 	} // end of tree elements for-loop
@@ -2095,8 +2183,6 @@ void LocalWorker::dirModeIterateCustomFiles()
  */
 void LocalWorker::fileModeIterateFilesRand()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
-
 	// funcRWBlockSized() will send IOs round-robin to all user-given files.
 
 	if(benchPhase == BenchPhase_CREATEFILES)
@@ -2145,7 +2231,6 @@ void LocalWorker::fileModeIterateFilesRand()
  */
 void LocalWorker::fileModeIterateFilesSeq()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const size_t numFiles = progArgs->getBenchPathFDs().size();
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
@@ -2315,7 +2400,6 @@ void LocalWorker::s3ModeIterateBuckets()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	const size_t numBuckets = bucketVec.size();
 	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
@@ -2405,8 +2489,6 @@ void LocalWorker::s3ModeIterateObjects()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
-
 	if( (benchPhase == BenchPhase_READFILES) && progArgs->getUseS3RandObjSelect() )
 	{
 		s3ModeIterateObjectsRand();
@@ -2423,9 +2505,10 @@ void LocalWorker::s3ModeIterateObjects()
 		all workers use the dirs of worker rank 0 */
 	const bool useTransMan = progArgs->getUseS3TransferManager();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
-	const bool isRWMixedReader = ( (benchPhase == BenchPhase_CREATEFILES) &&
-		(localWorkerRank < progArgs->getNumS3RWMixReadThreads() ) );
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	// walk over each unique dir per worker
 
@@ -2490,9 +2573,17 @@ void LocalWorker::s3ModeIterateObjects()
 				std::chrono::duration_cast<std::chrono::microseconds>
 				(ioEndT - ioStartT);
 
-			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
-
-			atomicLiveOps.numEntriesDone++;
+			// inc special rwmix thread stats
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
 
 		} // end of files for loop
 	} // end of dirs for loop
@@ -2596,11 +2687,14 @@ void LocalWorker::s3ModeIterateCustomObjects()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const std::string bucketName = progArgs->getBenchPaths()[0];
 	const size_t blockSize = progArgs->getBlockSize();
 	const PathList& customTreePaths = customTreeFiles.getPaths();
 	const bool useTransMan = progArgs->getUseS3TransferManager();
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so "short" is ok)
 
@@ -2656,9 +2750,18 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+		// inc special rwmix thread stats
+		if(isRWMixedReader)
+		{
+			entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOpsReadMix.numEntriesDone++;
+		}
+		else
+		{
+			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numEntriesDone++;
+		}
 
-		atomicLiveOps.numEntriesDone++;
 		numFilesDone++;
 
 	} // end of tree elements for-loop
@@ -3200,10 +3303,10 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			[&](const Aws::Http::HttpRequest* request, Aws::Http::HttpResponse* response,
 			long long numBytes)
 			{
-				atomicLiveOps.numBytesDone += numBytes;
-
 				if(isRWMixedReader)
-					atomicLiveRWMixReadOps.numBytesDone += numBytes;
+					atomicLiveOpsReadMix.numBytesDone += numBytes;
+				else
+					atomicLiveOps.numBytesDone += numBytes;
 			} );
 
 		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
@@ -3246,14 +3349,19 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+		if(isRWMixedReader)
+		{
+			iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOpsReadMix.numIOPSDone++;
+		}
+		else
+		{
+			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numIOPSDone++;
+		}
 
 		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(blockSize);
-		atomicLiveOps.numIOPSDone++;
-
-		if(isRWMixedReader)
-			atomicLiveRWMixReadOps.numIOPSDone++;
 	}
 
 #endif // S3_SUPPORT
@@ -3296,10 +3404,10 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 			const uint64_t numBytesDone = handle->GetBytesTransferred() - numBytesDownloaded;
 
-			atomicLiveOps.numBytesDone += numBytesDone;
-
 			if(isRWMixedReader)
-				atomicLiveRWMixReadOps.numBytesDone += numBytesDone;
+				atomicLiveOpsReadMix.numBytesDone += numBytesDone;
+			else
+				atomicLiveOps.numBytesDone += numBytesDone;
 
 			numBytesDownloaded = handle->GetBytesTransferred();
 		};
@@ -3343,14 +3451,19 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 		std::chrono::duration_cast<std::chrono::microseconds>
 		(ioEndT - ioStartT);
 
-	iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+	if(isRWMixedReader)
+	{
+		iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+		atomicLiveOpsReadMix.numIOPSDone++;
+	}
+	else
+	{
+		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+		atomicLiveOps.numIOPSDone++;
+	}
 
 	numIOPSSubmitted++;
 	rwOffsetGen->addBytesSubmitted(downloadBytes);
-	atomicLiveOps.numIOPSDone++;
-
-	if(isRWMixedReader)
-		atomicLiveRWMixReadOps.numIOPSDone++;
 
 #endif // S3_SUPPORT
 }

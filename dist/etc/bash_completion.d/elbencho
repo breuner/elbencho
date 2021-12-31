@@ -62,6 +62,7 @@ _elbencho_opts()
         --lathisto
         --latpercent
         --latpercent9s
+        --live1
         --log
         --mkdirs
         --no0usecerr
@@ -84,6 +85,7 @@ _elbencho_opts()
         --refresh
         --resfile
         --rwmixpct
+        --rwmixthr
         --s3endpoints
         --s3fastget
         --s3key
@@ -94,7 +96,6 @@ _elbencho_opts()
         --s3objprefix
         --s3randobj
         --s3region
-        --s3rwmixthr
         --s3secret
         --s3transman
         --service
@@ -172,6 +173,8 @@ _elbencho()
         ;&
         --rwmixpct)
         ;&
+        --rwmixthr)
+        ;&
         -s)
         ;&
         --s3endpoints)
@@ -183,8 +186,6 @@ _elbencho()
         --s3objprefix)
         ;&
         --s3region)
-        ;&
-        --s3rwmixthr)
         ;&
         --s3secret)
         ;&

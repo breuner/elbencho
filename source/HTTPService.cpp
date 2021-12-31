@@ -185,6 +185,8 @@ void HTTPService::defineServerResources(HttpServer& server)
 
 			statistics.printPhaseResults(); // show results when running in foreground
 
+			std::cout << std::endl;
+
 			response->write(stream);
 		}
 		catch(const std::exception& e)
@@ -236,6 +238,14 @@ void HTTPService::defineServerResources(HttpServer& server)
 			std::string path = SERVICE_UPLOAD_BASEPATH(servicePort) + "/" + filename;
 
 			free(filenameDup);
+
+			// print file transfer phase to log
+
+			std::time_t currentTime = std::time(NULL);
+
+			std::cout << "Receiving tree file from master... "
+				"(ISO DATE: " << std::put_time(std::localtime(&currentTime), "%FT%T%z") << ")" <<
+				std::endl;
 
 			// prepare our upload directory
 
@@ -302,6 +312,14 @@ void HTTPService::defineServerResources(HttpServer& server)
 					"Service version: " HTTP_PROTOCOLVERSION "; "
 					"Received master version: " + masterProtoVer);
 
+			// print prep phase to log
+
+			std::time_t currentTime = std::time(NULL);
+
+			std::cout << "Preparing new benchmark phase... "
+				"(ISO DATE: " << std::put_time(std::localtime(&currentTime), "%FT%T%z") << ")" <<
+				std::endl;
+
 			// read config values as json
 
 			bpt::ptree recvTree;
@@ -322,6 +340,13 @@ void HTTPService::defineServerResources(HttpServer& server)
 			progArgs.setFromPropertyTreeForService(recvTree);
 
 			workerManager.prepareThreads();
+
+			// print user-defined label
+
+			if(!progArgs.getBenchLabel().empty() )
+				std::cout << "LABEL: " << progArgs.getBenchLabel() << std::endl;
+
+			std::cout << std::endl; // blank line after iso date & label
 
 			// prepare response
 
