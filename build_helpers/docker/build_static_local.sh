@@ -16,12 +16,14 @@ docker rm $CONTAINER_NAME
 docker pull $IMAGE_NAME && \
 docker run --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_NAME \
     sh -c "\
-    apk add bash boost-dev gcc g++ git libaio-dev libexecinfo-dev make numactl-dev cmake \
-        curl-dev curl-static openssl-libs-static ncurses-static libexecinfo-static boost-static \
-        ncurses zlib-static libretls-static nghttp2-static brotli-static ncurses-dev sudo && \
+    apk add bash boost-dev build-base gcc g++ git libaio-dev libexecinfo-dev make numactl-dev \
+        cmake curl-dev curl-static openssl-libs-static ncurses-static libexecinfo-static \
+        boost-static ncurses zlib-static libretls-static nghttp2-static \
+        brotli-static ncurses-dev sudo && \
     adduser -u $UID -D -H builduser && \
     sudo -u builduser make clean-all && \
-    sudo -u builduser LDFLAGS_EXTRA="-lexecinfo" make -j $(nproc) BUILD_STATIC=1 S3_SUPPORT=1" && \
+    sudo -u builduser make -j $(nproc) \
+        LDFLAGS_EXTRA='-lexecinfo' S3_SUPPORT=1 USE_MIMALLOC=1 BUILD_STATIC=1 BUILD_VERBOSE=1" && \
 docker rm $CONTAINER_NAME && \
 cd bin/ && \
 cp elbencho elbencho-${ELBENCHO_VERSION}-static-$(uname -m) && \

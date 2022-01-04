@@ -2206,6 +2206,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "s3 ";
 #endif
 
+#ifdef USE_MIMALLOC
+	includedStream << "mimalloc ";
+#else
+	notIncludedStream << "mimalloc ";
+#endif
+
 	std::cout << "Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
 	std::cout << "Excluded optional build features: " <<

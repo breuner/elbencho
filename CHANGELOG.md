@@ -11,6 +11,8 @@
 * New option "--label" to defined custom labels for benchmark run, which will be printed in result files and csv files.
 * CSV files now contain columns for elbencho version and complete command line arguments.
 * The contributed sweep tools were extended with a new dataset generator script (dgen.sh).
+* New build option to use Microsoft mimalloc for memory allocations. This is useful to overcome AWS SDK performance limitations related to memory management when linking against musl-libc, e.g. on Alpine Linux.
+  * Alpine-based docker containers have been updated to support S3 with mimalloc.
 
 ### General Changes ###
 * Added new GPUDirect Storage option "--gds" as shortcut for "--direct --cufile --gdsbufreg".

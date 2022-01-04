@@ -1,4 +1,6 @@
 # Elbencho main executable from local source code on Alpine Linux for minimum image size
+# This uses mimalloc to overcome the malloc performance issues with musl-libc, which otherwise
+# would reduce S3 performance.
 #
 # Run docker build from elbencho repository root dir like this:
 # docker build -t elbencho-local -f build_helpers/docker/Dockerfile.alpine.local .
@@ -12,7 +14,7 @@ COPY ./ /root/elbencho
 
 RUN cd /root/elbencho && \
     make clean-all && \
-    LDFLAGS_EXTRA="-lexecinfo" S3_SUPPORT=1 make -j "$(nproc)" && \
+    make LDFLAGS_EXTRA="-lexecinfo" S3_SUPPORT=1 USE_MIMALLOC=1 -j "$(nproc)" && \
     make install
 
 FROM alpine:3

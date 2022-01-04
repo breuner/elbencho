@@ -28,22 +28,22 @@ LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
 NO_BACKTRACE       ?= 0
 S3_SUPPORT         ?= 0
 
-CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
+CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
 	-DNO_BACKTRACE=$(NO_BACKTRACE) -I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
 	-Wall -Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
 	-fno-strict-aliasing -pthread -ggdb -std=c++14
-CXXFLAGS_RELEASE = -O3 -Wuninitialized
-CXXFLAGS_DEBUG   = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
+CXXFLAGS_RELEASE  = -O3 -Wuninitialized
+CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON   = -rdynamic -pthread -lrt -lnuma -laio $(LDFLAGS_BOOST)
-LDFLAGS_RELASE   = -O3
-LDFLAGS_DEBUG    = -O0
+LDFLAGS_COMMON    = -rdynamic -pthread -lrt -lnuma -laio $(LDFLAGS_BOOST)
+LDFLAGS_RELASE    = -O3
+LDFLAGS_DEBUG     = -O0
 
-SOURCES          = $(shell find $(SOURCE_PATH) -name '*.cpp')
-OBJECTS          = $(SOURCES:.cpp=.o)
-OBJECTS_CLEANUP  = $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean after C file rename
-DEPENDENCY_FILES = $(shell find $(SOURCE_PATH) -name '*.d')
+SOURCES          := $(shell find $(SOURCE_PATH) -name '*.cpp')
+OBJECTS          := $(SOURCES:.cpp=.o)
+OBJECTS_CLEANUP  := $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean after C file rename
+DEPENDENCY_FILES := $(shell find $(SOURCE_PATH) -name '*.d')
 
 # Release & debug flags for compiler and linker
 ifeq ($(BUILD_DEBUG),)
@@ -72,6 +72,14 @@ LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
 	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
 endif
 
+# Use Microsoft mimalloc for memory allocations.
+# Note: This needs to come as very last in link order, thus we have a separate variable to ensure
+# it's the trailing arg for the linker. (Can be confirmed e.g. via MIMALLOC_SHOW_STATS=1)
+ifeq ($(USE_MIMALLOC), 1)
+CXXFLAGS += -DUSE_MIMALLOC
+LDFLAGS_MIMALLOC_TAIL := -L external/mimalloc/build -l:libmimalloc.a
+endif
+
 # Include build helpers for auto detection
 include build_helpers/AutoDetection.mk
 
@@ -91,10 +99,21 @@ endif
 
 $(EXE_UNSTRIPPED): $(OBJECTS)
 ifdef BUILD_VERBOSE
-	$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS)
+	$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
 else
 	@echo [LINK] $@
-	@$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS)
+	@$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
+endif
+
+.c.o:
+ifdef BUILD_VERBOSE
+	$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -o $(@)
+else
+	@echo [DEP] $(@:.o=.d)
+	@$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	@echo [CXX] $@
+	@$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -o $(@)
 endif
 
 .cpp.o:
@@ -112,9 +131,9 @@ $(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on 
 
 externals:
 ifdef BUILD_VERBOSE
-	PREP_AWS_SDK=$(S3_SUPPORT) $(EXTERNAL_PATH)/prepare-external.sh
+	PREP_AWS_SDK=$(S3_SUPPORT) PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
 else
-	@PREP_AWS_SDK=$(S3_SUPPORT) $(EXTERNAL_PATH)/prepare-external.sh
+	@PREP_AWS_SDK=$(S3_SUPPORT) PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
 endif
 
 features-info:
@@ -146,6 +165,11 @@ ifeq ($(S3_SUPPORT),1)
 else
 	$(info [OPT] S3 support disabled. (Enable via S3_SUPPORT=1))
 endif
+ifeq ($(USE_MIMALLOC),1)
+	$(info [OPT] mimalloc enabled)
+else
+	$(info [OPT] mimalloc disabled)
+endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
@@ -159,10 +183,12 @@ clean-externals:
 ifdef BUILD_VERBOSE
 	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server 
 	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
+	rm -rf $(EXTERNAL_PATH)/mimalloc
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
 	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
+	@rm -rf $(EXTERNAL_PATH)/mimalloc
 endif
 
 clean-packaging:
@@ -295,6 +321,9 @@ help:
 	@echo '                             development files are found. (cufile.h and'
 	@echo '                             libcufile.so)'
 	@echo '   NO_BACKTRACE=1          - Build without backtrace support for musl-libc.'
+	@echo '   USE_MIMALLOC=1          - Use Microsoft mimalloc library for memory'
+	@echo '                             allocation management. Recommended when using'
+	@echo '                             musl-libc.'
 	@echo
 	@echo 'Optional Compile/Link Arguments:'
 	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
