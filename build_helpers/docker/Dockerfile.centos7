@@ -2,7 +2,8 @@
 
 FROM centos:7 as builder
 
-RUN yum install -y boost-devel centos-release-scl gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
+RUN yum -y update && \
+    yum install -y boost-devel centos-release-scl gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
     yum install -y devtoolset-8 && \
     yum -y install epel-release && \
     yum install -y --enablerepo=epel cmake3 && \

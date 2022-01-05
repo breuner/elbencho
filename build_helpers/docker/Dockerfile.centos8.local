@@ -7,7 +7,8 @@ FROM almalinux:8 as builder
 
 COPY ./ /root/elbencho
 
-RUN yum install -y boost-devel cmake gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
+RUN yum -y update && \
+    yum install -y boost-devel cmake gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
     cd /root/elbencho && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm
