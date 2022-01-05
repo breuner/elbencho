@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v2.0.6 (work in progress)
+## v2.0.7 (Jan 05, 2022)
 
 ### New Features & Enhancements
 * New option "--rwmixthr N" to define the number of reader threads in a write phase. In contrast to "--rwmixpct N" (where each thread performs reads & writes and thus has to complete a certain number of writes before it can continue with reads), this removes the direct coupling of read and write speed by letting the readers run completely separate from the writers.
