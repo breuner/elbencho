@@ -24,12 +24,13 @@
 * Block variance percentage (--blockvarpct) now defines the percentage of bytes within each written block to be randomly generated. 
   * Previously this defined the number out of 100 written blocks to be randomly filled. This change is intended to avoid longer sequences of identical blocks, e.g. in case of "--blockvarpct 50". (The result for "--blockvarpct 100" is the same as before.)
 * The option "--s3rwmixthr" has been removed and is now replaced by the new option "--rwmixthr", which also works for S3.
+* In files given as "--hostsfile", lines starting with a "#" character will now be ignored.
 
 ### Fixes
 * Previously, block variance (--blockvarpct) was calculated for all blocks in rwmix mode (--rwmixpct). Now we do it only for blocks that are actually being written and skip the read blocks to avoid unnecessary CPU overhead.
 
 ### Contributors
-* Thanks to Matt Gustafson for helpful comments and suggestions.
+* Thanks to Matt Gustafson, Kyle Lamb and Rupert Menezes for helpful comments and suggestions.
 * Thanks to Chin Fang for extending the contributed storage sweep tools.
 
 ## v2.0.3 (Nov 26, 2021)

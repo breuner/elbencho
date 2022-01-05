@@ -1309,7 +1309,12 @@ void ProgArgs::parseHosts()
 		std::string lineStr;
 
 		while(std::getline(hostsFile, lineStr) )
+		{
+			if(lineStr.rfind("#", 0) == 0)
+				continue; // skip lines starting with "#" as comment char
+
 			hostsStr += lineStr + ",";
+		}
 
 		hostsFile.close();
 	}
