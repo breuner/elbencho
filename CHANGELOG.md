@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v2.0.8 (work in progress)
+
+### New Features & Enhancements
+* New option "--cores ..." to bind threads to CPU cores.
+
 ## v2.0.7 (Jan 05, 2022)
 
 ### New Features & Enhancements

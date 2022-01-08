@@ -28,6 +28,7 @@ _elbencho_opts()
         --blockvaralgo
         --blockvarpct
         --configfile
+        --cores
         --cpu
         --csvfile
         --cufile
@@ -140,6 +141,8 @@ _elbencho()
         --blockvaralgo)
         ;&
         --blockvarpct)
+        ;&
+        --cores)
         ;&
         --dirs)
         ;&

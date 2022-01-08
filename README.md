@@ -44,7 +44,7 @@ The built-in help (`elbencho --help`) provides simple examples to get started.
 
 ## Build Prerequisites
 
-You can get elbencho pre-built from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
+You can get elbencho pre-built from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
 
 ### Dependencies for Debian/Ubuntu
 

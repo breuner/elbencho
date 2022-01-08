@@ -30,7 +30,7 @@ void RemoteWorker::run()
 		buuids::uuid currentBenchID = buuids::nil_uuid();
 
 		// preparation phase
-		applyNumaBinding();
+		applyNumaAndCoreBinding();
 		prepareRemoteFile();
 		preparePhase();
 

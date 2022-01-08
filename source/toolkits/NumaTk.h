@@ -3,7 +3,9 @@
 
 #include <cstdarg>
 #include <numa.h>
+#include <sched.h>
 #include <string>
+#include "Common.h"
 #include "Logger.h"
 #include "ProgException.h"
 
@@ -35,7 +37,7 @@ class NumaTk
 		 * @zoneStr must be compatible with libnuma numa_parse_cpustring, but current method code
 		 * 		relies on this being a single number.
 		 * 		Valid libnuma examples: 1-5,7,10 !4-5 +0-3.
-		 * 	@throw ProgException on error, e.g. zonesStr parsing failure.
+		 * @throw ProgException on error, e.g. zonesStr parsing failure.
 		 */
 		static void bindToNumaZone(std::string zonesStr)
 		{
@@ -72,12 +74,12 @@ class NumaTk
 		}
 
 		/**
-		 * Bind calling thread to given zones. This intended to be called with possibly multiple
+		 * Bind calling thread to given zones. This is intended to be called with possibly multiple
 		 * zones, so it does not set memory binding to a certain preferred zone.
 		 *
 		 * @zoneStr must be compatible with libnuma numa_parse_cpustring.
 		 * 		Valid libnuma examples: 1-5,7,10 !4-5 +0-3.
-		 * 	@throw ProgException on error, e.g. zonesStr parsing failure.
+		 * @throw ProgException on error, e.g. zonesStr parsing failure.
 		 */
 		static void bindToNumaZones(std::string zonesStr)
 		{
@@ -93,6 +95,47 @@ class NumaTk
 				ProgException("Applying NUMA zone node mask failed. "
 					"Given zones: " + zonesStr + "; "
 					"SysErr: " + strerror(errno) );
+		}
+
+		/**
+		 * Bind calling thread to given cpu cores. This is intended to be called with possibly
+		 * multiple cores, so it does not set memory binding to a certain preferred zone.
+		 *
+		 * @throw ProgException on error
+		 */
+		static void bindToCPUCores(const IntVec& cpuCoresVec)
+		{
+			cpu_set_t cpuCoreSet;
+			std::string coresStr; // just for error log message
+
+			CPU_ZERO(&cpuCoreSet);
+
+			for(int core : cpuCoresVec)
+			{
+				CPU_SET(core, &cpuCoreSet);
+				coresStr += std::to_string(core) + " ";
+			}
+
+			int schedRes = sched_setaffinity(0, sizeof(cpuCoreSet), &cpuCoreSet);
+
+			if(schedRes == -1)
+				ProgException("Applying CPU core set failed. "
+					"Given cores: " + coresStr + "; "
+					"SysErr: " + strerror(errno) );
+		}
+
+		/**
+		 * Bind calling thread to given cpu core.
+		 *
+		 * @throw ProgException on error
+		 */
+		static void bindToCPUCore(int cpuCore)
+		{
+			IntVec coreVec;
+
+			coreVec.push_back(cpuCore);
+
+			bindToCPUCores(coreVec);
 		}
 };
 

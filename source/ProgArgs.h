@@ -66,6 +66,7 @@ namespace bpt = boost::property_tree;
 #define ARG_RANKOFFSET_LONG			"rankoffset"
 #define ARG_LOGLEVEL_LONG			"log"
 #define ARG_NUMAZONES_LONG			"zones"
+#define ARG_CPUCORES_LONG			"cores"
 #define ARG_SHOWALLELAPSED_LONG		"allelapsed"
 #define ARG_LIVESLEEPSEC_LONG		"refresh"
 #define ARG_RANDOMOFFSETS_LONG		"rand"
@@ -231,6 +232,8 @@ class ProgArgs
 		unsigned short logLevel; // filter level for log messages (higher will not be logged)
 		std::string numaZonesStr; // comma-separted numa zones that this process may run on
 		IntVec numaZonesVec; // list from numaZoneStr broken down into individual elements
+		std::string cpuCoresStr; // comma-separted cpu cores that this process may run on
+		IntVec cpuCoresVec; // list from cpuCoresStr broken down into individual elements
 		bool showAllElapsed; // print elapsed time of each I/O worker
 		size_t liveStatsSleepSec; // sleep interval between live stats console refresh
 		bool useRandomOffsets; // use random offsets for file reads/writes
@@ -319,6 +322,7 @@ class ProgArgs
 		void prepareFileSize(int fd, std::string& path);
 		void parseHosts();
 		void parseNumaZones();
+		void parseCPUCores();
 		void parseGPUIDs();
 		void parseRandAlgos();
 		void parseS3Endpoints();
@@ -379,6 +383,8 @@ class ProgArgs
 		LogLevel getLogLevel() const { return (LogLevel)logLevel; }
 		std::string getNumaZonesStr() const { return numaZonesStr; }
 		const IntVec& getNumaZonesVec() const { return numaZonesVec; }
+		std::string getCPUCoresStr() const { return cpuCoresStr; }
+		const IntVec& getCPUCoresVec() const { return cpuCoresVec; }
 		bool getShowAllElapsed() const { return showAllElapsed; }
 		size_t getLiveStatsSleepSec() const { return liveStatsSleepSec; }
 		bool getUseRandomOffsets() const { return useRandomOffsets; }

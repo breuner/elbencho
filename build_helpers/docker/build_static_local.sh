@@ -23,7 +23,7 @@ docker run --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_N
     adduser -u $UID -D -H builduser && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $(nproc) \
-        LDFLAGS_EXTRA='-lexecinfo' S3_SUPPORT=1 USE_MIMALLOC=1 BUILD_STATIC=1 BUILD_VERBOSE=1" && \
+        LDFLAGS_EXTRA='-lexecinfo' S3_SUPPORT=1 USE_MIMALLOC=1 BUILD_STATIC=1" && \
 docker rm $CONTAINER_NAME && \
 cd bin/ && \
 cp elbencho elbencho-${ELBENCHO_VERSION}-static-$(uname -m) && \

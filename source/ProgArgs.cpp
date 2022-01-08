@@ -169,6 +169,10 @@ void ProgArgs::defineAllowedArgs()
 			"This can be used to defeat compression/deduplication. (Default: 0; Max: 100)")
 /*br*/	(ARG_BRIEFLIFESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
 			"Use brief live statistics format, i.e. a single line instead of full screen stats.")
+/*co*/	(ARG_CPUCORES_LONG, bpo::value(&this->cpuCoresStr),
+			"Comma-separated list of CPU cores to bind this process to. If multiple cores are "
+			"given, then worker threads are bound round-robin to the cores. "
+			"(Hint: See 'lscpu' for available CPU cores.)")
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
 			"Show CPU utilization in phase stats results.")
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
@@ -570,6 +574,7 @@ void ProgArgs::checkArgs()
 {
 	// parse/apply numa zone as early as possible to have all further allocations in right zone
 	parseNumaZones();
+	parseCPUCores();
 
 	if(runAsService)
 	{
@@ -1357,7 +1362,7 @@ void ProgArgs::parseHosts()
  * Also applies the given zones to the current thread.
  *
  * Note: We use libnuma in NumaTk, but we don't allow libnuma's NUMA string format to build
- * our vector that easily allows us to easily bind I/O workers round-robin to given zones.
+ * our vector. That allows us to easily bind I/O workers round-robin to given zones in vec.
  *
  * @throw ProgException if a problem is found, e.g. numa zones string was not empty, but parsed
  * 		result is empty.
@@ -1400,6 +1405,50 @@ void ProgArgs::parseNumaZones()
 	// convert from string vector to int vector
 	for(std::string& zoneStr : zonesStrVec)
 		numaZonesVec.push_back(std::stoi(zoneStr) );
+}
+
+/**
+ * Parse cpu cores string to fill cpuCoresVec. Do nothing if cpu cores string is empty.
+ * Also applies the given cores to the current thread.
+ *
+ * @throw ProgException if a problem is found, e.g. cpu cores string was not empty, but parsed
+ * 		result is empty.
+ */
+void ProgArgs::parseCPUCores()
+{
+	if(cpuCoresStr.empty() )
+		return; // nothing to do
+
+	StringVec coresStrVec; // temporary for split()
+
+	boost::split(coresStrVec, cpuCoresStr, boost::is_any_of(ZONELIST_DELIMITERS),
+			boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(coresStrVec.begin(), coresStrVec.end(), "");
+		if(iter == coresStrVec.end() )
+			break;
+
+		coresStrVec.erase(iter);
+	}
+
+	if(coresStrVec.empty() )
+		throw ProgException("CPU cores defined, but parsing resulted in an empty list: " +
+			cpuCoresStr);
+
+	// rebuild numaZonesStr clean from trimmed vec, because libnuma has probs with leading delimter
+	cpuCoresStr = "";
+	for(unsigned i=0; i < coresStrVec.size(); i++)
+		cpuCoresStr += (i ? "," : "") + coresStrVec[i];
+
+	// apply given cores to current thread
+	NumaTk::bindToCPUCores(cpuCoresVec);
+
+	// convert from string vector to int vector
+	for(std::string& coreStr : coresStrVec)
+		cpuCoresVec.push_back(std::stoi(coreStr) );
 }
 
 /**

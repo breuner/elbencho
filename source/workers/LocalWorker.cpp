@@ -98,7 +98,7 @@ void LocalWorker::run()
 		buuids::uuid currentBenchID = buuids::nil_uuid();
 
 		// preparation phase
-		applyNumaBinding();
+		applyNumaAndCoreBinding();
 		allocIOBuffer();
 		allocGPUIOBuffer();
 		prepareCustomTreePathStores();
