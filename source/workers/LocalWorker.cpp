@@ -99,6 +99,8 @@ void LocalWorker::run()
 
 		// preparation phase
 		applyNumaAndCoreBinding();
+		initThreadFDVec();
+		initThreadCuFileHandleDataVec();
 		allocIOBuffer();
 		allocGPUIOBuffer();
 		prepareCustomTreePathStores();
@@ -356,6 +358,109 @@ void LocalWorker::uninitS3Client()
 }
 
 /**
+ * If progArgs::useNoFDSharing is set, initialize threadFDVec with separate open files in file/bdev
+ * mode. Otherwise do nothing.
+ *
+ * Note: It's assumed that progArgs did all the basic checks (e.g. to find out if all paths refer
+ * to the same type) and that progArgs also takes care of truncate options.
+ *
+ * @throw WorkerException on error, e.g. if open failed.
+ */
+void LocalWorker::initThreadFDVec()
+{
+	if(!progArgs->getUseNoFDSharing() )
+		return; // shared FDs, so nothing to do
+
+	if(progArgs->getBenchPathType() == BenchPathType_DIR)
+		return; // nothing to do in dir mode
+
+	const StringVec& benchPathsVec = progArgs->getBenchPaths();
+
+	fileHandles.threadFDVec.reserve(benchPathsVec.size() );
+
+	// check if each given path exists as dir and add it to pathFDsVec
+	// note: keep flags in sync with ProgArgs::prepareBenchPathFDsVec
+	for(std::string path : benchPathsVec)
+	{
+		int fd;
+		int openFlags = 0;
+
+		if(progArgs->getRunCreateFilesPhase() || progArgs->getRunDeleteFilesPhase() )
+			openFlags |= O_RDWR;
+		else
+			openFlags |= O_RDONLY;
+
+		if(progArgs->getUseDirectIO() )
+			openFlags |= O_DIRECT;
+
+		if(progArgs->getRunCreateFilesPhase() )
+			openFlags |= O_CREAT;
+
+		fd = open(path.c_str(), openFlags, MKFILE_MODE);
+
+		if(fd == -1)
+			throw WorkerException("Unable to open benchmark path: " + path + "; "
+				"SysErr: " + strerror(errno) );
+
+		fileHandles.threadFDVec.push_back(fd);
+	}
+
+}
+
+/**
+ * If progArgs::useNoFDSharing is set, close FDs of threadFDVec. Otherwise do nothing.
+ */
+void LocalWorker::uninitThreadFDVec()
+{
+	for(int fd : fileHandles.threadFDVec)
+	{
+		int closeRes = close(fd);
+
+		if(closeRes == -1)
+			ERRLOGGER(Log_NORMAL, "Error on file close. "
+				"FD: " << fd << "; "
+				"SysErr: " << strerror(errno) << std::endl);
+	}
+
+	fileHandles.threadFDVec.resize(0);
+}
+
+/**
+ * Similar to threadFDVec, here we init thread-local cuFile handles for progArgs::useNoFDSharing.
+ *
+ * @throw WorkerException if cuFile handle registration fails.
+ */
+void LocalWorker::initThreadCuFileHandleDataVec()
+{
+	for(int fd : fileHandles.threadFDVec)
+	{
+		// add new element to vec and reference it
+		fileHandles.threadCuFileHandleDataVec.resize(
+			fileHandles.threadCuFileHandleDataVec.size() + 1);
+		CuFileHandleData& cuFileHandleData =
+			fileHandles.threadCuFileHandleDataVec[fileHandles.threadCuFileHandleDataVec.size() - 1];
+
+		if(!progArgs->getUseCuFile() )
+			continue; // no registration to be done if cuFile API is not used
+
+		// note: cleanup won't be a prob if reg not done, as CuFileHandleData can handle that case
+
+		cuFileHandleData.registerHandle<WorkerException>(fd);
+	}
+}
+
+/*
+ * Deregsiter threadCuFileHandleVec entries.
+ */
+void LocalWorker::uninitThreadCuFileHandleDataVec()
+{
+	for(CuFileHandleData& cuFileHandleData : fileHandles.threadCuFileHandleDataVec)
+		cuFileHandleData.deregisterHandle();
+
+	fileHandles.threadCuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
+}
+
+/**
  * Init thread-local phase values.
  */
 void LocalWorker::initThreadPhaseVars()
@@ -380,58 +485,56 @@ void LocalWorker::initPhaseFileHandleVecs()
 
 	fileHandles.errorFDVecIdx = -1; // clear ("-1" means "not set")
 
+	// reset/clear all vecs
+	fileHandles.fdVec.resize(0);
+	fileHandles.fdVecPtr = NULL;
+	fileHandles.cuFileHandleDataVec.resize(0);
+	fileHandles.cuFileHandleDataPtrVec.resize(0);
+
+
 	if(benchPathType == BenchPathType_DIR)
 	{
-		// there is only one current file per worker in dir mode
+		/* in dir mode, there is only one currently active file per worker.
+			files will be dynamically opened in the dir mode file iter method and their fd will be
+			stored in fileHandles.fdVec[0] */
 
 		fileHandles.fdVec.resize(1);
 		fileHandles.fdVec[0] = -1; // clear/reset
 
 		fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-		// fileHandles.cuFileHandleDataVec will be used for current file
+		// fileHandles.cuFileHandleDataVec[0] will be used for current file
 
-		fileHandles.cuFileHandleDataVec.resize(0); // clear/reset
 		fileHandles.cuFileHandleDataVec.resize(1);
 
-		fileHandles.cuFileHandleDataPtrVec.resize(0); // clear/reset
 		fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
 	}
 	else
 	if(!progArgs->getUseRandomOffsets() )
 	{
-		// there is only one current file in sequential file/bdev mode
-
-		// files are opened by progArgs, but FD will be copied to only use the single current file
+		/* in sequential file/bdev mode, there is only one currently active file per worker.
+			original file FDs will be taken from progArgs or fileHandles.threadFDVec, but FD will be
+			copied to fileHandles.fdVec[0] for the single current file. */
 
 		fileHandles.fdVec.resize(1);
 		fileHandles.fdVec[0] = -1; // clear/reset, will be set dynamically to current file
 
 		fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-		fileHandles.cuFileHandleDataVec.resize(0); // not needed, using cuFileHandle from progArgs
-
-		// fileHandles.cuFileHandleDataPtrVec will be set to progArgs cuFileHandle for current file
-
-		fileHandles.cuFileHandleDataPtrVec.resize(0); // clear/reset
 		fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
 	}
 	else
 	{
-		// in random file/bdev mode, all FDs from progArgs will be used round-robin
+		// in random file/bdev mode, rwBlockSized/aioBlockSized randomly select FDs from given set
 
-		fileHandles.fdVec.resize(0);
-		fileHandles.cuFileHandleDataVec.resize(0);
-		fileHandles.cuFileHandleDataPtrVec.resize(0);
+		fileHandles.fdVecPtr = fileHandles.threadFDVec.empty() ?
+			&progArgs->getBenchPathFDs() : &fileHandles.threadFDVec;
 
-		// FDs will be provided by progArgs
+		CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
+			progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
 
-		fileHandles.fdVecPtr = &progArgs->getBenchPathFDs();
-
-		// cuFileHandles will be provided by progArgs
-
-		for(size_t i=0; i < progArgs->getCuFileHandleDataVec().size(); i++)
-			fileHandles.cuFileHandleDataPtrVec.push_back(&progArgs->getCuFileHandleDataVec()[i] );
+		for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
+			fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
 	}
 }
 
@@ -852,6 +955,9 @@ void LocalWorker::cleanup()
 	// free host memory buffers
 	for(char* ioBuf : ioBufVec)
 		SAFE_FREE(ioBuf);
+
+	uninitThreadCuFileHandleDataVec();
+	uninitThreadFDVec();
 }
 
 /**
@@ -866,16 +972,15 @@ int64_t LocalWorker::rwBlockSized()
 {
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
+	const size_t fileHandleVecSize = fileHandles.fdVecPtr->size();
 
-	OffsetGenRandom randFileIndexGen(
-		~(uint64_t)0, *randOffsetAlgo, fileHandles.fdVecPtr->size(), 0, 1);
+	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, fileHandleVecSize, 0, 1);
 
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
 		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const size_t fileHandleIdx = (fileHandles.fdVecPtr->size() > 1) ?
-			randFileIndexGen.getNextOffset() : 0;
+		const size_t fileHandleIdx = (fileHandleVecSize > 1) ? randFileIndexGen.getNextOffset() : 0;
 		bool isRWMixRead = false;
 		ssize_t rwRes;
 
@@ -931,6 +1036,7 @@ int64_t LocalWorker::rwBlockSized()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
+		// iops lat & num done
 		if(isRWMixRead)
 		{ // inc special rwmix read stats
 			iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
@@ -968,6 +1074,7 @@ int64_t LocalWorker::aioBlockSized()
 {
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t maxIODepth = progArgs->getIODepth();
+	const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
 
 	size_t numPending = 0; // num requests submitted and pending for completion
 	size_t numBytesDone = 0; // after successfully completed requests
@@ -979,8 +1086,7 @@ int64_t LocalWorker::aioBlockSized()
 	struct io_event ioEvents[AIO_MAX_EVENTS];
 	struct timespec ioTimeout;
 
-	OffsetGenRandom randFileIndexGen(
-		~(uint64_t)0, *randOffsetAlgo, fileHandles.fdVecPtr->size(), 0, 1);
+	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, fileHandlesVecSize, 0, 1);
 
 	int initRes = io_queue_init(maxIODepth, &ioContext);
 	IF_UNLIKELY(initRes)
@@ -994,7 +1100,7 @@ int64_t LocalWorker::aioBlockSized()
 	{
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		const size_t fileHandlesIdx = (fileHandles.fdVecPtr->size() > 1) ?
+		const size_t fileHandlesIdx = (fileHandlesVecSize > 1) ?
 			randFileIndexGen.getNextOffset() : 0;
 		const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 		const size_t ioVecIdx = numPending; // iocbVec index
@@ -1128,7 +1234,7 @@ int64_t LocalWorker::aioBlockSized()
 
 			const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 			const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-			const size_t fileHandlesIdx = (fileHandles.fdVecPtr->size() > 1) ?
+			const size_t fileHandlesIdx = (fileHandlesVecSize > 1) ?
 				randFileIndexGen.getNextOffset() : 0;
 			const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
@@ -2157,16 +2263,19 @@ void LocalWorker::dirModeIterateCustomFiles()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		// inc special rwmix thread stats
-		if(isRWMixedReader)
-		{
-			entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
-			atomicLiveOpsReadMix.numEntriesDone++;
-		}
-		else
-		{
-			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
-			atomicLiveOps.numEntriesDone++;
+		// inc entry lat & num done count
+		if(currentPathElem.totalLen == currentPathElem.rangeLen)
+		{ // entry lat & done is only meaningful for fully processed entries
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
 		}
 
 		numFilesDone++;
@@ -2231,11 +2340,14 @@ void LocalWorker::fileModeIterateFilesRand()
  */
 void LocalWorker::fileModeIterateFilesSeq()
 {
-	const size_t numFiles = progArgs->getBenchPathFDs().size();
+	const IntVec& pathFDs = fileHandles.threadFDVec.empty() ?
+		progArgs->getBenchPathFDs() : fileHandles.threadFDVec;
+	CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
+		progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
+	const size_t numFiles = pathFDs.size();
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
 	const size_t numThreads = progArgs->getNumDataSetThreads();
-	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 
 	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 		( (fileSize % blockSize) ? 1 : 0);
@@ -2271,8 +2383,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 		// find the file index and inner file block index for current global block index
 		const uint64_t currentFileIndex = currentBlockIdx / numBlocksPerFile;
 		fileHandles.fdVec[0] = pathFDs[currentFileIndex];
-		fileHandles.cuFileHandleDataPtrVec[0] =
-			&progArgs->getCuFileHandleDataVec()[currentFileIndex];
+		fileHandles.cuFileHandleDataPtrVec[0] = &(cuFileHandleDataVec[currentFileIndex]);
 
 		const uint64_t currentBlockInFile = currentBlockIdx % numBlocksPerFile;
 		const uint64_t currentIOStart = currentBlockInFile * blockSize;
@@ -2344,7 +2455,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 void LocalWorker::fileModeDeleteFiles()
 {
 	const StringVec& benchPaths = progArgs->getBenchPaths();
-	const size_t numFiles = progArgs->getBenchPathFDs().size();
+	const size_t numFiles = benchPaths.size();
 
 	// walk over all files and delete each of them
 	// (note: each worker starts with a different file (based on workerRank) to spread the load)
@@ -2358,7 +2469,7 @@ void LocalWorker::fileModeDeleteFiles()
 		// delete current file
 
 		const std::string& path =
-			benchPaths[ (workerRank + fileIndex) % benchPaths.size() ];
+			benchPaths[ (workerRank + fileIndex) % numFiles];
 
 		int unlinkRes = unlink(path.c_str() );
 
@@ -2573,7 +2684,7 @@ void LocalWorker::s3ModeIterateObjects()
 				std::chrono::duration_cast<std::chrono::microseconds>
 				(ioEndT - ioStartT);
 
-			// inc special rwmix thread stats
+			// entry lat & num done count
 			if(isRWMixedReader)
 			{
 				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
@@ -2750,16 +2861,19 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		// inc special rwmix thread stats
-		if(isRWMixedReader)
-		{
-			entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
-			atomicLiveOpsReadMix.numEntriesDone++;
-		}
-		else
-		{
-			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
-			atomicLiveOps.numEntriesDone++;
+		// entry lat & num done count
+		if(currentPathElem.totalLen == currentPathElem.rangeLen)
+		{ // entry lat & done is only meaningful for fully processed entries
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
 		}
 
 		numFilesDone++;

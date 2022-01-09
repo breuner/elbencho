@@ -130,6 +130,7 @@ namespace bpt = boost::property_tree;
 #define ARG_BRIEFLIFESTATS_LONG		"live1"
 #define ARG_GPUDIRECTSSTORAGE_LONG	"gds"
 #define ARG_BENCHLABEL_LONG			"label"
+#define ARG_NOFDSHARING_LONG		"nofdsharing"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -308,6 +309,7 @@ class ProgArgs
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
 		bool useBriefLiveStats; // single-line live stats
 		std::string benchLabel; // user-defined label for benchmark run
+		bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
 
 
 		void defineDefaults();
@@ -456,6 +458,7 @@ class ProgArgs
 		bool hasUserSetRWMixReadThreads() const { return useRWMixReadThreads; }
 		bool getUseBriefLiveStats() const { return useBriefLiveStats; }
 		std::string getBenchLabel() const { return benchLabel; }
+		bool getUseNoFDSharing() const { return useNoFDSharing; }
 
 };
 

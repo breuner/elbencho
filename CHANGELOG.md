@@ -4,6 +4,10 @@
 
 ### New Features & Enhancements
 * New option "--cores ..." to bind threads to CPU cores.
+* New option "--nofdsharing" to have each thread open files individually instead of using a shared set of file descriptors for all threads if given path refers to a file or block device.
+
+### Contributors
+* Thanks to Alon Horev for helpful comments and suggestions.
 
 ## v2.0.7 (Jan 05, 2022)
 

@@ -282,6 +282,9 @@ void ProgArgs::defineAllowedArgs()
 /*nod*/	(ARG_NODIRECTIOCHECK_LONG, bpo::bool_switch(&this->noDirectIOCheck),
 			"Don't check direct IO alignment. Many platforms require direct IO alignment. NFS is "
 			"a prominent exception.")
+/*nof*/	(ARG_NOFDSHARING_LONG, bpo::bool_switch(&this->useNoFDSharing),
+			"If benchmark path is a file or block device, let each worker thread open the given"
+			"file/bdev separately instead of sharing the same file descriptor among all threads.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
 			"Disable live statistics.")
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
@@ -523,6 +526,7 @@ void ProgArgs::defineDefaults()
 	this->numRWMixReadThreads = 0;
 	this->useRWMixReadThreads = false;
 	this->useBriefLiveStats = false;
+	this->useNoFDSharing = false;
 }
 
 /**
@@ -1086,6 +1090,8 @@ void ProgArgs::prepareBenchPathFDsVec()
 		int fd;
 		int openFlags = 0;
 
+		// note: keep flags below in sync with LocalWorker::initThreadFDVec
+
 		if(pathType == BenchPathType_DIR)
 			openFlags |= (O_DIRECTORY | O_RDONLY); // O_DIRECTORY only works with O_RDONLY on xfs
 		else
@@ -1144,10 +1150,10 @@ void ProgArgs::prepareCuFileHandleDataVec()
 		cuFileHandleDataVec.resize(cuFileHandleDataVec.size() + 1);
 		CuFileHandleData& cuFileHandleData = cuFileHandleDataVec[cuFileHandleDataVec.size() - 1];
 
-		// note: cleanup won't be a problem if reg no done, as CuFileHandleData can handle that case
-
 		if(!useCuFile)
 			continue; // no registration to be done if cuFile API is not used
+
+		// note: cleanup won't be a prob if reg not done, as CuFileHandleData can handle that case
 
 		cuFileHandleData.registerHandle<ProgException>(fd);
 	}
@@ -2335,6 +2341,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
 	benchLabel = tree.get<std::string>(ARG_BENCHLABEL_LONG);
+	useNoFDSharing = tree.get<bool>(ARG_NOFDSHARING_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2437,6 +2444,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_BENCHLABEL_LONG, benchLabel);
+	outTree.put(ARG_NOFDSHARING_LONG, useNoFDSharing);
 
 
 	// dynamically calculated values for service hosts...

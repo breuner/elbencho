@@ -71,6 +71,7 @@ _elbencho_opts()
         --nodelerr
         --nodetach
         --nodiocheck
+        --nofdsharing
         --nolive
         --nosvcshare
         --perthread

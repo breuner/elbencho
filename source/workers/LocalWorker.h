@@ -73,6 +73,10 @@ class LocalWorker : public Worker
 
 		struct
 		{
+			IntVec threadFDVec; // separate open files in file/bdev mode (progArgs::useNoFDSharing)
+			CuFileHandleDataVec threadCuFileHandleDataVec; /* separate cuFile handles
+															(progArgs::useNoFDSharing) */
+
 			IntVec fdVec; // fd of current file in dir mode
 			const IntVec* fdVecPtr{NULL}; /* for funcPositionalRW; fdVec in dir mode,
 				progArgs fdVec in file/bdev mode */
@@ -118,6 +122,10 @@ class LocalWorker : public Worker
 
 		void initS3Client();
 		void uninitS3Client();
+		void initThreadFDVec();
+		void uninitThreadFDVec();
+		void initThreadCuFileHandleDataVec();
+		void uninitThreadCuFileHandleDataVec();
 		void initThreadPhaseVars();
 		void initPhaseFileHandleVecs();
 		void initPhaseRWOffsetGen();
