@@ -183,7 +183,7 @@ two commands:
 1. `# graph_sweep.sh -s /var/local/zettar/sweep -b 16 -o /var/tmp/full/1 -p -v`
 1. `# graph_sweep.sh -s /var/local/zettar/sweep -b 16 -o /var/tmp/full/2 -p -v -T`
 
-|![full sweep graph in Gbps](pics/full_sweep_Gbps.svg)      | ![full_sweep_graph_in_GBps](pics/full_sweep_GBps.svg)|
+|![full sweep graph in Gbps](pics/full_sweep_Gbitps.svg)      | ![full_sweep_graph_in_GBps](pics/full_sweep_GByteps.svg)|
 |-----------------------------------------------|-------------------------------------------------|
 
 ### dgen.sh 
