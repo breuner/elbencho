@@ -11,6 +11,7 @@
 #include "CuFileHandleData.h"
 #include "OffsetGenerator.h"
 #include "toolkits/random/RandAlgoInterface.h"
+#include "toolkits/RateLimiter.h"
 #include "Worker.h"
 
 #ifdef S3_SUPPORT
@@ -50,6 +51,8 @@ typedef void (LocalWorker::*CUFILE_HANDLE_DEREGISTER)(CuFileHandleData& handleDa
 // preWriteIntegrityCheckFillBuf/postReadIntegrityCheckVerifyBuf
 typedef void (LocalWorker::*BLOCK_MODIFIER)(char* buf, size_t bufLen, off_t fileOffset);
 
+// preRWRateLimiter
+typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize);
 
 
 /**
@@ -87,6 +90,8 @@ class LocalWorker : public Worker
 				elements corresponds to num elems in fdVecPtr target */
 		} fileHandles;
 
+		RateLimiter rateLimiter; // for r/w rate limit per sec if set by user
+
 		uint64_t numIOPSSubmitted{0}; // internal sequential counter, not reset between phases
 
 		// phase-dependent variables
@@ -103,6 +108,7 @@ class LocalWorker : public Worker
 		GPU_MEMCPY_RW funcPostReadCudaMemcpy; // copy to GPU memory
 		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
 		CUFILE_HANDLE_DEREGISTER funcCuFileHandleDereg; // cuFile handle deregister
+		RW_RATE_LIMITER funcRWRateLimiter; // limit per-thread read or write throughput
 		std::unique_ptr<OffsetGenerator> rwOffsetGen; // r/w offset gen for phase-dependent funcs
 		std::unique_ptr<RandAlgoInterface> randOffsetAlgo; // for random offsets
 		std::unique_ptr<RandAlgoInterface> randBlockVarAlgo; // for random block contents variance
@@ -207,6 +213,9 @@ class LocalWorker : public Worker
 		void aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
+
+		void noOpRateLimiter(size_t rwSize);
+		void preRWRateLimiter(size_t rwSize);
 };
 
 

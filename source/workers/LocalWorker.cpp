@@ -596,6 +596,7 @@ void LocalWorker::nullifyPhaseFunctionPointers()
 	funcPostReadBlockChecker = NULL;
 	funcCuFileHandleReg = NULL;
 	funcCuFileHandleDereg = NULL;
+	funcRWRateLimiter = NULL;
 }
 
 /**
@@ -613,6 +614,10 @@ void LocalWorker::initPhaseFunctionPointers()
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
 	const RandAlgoType blockVarAlgo = RandAlgoSelectorTk::stringToEnum(
 		progArgs->getBlockVarianceAlgo() );
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	nullifyPhaseFunctionPointers(); // set all function pointers to NULL
 
@@ -671,6 +676,17 @@ void LocalWorker::initPhaseFunctionPointers()
 
 			funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
 		}
+
+		uint64_t rateLimitMiBps = isRWMixedReader ?
+			progArgs->getLimitReadBps() : progArgs->getLimitWriteBps();
+
+		if(!rateLimitMiBps)
+			funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
+		else
+		{
+			funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
+			rateLimiter.initStart(rateLimitMiBps);
+		}
 	}
 	else // BenchPhase_READFILES (and others which don't use these function pointers)
 	{
@@ -689,6 +705,14 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
 		funcPostReadBlockChecker = integrityCheckEnabled ?
 			&LocalWorker::postReadIntegrityCheckVerifyBuf : &LocalWorker::noOpIntegrityCheck;
+
+		if(!progArgs->getLimitReadBps() )
+			funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
+		else
+		{
+			funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
+			rateLimiter.initStart(progArgs->getLimitReadBps() );
+		}
 	}
 
 	// independent of whether current phase is read or write...
@@ -705,6 +729,7 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcCuFileHandleReg = &LocalWorker::noOpCuFileHandleReg;
 		funcCuFileHandleDereg = &LocalWorker::noOpCuFileHandleDereg;
 	}
+
 }
 
 /**
@@ -986,6 +1011,7 @@ int64_t LocalWorker::rwBlockSized()
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
@@ -1114,6 +1140,7 @@ int64_t LocalWorker::aioBlockSized()
 
 		ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset); // fill
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
@@ -1244,6 +1271,7 @@ int64_t LocalWorker::aioBlockSized()
 
 			ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
+			((*this).*funcRWRateLimiter)(blockSize);
 			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
@@ -1517,6 +1545,22 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 		io_prep_pwrite(iocb, fd, buf, count, offset);
 	else
 		io_prep_pread(iocb, fd, buf, count, offset);
+}
+
+/**
+ * Noop for cases where no rate limit selected by user.
+ */
+void LocalWorker::noOpRateLimiter(size_t rwSize)
+{
+	return; // noop
+}
+
+/**
+ * Rate limiter before reads in case rate limit was selected by user.
+ */
+void LocalWorker::preRWRateLimiter(size_t rwSize)
+{
+	rateLimiter.wait(rwSize);
 }
 
 /**
@@ -2910,6 +2954,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	if(blockSize)
 	{
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 	}
@@ -3018,6 +3063,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
@@ -3168,6 +3214,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
@@ -3397,6 +3444,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBuf, blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
 

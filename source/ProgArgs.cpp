@@ -265,6 +265,11 @@ void ProgArgs::defineAllowedArgs()
 /*la*/	(ARG_LATENCYPERCENT9S_LONG, bpo::value(&this->numLatencyPercentile9s),
 			"Number of decimal nines to show in latency percentiles. 0 for 99%, 1 for 99.9%, 2 for "
 			"99.99% and so on. (Default: 0)")
+/*li*/	(ARG_LIMITREAD_LONG, bpo::value(&this->limitReadBpsOrigStr),
+			"Per-thread read limit in bytes per second.")
+/*li*/	(ARG_LIMITWRITE_LONG, bpo::value(&this->limitWriteBpsOrigStr),
+			"Per-thread write limit in bytes per second. (In combination with "
+			"\"--" ARG_RWMIXPERCENT_LONG "\" this defines the limit for read+write.)")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
@@ -527,6 +532,10 @@ void ProgArgs::defineDefaults()
 	this->useRWMixReadThreads = false;
 	this->useBriefLiveStats = false;
 	this->useNoFDSharing = false;
+	this->limitReadBps = 0;
+	this->limitReadBpsOrigStr = "0";
+	this->limitWriteBps = 0;
+	this->limitWriteBpsOrigStr = "0";
 }
 
 /**
@@ -567,6 +576,8 @@ void ProgArgs::convertUnitStrings()
 	randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
 	fileShareSize = UnitTk::numHumanToBytesBinary(fileShareSizeOrigStr, false);
 	treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
+	limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
+	limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
 }
 
 /**
@@ -2342,6 +2353,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
 	benchLabel = tree.get<std::string>(ARG_BENCHLABEL_LONG);
 	useNoFDSharing = tree.get<bool>(ARG_NOFDSHARING_LONG);
+	limitReadBps = tree.get<uint64_t>(ARG_LIMITREAD_LONG);
+	limitWriteBps = tree.get<uint64_t>(ARG_LIMITWRITE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2445,6 +2458,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_BENCHLABEL_LONG, benchLabel);
 	outTree.put(ARG_NOFDSHARING_LONG, useNoFDSharing);
+	outTree.put(ARG_LIMITREAD_LONG, limitReadBps);
+	outTree.put(ARG_LIMITWRITE_LONG, limitWriteBps);
 
 
 	// dynamically calculated values for service hosts...

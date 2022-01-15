@@ -1,7 +1,6 @@
 #ifndef WORKERS_WORKERSSHAREDDATA_H_
 #define WORKERS_WORKERSSHAREDDATA_H_
 
-#include <boost/config.hpp> // for BOOST_LIKELY
 #include <boost/uuid/string_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -23,12 +22,6 @@ typedef std::vector<std::thread*> ThreadGroup;
 class ProgArgs; // forward declaration to avoid including ProgArgs.h here
 
 namespace buuids = boost::uuids;
-
-#ifdef BOOST_UNLIKELY
-	#define IF_UNLIKELY(condition)	if(BOOST_UNLIKELY(condition) )
-#else // fallback for older boost versions
-	#define IF_UNLIKELY(condition)	if(__builtin_expect(condition, 0) )
-#endif
 
 
 /**

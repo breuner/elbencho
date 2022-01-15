@@ -1,6 +1,7 @@
 #ifndef COMMON_H_
 #define COMMON_H_
 
+#include <boost/config.hpp> // for BOOST_LIKELY
 #include <list>
 #include <set>
 #include <string>
@@ -74,6 +75,13 @@ typedef std::vector<uint64_t> UInt64Vec;
 			pointer = NULL; \
 		}  \
 	} while(0)
+
+
+#ifdef BOOST_UNLIKELY
+	#define IF_UNLIKELY(condition)	if(BOOST_UNLIKELY(condition) )
+#else // fallback for older boost versions
+	#define IF_UNLIKELY(condition)	if(__builtin_expect(condition, 0) )
+#endif
 
 
 /**

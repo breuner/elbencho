@@ -131,6 +131,8 @@ namespace bpt = boost::property_tree;
 #define ARG_GPUDIRECTSSTORAGE_LONG	"gds"
 #define ARG_BENCHLABEL_LONG			"label"
 #define ARG_NOFDSHARING_LONG		"nofdsharing"
+#define ARG_LIMITREAD_LONG			"limitread"
+#define ARG_LIMITWRITE_LONG			"limitwrite"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -310,6 +312,10 @@ class ProgArgs
 		bool useBriefLiveStats; // single-line live stats
 		std::string benchLabel; // user-defined label for benchmark run
 		bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
+		uint64_t limitReadBps; // read limit per thread in bytes per sec
+		std::string limitReadBpsOrigStr; // original limitReadBps str from user with unit
+		uint64_t limitWriteBps; // write limit per thread in bytes per sec
+		std::string limitWriteBpsOrigStr; // original limitWriteBps str from user with unit
 
 
 		void defineDefaults();
@@ -459,6 +465,8 @@ class ProgArgs
 		bool getUseBriefLiveStats() const { return useBriefLiveStats; }
 		std::string getBenchLabel() const { return benchLabel; }
 		bool getUseNoFDSharing() const { return useNoFDSharing; }
+		uint64_t getLimitReadBps() const { return limitReadBps; }
+		uint64_t getLimitWriteBps() const { return limitWriteBps; }
 
 };
 

@@ -63,6 +63,8 @@ _elbencho_opts()
         --lathisto
         --latpercent
         --latpercent9s
+        --limitread
+        --limitwrite
         --live1
         --log
         --mkdirs
@@ -158,6 +160,10 @@ _elbencho()
         --iodepth)
         ;&
         --latpercent9s)
+        ;&
+        --limitread)
+        ;&
+        --limitwrite)
         ;&
         --log)
         ;&

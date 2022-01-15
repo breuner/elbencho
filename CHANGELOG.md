@@ -5,6 +5,7 @@
 ### New Features & Enhancements
 * New option "--cores ..." to bind threads to CPU cores.
 * New option "--nofdsharing" to have each thread open files individually instead of using a shared set of file descriptors for all threads if given path refers to a file or block device.
+* New options "--limitread"/"--limitwrite" to limit throughput of each thread.
 
 ### Contributors
 * Thanks to Alon Horev for helpful comments and suggestions.
