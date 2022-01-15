@@ -2012,25 +2012,29 @@ void ProgArgs::printHelpMultiFile()
     std::cout <<
     	"Examples:" ENDL
 		"  Test 2 threads, each creating 3 directories with 4 1MiB files inside:" ENDL
-		"    $ " EXE_NAME " -t 2 -d -n 3 -w -N 4 -s 1m -b 1m /data/testdir" ENDL
+		"    $ " EXE_NAME " -w -d -t 2 -d -n 3 -N 4 -s 1m -b 1m /data/testdir" ENDL
+		std::endl <<
+		"  Same as above with long option names:" ENDL
+		"    $ " EXE_NAME " --write --mkdirs --threads 2 --dirs 3 --files 4 --size 1m \\" ENDL
+		"        --block 1m /data/testdir" ENDL
 		std::endl <<
 		"  Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k /data/testdir" ENDL
+		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k /data/testdir" ENDL
 #ifdef CUDA_SUPPORT
 		std::endl <<
 		"  As above, but also copy data into memory of first 2 GPUs via CUDA:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
+		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k \\" ENDL
 		"        --gpuids 0,1 /data/testdir" ENDL
 #endif
 #ifdef CUFILE_SUPPORT
 		std::endl <<
 		"  As above, but read data into memory of first 2 GPUs via GPUDirect Storage:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
+		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k \\" ENDL
 		"        --gpuids 0,1 --gds /data/testdir" ENDL
 #endif
 		std::endl <<
 		"  Delete files and directories created by example above:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -N 4 -F -D /data/testdir" <<
+		"    $ " EXE_NAME " -F -D -t 2 -n 3 -N 4 /data/testdir" <<
 		std::endl;
 }
 
