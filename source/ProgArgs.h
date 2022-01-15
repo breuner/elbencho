@@ -58,6 +58,8 @@ namespace bpt = boost::property_tree;
 #define ARG_SERVICEPORT_LONG		"port"
 #define ARG_NODETACH_LONG			"nodetach"
 #define ARG_HOSTS_LONG				"hosts"
+#define ARG_HOSTSFILE_LONG			"hostsfile"
+#define ARG_NUMHOSTS_LONG			"numhosts"
 #define ARG_INTERRUPT_LONG			"interrupt"
 #define ARG_ITERATIONS_LONG			"iterations"
 #define ARG_ITERATIONS_SHORT		"i"
@@ -93,7 +95,6 @@ namespace bpt = boost::property_tree;
 #define ARG_SYNCPHASE_LONG			"sync"
 #define ARG_DROPCACHESPHASE_LONG	"dropcache"
 #define ARG_STATFILES_LONG			"stat"
-#define ARG_HOSTSFILE_LONG			"hostsfile"
 #define ARG_CPUUTIL_LONG			"cpu"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_VERSION_LONG			"version"
@@ -227,7 +228,9 @@ class ProgArgs
 		bool runServiceInForeground; // true to not daemonize service process into background
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string hostsStr; // list of service hosts, element format is hostname[:port]
+		std::string hostsFilePath; // path to file for service hosts
 		StringVec hostsVec; // service hosts broken down into individual hostname[:port]
+		int numHosts; // number of hosts to use from hostsStr/hostsFilePath ("-1" means "all")
 		bool interruptServices; // send interrupt msg to given hosts to stop current phase
 		bool quitServices; // send quit (via interrupt msg) to given hosts to exit service
 		bool noSharedServicePath; // true if bench paths not shared between service instances
@@ -269,7 +272,6 @@ class ProgArgs
 		bool runSyncPhase; // run the sync() phase to commit all dirty page cache buffers
 		bool runDropCachesPhase; // run "echo 3>drop_caches" phase to drop kernel page cache
 		bool runStatFilesPhase; // stat files
-		std::string hostsFilePath; // path to file for service hosts
 		bool showCPUUtilization; // show cpu utilization in phase stats results
 		size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
@@ -383,7 +385,9 @@ class ProgArgs
 		bool getRunServiceInForeground() const { return runServiceInForeground; }
 		unsigned short getServicePort() const { return servicePort; }
 		std::string getHostsStr() const { return hostsStr; }
+		std::string getHostsFilePath() const { return hostsFilePath; }
 		const StringVec& getHostsVec() const { return hostsVec; }
+		int getNumHosts() const { return numHosts; }
 		bool getInterruptServices() const { return interruptServices; }
 		bool getQuitServices() const { return quitServices; }
 		bool getIsServicePathShared() const { return !noSharedServicePath; }
@@ -423,7 +427,6 @@ class ProgArgs
 		bool getRunSyncPhase() const { return runSyncPhase; }
 		bool getRunDropCachesPhase() const { return runDropCachesPhase; }
 		bool getRunStatFilesPhase() const { return runStatFilesPhase; }
-		std::string getHostsFilePath() const { return hostsFilePath; }
 		bool getShowCPUUtilization() const { return showCPUUtilization; }
 		size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
 		bool getDoTruncToSize() const { return doTruncToSize; }

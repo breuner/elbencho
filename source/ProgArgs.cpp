@@ -295,6 +295,9 @@ void ProgArgs::defineAllowedArgs()
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service instances. Thus, each service instance "
 			"will work on its own full dataset instead of a fraction of the data set.")
+/*nu*/	(ARG_NUMHOSTS_LONG, bpo::value(&this->numHosts),
+			"Number of hosts to use from given hosts list or hosts file. (Default: use all given "
+			"hosts)")
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
@@ -536,6 +539,7 @@ void ProgArgs::defineDefaults()
 	this->limitReadBpsOrigStr = "0";
 	this->limitWriteBps = 0;
 	this->limitWriteBpsOrigStr = "0";
+	this->numHosts = -1;
 }
 
 /**
@@ -1318,6 +1322,13 @@ void ProgArgs::parseHosts()
 	if(hostsStr.empty() && hostsFilePath.empty() )
 		return; // nothing to do
 
+	if(!numHosts)
+	{ // user explicitly selected zero hosts, so ignore any given hosts list or hosts file
+		hostsStr.clear();
+		hostsFilePath.clear();
+		return;
+	}
+
 	// read service hosts from file and add to hostsStr
 	if(!hostsFilePath.empty() )
 	{
@@ -1372,6 +1383,11 @@ void ProgArgs::parseHosts()
 		throw ProgException("List of hosts contains duplicates. "
 			"Number of duplicates: " + std::to_string(hostsVec.size() - hostsSet.size() ) + "; "
 			"List: " + hostsStr);
+
+	// reduce to user-defined number of hosts
+	// ("numHosts==-1" means "use all hosts")
+	if( (numHosts != -1) && (hostsVec.size() > (unsigned)numHosts) )
+		hostsVec.resize(numHosts);
 }
 
 /**
