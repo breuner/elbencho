@@ -67,9 +67,17 @@ endif
 # Compiler and linker flags for S3 support
 # "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
 ifeq ($(S3_SUPPORT), 1)
-CXXFLAGS += -DS3_SUPPORT -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include -Wno-overloaded-virtual
+CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
 LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
 	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
+
+ # Apply user-provided AWS SDK include dir if given
+ ifeq ($(AWS_INCLUDE_DIR),)
+ CXXFLAGS += -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include
+ else
+ CXXFLAGS += -I $(AWS_INCLUDE_DIR)
+ endif
+
 endif
 
 # Use Microsoft mimalloc for memory allocations.
@@ -131,9 +139,11 @@ $(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on 
 
 externals:
 ifdef BUILD_VERBOSE
-	PREP_AWS_SDK=$(S3_SUPPORT) PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
+	PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
+		PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
 else
-	@PREP_AWS_SDK=$(S3_SUPPORT) PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
+	@PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
+		PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
 endif
 
 features-info:
@@ -332,6 +342,11 @@ help:
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
 	@echo '   BUILD_STATIC=1          - Generate a static binary without dependencies.'
 	@echo '                             (Tested only on Alpine Linux.)'
+	@echo '   AWS_LIB_DIR=<path>      - If this is set in combination with S3_SUPPORT=1'
+	@echo '                             then link against pre-built libs in given dir'
+	@echo '                             instead of building the AWS SDK CPP.'
+	@echo '   AWS_INCLUDE_DIR=<path>  - Include files path for AWS_LIB_DIR. (Default: '
+	@echo '                             "/usr/include")'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'

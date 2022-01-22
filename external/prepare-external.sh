@@ -53,11 +53,89 @@ prepare_webserver()
 	exit 1
 }
 
-# Prepare git clone and required tag. If clone didn't exist yet or if tag changed then configure
-# build, install libs and build a single static lib containing all static AWS SDK libs. If clone 
-# exitsted and tag changed, then clean/uninstall previous build before switching tag.
+# Prepare the AWS SDK static lib based on user-provided pre-built libs.
+prepare_awssdk_prebuilt_libs()
+{
+	echo "Using pre-built AWS SDK libs..."
+
+	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
+	local INSTALL_LIB_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install/lib"
+	local AWS_LIBS="libaws-c-auth.a libaws-c-compression.a libaws-c-http.a libaws-cpp-sdk-core.a \
+		libaws-crt-cpp.a libaws-c-cal.a libaws-c-event-stream.a libaws-c-io.a libaws-cpp-sdk-s3.a \
+		libaws-c-s3.a libaws-c-common.a libaws-checksums.a libaws-c-mqtt.a \
+		libaws-cpp-sdk-transfer.a"
+
+	echo "Resolving given AWS SDK libs path: $AWS_LIB_DIR"
+	
+	# Temporarily move to build root
+	
+	cd "${EXTERNAL_BASE_DIR}/.."
+	AWS_LIB_DIR=$(realpath -e "$AWS_LIB_DIR")
+
+	[ $? -ne 0 ] && exit 1
+
+	echo "Resolved AWS SDK libs path: $AWS_LIB_DIR"
+	
+	# Simple sanity check for provided AWS_LIB_DIR
+	if [ ! -e "${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a" ]; then
+		echo "AWS_LIB_DIR invalid. File not found: ${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a"
+		exit 1
+	fi
+
+	# Simple sanity check for provided AWS_INCLUDE_DIR
+	if [ -n "$AWS_INCLUDE_DIR" ] && [ ! -e "${AWS_INCLUDE_DIR}/aws/s3/S3Client.h" ]; then
+		echo "AWS_INCLUDE_DIR invalid. File not found:" \
+			"${AWS_INCLUDE_DIR}/aws/s3/S3Client.h"
+		exit 1
+	fi
+
+	# Move back to external base dir
+
+	cd "${EXTERNAL_BASE_DIR}"
+
+	[ $? -ne 0 ] && exit 1
+
+	mkdir -p "$INSTALL_LIB_DIR"
+
+	[ $? -ne 0 ] && exit 1
+
+	echo "Preparing static AWS SDK lib..."
+
+	local MRI_FILE="${INSTALL_LIB_DIR}/libaws-sdk-all.mri"
+	local LIB_FILE="${INSTALL_LIB_DIR}/libaws-sdk-all.a"
+
+	# delete old mri file and old lib
+	rm -f "$LIB_FILE" "$MRI_FILE"
+
+	# create mri file for "ar"
+	echo "create $LIB_FILE" > "$MRI_FILE"
+	for lib in $AWS_LIBS; do 
+		echo addlib ${AWS_LIB_DIR}/${lib} >> "$MRI_FILE"
+	done
+	echo "save" >> "$MRI_FILE"
+	echo "end" >> "$MRI_FILE"
+
+	# create static lib containing all AWS SDK static libs
+	ar -M < "$MRI_FILE" && \
+		echo "Created $(basename "${LIB_FILE}")" && \
+		echo "DONE: AWS SDK prepared." && \
+		return 0
+
+	[ $? -ne 0 ] && exit 1
+}
+
+# If user did not provide pre-built AWS SDK libs, then prepare git clone and required tag. If clone
+# didn't exist yet or if tag changed then configure build, install libs and build a single static 
+# lib containing all static AWS SDK libs. If clone exitsted and tag changed, then clean/uninstall 
+# previous build before switching tag.
 prepare_awssdk()
 {
+	# check if user provides pre-built libs
+	if [ -n "$AWS_LIB_DIR" ]; then
+		prepare_awssdk_prebuilt_libs
+		return 0; # AWS SDK build not required, so we're done here
+	fi
+
 	local REQUIRED_TAG="1.9.162-elbencho-tag"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
@@ -122,16 +200,16 @@ prepare_awssdk()
 	
 	echo "Preparing static AWS SDK lib..."
 	
-	local AWS_LIBS_DIR="$(echo ${INSTALL_DIR}/lib*)"
-	local MRI_FILE="${AWS_LIBS_DIR}/libaws-sdk-all.mri"
-	local LIB_FILE="${AWS_LIBS_DIR}/libaws-sdk-all.a"
+	local AWS_LIB_DIR="$(echo ${INSTALL_DIR}/lib*)"
+	local MRI_FILE="${AWS_LIB_DIR}/libaws-sdk-all.mri"
+	local LIB_FILE="${AWS_LIB_DIR}/libaws-sdk-all.a"
 	
 	# delete old mri file and old lib
 	rm -f "$LIB_FILE" "$MRI_FILE"
 	
 	# create mri file for "ar"
 	echo "create $LIB_FILE" > "$MRI_FILE"
-	for lib in $(ls ${AWS_LIBS_DIR}/*.a); do 
+	for lib in $(ls ${AWS_LIB_DIR}/*.a); do 
 		echo addlib $lib >> "$MRI_FILE"
 	done
 	echo "save" >> "$MRI_FILE"

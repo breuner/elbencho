@@ -8,6 +8,9 @@
 * New options "--limitread ..."/"--limitwrite ..." to limit throughput of each thread.
 * New option "--numhosts ..." to limit the number of used hosts from a given hosts list or hosts file.
 
+### General Changes ###
+* Added optional makefile parameters "AWS_LIB_DIR" and "AWS_INCLUDE_DIR" to support using pre-built AWS SDK CPP.
+
 ### Contributors
 * Thanks to Alon Horev and Ray Coetzee for helpful comments and suggestions.
 
