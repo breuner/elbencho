@@ -167,12 +167,12 @@ void ProgArgs::defineAllowedArgs()
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
 			"Percentage of each block that will be refilled with random data between writes. "
 			"This can be used to defeat compression/deduplication. (Default: 0; Max: 100)")
-/*br*/	(ARG_BRIEFLIFESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
-			"Use brief live statistics format, i.e. a single line instead of full screen stats.")
+#ifdef COREBIND_SUPPORT
 /*co*/	(ARG_CPUCORES_LONG, bpo::value(&this->cpuCoresStr),
 			"Comma-separated list of CPU cores to bind this process to. If multiple cores are "
 			"given, then worker threads are bound round-robin to the cores. "
 			"(Hint: See 'lscpu' for available CPU cores.)")
+#endif // COREBIND_SUPPORT
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
 			"Show CPU utilization in phase stats results.")
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
@@ -270,6 +270,8 @@ void ProgArgs::defineAllowedArgs()
 /*li*/	(ARG_LIMITWRITE_LONG, bpo::value(&this->limitWriteBpsOrigStr),
 			"Per-thread write limit in bytes per second. (In combination with "
 			"\"--" ARG_RWMIXPERCENT_LONG "\" this defines the limit for read+write.)")
+/*liv*/	(ARG_BRIEFLIFESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
+			"Use brief live statistics format, i.e. a single line instead of full screen stats.")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
@@ -437,10 +439,12 @@ void ProgArgs::defineAllowedArgs()
 /*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT,
 			bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
+#ifdef LIBNUMA_SUPPORT
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
 			"given, then worker threads are bound round-robin to the zones. "
 			"(Hint: See 'lscpu' for available NUMA zones.)")
+#endif // LIBNUMA_SUPPORT
     ;
 }
 
@@ -2269,9 +2273,9 @@ void ProgArgs::printVersionAndBuildInfo()
 	std::ostringstream notIncludedStream; // not included optional build features
 
 	std::cout << EXE_NAME << std::endl;
-	std::cout << "Version: " EXE_VERSION << std::endl;
-	std::cout << "Net protocol version: " HTTP_PROTOCOLVERSION << std::endl;
-	std::cout << "Build date: " __DATE__ << " " << __TIME__ << std::endl;
+	std::cout << " * Version: " EXE_VERSION << std::endl;
+	std::cout << " * Net protocol version: " HTTP_PROTOCOLVERSION << std::endl;
+	std::cout << " * Build date: " __DATE__ << " " << __TIME__ << std::endl;
 
 #ifdef CUDA_SUPPORT
 	includedStream << "cuda ";
@@ -2285,10 +2289,10 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cufile/gds ";
 #endif
 
-#if NO_BACKTRACE == 1 // no backtraces for musl-libc compatibility
-	notIncludedStream << "backtrace ";
-#else
+#ifdef BACKTRACE_SUPPORT
 	includedStream << "backtrace ";
+#else
+	notIncludedStream << "backtrace ";
 #endif
 
 #ifdef S3_SUPPORT
@@ -2303,9 +2307,39 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "mimalloc ";
 #endif
 
-	std::cout << "Included optional build features: " <<
+#ifdef LIBAIO_SUPPORT
+	includedStream << "libaio ";
+#else
+	notIncludedStream << "libaio ";
+#endif
+
+#ifdef SYNCFS_SUPPORT
+	includedStream << "syncfs ";
+#else
+	notIncludedStream << "syncfs ";
+#endif
+
+#ifdef LIBNUMA_SUPPORT
+	includedStream << "libnuma ";
+#else
+	notIncludedStream << "libnuma ";
+#endif
+
+#ifdef COREBIND_SUPPORT
+	includedStream << "corebind ";
+#else
+	notIncludedStream << "corebind ";
+#endif
+
+#ifdef SYSCALLH_SUPPORT
+	includedStream << "syscallh ";
+#else
+	notIncludedStream << "syscallh ";
+#endif
+
+	std::cout << " * Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
-	std::cout << "Excluded optional build features: " <<
+	std::cout << " * Excluded optional build features: " <<
 		(notIncludedStream.str().empty() ? "-" : notIncludedStream.str() ) << std::endl;
 }
 

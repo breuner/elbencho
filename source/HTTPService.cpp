@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <fstream>
 #include <libgen.h>
 #include <pwd.h>
@@ -488,7 +489,17 @@ void HTTPService::defineServerResources(HttpServer& server)
  */
 void HTTPService::daemonize()
 {
-	std::string logfile = std::string(SERVICE_LOG_DIR) + "/" + SERVICE_LOG_FILEPREFIX + "_" +
+	std::string logfile;
+
+	if(getenv("TMP") != NULL)
+		logfile = getenv("TMP"); // default for linux
+	else
+	if(getenv("TEMP") != NULL)
+		logfile = getenv("TEMP"); // default for windows
+	else
+		logfile = SERVICE_LOG_DIR;
+
+	logfile += std::string("/") + SERVICE_LOG_FILEPREFIX + "_" +
 		SystemTk::getUsername() + "_" +
 		"p" + std::to_string(progArgs.getServicePort() ) + "." // port
 		"log";

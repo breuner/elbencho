@@ -1,4 +1,3 @@
-#include <libaio.h>
 #include "LocalWorker.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
 #include "WorkerException.h"
@@ -6,6 +5,10 @@
 
 #ifdef CUDA_SUPPORT
 	#include <cuda_runtime.h>
+#endif
+
+#ifdef LIBAIO_SUPPORT
+	#include <libaio.h>
 #endif
 
 #ifdef S3_SUPPORT
@@ -1098,6 +1101,13 @@ int64_t LocalWorker::rwBlockSized()
  */
 int64_t LocalWorker::aioBlockSized()
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t maxIODepth = progArgs->getIODepth();
 	const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
@@ -1297,6 +1307,8 @@ int64_t LocalWorker::aioBlockSized()
 	io_queue_release(ioContext);
 
 	return rwOffsetGen->getNumBytesTotal();
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -1513,7 +1525,16 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 void LocalWorker::aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count,
 	long long offset)
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
 	io_prep_pwrite(iocb, fd, buf, count, offset);
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -1522,7 +1543,16 @@ void LocalWorker::aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t c
 void LocalWorker::aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
 	long long offset)
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
 	io_prep_pread(iocb, fd, buf, count, offset);
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -1533,6 +1563,13 @@ void LocalWorker::aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t co
 void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
 	long long offset)
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
 	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
 
 	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
@@ -1545,6 +1582,8 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 		io_prep_pwrite(iocb, fd, buf, count, offset);
 	else
 		io_prep_pread(iocb, fd, buf, count, offset);
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -4061,6 +4100,12 @@ void LocalWorker::anyModeSync()
 	if(workerRank != progArgs->getRankOffset() )
 		return;
 
+#ifndef SYNCFS_SUPPORT
+
+		sync();
+
+#else // SYNCFS_SUPPORT
+
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
 
@@ -4077,6 +4122,8 @@ void LocalWorker::anyModeSync()
 				"Path: " + pathVec[currentIdx] + "; "
 				"SysErr: " + strerror(errno) );
 	}
+
+#endif // SYNCFS_SUPPORT
 }
 
 /**

@@ -4,8 +4,8 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 2
-EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 9
+EXE_VER_MINOR      ?= 1
+EXE_VER_PATCHLEVEL ?= 0
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -21,22 +21,30 @@ PKG_INST_PATH      ?= /usr/bin
 
 CXX                ?= g++
 STRIP              ?= strip
+CXX_FLAVOR         ?= c++14
 
 CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
+LDFLAGS_AIO        ?= -laio
+LDFLAGS_NUMA       ?= -lnuma
 
-NO_BACKTRACE       ?= 0
+BACKTRACE_SUPPORT  ?= 1
+COREBIND_SUPPORT   ?= 1
+LIBAIO_SUPPORT     ?= 1
+LIBNUMA_SUPPORT    ?= 1
+SYNCFS_SUPPORT     ?= 1
 S3_SUPPORT         ?= 0
+SYSCALLH_SUPPORT   ?= 1
 
 CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
-	-DNO_BACKTRACE=$(NO_BACKTRACE) -I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
+	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
 	-Wall -Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
-	-fno-strict-aliasing -pthread -ggdb -std=c++14
+	-fno-strict-aliasing -pthread -ggdb -std=$(CXX_FLAVOR)
 CXXFLAGS_RELEASE  = -O3 -Wuninitialized
 CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON    = -rdynamic -pthread -lrt -lnuma -laio $(LDFLAGS_BOOST)
+LDFLAGS_COMMON    = -rdynamic -pthread -lrt $(LDFLAGS_NUMA) $(LDFLAGS_AIO) $(LDFLAGS_BOOST)
 LDFLAGS_RELASE    = -O3
 LDFLAGS_DEBUG     = -O0
 
@@ -46,12 +54,12 @@ OBJECTS_CLEANUP  := $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean
 DEPENDENCY_FILES := $(shell find $(SOURCE_PATH) -name '*.d')
 
 # Release & debug flags for compiler and linker
-ifeq ($(BUILD_DEBUG),)
-CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_RELEASE) $(CXXFLAGS_EXTRA)
-LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
-else
+ifeq ($(BUILD_DEBUG), 1)
 CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_DEBUG) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_DEBUG) $(LDFLAGS_EXTRA)
+else
+CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_RELEASE) $(CXXFLAGS_EXTRA)
+LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
 endif
 
 # Dynamic or static linking
@@ -88,14 +96,66 @@ CXXFLAGS += -DUSE_MIMALLOC
 LDFLAGS_MIMALLOC_TAIL := -L external/mimalloc/build -l:libmimalloc.a
 endif
 
+# Support build in Cygwin environment
+ifeq ($(CYGWIN_SUPPORT), 1)
+# EXE_UNSTRIPPED includes EXE in definition, so must be updated first 
+EXE_UNSTRIPPED     := $(EXE_UNSTRIPPED).exe
+EXE                := $(EXE).exe
+
+BACKTRACE_SUPPORT  := 0
+LIBAIO_SUPPORT     := 0
+SYNCFS_SUPPORT     := 0
+LIBNUMA_SUPPORT    := 0
+COREBIND_SUPPORT   := 0
+SYSCALLH_SUPPORT   := 0
+
+CXX_FLAVOR         := gnu++14
+CXXFLAGS           += -DCYGWIN_SUPPORT
+LDFLAGS_AIO        :=
+LDFLAGS_NUMA       :=
+endif
+
+# Backtrace support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(BACKTRACE_SUPPORT), 1)
+CXXFLAGS += -DBACKTRACE_SUPPORT
+endif
+
+# libaio support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(LIBAIO_SUPPORT), 1)
+CXXFLAGS += -DLIBAIO_SUPPORT
+endif
+
+# syncfs() call support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(SYNCFS_SUPPORT), 1)
+CXXFLAGS += -DSYNCFS_SUPPORT
+endif
+
+# libnuma support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(LIBNUMA_SUPPORT), 1)
+CXXFLAGS += -DLIBNUMA_SUPPORT
+endif
+
+# CPU core binding support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(COREBIND_SUPPORT), 1)
+CXXFLAGS += -DCOREBIND_SUPPORT
+endif
+
+# sys/syscall.h include file support (for definition of SYS_..., e.g. SYS_gettid)
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(SYSCALLH_SUPPORT), 1)
+CXXFLAGS += -DSYSCALLH_SUPPORT
+endif
+
 # Include build helpers for auto detection
 include build_helpers/AutoDetection.mk
 
 
 all: $(SOURCES) $(EXE)
-
-debug:
-	@$(MAKE) BUILD_DEBUG=1 all
 
 $(EXE): $(EXE_UNSTRIPPED)
 ifdef BUILD_VERBOSE
@@ -165,10 +225,10 @@ ifeq ($(CUDA_SUPPORT),1)
 else
 	$(info [OPT] CUDA support disabled)
 endif
-ifeq ($(NO_BACKTRACE),1)
-	$(info [OPT] Backtrace support disabled)
-else
+ifeq ($(BACKTRACE_SUPPORT),1)
 	$(info [OPT] Backtrace support enabled)
+else
+	$(info [OPT] Backtrace support disabled)
 endif
 ifeq ($(S3_SUPPORT),1)
 	$(info [OPT] S3 support enabled)
@@ -183,10 +243,12 @@ endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
-	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED)
+	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe $(EXE_UNSTRIPPED) \
+		$(EXE_UNSTRIPPED).exe
 else
 	@echo "[DELETE] OBJECTS, DEPENDENCY_FILES, EXECUTABLES"
-	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED)
+	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe $(EXE_UNSTRIPPED) \
+		$(EXE_UNSTRIPPED).exe
 endif
 
 clean-externals:
@@ -318,9 +380,8 @@ version:
 	@echo $(EXE_VERSION)
 
 help:
-	@echo 'Building Optional Features:'
-	@echo '   S3_SUPPORT=1            - Build with S3 support. (Note: This will fetch a'
-	@echo '                             AWS SDK git repo of over 1GB size.)'
+	@echo 'Optional Build Features:'
+	@echo '   BACKTRACE_SUPPORT=0|1   - Build with backtrace support. (Default: 1)'
 	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
 	@echo '                             CUDA to work with GPU memory. By default, CUDA'
 	@echo '                             support will be enabled when CUDA development files'
@@ -330,18 +391,23 @@ help:
 	@echo '                             By default, GDS support will be enabled when GDS'
 	@echo '                             development files are found. (cufile.h and'
 	@echo '                             libcufile.so)'
-	@echo '   NO_BACKTRACE=1          - Build without backtrace support for musl-libc.'
-	@echo '   USE_MIMALLOC=1          - Use Microsoft mimalloc library for memory'
+	@echo '   CYGWIN_SUPPORT=0|1      - Reduce build features to enable build in Cygwin'
+	@echo '                             environment. (Default: 0)'
+	@echo '   USE_MIMALLOC=0|1        - Use Microsoft mimalloc library for memory'
 	@echo '                             allocation management. Recommended when using'
-	@echo '                             musl-libc.'
+	@echo '                             musl-libc. (Default: 0)'
+	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
+	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo
 	@echo 'Optional Compile/Link Arguments:'
 	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
+	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++14)'
 	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
 	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
 	@echo '   BUILD_STATIC=1          - Generate a static binary without dependencies.'
 	@echo '                             (Tested only on Alpine Linux.)'
+	@echo '   BUILD_DEBUG=1           - Include debug info in executable.'
 	@echo '   AWS_LIB_DIR=<path>      - If this is set in combination with S3_SUPPORT=1'
 	@echo '                             then link against pre-built libs in given dir'
 	@echo '                             instead of building the AWS SDK CPP.'
@@ -350,7 +416,6 @@ help:
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
-	@echo '   debug             - Build executable with debug info'
 	@echo '   clean             - Remove build artifacts'
 	@echo '   clean-all         - Remove build artifacts and external sources'
 	@echo '   install           - Install executable to /usr/local/bin'
@@ -359,7 +424,7 @@ help:
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
 	@echo
-	@echo 'Note: Use "make clean" when changing any optional build features.'
+	@echo 'Note: Use "make clean-all" when changing any optional build features.'
 
 .PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
 features-info help prepare-buildroot rpm version

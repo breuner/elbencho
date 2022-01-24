@@ -165,7 +165,7 @@ cleanup_loopdev()
 # Test 4KiB block random read latency of device ${LOOPDEV_PATH[0]}
 test_loopdev_read_lat()
 {
-  cmd="${EXE_PATH} -r -b 4K --lat --direct --rand --no0usecerr ${LOOPDEV_PATH[0]}"
+  cmd="${EXE_PATH} -r -b 4K --lat --cpu --direct --rand --no0usecerr ${LOOPDEV_PATH[0]}"
   
   echo "Test 4KiB block random read latency of device ${LOOPDEV_PATH[0]}:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
@@ -296,7 +296,7 @@ start_distributed_services()
     exit 1
   fi
 
-  cmd="${EXE_PATH} --service --port 1612"
+  cmd="${EXE_PATH} --service --core 0 --port 1612"
   
   echo "Starting local service on port 1612 without NUMA binding:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"

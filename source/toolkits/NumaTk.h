@@ -2,12 +2,15 @@
 #define TOOLKITS_NUMATK_H_
 
 #include <cstdarg>
-#include <numa.h>
 #include <sched.h>
 #include <string>
 #include "Common.h"
 #include "Logger.h"
 #include "ProgException.h"
+
+#ifdef LIBNUMA_SUPPORT
+	#include <numa.h>
+#endif
 
 
 /**
@@ -28,7 +31,14 @@ class NumaTk
 		 * Must be called before all other functions in this toolkit and other functions may only
 		 * be used if this returns true.
 		 */
-		static bool isNumaInfoAvailable() { return (numa_available() != -1); }
+		static bool isNumaInfoAvailable()
+		{
+		#ifndef LIBNUMA_SUPPORT
+			return false;
+		#else // LIBNUMA_SUPPORT
+			return (numa_available() != -1);
+		#endif // LIBNUMA_SUPPORT
+		}
 
 		/**
 		 * Bind calling thread to given NUMA zone and set memory allocations to also prefer the
@@ -41,6 +51,13 @@ class NumaTk
 		 */
 		static void bindToNumaZone(std::string zonesStr)
 		{
+		#ifndef LIBNUMA_SUPPORT
+
+			throw ProgException("NUMA binding requested, but this executable was built without "
+				"NUMA support.");
+
+		#else // LIBNUMA_SUPPORT
+
 			int maxNode = numa_max_node();
 			int desiredNode = std::stoi(zonesStr);
 
@@ -71,6 +88,8 @@ class NumaTk
 			// note: only "preferred" instead of numa_set_membind to allow fallback to other zones
 
 			numa_set_preferred(desiredNode); // set mem alloc to prefer desiredNode
+
+		#endif // LIBNUMA_SUPPORT
 		}
 
 		/**
@@ -83,6 +102,13 @@ class NumaTk
 		 */
 		static void bindToNumaZones(std::string zonesStr)
 		{
+		#ifndef LIBNUMA_SUPPORT
+
+			throw ProgException("NUMA binding requested, but this executable was built without "
+				"NUMA support.");
+
+		#else // LIBNUMA_SUPPORT
+
 			struct bitmask* nodeMask = numa_parse_nodestring(zonesStr.c_str() );
 			if(nodeMask == NULL)
 				throw ProgException("Parsing of NUMA zone string failed: " + zonesStr);
@@ -95,6 +121,8 @@ class NumaTk
 				ProgException("Applying NUMA zone node mask failed. "
 					"Given zones: " + zonesStr + "; "
 					"SysErr: " + strerror(errno) );
+
+		#endif // LIBNUMA_SUPPORT
 		}
 
 		/**
@@ -105,6 +133,13 @@ class NumaTk
 		 */
 		static void bindToCPUCores(const IntVec& cpuCoresVec)
 		{
+		#ifndef COREBIND_SUPPORT
+
+			throw ProgException("CPU core binding requested, but this executable was built without "
+				"CPU core binding support.");
+
+		#else // COREBIND_SUPPORT
+
 			cpu_set_t cpuCoreSet;
 			std::string coresStr; // just for error log message
 
@@ -122,6 +157,8 @@ class NumaTk
 				ProgException("Applying CPU core set failed. "
 					"Given cores: " + coresStr + "; "
 					"SysErr: " + strerror(errno) );
+
+		#endif // COREBIND_SUPPORT
 		}
 
 		/**
@@ -131,11 +168,20 @@ class NumaTk
 		 */
 		static void bindToCPUCore(int cpuCore)
 		{
+		#ifndef COREBIND_SUPPORT
+
+			throw ProgException("CPU core binding requested, but this executable was built without "
+				"CPU core binding support.");
+
+		#else // COREBIND_SUPPORT
+
 			IntVec coreVec;
 
 			coreVec.push_back(cpuCore);
 
 			bindToCPUCores(coreVec);
+
+		#endif // COREBIND_SUPPORT
 		}
 };
 

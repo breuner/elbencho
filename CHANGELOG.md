@@ -1,5 +1,12 @@
 # Changelog of elbencho
 
+## v2.1.0 (work in progress)
+
+### New Features & Enhancements
+* New support for Windows
+  * The Windows version is built via Cygwin
+  * Benchmark paths can be specified as /cygdrive/<driveletter>/...
+
 ## v2.0.9 (Jan 24, 2022)
 
 ### New Features & Enhancements

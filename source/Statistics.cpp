@@ -358,10 +358,13 @@ void Statistics::printWholeScreenLiveStats()
 		// delayed ncurses init (here instead of before loop to avoid empty screen for first wait)
 		IF_UNLIKELY(!ncursesInitialized)
 		{
-			WINDOW* initRes = initscr(); // init curses mode
+			// (note: initscr() terminates the process on error, hence newterm() here instead)
+			SCREEN* initRes = newterm(getenv("TERM"), stdout, stdin); // init curses mode
 			if(!initRes)
 			{
-				ErrLogger(Log_DEBUG) << "ncurses initscr() failed." << std::endl;
+				std::cerr << "NOTE: ncurses terminal init for live statistics failed. " <<
+					"Try \"--" ARG_BRIEFLIFESTATS_LONG "\" or \"--" ARG_NOLIVESTATS_LONG "\"." <<
+					std::endl;
 				return;
 			}
 
