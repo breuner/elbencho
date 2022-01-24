@@ -1,12 +1,12 @@
 # Changelog of elbencho
 
-## v2.0.8 (work in progress)
+## v2.0.9 (Jan 24, 2022)
 
 ### New Features & Enhancements
-* New option "--cores ..." to bind threads to CPU cores.
+* New option "--cores" to bind threads to CPU cores.
 * New option "--nofdsharing" to have each thread open files individually instead of using a shared set of file descriptors for all threads if given path refers to a file or block device.
-* New options "--limitread ..."/"--limitwrite ..." to limit throughput of each thread.
-* New option "--numhosts ..." to limit the number of used hosts from a given hosts list or hosts file.
+* New options "--limitread"/"--limitwrite" to limit throughput of each thread.
+* New option "--numhosts" to limit the number of used hosts from a given hosts list or hosts file.
 
 ### General Changes ###
 * Added optional makefile parameters "AWS_LIB_DIR" and "AWS_INCLUDE_DIR" to support using pre-built AWS SDK CPP.
