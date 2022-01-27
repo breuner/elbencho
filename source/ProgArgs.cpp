@@ -363,6 +363,8 @@ void ProgArgs::defineAllowedArgs()
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
 			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
 			"the current working directory. (Default: 0=disabled; Max: 6)")
+/*s3n*/	(ARG_S3NOMPCHECK_LONG, bpo::bool_switch(&this->ignoreS3PartNum),
+			"Don't check for S3 multi-part uploads exceeding 10,000 parts.")
 /*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
 			"is a bucket.")
@@ -544,6 +546,7 @@ void ProgArgs::defineDefaults()
 	this->limitWriteBps = 0;
 	this->limitWriteBpsOrigStr = "0";
 	this->numHosts = -1;
+	this->ignoreS3PartNum = false;
 }
 
 /**
@@ -676,6 +679,12 @@ void ProgArgs::checkArgs()
 
 	if(useRandomOffsets && !s3EndpointsStr.empty() && useS3TransferManager)
 		throw ProgException("S3 TransferManager does not support random offsets.");
+
+	if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize &&
+		runCreateFilesPhase && ( (fileSize/blockSize) > 10000) )
+		throw ProgException("Specified multi-part upload would exceed 10,000 parts per object. "
+			"This exceeds the S3 specification and thus is likely to get rejected by the server. "
+			"(\"--" ARG_S3NOMPCHECK_LONG "\" disables this check.)");
 
 	if(useCuFile && !s3EndpointsStr.empty() )
 		throw ProgException("cuFile API cannot be used with S3");

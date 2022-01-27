@@ -5,7 +5,10 @@
 ### New Features & Enhancements
 * New support for Windows
   * The Windows version is built via Cygwin
-  * Benchmark paths can be specified as /cygdrive/<driveletter>/...
+  * Benchmark paths can be specified as `/cygdrive/<driveletter>/some/path`
+
+### General Changes ###
+* Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
 
 ## v2.0.9 (Jan 24, 2022)
 

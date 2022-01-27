@@ -134,6 +134,7 @@ namespace bpt = boost::property_tree;
 #define ARG_NOFDSHARING_LONG		"nofdsharing"
 #define ARG_LIMITREAD_LONG			"limitread"
 #define ARG_LIMITWRITE_LONG			"limitwrite"
+#define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -318,6 +319,7 @@ class ProgArgs
 		std::string limitReadBpsOrigStr; // original limitReadBps str from user with unit
 		uint64_t limitWriteBps; // write limit per thread in bytes per sec
 		std::string limitWriteBpsOrigStr; // original limitWriteBps str from user with unit
+		bool ignoreS3PartNum; // don't check for >10K parts in multi-part uploads
 
 
 		void defineDefaults();
@@ -470,6 +472,7 @@ class ProgArgs
 		bool getUseNoFDSharing() const { return useNoFDSharing; }
 		uint64_t getLimitReadBps() const { return limitReadBps; }
 		uint64_t getLimitWriteBps() const { return limitWriteBps; }
+		bool getIgnoreS3PartNum() const { return ignoreS3PartNum; }
 
 };
 
