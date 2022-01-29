@@ -42,9 +42,11 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 
 The built-in help (`elbencho --help`) provides simple examples to get started.
 
+You can get elbencho pre-built for Linux & Windows from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). 
+
 ## Build Prerequisites
 
-You can get elbencho pre-built from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
+Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
 
 ### Dependencies for Debian/Ubuntu
 
