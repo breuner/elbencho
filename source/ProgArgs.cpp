@@ -842,7 +842,7 @@ void ProgArgs::checkPathDependentArgs()
 		const uint64_t numBlocksTotal = numBlocksPerFile * numFiles; // total for all files
 		const uint64_t blockSetSize = blockSize * numDataSetThreads;
 
-		if(useRandomOffsets && (randomAmount < blockSetSize) )
+		if(useRandomOffsets && (randomAmount < blockSetSize) && !doInfiniteIOLoop)
 			throw ProgException("Random I/O amount (--" ARG_RANDOMAMOUNT_LONG ") must be large "
 				"enough so that each I/O thread can at least read/write one block. "
 				"Current block size: " + std::to_string(blockSize) + "; "
