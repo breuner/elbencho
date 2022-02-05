@@ -22,7 +22,6 @@ int Coordinator::main()
 	try
 	{
 		SignalTk::registerFaultSignalHandlers();
-		S3Tk::initS3Global(progArgs);
 
 		// HTTP service mode
 		// note: no other threads may be running when HTTPService.startServer() daemonizes.
@@ -38,6 +37,7 @@ int Coordinator::main()
 			goto joinall_and_exit;
 		}
 
+		S3Tk::initS3Global(progArgs); // inits threads and thus after potential service daemonize
 		workerManager.prepareThreads();
 
 		/* register signal handlers for clean worker stop and stats print after ctrl+c. This is not

@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "HTTPService.h"
 #include "ProgException.h"
+#include "toolkits/S3Tk.h"
 #include "toolkits/SystemTk.h"
 #include "workers/RemoteWorker.h"
 
@@ -29,6 +30,8 @@ void HTTPService::startServer()
 
 	if(!progArgs.getRunServiceInForeground() )
 		daemonize(); // daemonize process in background
+
+	S3Tk::initS3Global(progArgs); // inits threads and thus after service daemonize
 
 	// prepare http server and its URLs
 

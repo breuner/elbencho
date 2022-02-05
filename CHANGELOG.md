@@ -7,8 +7,11 @@
   * The Windows version is built via Cygwin
   * Benchmark paths can be specified as `/cygdrive/<driveletter>/some/path`
 
-### General Changes ###
+### General Changes
 * Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
+
+### Fixes
+* Init AWS SDK after daemonizing into background in service mode to not prevent shutdown of static builds.
 
 ## v2.0.9 (Jan 24, 2022)
 
