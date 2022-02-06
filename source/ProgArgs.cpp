@@ -733,6 +733,16 @@ void ProgArgs::checkArgs()
  */
 void ProgArgs::checkPathDependentArgs()
 {
+	if( ( (benchPathType != BenchPathType_DIR) || !treeFilePath.empty() ) &&
+		(argsVariablesMap.count(ARG_NUMDIRS_LONG) || argsVariablesMap.count(ARG_NUMDIRS_SHORT) ) )
+		LOGGER(Log_NORMAL, "NOTE: \"--" ARG_NUMDIRS_LONG "\" is only effective when benchmark "
+			"path is a directory (or bucket) and when no custom tree file is given." << std::endl);
+
+	if( ( (benchPathType != BenchPathType_DIR) || !treeFilePath.empty() ) &&
+		(argsVariablesMap.count(ARG_NUMFILES_LONG) || argsVariablesMap.count(ARG_NUMFILES_SHORT) ) )
+		LOGGER(Log_NORMAL, "NOTE: \"--" ARG_NUMFILES_LONG "\" is only effective when benchmark "
+			"path is a directory (or bucket) and when no custom tree file is given." << std::endl);
+
 	if( (benchPathType != BenchPathType_DIR) && runStatFilesPhase)
 		throw ProgException("File stat phase can only be used when benchmark path is a directory.");
 
