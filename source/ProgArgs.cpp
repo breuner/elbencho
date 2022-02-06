@@ -60,14 +60,6 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 		bpo::options_description argsDescription;
 		argsDescription.add(argsGenericDescription).add(argsHiddenDescription);
 
-		// Add the configfile option before all the other options to prevent a cycle
-
-		argsDescription.add_options()
-		(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
-			"Path to benchmark configuration file. All command line options starting with "
-			"double dashes can be used as \"OPTIONNAME=VALUE\" in the config file. Multiple "
-			"options are newline-separated. Lines starting with \"#\" are ignored.");
-
 		bpo::positional_options_description positionalArgsDescription;
 		positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
 
@@ -167,6 +159,10 @@ void ProgArgs::defineAllowedArgs()
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
 			"Percentage of each block that will be refilled with random data between writes. "
 			"This can be used to defeat compression/deduplication. (Default: 0; Max: 100)")
+/*c*/	(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
+			"Path to benchmark configuration file. All command line options starting with "
+			"double dashes can be used as \"OPTIONNAME=VALUE\" in the config file. Multiple "
+			"options are newline-separated. Lines starting with \"#\" are ignored.")
 #ifdef COREBIND_SUPPORT
 /*co*/	(ARG_CPUCORES_LONG, bpo::value(&this->cpuCoresStr),
 			"Comma-separated list of CPU cores to bind this process to. If multiple cores are "
