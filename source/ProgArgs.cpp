@@ -196,6 +196,10 @@ void ProgArgs::defineAllowedArgs()
 			"instead of using different dirs for each thread. In this case, \"-" ARG_NUMDIRS_SHORT
 			"\" defines the total number of dirs for all threads instead of the number of dirs per "
 			"thread.")
+/*di*/	(ARG_DIRSTATS_LONG, bpo::bool_switch(&this->showDirStats),
+			"Show directory completion statistics in file write/read phase. A directory counts as "
+			"completed if all files in the directory have been written/read. Only effective if "
+			"benchmark path is a directory.")
 /*dr*/	(ARG_DROPCACHESPHASE_LONG, bpo::bool_switch(&this->runDropCachesPhase),
 			"Drop linux file system page cache, dentry cache and inode cache before/after each "
 			"benchmark phase. Requires root privileges. This should be used together with \"--"
@@ -543,6 +547,7 @@ void ProgArgs::defineDefaults()
 	this->limitWriteBpsOrigStr = "0";
 	this->numHosts = -1;
 	this->ignoreS3PartNum = false;
+	this->showDirStats = false;
 }
 
 /**

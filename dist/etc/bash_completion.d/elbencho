@@ -39,6 +39,7 @@ _elbencho_opts()
         --direct
         --dirs
         --dirsharing
+        --dirstats
         --dropcache
         --dryrun
         --files

@@ -6,12 +6,16 @@
 * New support for Windows
   * The Windows version is built via Cygwin
   * Benchmark paths can be specified as `/cygdrive/<driveletter>/some/path`
+* New option "--dirstats" to show number of completed directories in file write/read phase.
 
 ### General Changes
 * Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
 
 ### Fixes
 * Init AWS SDK after daemonizing into background in service mode to not prevent shutdown of static builds.
+
+### Contributors
+* Thanks to Dima Kaputkin for helpful comments and suggestions.
 
 ## v2.0.9 (Jan 24, 2022)
 

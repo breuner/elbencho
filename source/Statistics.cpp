@@ -502,6 +502,11 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 		liveResults.newLiveOpsReadMix.numEntriesDone);
 	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
 
+	const bool showDirStats = progArgs.getShowDirStats() &&
+		(progArgs.getBenchPathType() == BenchPathType_DIR) &&
+		progArgs.getTreeFilePath().empty() &&
+		( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) ||
+			(workersSharedData.currentBenchPhase == BenchPhase_READFILES) );
 
 	// how many lines we have to show per-worker stats ("+2" for table header and total line)
 	size_t maxNumWorkerLines = liveResults.winHeight - (WHOLESCREEN_GLOBALINFO_NUMLINES + 2);
@@ -523,6 +528,13 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 		stream << boost::format(dirModeTableHeadlineFormat)
 			% liveResults.entryTypeUpperCase
 			% (liveResults.entryTypeUpperCase + "/s");
+	}
+
+	if(showDirStats)
+	{ // add columns for dir stats in file write/read phase of dir mode
+		stream << boost::format(dirModeTableHeadlineFormat)
+			% "Dirs"
+			% "Dirs/s";
 	}
 
 	if(!progArgs.getHostsVec().empty() )
@@ -552,6 +564,13 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 			% liveResults.liveOpsPerSec.numEntriesDone;
 	}
 
+	if(showDirStats)
+	{ // add columns for dir stats in file write/read phase of dir mode
+		stream << boost::format(dirModeTableHeadlineFormat)
+			% (liveResults.newLiveOps.numEntriesDone / progArgs.getNumFiles() )
+			% (liveResults.liveOpsPerSec.numEntriesDone / progArgs.getNumFiles() );
+	}
+
 	if(!progArgs.getHostsVec().empty() )
 	{ // add columns for remote mode
 		stream << boost::format(remoteTableHeadlineFormat)
@@ -579,6 +598,19 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 					std::to_string(liveResults.newLiveOpsReadMix.numEntriesDone) : "-")
 				% (isRWMixThreadsPhase ?
 					std::to_string(liveResults.liveOpsPerSecReadMix.numEntriesDone) : "-");
+		}
+
+		if(showDirStats)
+		{ // add columns for dir stats in file write/read phase of dir mode
+			size_t numFiles = progArgs.getNumFiles();
+
+			stream << boost::format(dirModeTableHeadlineFormat)
+				% (isRWMixThreadsPhase ?
+					std::to_string(liveResults.newLiveOpsReadMix.numEntriesDone / numFiles) :
+					"-")
+				% (isRWMixThreadsPhase ?
+					std::to_string(liveResults.liveOpsPerSecReadMix.numEntriesDone / numFiles) :
+					"-");
 		}
 
 		if(!progArgs.getHostsVec().empty() )
@@ -626,6 +658,13 @@ void Statistics::printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults)
 			stream << boost::format(dirModeTableHeadlineFormat)
 				% workerDone.numEntriesDone
 				% workerDonePerSec.numEntriesDone;
+		}
+
+		if(showDirStats)
+		{ // add columns for dir stats in file write/read phase of dir mode
+			stream << boost::format(dirModeTableHeadlineFormat)
+				% (workerDone.numEntriesDone / progArgs.getNumFiles() )
+				% (workerDonePerSec.numEntriesDone / progArgs.getNumFiles() );
 		}
 
 		if(!progArgs.getHostsVec().empty() )
@@ -1045,6 +1084,12 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 		phaseResults.opsTotalReadMix.numEntriesDone);
 	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
 
+	const bool showDirStats = progArgs.getShowDirStats() &&
+		(progArgs.getBenchPathType() == BenchPathType_DIR) &&
+		progArgs.getTreeFilePath().empty() &&
+		( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) ||
+			(workersSharedData.currentBenchPhase == BenchPhase_READFILES) );
+
 	// elapsed time
 	outStream << boost::format(Statistics::phaseResultsFormatStr)
 		% phaseName
@@ -1067,6 +1112,19 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
+	// dirs per second in file read/write phase of dir mode
+	if(showDirStats && phaseResults.opsTotal.numEntriesDone)
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% (isRWMixThreadsPhase ?
+				("Dirs/s write") : ("Dirs/s") )
+			% ":"
+			% (phaseResults.opsStoneWallPerSec.numEntriesDone / progArgs.getNumFiles() )
+			% (phaseResults.opsPerSec.numEntriesDone / progArgs.getNumFiles() )
+			<< std::endl;
+	}
+
 	// rwmix read entries (dirs/files) per second
 	if(phaseResults.opsTotalReadMix.numEntriesDone)
 	{
@@ -1076,6 +1134,18 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			% ":"
 			% phaseResults.opsStoneWallPerSecReadMix.numEntriesDone
 			% phaseResults.opsPerSecReadMix.numEntriesDone
+			<< std::endl;
+	}
+
+	// dirs per second in rwmix file read phase of dir mode
+	if(showDirStats && phaseResults.opsTotalReadMix.numEntriesDone)
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% ("Dirs/s read")
+			% ":"
+			% (phaseResults.opsStoneWallPerSecReadMix.numEntriesDone / progArgs.getNumFiles() )
+			% (phaseResults.opsPerSecReadMix.numEntriesDone / progArgs.getNumFiles() )
 			<< std::endl;
 	}
 
@@ -1171,6 +1241,18 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
+	// dirs processed in file read/write phase of dir mode
+	if(showDirStats && phaseResults.opsTotal.numEntriesDone)
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% (isRWMixThreadsPhase ? "Dirs write" : "Dirs total")
+			% ":"
+			% (phaseResults.opsStoneWallTotal.numEntriesDone / progArgs.getNumFiles() )
+			% (phaseResults.opsTotal.numEntriesDone / progArgs.getNumFiles() )
+			<< std::endl;
+	}
+
 	// rwmix read entries (dirs/files) processed
 	if(phaseResults.opsTotalReadMix.numEntriesDone)
 	{
@@ -1180,6 +1262,18 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			% ":"
 			% phaseResults.opsStoneWallTotalReadMix.numEntriesDone
 			% phaseResults.opsTotalReadMix.numEntriesDone
+			<< std::endl;
+	}
+
+	// dis processed in rwmix file read phase of dir mode
+	if(showDirStats && phaseResults.opsTotalReadMix.numEntriesDone)
+	{
+		outStream << boost::format(Statistics::phaseResultsFormatStr)
+			% ""
+			% ("Dirs read")
+			% ":"
+			% (phaseResults.opsStoneWallTotalReadMix.numEntriesDone / progArgs.getNumFiles() )
+			% (phaseResults.opsTotalReadMix.numEntriesDone / progArgs.getNumFiles() )
 			<< std::endl;
 	}
 
