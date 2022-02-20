@@ -11,6 +11,7 @@
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "Terminal.h"
+#include "toolkits/FileTk.h"
 #include "toolkits/NumaTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
@@ -172,8 +173,9 @@ void ProgArgs::defineAllowedArgs()
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
 			"Show CPU utilization in phase stats results.")
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
-			"Path to file for results in csv format. This way, result can be imported e.g. into "
-			"MS Excel. If the file exists, results will be appended.")
+			"Path to file for end results in csv format. This way, results can be imported e.g. "
+			"into MS Excel. If the file exists, results will be appended. (See also \"--"
+			ARG_CSVLIVEFILE_LONG "\" for progress results in csv format.)")
 #ifdef CUFILE_SUPPORT
 /*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
 			"Use cuFile API for reads/writes to/from GPU memory, also known as GPUDirect Storage "
@@ -272,6 +274,17 @@ void ProgArgs::defineAllowedArgs()
 			"\"--" ARG_RWMIXPERCENT_LONG "\" this defines the limit for read+write.)")
 /*liv*/	(ARG_BRIEFLIFESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
 			"Use brief live statistics format, i.e. a single line instead of full screen stats.")
+/*liv*/	(ARG_CSVLIVEFILE_LONG, bpo::value(&this->liveCSVFilePath),
+			"Path to file for live progress results in csv format. If the file exists, results "
+			"will be appended. This must not be the same file that is given as \"--"
+			ARG_CSVFILE_LONG "\".")
+/*liv*/	(ARG_CSVLIVEEXTENDED_LONG, bpo::bool_switch(&this->useExtendedLiveCSV),
+			"Use extended live results csv file. By default, only aggregate results of all worker "
+			"threads will be added. This option also adds results of individual threads in "
+			"standalone mode or results of individual services in distributed mode.")
+/*liv*/	(ARG_LIVEINTERVAL_LONG, bpo::value(&this->liveStatsSleepMS),
+			"Update interval for console and csv file live statistics in milliseconds. "
+			"(Default: 2000)")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
@@ -293,7 +306,7 @@ void ProgArgs::defineAllowedArgs()
 			"If benchmark path is a file or block device, let each worker thread open the given"
 			"file/bdev separately instead of sharing the same file descriptor among all threads.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
-			"Disable live statistics.")
+			"Disable live statistics on console.")
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service instances. Thus, each service instance "
 			"will work on its own full dataset instead of a fraction of the data set.")
@@ -322,8 +335,6 @@ void ProgArgs::defineAllowedArgs()
 			"benchmark path is a file or block device. (Default: Set to file size)")
 /*ra*/	(ARG_RANKOFFSET_LONG, bpo::value(&this->rankOffset),
 			"Rank offset for worker threads. (Default: 0)")
-/*re*/	(ARG_LIVESLEEPSEC_LONG, bpo::value(&this->liveStatsSleepSec),
-			"Sleep interval between live stats console refresh in seconds. (Default: 2)")
 /*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
 			"Path to file for human-readable results, similar to console output. If the file "
 			"exists, new results will be appended.")
@@ -488,7 +499,7 @@ void ProgArgs::defineDefaults()
 	this->rankOffset = 0;
 	this->logLevel = Log_NORMAL;
 	this->showAllElapsed = false;
-	this->liveStatsSleepSec = 2;
+	this->liveStatsSleepMS = 2000;
 	this->useRandomOffsets = false;
 	this->useRandomAligned = false;
 	this->randomAmount = 0;
@@ -500,6 +511,7 @@ void ProgArgs::defineDefaults()
 	this->showLatencyHistogram = false;
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;
+	this->useExtendedLiveCSV = false;
 	this->noCSVLabels = false;
 	this->assignGPUPerService = false;
 	this->useCuFile = false;
@@ -574,6 +586,8 @@ void ProgArgs::initImplicitValues()
 		useGDSBufReg = true;
 	}
 
+	benchLabelNoCommas = benchLabel;
+	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
 }
 
 /**
@@ -2560,9 +2574,6 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
  */
 void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const
 {
-	std::string benchLabelNoCommas(benchLabel);
-	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
-
 	outLabelsVec.push_back("label");
 	outValuesVec.push_back(benchLabelNoCommas);
 
@@ -2763,31 +2774,6 @@ void ProgArgs::checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos)
 }
 
 /**
- * Check if CSV file is empty or not existing yet.
- *
- * @return true if not exists or empty (or if size could not be retrieved), false otherwise
- */
-bool ProgArgs::checkCSVFileEmpty() const
-{
-	struct stat statBuf;
-
-	int statRes = stat(csvFilePath.c_str(), &statBuf);
-	if(statRes == -1)
-	{
-		if(errno == ENOENT)
-			return true;
-
-		std::cerr << "ERROR: Getting CSV file size failed. "
-			"Path: " << csvFilePath <<
-			"SysErr: " << strerror(errno) << std::endl;
-
-		return true;
-	}
-
-	return (statBuf.st_size == 0);
-}
-
-/**
  * Check an existing non-empty CSV file for compatibility. This means we count the number of commas
  * in the header line to see if it matches the current number of commas. This way, we can avoid
  * adding to a CSV file that was written with a different version and thus uses a different number
@@ -2800,7 +2786,7 @@ void ProgArgs::checkCSVFileCompatibility()
 	if(csvFilePath.empty() )
 		return; // nothing to do
 
-	if(checkCSVFileEmpty() )
+	if(FileTk::checkFileEmpty(csvFilePath) )
 		return; // no csv file yet or file is empty, so nothing to do
 
 	std::string lineStr;

@@ -40,7 +40,6 @@ class LiveResults
 		std::string phaseName; // read, write, mkdirs etc
 		std::string phaseEntryType; // files or dirs
 		std::string entryTypeUpperCase; // phaseEntryType uppercase
-		time_t startTime; // start time() of phase
 		size_t numEntriesPerWorker; // total number for this phase
 		uint64_t numBytesPerWorker; // total number for this phase
 
@@ -68,6 +67,7 @@ class Statistics
 			progArgs(progArgs), workerManager(workerManager),
 			workersSharedData(workerManager.getWorkersSharedData() ),
 			workerVec(workerManager.getWorkerVec() ) {}
+		~Statistics();
 
 		void printLiveCountdown();
 		void printLiveStats();
@@ -90,7 +90,8 @@ class Statistics
 		const std::string phaseResultsFormatStr{"%|-9| %|-17|%|1| %|10| %|10|"};
 		const std::string phaseResultsLeftFormatStr{"%|-9| %|-17|%|1| "}; // left side format str
 		const std::string phaseResultsFooterStr = std::string(3, '-');
-		CPUUtil liveCpuUtil; // updated by live stats or through http service live stat calls
+		CPUUtil liveCpuUtil; // updated by live stats loop or through http service live stat calls
+		int liveCSVFileFD = -1; // fd for live stats csv file
 
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();
@@ -110,19 +111,24 @@ class Statistics
 
 		void printSingleLineLiveStatsLine(LiveResults& liveResults);
 		void deleteSingleLineLiveStatsLine();
-		void printSingleLineLiveStats();
-		void wholeScreenLiveStatsUpdateRemoteInfo(LiveResults& liveResults);
-		void wholeScreenLiveStatsUpdateLiveOps(LiveResults& liveResults);
-		void printWholeScreenLiveStatsGlobalInfo(LiveResults& liveResults);
-		void printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults);
+		void loopSingleLineLiveStats();
 
-		void printWholeScreenLine(std::ostringstream& stream, unsigned lineLength,
+		void printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults);
+		void printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults);
+		void printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
 			bool fillIfShorter);
-		void printWholeScreenLiveStats();
+		void loopFullScreenLiveStats();
 
-		bool checkCSVFileEmpty();
+		void loopNoConsoleLiveStats();
+
+		void updateLiveStatsRemoteInfo(LiveResults& liveResults);
+		void updateLiveStatsLiveOps(LiveResults& liveResults);
 
 		void printDryRunPhaseInfo(BenchPhase benchPhase);
+
+		bool checkCSVFileEmpty(std::string csvFilePath) const;
+		void prepLiveCSVFile();
+		void printLiveStatsCSV(const LiveResults& liveResults);
 
 	// inliners
 	public:

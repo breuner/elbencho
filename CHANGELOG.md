@@ -7,15 +7,19 @@
   * The Windows version is built via Cygwin
   * Benchmark paths can be specified as `/cygdrive/<driveletter>/some/path`
 * New option "--dirstats" to show number of completed directories in file write/read phase.
+* New option "--livecsv" to log live statistics to csv file. This can be used e.g. to see performance drops within a benchmark phase.
+  * New option "--livecsvex" to see individual worker/service results instead of only aggregate results.
+  * New option "--liveint" can be used to set the interval for live statistics update in milliseconds.
 
 ### General Changes
 * Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
+* Old option "--refresh" has been renamed to "--liveint".
 
 ### Fixes
 * Init AWS SDK after daemonizing into background in service mode to not prevent shutdown of static builds.
 
 ### Contributors
-* Thanks to Dima Kaputkin for helpful comments and suggestions.
+* Thanks to Dima Kaputkin and Jeff Johnson for helpful comments and suggestions.
 
 ## v2.0.9 (Jan 24, 2022)
 

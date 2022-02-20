@@ -101,6 +101,15 @@ class Worker
 		}
 
 		/**
+		 * Get normal liveOps and liveOpsReadMix.
+		 */
+		void getLiveOps(LiveOps& outSumLiveOps, LiveOps& outSumLiveOpsReadMix) const
+		{
+			atomicLiveOps.getAsLiveOps(outSumLiveOps);
+			atomicLiveOpsReadMix.getAsLiveOps(outSumLiveOpsReadMix);
+		}
+
+		/**
 		 * Add current live ops values of this worker to given outSumLiveOps.
 		 */
 		void getAndAddLiveOps(LiveOps& outSumLiveOps, LiveOps& outSumLiveOpsReadMix) const

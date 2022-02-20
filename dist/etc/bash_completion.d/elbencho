@@ -67,6 +67,9 @@ _elbencho_opts()
         --limitread
         --limitwrite
         --live1
+        --livecsv
+        --livecsvex
+        --liveint
         --log
         --mkdirs
         --no0usecerr
@@ -87,7 +90,6 @@ _elbencho_opts()
         --randamount
         --rankoffset
         --read
-        --refresh
         --resfile
         --rwmixpct
         --rwmixthr
@@ -166,6 +168,8 @@ _elbencho()
         ;&
         --limitwrite)
         ;&
+        --liveint)
+        ;&
         --log)
         ;&
         -N)
@@ -179,8 +183,6 @@ _elbencho()
         --randamount)
         ;&
         --rankoffset)
-        ;&
-        --refresh)
         ;&
         --rwmixpct)
         ;&
@@ -230,6 +232,8 @@ _elbencho()
         --csvfile)
         ;&
         --hostsfile)
+        ;&
+        --livecsv)
         ;&
         --resfile)
         ;&

@@ -70,7 +70,6 @@ namespace bpt = boost::property_tree;
 #define ARG_NUMAZONES_LONG			"zones"
 #define ARG_CPUCORES_LONG			"cores"
 #define ARG_SHOWALLELAPSED_LONG		"allelapsed"
-#define ARG_LIVESLEEPSEC_LONG		"refresh"
 #define ARG_RANDOMOFFSETS_LONG		"rand"
 #define ARG_RANDOMALIGN_LONG		"randalign"
 #define ARG_RANDOMAMOUNT_LONG		"randamount"
@@ -84,6 +83,9 @@ namespace bpt = boost::property_tree;
 #define ARG_RESULTSFILE_LONG		"resfile"
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
 #define ARG_CSVFILE_LONG			"csvfile"
+#define ARG_CSVLIVEFILE_LONG		"livecsv"
+#define ARG_CSVLIVEEXTENDED_LONG	"livecsvex"
+#define ARG_LIVEINTERVAL_LONG		"liveint"
 #define ARG_NOCSVLABELS_LONG		"nocsvlabels"
 #define ARG_GPUIDS_LONG				"gpuids"
 #define ARG_GPUPERSERVICE_LONG		"gpuperservice"
@@ -176,7 +178,6 @@ class ProgArgs
 		void resetBenchPath();
 		void getBenchPathInfoTree(bpt::ptree& outTree);
 		void checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos);
-		bool checkCSVFileEmpty() const;
 
 
 	private:
@@ -243,7 +244,7 @@ class ProgArgs
 		std::string cpuCoresStr; // comma-separted cpu cores that this process may run on
 		IntVec cpuCoresVec; // list from cpuCoresStr broken down into individual elements
 		bool showAllElapsed; // print elapsed time of each I/O worker
-		size_t liveStatsSleepSec; // sleep interval between live stats console refresh
+		size_t liveStatsSleepMS; // interval between live stats console/csv updates
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRandomAligned; // use block-aligned random offsets (when randomOffsets is used)
 		uint64_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
@@ -257,7 +258,9 @@ class ProgArgs
 		std::string resFilePath; // results output file path (or empty for no results file)
 		size_t timeLimitSecs; // time limit in seconds for each phase (0 to disable)
 		std::string configFilePath; // Configuration input using a config file (empty for none)
-		std::string csvFilePath; // results output file path for csv format (or empty for none)
+		std::string csvFilePath; // phase results file path for csv format (or empty for none)
+		std::string liveCSVFilePath; // live stats file path for csv format (or empty for none)
+		bool useExtendedLiveCSV; // false for total/aggregate results only, true for per-worker
 		bool noCSVLabels; // true to not print headline with labels to csv file
 		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
 		IntVec gpuIDsVec; // gpuIDsStr broken down into individual GPU IDs
@@ -315,6 +318,7 @@ class ProgArgs
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
 		bool useBriefLiveStats; // single-line live stats
 		std::string benchLabel; // user-defined label for benchmark run
+		std::string benchLabelNoCommas; // implict based on benchLabel with commas removed for csv
 		bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
 		uint64_t limitReadBps; // read limit per thread in bytes per sec
 		std::string limitReadBpsOrigStr; // original limitReadBps str from user with unit
@@ -402,7 +406,7 @@ class ProgArgs
 		std::string getCPUCoresStr() const { return cpuCoresStr; }
 		const IntVec& getCPUCoresVec() const { return cpuCoresVec; }
 		bool getShowAllElapsed() const { return showAllElapsed; }
-		size_t getLiveStatsSleepSec() const { return liveStatsSleepSec; }
+		size_t getLiveStatsSleepMS() const { return liveStatsSleepMS; }
 		bool getUseRandomOffsets() const { return useRandomOffsets; }
 		bool getUseRandomAligned() const { return useRandomAligned; }
 		uint64_t getRandomAmount() const { return randomAmount; }
@@ -416,6 +420,8 @@ class ProgArgs
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		void setTimeLimitSecs(size_t timeLimitSecs) { this->timeLimitSecs = timeLimitSecs; }
 		std::string getCSVFilePath() const { return csvFilePath; }
+		std::string getLiveCSVFilePath() const { return liveCSVFilePath; }
+		bool getUseExtendedLiveCSV() const { return useExtendedLiveCSV; }
 		std::string getConfigFilePath() const { return configFilePath; }
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
 		std::string getGPUIDsStr() const { return gpuIDsStr; }
@@ -471,6 +477,7 @@ class ProgArgs
 		bool hasUserSetRWMixReadThreads() const { return useRWMixReadThreads; }
 		bool getUseBriefLiveStats() const { return useBriefLiveStats; }
 		std::string getBenchLabel() const { return benchLabel; }
+		const std::string& getBenchLabelNoCommas() const { return benchLabelNoCommas; }
 		bool getUseNoFDSharing() const { return useNoFDSharing; }
 		uint64_t getLimitReadBps() const { return limitReadBps; }
 		uint64_t getLimitWriteBps() const { return limitWriteBps; }
