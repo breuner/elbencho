@@ -1887,7 +1887,8 @@ void Statistics::prepLiveCSVFile()
 	if(progArgs.getLiveCSVFilePath().empty() )
 		return; // nothing to do
 
-	liveCSVFileFD = open(progArgs.getLiveCSVFilePath().c_str(), O_WRONLY | O_APPEND | O_CREAT);
+	liveCSVFileFD = open(progArgs.getLiveCSVFilePath().c_str(),
+		O_WRONLY | O_APPEND | O_CREAT, MKFILE_MODE);
 	if(liveCSVFileFD == -1)
 		throw ProgException("Unable to open live stats csv file: " +
 			progArgs.getLiveCSVFilePath() );
@@ -2005,7 +2006,9 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 	if(!progArgs.getUseExtendedLiveCSV() )
 	{ // no individual worker results requested => write and return
 		size_t streamLen = stream.tellp();
-		write(liveCSVFileFD, stream.str().c_str(), streamLen);
+		ssize_t writeRes = write(liveCSVFileFD, stream.str().c_str(), streamLen);
+
+		if(writeRes) {} // only exists to mute compiler warning about unused write() result
 
 		return;
 	}
@@ -2114,5 +2117,7 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 
 	// write to file
 	size_t streamLen = stream.tellp();
-	write(liveCSVFileFD, stream.str().c_str(), streamLen);
+	ssize_t writeRes = write(liveCSVFileFD, stream.str().c_str(), streamLen);
+
+	if(writeRes) {} // only exists to mute compiler warning about unused write() result
 }

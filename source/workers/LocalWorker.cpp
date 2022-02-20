@@ -39,7 +39,6 @@
 
 #define PATH_BUF_LEN					64
 #define MKDIR_MODE						0777
-#define MKFILE_MODE						(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 #define INTERRUPTION_CHECK_INTERVAL		128
 #define AIO_MAX_WAIT_SEC				5
 #define AIO_MAX_EVENTS					4 // max number of events to retrieve in io_getevents()

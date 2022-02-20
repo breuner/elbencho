@@ -49,6 +49,10 @@ typedef std::vector<uint64_t> UInt64Vec;
  */
 #define HTTP_PROTOCOLVERSION	"2.0.13"
 
+/**
+ * Default access mode bits for new files.
+ */
+#define MKFILE_MODE				(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 
 /**
  * Call delete() on an object pointer if it's not NULL and afterwards set it to NULL.

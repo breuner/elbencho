@@ -20,7 +20,6 @@
 	#include <cufile.h>
 #endif
 
-#define MKFILE_MODE					(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 #define DIRECTIO_MINSIZE			512 // min size in bytes for direct IO
 #define BENCHPATH_DELIMITER			",\n\r@" // delimiters for user-defined bench dir paths
 #define HOSTLIST_DELIMITERS			", \n\r" // delimiters for hosts string (comma or space)
