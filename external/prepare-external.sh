@@ -136,7 +136,7 @@ prepare_awssdk()
 		return 0; # AWS SDK build not required, so we're done here
 	fi
 
-	local REQUIRED_TAG="1.9.162-elbencho-tag"
+	local REQUIRED_TAG="1.9.228-elbencho-tag"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
