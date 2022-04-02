@@ -15,6 +15,7 @@
 * Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
 * Old option "--refresh" has been renamed to "--liveint".
 * Updated to latest AWS SDK CPP v1.9.228.
+* Don't treat existing S3 buckets as error. Previously, existing S3 buckets were treated as error for the "-d" option if they were not owned by the current user.
 
 ### Fixes
 * Init AWS SDK after daemonizing into background in service mode to not prevent shutdown of static builds.
