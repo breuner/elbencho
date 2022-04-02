@@ -14,6 +14,7 @@
 ### General Changes
 * Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
 * Old option "--refresh" has been renamed to "--liveint".
+* Updated to latest AWS SDK CPP v1.9.228.
 
 ### Fixes
 * Init AWS SDK after daemonizing into background in service mode to not prevent shutdown of static builds.
