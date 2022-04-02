@@ -2620,7 +2620,8 @@ void LocalWorker::s3ModeIterateBuckets()
 				auto s3Error = createOutcome.GetError();
 
 				// bucket already existing is not an error
-				if(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU)
+				if( (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
+					(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) )
 				{
 					throw WorkerException(std::string("Bucket creation failed. ") +
 						"Endpoint: " + s3EndpointStr + "; "
