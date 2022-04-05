@@ -10,6 +10,7 @@
 * New option "--livecsv" to log live statistics to csv file. This can be used e.g. to see performance drops within a benchmark phase.
   * New option "--livecsvex" to see individual worker/service results instead of only aggregate results.
   * New option "--liveint" can be used to set the interval for live statistics update in milliseconds.
+* New elbencho-chart tool option for custom line colors ("--linecolors").
 
 ### General Changes
 * Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
