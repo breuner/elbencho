@@ -22,7 +22,7 @@
 * Init AWS SDK after daemonizing into background in service mode to not prevent shutdown of static builds.
 
 ### Contributors
-* Thanks to Dima Kaputkin and Jeff Johnson for helpful comments and suggestions.
+* Thanks to Dima Kaputkin, Jeff Johnson, Greg Kemp and Shafay Latif for helpful comments and suggestions.
 
 ## v2.0.9 (Jan 24, 2022)
 
