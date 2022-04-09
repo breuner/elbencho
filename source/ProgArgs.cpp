@@ -818,7 +818,7 @@ void ProgArgs::checkPathDependentArgs()
 			randomAmount = fileSize * benchPathsVec.size();
 		else
 		if( (benchPathType == BenchPathType_DIR) && !s3EndpointsVec.empty() && useS3RandObjSelect)
-			randomAmount = fileSize * numDirs * numFiles * numDataSetThreads;
+			randomAmount = fileSize * (numDirs ? numDirs : 1) * numFiles * numDataSetThreads;
 	}
 
 	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
@@ -1135,9 +1135,6 @@ void ProgArgs::prepareBenchPathFDsVec()
 		if( (benchPathType == BenchPathType_BLOCKDEV) && runDeleteFilesPhase)
 			throw ProgException("File delete option is not allowed if benchmark path is a block "
 				"device.");
-
-		if( (benchPathType == BenchPathType_DIR) && !numDirs)
-			throw ProgException("Number of directories may not be zero");
 
 		int fd;
 		int openFlags = 0;
