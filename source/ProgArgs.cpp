@@ -585,6 +585,13 @@ void ProgArgs::initImplicitValues()
 		useGDSBufReg = true;
 	}
 
+	if(!s3EndpointsStr.empty() && runAsService)
+	{
+		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
+			"provided by master." << std::endl);
+		s3EndpointsServiceOverrideStr = s3EndpointsStr;
+	}
+
 	benchLabelNoCommas = benchLabel;
 	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
 }
@@ -1592,6 +1599,9 @@ void ProgArgs::parseS3Endpoints()
 
 	if(s3EndpointsStr.empty() )
 		return; // nothing to do
+
+	if(!s3EndpointsServiceOverrideStr.empty() && runAsService)
+		s3EndpointsStr = s3EndpointsServiceOverrideStr; // user specified override for service
 
 	boost::split(s3EndpointsVec, s3EndpointsStr, boost::is_any_of(S3ENDPOINTS_DELIMITERS),
 		boost::token_compress_on);

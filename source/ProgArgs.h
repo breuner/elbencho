@@ -297,6 +297,7 @@ class ProgArgs
 			(useful for directIO with its alignment reqs on some file systems. 0 disables this.) */
 		std::string treeRoundUpSizeOrigStr; // original treeRoundUpSize str from user with unit
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
+		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3AccessKey; // s3 access key
 		std::string s3AccessSecret; // s3 access secret
@@ -456,6 +457,7 @@ class ProgArgs
 		bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
 		uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }
 		std::string getS3EndpointsStr() const { return s3EndpointsStr; }
+		std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
 		const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
 		std::string getS3AccessKey() const { return s3AccessKey; }
 		std::string getS3AccessSecret() const { return s3AccessSecret; }

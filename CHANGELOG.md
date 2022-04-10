@@ -12,6 +12,7 @@
   * New option "--liveint" can be used to set the interval for live statistics update in milliseconds.
 * New elbencho-chart tool option for custom line colors ("--linecolors").
 * When given path is a directory or bucket, option -n/--dirs accepts 0 (zero) now to place files directly in the given dir/bucket instead of using subdirs.
+* Service instances now accept "--s3endpoint" argument to specify different S3 endpoints for each service.
 
 ### General Changes
 * Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.

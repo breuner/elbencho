@@ -611,6 +611,11 @@ void HTTPService::daemonize()
 	if(!gpuIDsServiceOverride.empty() )
 		LOGGER(Log_NORMAL, "NOTE: GPU IDs given. These GPU IDs will be used instead of any "
 			"GPU ID list provided by master. GPU IDs: " << gpuIDsServiceOverride << std::endl);
+
+	std::string s3EndpointsServiceOverride = progArgs.getS3EndpointsServiceOverride();
+	if(!s3EndpointsServiceOverride.empty() )
+		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any S3 "
+			"endpoints provided by master: " << s3EndpointsServiceOverride << std::endl);
 }
 
 /**
