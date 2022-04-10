@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v2.1.0 (work in progress)
+## v2.1.1 (Apr 10, 2022)
 
 ### New Features & Enhancements
 * New support for Windows
