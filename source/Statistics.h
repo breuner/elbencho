@@ -126,7 +126,6 @@ class Statistics
 
 		void printDryRunPhaseInfo(BenchPhase benchPhase);
 
-		bool checkCSVFileEmpty(std::string csvFilePath) const;
 		void prepLiveCSVFile();
 		void printLiveStatsCSV(const LiveResults& liveResults);
 

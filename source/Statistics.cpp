@@ -902,7 +902,7 @@ void Statistics::printPhaseResultsTableHeader()
 
 	// print to CSV results file (if specified by user)
 	if(!progArgs.getCSVFilePath().empty() && progArgs.getPrintCSVLabels() &&
-		FileTk::checkFileEmpty(progArgs.getLiveCSVFilePath() ) )
+		FileTk::checkFileEmpty(progArgs.getCSVFilePath() ) )
 	{
 		std::ofstream fileStream;
 
@@ -1846,31 +1846,6 @@ void Statistics::printDryRunPhaseInfo(BenchPhase benchPhase)
 	std::cout << "* Bytes total:        " << numBytesTotal << " | " <<
 		(numBytesTotal / (1024*1024) ) << " MiB" " | " <<
 		(numBytesTotal / (1024*1024*1024) ) << " GiB" << std::endl;
-}
-
-/**
- * Check if CSV file is empty or not existing yet.
- *
- * @return true if not exists or empty (or if size could not be retrieved), false otherwise
- */
-bool Statistics::checkCSVFileEmpty(std::string csvFilePath) const
-{
-	struct stat statBuf;
-
-	int statRes = stat(csvFilePath.c_str(), &statBuf);
-	if(statRes == -1)
-	{
-		if(errno == ENOENT)
-			return true;
-
-		std::cerr << "ERROR: Getting CSV file size failed. "
-			"Path: " << csvFilePath <<
-			"SysErr: " << strerror(errno) << std::endl;
-
-		return true;
-	}
-
-	return (statBuf.st_size == 0);
 }
 
 /**
