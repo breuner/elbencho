@@ -1,5 +1,14 @@
 # Changelog of elbencho
 
+## v2.1.3 (Apr 14, 2022)
+
+### Fixes
+* Fixed a problem that could lead to the csv header line of the "--csvfile" being printed for every run, not only once at the top.
+* Fixed a problem when "--blockvarpct" values other than "0" or "100" were selected together with the default "--blockvaralgo fast".
+
+### Contributors
+* Thanks to Glenn K. Lockwood and Daniel Drozdowski for reporting an issue.
+
 ## v2.1.1 (Apr 10, 2022)
 
 ### New Features & Enhancements
