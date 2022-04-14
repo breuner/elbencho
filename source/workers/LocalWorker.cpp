@@ -1456,8 +1456,8 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 	if(!constFillRemainderLen)
 		return;
 
-	// fill constant (i.e. non variable) remainder of buffer
-	// note: rand algo is used to not always have the same remainder and defeat dedupe
+	// fill remainder of buffer with same 64bit value
+	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
 	bufFill(&buf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
@@ -1507,15 +1507,18 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 		state >>= 3;
 		uint64_t randUint64 = state;
 
-		memcpy(buf, &randUint64, bufLen - numBytesDone);
+		const size_t memcpySize = varFillLen - numBytesDone;
+
+		memcpy(buf, &randUint64, memcpySize);
+		buf += memcpySize;
 	}
 
 	if(!constFillRemainderLen)
 		return;
 
-	// fill constant (i.e. non variable) remainder of buffer
-	// note: rand algo is used to not always have the same remainder and defeat dedupe
-	bufFill(&buf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
+	// fill remainder of buffer with same 64bit value
+	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
+	bufFill(buf, randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**
