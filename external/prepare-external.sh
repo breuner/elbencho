@@ -227,7 +227,7 @@ prepare_awssdk()
 # Prepare git clone and required tag.
 prepare_mimalloc()
 {
-	local REQUIRED_TAG="v1.7.3"
+	local REQUIRED_TAG="v2.0.6"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/mimalloc"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/mimalloc/build"
@@ -248,7 +248,7 @@ prepare_mimalloc()
 	# (this is the fast path for dependency calls from Makefile)
 	cd "$CLONE_DIR" && \
 		CURRENT_TAG="$(git describe --tags)" && \
-		if [ "$CURRENT_TAG" = "$REQUIRED_TAG" ]; then
+		if [ "$CURRENT_TAG" = "$REQUIRED_TAG" ] && [ -f build/libmimalloc.a ] ; then
 			# Already at the right tag, so nothing to do
 			return 0;
 		fi && \
