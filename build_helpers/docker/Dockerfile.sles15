@@ -1,0 +1,21 @@
+# Full elbencho rpm install of latest github master on SLES 15
+
+FROM registry.suse.com/bci/bci-base:15.3 as builder
+
+RUN zypper update -y && \
+    zypper install -y cmake gcc-c++ git libaio-devel libboost_program_options-devel libboost_system-devel libboost_thread-devel libcurl-devel libnuma-devel libuuid-devel make ncurses-devel openssl-devel rpm-build && \
+    cd /root && git clone https://github.com/breuner/elbencho.git && \
+    cd elbencho && \
+    make S3_SUPPORT=1 -j "$(nproc)" && \
+    make rpm
+
+FROM registry.suse.com/bci/bci-base:15.3
+
+COPY --from=builder /root/elbencho/packaging/RPMS/*/elbencho*.rpm /tmp/
+
+RUN zypper --no-gpg-checks install -y /tmp/elbencho*.rpm && \
+    rm -f /tmp/elbencho*.rpm && \
+    zypper clean && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]
