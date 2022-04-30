@@ -1,5 +1,14 @@
 # Changelog of elbencho
 
+## v2.1.5 (Apr 30, 2022)
+
+### General Changes
+* Updated mimalloc memory allocation library to latest version 2.0.6
+* Added dockerfile for SLES 15
+
+### Contributors
+* Thanks to Sherif Louis for helpful comments and suggestions.
+
 ## v2.1.3 (Apr 14, 2022)
 
 ### Fixes
