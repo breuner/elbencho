@@ -1237,7 +1237,8 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 		/* print iops only if path is bdev/file; or in dir mode when each file consists of more than
 		   one block read/write (because otherwise iops is equal to files/s) */
 		if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
-			(progArgs.getBlockSize() != progArgs.getFileSize() ) )
+			(progArgs.getBlockSize() != progArgs.getFileSize() ) ||
+			(!phaseResults.opsTotal.numEntriesDone) )
 		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% ""
 			% (isRWMixPhase ? "IOPS write" : "IOPS")
@@ -1253,7 +1254,8 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 		/* print iops only if path is bdev/file; or in dir mode when each file consists of more than
 		   one block read/write (because otherwise iops is equal to files/s) */
 		if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
-			(progArgs.getBlockSize() != progArgs.getFileSize() ) )
+			(progArgs.getBlockSize() != progArgs.getFileSize() ) ||
+			(!phaseResults.opsTotalReadMix.numEntriesDone) )
 		outStream << boost::format(Statistics::phaseResultsFormatStr)
 			% ""
 			% "IOPS read"

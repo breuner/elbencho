@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v2.1.6 (work in progress)
+
+### General Changes
+* When using S3 option "--s3randobj", show IOPS in addition to throughput.
+
 ## v2.1.5 (Apr 30, 2022)
 
 ### General Changes
