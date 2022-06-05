@@ -5,6 +5,7 @@
 ### General Changes
 * When using S3 option "--s3randobj", show IOPS in addition to throughput.
 * Added new Nvidia CUDA repo keys to MagnumIO docker container.
+* When "--rand" is specified in S3 write phase then automatically fall back "--backward" instead of refusing to run.
 
 ## v2.1.5 (Apr 30, 2022)
 

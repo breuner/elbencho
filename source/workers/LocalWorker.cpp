@@ -564,7 +564,7 @@ void LocalWorker::initPhaseRWOffsetGen()
 
 	// note: in some cases these defs get overridden per-file later (e.g. for custom tree)
 
-	if(progArgs->getDoReverseSeqOffsets() ) // sequential backward
+	if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() ) // seq backward
 		rwOffsetGen = std::make_unique<OffsetGenReverseSeq>(
 			fileSize, 0, blockSize);
 	else
@@ -3209,7 +3209,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	// S T E P 3: submit upload completion
 
-	if(progArgs->getDoReverseSeqOffsets() )
+	if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() )
 	{ // we need to reverse the parts vector for ascending order
 		const Aws::Vector<S3::CompletedPart>& reversePartsVec = completedMultipartUpload.GetParts();
 		Aws::Vector<S3::CompletedPart> forwardPartsVec(reversePartsVec.size() );
@@ -4034,6 +4034,23 @@ void LocalWorker::s3ModeVerifyListing(StringSet& expectedSet, StringList& receiv
 
 #endif // S3_SUPPORT
 }
+
+/**
+ * In S3 mode, decide if we do fallback to reverse upload. This would be the case if this is a write
+ * phase and user selected random offsets.
+ *
+ * @return true if we do fallback to reverse sequential, false otherwise.
+ */
+bool LocalWorker::getS3ModeDoReverseSeqFallback()
+{
+	if(progArgs->getUseRandomOffsets() &&
+		!progArgs->getS3EndpointsVec().empty() &&
+		(benchPhase == BenchPhase_CREATEFILES) )
+		return true;
+
+	return false;
+}
+
 
 /**
  * Return appropriate file open flags for the current benchmark phase in dir mode.

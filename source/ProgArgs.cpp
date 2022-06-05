@@ -695,8 +695,8 @@ void ProgArgs::checkArgs()
 	}
 
 	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
-		throw ProgException("S3 write/upload cannot be used with random offsets. Consider using "
-			"\"--" ARG_REVERSESEQOFFSETS_LONG "\" as an alternative.");
+		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
+			"Falling back to \"--" ARG_REVERSESEQOFFSETS_LONG "\"." << std::endl);
 
 	if(useRandomOffsets && !s3EndpointsStr.empty() && useS3TransferManager)
 		throw ProgException("S3 TransferManager does not support random offsets.");
@@ -780,6 +780,12 @@ void ProgArgs::checkPathDependentArgs()
 
 	if(runS3ListObjNum && s3EndpointsVec.empty() )
 		throw ProgException("Object listing requires S3 endpoints definition.");
+
+	if( (hasUserSetRWMixPercent() || hasUserSetRWMixReadThreads() ) &&
+		!s3EndpointsStr.empty() &&
+		!treeFilePath.empty() )
+		throw ProgException("Options \"--" ARG_RWMIXPERCENT_LONG "\" & "
+			"\"--" ARG_RWMIXTHREADS_LONG "\" cannot be used with S3 custom tree.");
 
 	if(runS3ListObjNum && !treeFilePath.empty() )
 		LOGGER(Log_NORMAL, "NOTE: Ignoring custom tree file for object listing." << std::endl);
@@ -1059,7 +1065,7 @@ void ProgArgs::convertS3PathsToCustomTree()
 		// ensure we have a bucketName and objectName in each user-given path
 		if(currentPathVec.size() < 2)
 			throw ProgException("Conversion to S3 custom tree mode failed because a path without "
-				"multiple elements was found: " + currentPath);
+				"elements after slash was found: " + currentPathCopy);
 
 		// ensure all paths have the same bucketName
 		if(bucketName.empty() )
