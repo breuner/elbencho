@@ -4,12 +4,13 @@
 # Simple-Web-Server will always be prepared when this is called.
 # AWS SDK CPP will only be prepared when PREP_AWS_SDK=1 is set.
 # Mimalloc will only be prepared when PREP_MIMALLOC=1 is set.
+# uWebSockets will only be prepared when PREP_UWS=1 is set.
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
 # Clone Simple-Web-Server git repo and switch to required tag. Nothing to configure/build/install
 # here.
-prepare_webserver()
+prepare_webserver_sws()
 {
 	local REQUIRED_TAG="v3.1.1"
 	local CURRENT_TAG
@@ -20,37 +21,97 @@ prepare_webserver()
 	
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
-	   echo "Cloning http server git repo..."
-	   git clone https://gitlab.com/eidheim/Simple-Web-Server.git $CLONE_DIR
-	   if [ $? -ne 0 ]; then
-	      exit 1
-	   fi
+		echo "Cloning SWS HTTP server git repo..."
+		git clone https://gitlab.com/eidheim/Simple-Web-Server.git $CLONE_DIR
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
 	fi
 	
 	# directory exists, check if we already have the right tag.
 	# (this is the fast path for dependency calls from Makefile)
 	cd "$CLONE_DIR" && \
-	   CURRENT_TAG="$(git describe --tags)" && \
-	   if [ "$CURRENT_TAG" = "$REQUIRED_TAG" ]; then
-	      # All good, nothing to do
-	      return 0;
-	   fi && \
-	   cd "$EXTERNAL_BASE_DIR"
+		CURRENT_TAG="$(git describe --tags)" && \
+		if [ "$CURRENT_TAG" = "$REQUIRED_TAG" ]; then
+			# All good, nothing to do
+			return 0;
+		fi && \
+		cd "$EXTERNAL_BASE_DIR"
 	
 	# we are not at the right tag, so try to check it out.
 	# (fetching is relevant in case we update to a new required tag.)
-	echo "Checking out http server tag ${REQUIRED_TAG}..."
+	echo "Checking out HTTP server tag ${REQUIRED_TAG}..."
 	
 	cd "$CLONE_DIR" && \
-	   git fetch -q --all && \
-	   git checkout -q ${REQUIRED_TAG} && \
-	   echo "DONE: HTTP server sources prepared." && \
-	   cd "$EXTERNAL_BASE_DIR" && \
-	   return 0
+		git fetch -q --all && \
+		git checkout -q ${REQUIRED_TAG} && \
+		echo "DONE: SWS HTTP server sources prepared." && \
+		cd "$EXTERNAL_BASE_DIR" && \
+		return 0
 	
 	# something went wrong if we got here
-	echo "ERROR: HTTP server source preparation failed."
+	echo "ERROR: SWS HTTP server source preparation failed."
 	exit 1
+}
+
+# Clone uWS (Mirco Web Sockets) git repo and switch to required tag.
+prepare_webserver_uws()
+{
+	local REQUIRED_TAG="v20.16.0"
+	local CURRENT_TAG
+	local CLONE_DIR="${EXTERNAL_BASE_DIR}/uWebSockets"
+	
+	# change to external subdir if we were called from somewhere else
+	cd "$EXTERNAL_BASE_DIR" || exit 1
+	
+	# check if directory exists and contains right version
+	if [ -f "$CLONE_DIR/uSockets/uSockets.a" ]; then
+		
+		# static lib exists, check if we already have the right git tag.
+		# (this is the fast path for dependency calls from Makefile)
+		cd "$CLONE_DIR" && \
+			CURRENT_TAG="$(git describe --tags)" && \
+			if [ "$CURRENT_TAG" = "$REQUIRED_TAG" ]; then
+				# All good, nothing to do
+				return 0;
+			fi && \
+			cd "$EXTERNAL_BASE_DIR"
+	fi
+
+	# either not existing or not at right tag. (fixing wrong tag is
+	# unnecessarily complicated, so we just erase and start from scratch.)
+	echo "Cleaning up old uWS HTTP server git repo..."
+	rm -rf "$CLONE_DIR"
+	
+	# check existence of special flags in given git version to speed up git clone
+	local CLONE_SPECIAL_FLAGS=""
+	
+	git clone --help | grep shallow-submodules >/dev/null
+	if [ "$?" -eq 0 ]; then
+		CLONE_SPECIAL_FLAGS+="--shallow-submodules "
+	fi
+
+	git clone --help | grep jobs >/dev/null
+	if [ "$?" -eq 0 ]; then
+		CLONE_SPECIAL_FLAGS+="--jobs 4 "
+	fi
+
+	# get a fresh git clone
+	echo "Cloning uWS HTTP server git repo..."
+	git clone $CLONE_SPECIAL_FLAGS --depth 1 --branch "$REQUIRED_TAG" --recursive \
+		https://github.com/uNetworking/uWebSockets.git $CLONE_DIR
+		
+	[ $? -ne 0 ] && exit 1
+	
+	echo "Building uSockets lib for uWS HTTP server..."
+	cd "$CLONE_DIR/uSockets" && \
+		make -j $(nproc) && \
+		cd "$EXTERNAL_BASE_DIR"
+
+	[ $? -ne 0 ] && exit 1
+	
+	# something went wrong if we got here
+	echo "DONE: uWS HTTP server preparation complete."
 }
 
 # Prepare the AWS SDK static lib based on user-provided pre-built libs.
@@ -189,7 +250,7 @@ prepare_awssdk()
 	
 	echo "Configuring build and running install..."
 	cd "$CLONE_DIR" && \
-		cmake . -DBUILD_ONLY="s3;transfer" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=14 \
+		cmake . -DBUILD_ONLY="s3;transfer" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=17 \
 			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF \
 			-DCMAKE_BUILD_TYPE=Release -DBYO_CRYPTO=ON \
 			"-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR" && \
@@ -288,9 +349,14 @@ prepare_mimalloc()
 	[ $? -ne 0 ] && exit 1
 }
 
+
 ########### End of function definitions ############
 
-prepare_webserver
+prepare_webserver_sws
+
+if [ "$PREP_UWS" = "1" ]; then
+	prepare_webserver_uws
+fi
 
 if [ "$PREP_AWS_SDK" = "1" ]; then
 	prepare_awssdk

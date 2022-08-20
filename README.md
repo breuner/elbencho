@@ -46,7 +46,7 @@ You can get elbencho pre-built for Linux & Windows from the [Releases section](h
 
 ## Build Prerequisites
 
-Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
+Building elbencho requires a C++17 compatible compiler, such as gcc version 7.x or higher.
 
 ### Dependencies for Debian/Ubuntu
 

@@ -138,6 +138,7 @@ namespace bpt = boost::property_tree;
 #define ARG_LIMITWRITE_LONG			"limitwrite"
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_DIRSTATS_LONG			"dirstats"
+#define ARG_ALTHTTPSERVER_LONG		"althttpsvc"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -327,6 +328,7 @@ class ProgArgs
 		std::string limitWriteBpsOrigStr; // original limitWriteBps str from user with unit
 		bool ignoreS3PartNum; // don't check for >10K parts in multi-part uploads
 		bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
+		bool useAlternativeHTTPService; // use alternative http service implememtation
 
 
 		void defineDefaults();
@@ -485,6 +487,7 @@ class ProgArgs
 		uint64_t getLimitWriteBps() const { return limitWriteBps; }
 		bool getIgnoreS3PartNum() const { return ignoreS3PartNum; }
 		bool getShowDirStats() const { return showDirStats; }
+		bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
 
 };
 

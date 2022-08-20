@@ -1,11 +1,18 @@
 # Changelog of elbencho
 
-## v2.1.6 (work in progress)
+## v2.2.0 (work in progress)
+
+### New Features & Enhancements
+* Added support for an alternative HTTP service framework as compile-time and runtime option. ("elbencho --service --althttpsvc" enables the alternative framework at runtime when built with "ALTHTTPSVC_SUPPORT=1".)
 
 ### General Changes
-* When using S3 option "--s3randobj", show IOPS in addition to throughput.
+* When using S3 option "--s3randobj" then show IOPS in addition to throughput.
 * Added new Nvidia CUDA repo keys to MagnumIO docker container.
-* When "--rand" is specified in S3 write phase then automatically fall back "--backward" instead of refusing to run.
+* When "--rand" is specified in S3 write phase then automatically use "--backward" instead of refusing to run.
+* Building elbencho now requires a C++17 compatible compiler.
+
+### Contributors
+* Thanks to Darren Miller and Sascha Kuebart for helpful comments and suggestions.
 
 ### Fixes
 * Removed variables in comments of RPM spec template file for compatibility with RHEL9.

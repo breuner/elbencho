@@ -4,8 +4,8 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 2
-EXE_VER_MINOR      ?= 1
-EXE_VER_PATCHLEVEL ?= 6
+EXE_VER_MINOR      ?= 2
+EXE_VER_PATCHLEVEL ?= 0
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -21,13 +21,14 @@ PKG_INST_PATH      ?= /usr/bin
 
 CXX                ?= g++
 STRIP              ?= strip
-CXX_FLAVOR         ?= c++14
+CXX_FLAVOR         ?= c++17
 
 CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
-LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
 LDFLAGS_AIO        ?= -laio
+LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
 LDFLAGS_NUMA       ?= -lnuma
 
+ALTHTTPSVC_SUPPORT ?= 0
 BACKTRACE_SUPPORT  ?= 1
 COREBIND_SUPPORT   ?= 1
 LIBAIO_SUPPORT     ?= 1
@@ -96,6 +97,13 @@ CXXFLAGS += -DUSE_MIMALLOC
 LDFLAGS_MIMALLOC_TAIL := -L external/mimalloc/build -l:libmimalloc.a
 endif
 
+# Support for uWS (Micro Web Sockets) HTTP service.
+ifeq ($(ALTHTTPSVC_SUPPORT), 1)
+CXXFLAGS += -DALTHTTPSVC_SUPPORT -I $(EXTERNAL_PATH)/uWebSockets/src \
+	-I $(EXTERNAL_PATH)/uWebSockets/uSockets/src -DUWS_NO_ZLIB -DLIBUS_NO_SSL
+LDFLAGS  += -L $(EXTERNAL_PATH)/uWebSockets/uSockets -l:uSockets.a
+endif
+
 # Support build in Cygwin environment
 ifeq ($(CYGWIN_SUPPORT), 1)
 # EXE_UNSTRIPPED includes EXE in definition, so must be updated first 
@@ -109,7 +117,7 @@ LIBNUMA_SUPPORT    := 0
 COREBIND_SUPPORT   := 0
 SYSCALLH_SUPPORT   := 0
 
-CXX_FLAVOR         := gnu++14
+CXX_FLAVOR         := gnu++17
 CXXFLAGS           += -DCYGWIN_SUPPORT
 LDFLAGS_AIO        :=
 LDFLAGS_NUMA       :=
@@ -200,10 +208,12 @@ $(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on 
 externals:
 ifdef BUILD_VERBOSE
 	PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
-		PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
+		PREP_MIMALLOC=$(USE_MIMALLOC) PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
+		$(EXTERNAL_PATH)/prepare-external.sh
 else
 	@PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
-		PREP_MIMALLOC=$(USE_MIMALLOC) $(EXTERNAL_PATH)/prepare-external.sh
+		PREP_MIMALLOC=$(USE_MIMALLOC) PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
+		$(EXTERNAL_PATH)/prepare-external.sh
 endif
 
 features-info:
@@ -240,6 +250,11 @@ ifeq ($(USE_MIMALLOC),1)
 else
 	$(info [OPT] mimalloc disabled)
 endif
+ifeq ($(ALTHTTPSVC_SUPPORT),1)
+	$(info [OPT] Alternative HTTP service enabled)
+else
+	$(info [OPT] Alternative HTTP service disabled)
+endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
@@ -254,11 +269,13 @@ endif
 clean-externals:
 ifdef BUILD_VERBOSE
 	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server 
+	rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	rm -rf $(EXTERNAL_PATH)/mimalloc
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
+	@rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	@rm -rf $(EXTERNAL_PATH)/mimalloc
 endif
@@ -381,6 +398,8 @@ version:
 
 help:
 	@echo 'Optional Build Features:'
+	@echo '   ALTHTTPSVC_SUPPORT=0|1  - Build with support for alternative HTTP service.'
+	@echo '                             (Default: 0)'
 	@echo '   BACKTRACE_SUPPORT=0|1   - Build with backtrace support. (Default: 1)'
 	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
 	@echo '                             CUDA to work with GPU memory. By default, CUDA'
@@ -401,7 +420,7 @@ help:
 	@echo
 	@echo 'Optional Compile/Link Arguments:'
 	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
-	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++14)'
+	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++17)'
 	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
 	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'

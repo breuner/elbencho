@@ -499,7 +499,7 @@ void RemoteWorker::interruptBenchPhase(bool allowExceptionThrow, bool logSuccess
 		std::string requestPath = HTTPCLIENTPATH_INTERRUPTPHASE;
 
 		if(progArgs->getQuitServices() )
-			requestPath += "?" XFER_INTERRUPT_QUIT;
+			requestPath += "?" XFER_INTERRUPT_QUIT "=1"; // "=1" because some parsers expect "=" val
 
 		auto response = httpClient.request("GET", requestPath);
 

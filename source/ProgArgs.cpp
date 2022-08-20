@@ -147,6 +147,10 @@ void ProgArgs::defineAllowedArgs()
     argsGenericDescription.add_options()
 /*al*/	(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
 			"Show elapsed time to completion of each I/O worker thread.")
+#ifdef ALTHTTPSVC_SUPPORT
+/*al*/	(ARG_ALTHTTPSERVER_LONG, bpo::bool_switch(&this->useAlternativeHTTPService),
+			"Use alternative implementation of HTTP service (for testing).")
+#endif // ALTHTTPSVC_SUPPORT
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
@@ -559,6 +563,7 @@ void ProgArgs::defineDefaults()
 	this->numHosts = -1;
 	this->ignoreS3PartNum = false;
 	this->showDirStats = false;
+	this->useAlternativeHTTPService = false;
 }
 
 /**
@@ -2323,6 +2328,24 @@ void ProgArgs::printVersionAndBuildInfo()
 	std::cout << " * Net protocol version: " HTTP_PROTOCOLVERSION << std::endl;
 	std::cout << " * Build date: " __DATE__ << " " << __TIME__ << std::endl;
 
+#ifdef ALTHTTPSVC_SUPPORT
+	includedStream << "althttpsvc ";
+#else
+	notIncludedStream << "althttpsvc ";
+#endif
+
+#ifdef BACKTRACE_SUPPORT
+	includedStream << "backtrace ";
+#else
+	notIncludedStream << "backtrace ";
+#endif
+
+#ifdef COREBIND_SUPPORT
+	includedStream << "corebind ";
+#else
+	notIncludedStream << "corebind ";
+#endif
+
 #ifdef CUDA_SUPPORT
 	includedStream << "cuda ";
 #else
@@ -2333,18 +2356,6 @@ void ProgArgs::printVersionAndBuildInfo()
 	includedStream << "cufile/gds ";
 #else
 	notIncludedStream << "cufile/gds ";
-#endif
-
-#ifdef BACKTRACE_SUPPORT
-	includedStream << "backtrace ";
-#else
-	notIncludedStream << "backtrace ";
-#endif
-
-#ifdef S3_SUPPORT
-	includedStream << "s3 ";
-#else
-	notIncludedStream << "s3 ";
 #endif
 
 #ifdef USE_MIMALLOC
@@ -2359,22 +2370,22 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "libaio ";
 #endif
 
-#ifdef SYNCFS_SUPPORT
-	includedStream << "syncfs ";
-#else
-	notIncludedStream << "syncfs ";
-#endif
-
 #ifdef LIBNUMA_SUPPORT
 	includedStream << "libnuma ";
 #else
 	notIncludedStream << "libnuma ";
 #endif
 
-#ifdef COREBIND_SUPPORT
-	includedStream << "corebind ";
+#ifdef S3_SUPPORT
+	includedStream << "s3 ";
 #else
-	notIncludedStream << "corebind ";
+	notIncludedStream << "s3 ";
+#endif
+
+#ifdef SYNCFS_SUPPORT
+	includedStream << "syncfs ";
+#else
+	notIncludedStream << "syncfs ";
 #endif
 
 #ifdef SYSCALLH_SUPPORT
