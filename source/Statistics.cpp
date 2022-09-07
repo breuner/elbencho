@@ -205,19 +205,27 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 
 	std::string lineStr(stream.str() );
 
-	// check console size to handle console resize at runtime
+	if(progArgs.getUseBriefLiveStatsNewLine() )
+	{ // add new line
+		std::cerr << lineStr << std::endl;
+	}
+	else
+	{ // update line in-place and don't exceed line length
 
-	int terminalLineLen = Terminal::getTerminalLineLength();
-	if(!terminalLineLen)
-		return; // don't cancel program (by throwing) just because we can't show live stats
+		// check console size to handle console resize at runtime
 
-	// note: "-2" for "^C" printed when user presses ctrl+c
-	unsigned usableLineLen = terminalLineLen + hiddenControlCharsLen - 2;
+		int terminalLineLen = Terminal::getTerminalLineLength();
+		if(!terminalLineLen)
+			return; // don't cancel program (by throwing) just because we can't show live stats
 
-	if(lineStr.length() > usableLineLen)
-		lineStr.resize(usableLineLen);
+		// note: "-2" for "^C" printed when user presses ctrl+c
+		unsigned usableLineLen = terminalLineLen + hiddenControlCharsLen - 2;
 
-	std::cout << lineStr;
+		if(lineStr.length() > usableLineLen)
+			lineStr.resize(usableLineLen);
+
+		std::cout << lineStr;
+	}
 }
 
 /**
@@ -433,7 +441,7 @@ void Statistics::loopFullScreenLiveStats()
 			if(!initRes)
 			{
 				std::cerr << "NOTE: ncurses terminal init for live statistics failed. " <<
-					"Try \"--" ARG_BRIEFLIFESTATS_LONG "\" or \"--" ARG_NOLIVESTATS_LONG "\"." <<
+					"Try \"--" ARG_BRIEFLIVESTATS_LONG "\" or \"--" ARG_NOLIVESTATS_LONG "\"." <<
 					std::endl;
 				return;
 			}

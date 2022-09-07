@@ -8,6 +8,7 @@ Blocks now get filled with randomized data before each write ("--blockvarpct 100
 ### New Features & Enhancements
 * Added support for an alternative HTTP service framework as compile-time and runtime option. ("elbencho --service --althttpsvc" enables the alternative framework at runtime when built with "ALTHTTPSVC_SUPPORT=1".)
 * Added script to cross-compile static arm64 executable on x86_64 platform. ("build_arm64_static_local.sh")
+* New option "--live1n" to print single-line live statistics to a new line on stderr on each update instead of updating in-place like "--live1" does.
 
 ### General Changes
 * When using S3 option "--s3randobj" then show IOPS in addition to throughput.
@@ -17,7 +18,7 @@ Blocks now get filled with randomized data before each write ("--blockvarpct 100
 * Changed block variance percentage default to 100 ("--blockvarpct 100"). Previous default was 0.
 
 ### Contributors
-* Thanks to Peter Grossoehme, Darren Miller and Sascha Kuebart for helpful comments and suggestions.
+* Thanks to Peter Grossoehme, Rob Mallory, Darren Miller and Sascha Kuebart for helpful comments and suggestions.
 
 ### Fixes
 * Removed variables in comments of RPM spec template file for compatibility with RHEL9.

@@ -275,8 +275,12 @@ void ProgArgs::defineAllowedArgs()
 /*li*/	(ARG_LIMITWRITE_LONG, bpo::value(&this->limitWriteBpsOrigStr),
 			"Per-thread write limit in bytes per second. (In combination with "
 			"\"--" ARG_RWMIXPERCENT_LONG "\" this defines the limit for read+write.)")
-/*liv*/	(ARG_BRIEFLIFESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
-			"Use brief live statistics format, i.e. a single line instead of full screen stats.")
+/*liv*/	(ARG_BRIEFLIVESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
+			"Use brief live statistics format, i.e. a single line instead of full screen stats. "
+			"The line gets updated in-place.")
+/*liv*/	(ARG_LIVESTATSNEWLINE_LONG, bpo::bool_switch(&this->useBriefLiveStatsNewLine),
+			"Use brief live statistics format, i.e. a single line instead of full screen stats. "
+			"A new line is written to stderr for each update.")
 /*liv*/	(ARG_CSVLIVEFILE_LONG, bpo::value(&this->liveCSVFilePath),
 			"Path to file for live progress results in csv format. If the file exists, results "
 			"will be appended. This must not be the same file that is given as \"--"
@@ -555,6 +559,7 @@ void ProgArgs::defineDefaults()
 	this->numRWMixReadThreads = 0;
 	this->useRWMixReadThreads = false;
 	this->useBriefLiveStats = false;
+	this->useBriefLiveStatsNewLine = false;
 	this->useNoFDSharing = false;
 	this->limitReadBps = 0;
 	this->limitReadBpsOrigStr = "0";
@@ -589,6 +594,9 @@ void ProgArgs::initImplicitValues()
 		useCuFile = true;
 		useGDSBufReg = true;
 	}
+
+	if(useBriefLiveStatsNewLine)
+		useBriefLiveStats = true;
 
 	if(!s3EndpointsStr.empty() && runAsService)
 	{

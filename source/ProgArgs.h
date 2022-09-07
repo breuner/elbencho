@@ -130,7 +130,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
 #define ARG_RWMIXTHREADS_LONG		"rwmixthr"
-#define ARG_BRIEFLIFESTATS_LONG		"live1"
+#define ARG_BRIEFLIVESTATS_LONG		"live1"
+#define ARG_LIVESTATSNEWLINE_LONG	"live1n"
 #define ARG_GPUDIRECTSSTORAGE_LONG	"gds"
 #define ARG_BENCHLABEL_LONG			"label"
 #define ARG_NOFDSHARING_LONG		"nofdsharing"
@@ -319,6 +320,8 @@ class ProgArgs
 		size_t numRWMixReadThreads; // number of rwmix read threads in file/bdev write phase
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
 		bool useBriefLiveStats; // single-line live stats
+		bool useBriefLiveStatsNewLine; /* newline instead of line erase on update. implicitly sets
+											useBriefLiveStats=true */
 		std::string benchLabel; // user-defined label for benchmark run
 		std::string benchLabelNoCommas; // implict based on benchLabel with commas removed for csv
 		bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
@@ -480,6 +483,7 @@ class ProgArgs
 		size_t getNumRWMixReadThreads() const { return numRWMixReadThreads; }
 		bool hasUserSetRWMixReadThreads() const { return useRWMixReadThreads; }
 		bool getUseBriefLiveStats() const { return useBriefLiveStats; }
+		bool getUseBriefLiveStatsNewLine() const { return useBriefLiveStatsNewLine; }
 		std::string getBenchLabel() const { return benchLabel; }
 		const std::string& getBenchLabelNoCommas() const { return benchLabelNoCommas; }
 		bool getUseNoFDSharing() const { return useNoFDSharing; }

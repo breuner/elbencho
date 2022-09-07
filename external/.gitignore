@@ -2,4 +2,5 @@ Simple-Web-Server/
 aws-sdk-cpp/
 aws-sdk-cpp_install/
 mimalloc/
+uWebSockets/
 
