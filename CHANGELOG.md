@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * Added support for an alternative HTTP service framework as compile-time and runtime option. ("elbencho --service --althttpsvc" enables the alternative framework at runtime when built with "ALTHTTPSVC_SUPPORT=1".)
+* Added script to cross-compile static arm64 executable on x86_64 platform. ("build_arm64_static_local.sh")
 
 ### General Changes
 * When using S3 option "--s3randobj" then show IOPS in addition to throughput.
@@ -12,7 +13,7 @@
 * Building elbencho now requires a C++17 compatible compiler.
 
 ### Contributors
-* Thanks to Darren Miller and Sascha Kuebart for helpful comments and suggestions.
+* Thanks to Peter Grossoehme, Darren Miller and Sascha Kuebart for helpful comments and suggestions.
 
 ### Fixes
 * Removed variables in comments of RPM spec template file for compatibility with RHEL9.
