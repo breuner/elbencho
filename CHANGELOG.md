@@ -2,6 +2,9 @@
 
 ## v2.2.0 (work in progress)
 
+### Important Note
+Blocks now get filled with randomized data before each write ("--blockvarpct 100"). This is to prevent unintended effects on storage systems that have compression, deduplication or similar technology enabled. The generation of randomized data can slightly increase CPU utilization and latency for writes, but this increase is presumably neglectable in typical test cases.
+
 ### New Features & Enhancements
 * Added support for an alternative HTTP service framework as compile-time and runtime option. ("elbencho --service --althttpsvc" enables the alternative framework at runtime when built with "ALTHTTPSVC_SUPPORT=1".)
 * Added script to cross-compile static arm64 executable on x86_64 platform. ("build_arm64_static_local.sh")
@@ -11,6 +14,7 @@
 * Added new Nvidia CUDA repo keys to MagnumIO docker container.
 * When "--rand" is specified in S3 write phase then automatically use "--backward" instead of refusing to run.
 * Building elbencho now requires a C++17 compatible compiler.
+* Changed block variance percentage default to 100 ("--blockvarpct 100"). Previous default was 0.
 
 ### Contributors
 * Thanks to Peter Grossoehme, Darren Miller and Sascha Kuebart for helpful comments and suggestions.

@@ -162,7 +162,7 @@ void ProgArgs::defineAllowedArgs()
 			"cost but strong randomness. (Default: " RANDALGO_FAST_STR ")")
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
 			"Percentage of each block that will be refilled with random data between writes. "
-			"This can be used to defeat compression/deduplication. (Default: 0; Max: 100)")
+			"This can be used to defeat compression/deduplication. (Default: 100; Range: 0-100)")
 /*c*/	(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
 			"Path to benchmark configuration file. All command line options starting with "
 			"double dashes can be used as \"OPTIONNAME=VALUE\" in the config file. Multiple "
@@ -531,7 +531,7 @@ void ProgArgs::defineDefaults()
 	this->doPreallocFile = false;
 	this->doDirSharing = false;
 	this->doDirectVerify = false;
-	this->blockVariancePercent = 0;
+	this->blockVariancePercent = 100;
 	this->rwMixPercent = 0;
 	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
