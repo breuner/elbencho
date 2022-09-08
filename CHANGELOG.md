@@ -22,6 +22,7 @@ Blocks now get filled with randomized data before each write ("--blockvarpct 100
 
 ### Fixes
 * Removed variables in comments of RPM spec template file for compatibility with RHEL9.
+* Windows executable used wrong allocation block size in stat() info, leading to a note on the console about files possibly being sparse or compressed although they were not.
 
 ## v2.1.5 (Apr 30, 2022)
 

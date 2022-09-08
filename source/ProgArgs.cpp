@@ -598,10 +598,19 @@ void ProgArgs::initImplicitValues()
 	if(useBriefLiveStatsNewLine)
 		useBriefLiveStats = true;
 
+	if(integrityCheckSalt && blockVariancePercent)
+	{
+		if(runCreateFilesPhase)
+			LOGGER(Log_NORMAL, "NOTE: Ingetrity check disables block variance." << std::endl);
+
+		blockVariancePercent = 0;
+	}
+
 	if(!s3EndpointsStr.empty() && runAsService)
 	{
 		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
 			"provided by master." << std::endl);
+
 		s3EndpointsServiceOverrideStr = s3EndpointsStr;
 	}
 
@@ -739,9 +748,9 @@ void ProgArgs::checkArgs()
 		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
 			"option \"--" ARG_INTEGRITYCHECK_LONG "\"");
 
-	if(integrityCheckSalt && blockVariancePercent)
-		throw ProgException("Option \"--" ARG_BLOCKVARIANCE_LONG "\" cannot be used together with "
-			"option \"--" ARG_INTEGRITYCHECK_LONG "\"");
+	if(integrityCheckSalt && blockVariancePercent && runCreateFilesPhase)
+		throw ProgException("Option \"--" ARG_INTEGRITYCHECK_LONG "\" requires "
+			"\"--" ARG_BLOCKVARIANCE_LONG " 0\"");
 
 	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
 		throw ProgException("Integrity check writes are not supported in combination with random "
@@ -1329,9 +1338,13 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 		// warn when reading sparse (or compressed) files
 		if(runReadPhase && !runCreateFilesPhase)
 		{
+			off_t allocatedFileSize;
+
+			bool isFileSparseorCompressed =
+				FileTk::checkFileSparseOrCompressed(statBuf, allocatedFileSize);
+
 			// let user know about reading sparse/compressed files
-			// (note: statBuf.st_blocks is in 512-byte units)
-			if( (statBuf.st_blocks * 512) < currentFileSize)
+			if(isFileSparseorCompressed)
 				LOGGER(Log_NORMAL,
 					"NOTE: Allocated file disk space smaller than file size. File seems sparse or "
 					"compressed. (Sequential write can fill sparse areas.) "
