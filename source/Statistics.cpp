@@ -125,6 +125,7 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 	const bool isRWMixPhase = (liveResults.newLiveOpsReadMix.numBytesDone ||
 		liveResults.newLiveOpsReadMix.numEntriesDone);
 	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
+	const bool useLiveStatsNewLine = progArgs.getUseBriefLiveStatsNewLine();
 
 	std::chrono::seconds elapsedSec =
 				std::chrono::duration_cast<std::chrono::seconds>
@@ -133,7 +134,8 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 	// prepare line including control chars to clear line and do carriage return
 	std::ostringstream stream;
 
-	stream << CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN <<
+	stream <<
+		(useLiveStatsNewLine ? "" : CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN) <<
 		liveResults.phaseName << ": ";
 
 	if(progArgs.getBenchPathType() == BenchPathType_DIR)
@@ -205,7 +207,7 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 
 	std::string lineStr(stream.str() );
 
-	if(progArgs.getUseBriefLiveStatsNewLine() )
+	if(useLiveStatsNewLine)
 	{ // add new line
 		std::cerr << lineStr << std::endl;
 	}
@@ -246,6 +248,7 @@ void Statistics::loopSingleLineLiveStats()
 {
 	std::chrono::milliseconds sleepMS(progArgs.getLiveStatsSleepMS() );
 	std::chrono::steady_clock::time_point nextWakeupT = workersSharedData.phaseStartT;
+	const bool useLiveStatsNewLine = progArgs.getUseBriefLiveStatsNewLine();
 
 	LiveResults liveResults;
 
@@ -261,7 +264,8 @@ void Statistics::loopSingleLineLiveStats()
 
 	liveCpuUtil.update(); // init (further updates in loop below)
 
-	disableConsoleBuffering();
+	if(!useLiveStatsNewLine)
+		disableConsoleBuffering();
 
 	while(true)
 	{
@@ -293,8 +297,11 @@ void Statistics::loopSingleLineLiveStats()
 
 workers_done:
 
-	deleteSingleLineLiveStatsLine();
-	resetConsoleBuffering();
+	if(!useLiveStatsNewLine)
+	{
+		deleteSingleLineLiveStatsLine();
+		resetConsoleBuffering();
+	}
 }
 
 /**
@@ -767,7 +774,8 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
  */
 void Statistics::printLiveStats()
 {
-	bool showConsoleStats = !progArgs.getDisableLiveStats() && Terminal::isStdoutTTY();
+	bool showConsoleStats = !progArgs.getDisableLiveStats() &&
+		(Terminal::isStdoutTTY() || progArgs.getUseBriefLiveStatsNewLine() );
 
 	prepLiveCSVFile();
 
