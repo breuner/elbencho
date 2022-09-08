@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v2.2.0 (work in progress)
+## v2.2.1 (Sep 08, 2022)
 
 ### Important Note
 Blocks now get filled with randomized data before each write ("--blockvarpct 100"). This is to prevent unintended effects on storage systems that have compression, deduplication or similar technology enabled. The generation of randomized data can slightly increase CPU utilization and latency for writes, but this increase is presumably neglectable in typical test cases.
