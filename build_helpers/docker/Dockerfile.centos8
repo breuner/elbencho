@@ -3,7 +3,7 @@
 FROM almalinux:8 as builder
 
 RUN yum -y update && \
-    yum install -y boost-devel cmake gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
+    yum install -y boost-devel cmake gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build zlib zlib-devel && \
     cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
