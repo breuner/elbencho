@@ -23,6 +23,7 @@ _elbencho_opts()
 
    longopts="
         --allelapsed
+        --althttpsvc
         --backward
         --block
         --blockvaralgo
@@ -67,6 +68,7 @@ _elbencho_opts()
         --limitread
         --limitwrite
         --live1
+        --live1n
         --livecsv
         --livecsvex
         --liveint
