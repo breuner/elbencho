@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v2.2.2 (work in progress)
+
+### General Changes
+* Updated S3 to latest AWS SDK CPP v1.9.343. This adds compatibility with Ubuntu 22.04.
+
 ## v2.2.1 (Sep 08, 2022)
 
 ### Important Note

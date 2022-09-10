@@ -1,0 +1,29 @@
+# Full elbencho deb install of latest github master on Ubuntu 20.04
+#
+# Run docker build from elbencho repository root dir like this:
+# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2004.local .
+
+FROM ubuntu:22.04 as builder
+
+COPY ./ /root/elbencho
+
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt update && \
+    apt -y upgrade && \
+    apt install -y build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
+    cd /root/elbencho && \
+    make S3_SUPPORT=1 -j "$(nproc)" && \
+    make deb
+
+FROM ubuntu:22.04
+
+COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
+
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt update && \
+    apt install -y /tmp/elbencho*.deb && \
+    rm -f /tmp/elbencho*.deb && \
+    apt clean all && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]

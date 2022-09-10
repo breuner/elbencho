@@ -142,7 +142,7 @@ Enabling S3 Object Storage support will automatically download a AWS SDK git rep
 ##### S3 Dependencies for RHEL/CentOS 8.0 or newer
 
 ```bash
-sudo yum install cmake libarchive libcurl-devel openssl-devel libuuid-devel
+sudo yum install cmake libarchive libcurl-devel openssl-devel libuuid-devel zlib zlib-devel
 ```
 
 ##### S3 Dependencies for Ubuntu 20.04 or newer

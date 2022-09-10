@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 2
 EXE_VER_MINOR      ?= 2
-EXE_VER_PATCHLEVEL ?= 1
+EXE_VER_PATCHLEVEL ?= 2
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -23,7 +23,7 @@ CXX                ?= g++
 STRIP              ?= strip
 CXX_FLAVOR         ?= c++17
 
-CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
+CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE -DBOOST_BIND_GLOBAL_PLACEHOLDERS
 LDFLAGS_AIO        ?= -laio
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
 LDFLAGS_NUMA       ?= -lnuma
