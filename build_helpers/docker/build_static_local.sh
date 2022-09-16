@@ -4,9 +4,11 @@
 # Call this script from the repository root dir.
 #
 # Note: "--privileged" is required to enable user change on RHEL7.
+# Note: For podman's docker interface (e.g. RHEL8) remove "sudo -u builduser",
+#       because it already runs under the calling UID.
 
 CONTAINER_NAME="elbencho-static"
-IMAGE_NAME="alpine:3"
+IMAGE_NAME="alpine:3.14"
 ELBENCHO_VERSION=$(make version)
 
 rm -f packaging/elbencho-\${ELBENCHO_VERSION}-static-$(uname -m).tar.gz
