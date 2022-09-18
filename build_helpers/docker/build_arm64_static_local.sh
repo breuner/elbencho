@@ -14,7 +14,7 @@
 #    $ docker run --rm -t arm64v8/ubuntu uname -m 
 
 CONTAINER_NAME="elbencho-static"
-IMAGE_NAME="alpine:3"
+IMAGE_NAME="alpine:3.14"
 ELBENCHO_VERSION=$(make version)
 
 docker rm $CONTAINER_NAME
