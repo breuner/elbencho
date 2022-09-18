@@ -7,6 +7,7 @@
 
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.9.343. This adds compatibility with Ubuntu 22.04.
+* Block variance algo "fast" now gets reseeded every 256KiB at the latest to improve quality of generated random numbers.
 
 ### Fixes
 * Set alpine 3.14 (instead of latest available 3.x) as exact version for static executable, as 3.15 & 3.16 produced executables that were not usable in service mode when trying to connect.
