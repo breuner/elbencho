@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v2.2.2 (work in progress)
+## v2.2.3 (Sep 18, 2022)
 
 ### New Features & Enhancements
 * Block variance algo "balanced" has been replaced with a new vectorized SIMD version to enable fast fill of buffers with higher quality random values ("--blockvaralgo"). The previous version still exists as "balanced_single" and remains the default for "--randalgo".
