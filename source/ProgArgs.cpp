@@ -157,9 +157,10 @@ void ProgArgs::defineAllowedArgs()
 			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
 			"Random number algorithm for \"--" ARG_BLOCKVARIANCE_LONG "\". Values: \""
-			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
-			"\" for good balance of speed and randomness; \"" RANDALGO_STRONG_STR "\" for high CPU "
-			"cost but strong randomness. (Default: " RANDALGO_FAST_STR ")")
+			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
+			RANDALGO_BALANCED_SIMD_STR "\" for good balance of speed and randomness; \""
+			RANDALGO_STRONG_STR "\" for high CPU cost but strong randomness. "
+			"(Default: " RANDALGO_FAST_STR ")")
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
 			"Percentage of each block that will be refilled with random data between writes. "
 			"This can be used to defeat compression/deduplication. (Default: 100; Range: 0-100)")
@@ -332,9 +333,10 @@ void ProgArgs::defineAllowedArgs()
 			"Read/write at random offsets.")
 /*ra*/	(ARG_RANDSEEKALGO_LONG, bpo::value(&this->randOffsetAlgo),
 			"Random number algorithm for \"--" ARG_RANDOMOFFSETS_LONG "\". Values: \""
-			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
-			"\" for good balance of speed and randomness; \"" RANDALGO_STRONG_STR "\" for high CPU "
-			"cost but strong randomness. (Default: " RANDALGO_BALANCED_STR ")")
+			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
+			RANDALGO_BALANCED_SEQUENTIAL_STR "\" for good balance of speed and randomness; \""
+			RANDALGO_STRONG_STR "\" for high CPU cost but strong randomness. "
+			"(Default: " RANDALGO_BALANCED_SEQUENTIAL_STR ")")
 /*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
 			"Align random offsets to block size.")
 /*ra*/	(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmountOrigStr),
@@ -539,7 +541,7 @@ void ProgArgs::defineDefaults()
 	this->rwMixPercent = 0;
 	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
-	this->randOffsetAlgo = RANDALGO_BALANCED_STR;
+	this->randOffsetAlgo = RANDALGO_BALANCED_SEQUENTIAL_STR;
 	this->fileShareSize = 0;
 	this->fileShareSizeOrigStr = "0";
 	this->useCustomTreeRandomize = false;

@@ -766,10 +766,8 @@ void LocalWorker::allocIOBuffer()
 		ioBufVec.push_back(ioBuf);
 
 		// fill buffer with random data to ensure it's really alloc'ed (and not "sparse")
-		unsigned seed = 0;
-		int* intIOBuf = (int*)ioBuf;
-		for(size_t i=0; i < (progArgs->getBlockSize() / sizeof(unsigned) ); i++)
-			intIOBuf[i] = rand_r(&seed);
+		RandAlgoXoshiro256ss randGen;
+		randGen.fillBuf(ioBuf, progArgs->getBlockSize() );
 	}
 }
 

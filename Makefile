@@ -61,6 +61,13 @@ LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_DEBUG) $(LDFLAGS_EXTRA)
 else
 CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_RELEASE) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
+
+  ifeq ($(CXX), g++)
+  # This is to enable gcc's automatic SIMD vectorization for RandAlgoXoshiro256ppSIMD.
+  # ("-fopt-info-vec" can be used to confirm that all loops in nextInternalNway() get vectorized.)
+  # For background see https://prng.di.unimi.it/ section "Vectorization".
+  CXXFLAGS_SPECIAL_SIMD += -fdisable-tree-cunrolli 
+  endif
 endif
 
 # Dynamic or static linking
@@ -80,12 +87,12 @@ CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
 LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
 	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
 
- # Apply user-provided AWS SDK include dir if given
- ifeq ($(AWS_INCLUDE_DIR),)
- CXXFLAGS += -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include
- else
- CXXFLAGS += -I $(AWS_INCLUDE_DIR)
- endif
+  # Apply user-provided AWS SDK include dir if given
+  ifeq ($(AWS_INCLUDE_DIR),)
+  CXXFLAGS += -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include
+  else
+  CXXFLAGS += -I $(AWS_INCLUDE_DIR)
+  endif
 
 endif
 
@@ -203,6 +210,19 @@ else
 	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -o $(@)
 endif
 
+# This is a special case because we need special compile options to get gcc to enable loop unrolling
+# and SIMD conversion, hence the additional "CXXFLAGS_SPECIAL_SIMD".
+source/toolkits/random/RandAlgoSelectorTk.o: source/toolkits/random/RandAlgoSelectorTk.cpp
+ifdef BUILD_VERBOSE
+	$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) -c $(@:.o=.cpp) -o $(@)
+else
+	@echo [DEP] $(@:.o=.d)
+	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	@echo [CXX special SIMD] $@
+	@$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) -c $(@:.o=.cpp) -o $(@)
+endif
+
 $(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on Makefile change
 
 externals:
@@ -234,11 +254,6 @@ ifeq ($(CUDA_SUPPORT),1)
  endif
 else
 	$(info [OPT] CUDA support disabled)
-endif
-ifeq ($(BACKTRACE_SUPPORT),1)
-	$(info [OPT] Backtrace support enabled)
-else
-	$(info [OPT] Backtrace support disabled)
 endif
 ifeq ($(S3_SUPPORT),1)
 	$(info [OPT] S3 support enabled)

@@ -2,6 +2,9 @@
 
 ## v2.2.2 (work in progress)
 
+### New Features & Enhancements
+* Block variance algo "balanced" has been replaced with a new vectorized SIMD version to enable fast fill of buffers with higher quality random values ("--blockvaralgo"). The previous version still exists as "balanced_single" and remains the default for "--randalgo".
+
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.9.343. This adds compatibility with Ubuntu 22.04.
 
