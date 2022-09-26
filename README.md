@@ -115,7 +115,7 @@ Instead of giving benchmark parameters on the command line, you can also use a c
 
 ### Results & Charts
 
-Elbencho presents two result columns: One showing the status when the first I/O thread finished its work and one for the end result when the last thread finished its work. Ideally, both are close together.
+Elbencho presents two result columns: One showing the aggregate status at the point in time when the fastest I/O thread finished its work ("First Done") and one for the aggregate end result at the point in time when the slowest thread finished its work ("Last Done"). Ideally, both are close together.
 
 To generate charts from your result series, e.g. based on different block sizes or different thread counts, use elbencho's csv file option (`--csvfile`) and the `elbencho-chart` tool to easily generate a chart from your csv file. Alternatively, spreadsheet tools like Microsoft Excel or Google Sheets can be used for this.
 
