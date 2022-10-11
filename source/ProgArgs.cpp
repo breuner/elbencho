@@ -2090,7 +2090,7 @@ void ProgArgs::printHelpMultiFile()
     std::cout <<
     	"Examples:" ENDL
 		"  Test 2 threads, each creating 3 directories with 4 1MiB files inside:" ENDL
-		"    $ " EXE_NAME " -w -d -t 2 -d -n 3 -N 4 -s 1m -b 1m /data/testdir" ENDL
+		"    $ " EXE_NAME " -w -d -t 2 -n 3 -N 4 -s 1m -b 1m /data/testdir" ENDL
 		std::endl <<
 		"  Same as above with long option names:" ENDL
 		"    $ " EXE_NAME " --write --mkdirs --threads 2 --dirs 3 --files 4 --size 1m \\" ENDL
