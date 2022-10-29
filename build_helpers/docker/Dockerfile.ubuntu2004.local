@@ -7,8 +7,9 @@ FROM ubuntu:20.04 as builder
 
 COPY ./ /root/elbencho
 
-RUN apt update && \
-    export DEBIAN_FRONTEND=noninteractive && \
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt update && \
+    apt -y upgrade && \
     apt install -y build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
     cd /root/elbencho && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
@@ -18,8 +19,8 @@ FROM ubuntu:20.04
 
 COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 
-RUN apt update && \
-    export DEBIAN_FRONTEND=noninteractive && \
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt update && \
     apt install -y /tmp/elbencho*.deb && \
     rm -f /tmp/elbencho*.deb && \
     apt clean all && \

@@ -11,6 +11,7 @@
  * randomness.
  *
  * https://en.wikipedia.org/wiki/Xorshift#xoshiro256**
+ * base algos and speed tests: https://prng.di.unimi.it/
  */
 class RandAlgoXoshiro256ss : public RandAlgoInterface
 {
@@ -18,7 +19,7 @@ class RandAlgoXoshiro256ss : public RandAlgoInterface
 		RandAlgoXoshiro256ss()
 		{
 			// init the 4 state values with random numbers
-			// (32-shift in case random_device returns only 32bit values)
+			// (32-shift because random_device returns only 32bit values)
 			for(int i=0; i < 4; i++)
 				state.s[i] =
 					( (uint64_t)std::random_device()() << 32) | (uint32_t)std::random_device()();

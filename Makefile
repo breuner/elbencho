@@ -4,8 +4,8 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 2
-EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 4
+EXE_VER_MINOR      ?= 2
+EXE_VER_PATCHLEVEL ?= 3
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -21,37 +21,53 @@ PKG_INST_PATH      ?= /usr/bin
 
 CXX                ?= g++
 STRIP              ?= strip
+CXX_FLAVOR         ?= c++17
 
-CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE
+CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE -DBOOST_BIND_GLOBAL_PLACEHOLDERS
+LDFLAGS_AIO        ?= -laio
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
+LDFLAGS_NUMA       ?= -lnuma
 
-NO_BACKTRACE       ?= 0
+ALTHTTPSVC_SUPPORT ?= 0
+BACKTRACE_SUPPORT  ?= 1
+COREBIND_SUPPORT   ?= 1
+LIBAIO_SUPPORT     ?= 1
+LIBNUMA_SUPPORT    ?= 1
+SYNCFS_SUPPORT     ?= 1
 S3_SUPPORT         ?= 0
+SYSCALLH_SUPPORT   ?= 1
 
-CXXFLAGS_COMMON  = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
+CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
-	-DNO_BACKTRACE=$(NO_BACKTRACE) -I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
+	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
 	-Wall -Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
-	-fno-strict-aliasing -pthread -ggdb -std=c++14
-CXXFLAGS_RELEASE = -O3 -Wuninitialized
-CXXFLAGS_DEBUG   = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
+	-fno-strict-aliasing -pthread -ggdb -std=$(CXX_FLAVOR)
+CXXFLAGS_RELEASE  = -O3 -Wuninitialized
+CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON   = -rdynamic -pthread -lrt -lnuma -laio $(LDFLAGS_BOOST)
-LDFLAGS_RELASE   = -O3
-LDFLAGS_DEBUG    = -O0
+LDFLAGS_COMMON    = -rdynamic -pthread -lrt $(LDFLAGS_NUMA) $(LDFLAGS_AIO) $(LDFLAGS_BOOST)
+LDFLAGS_RELASE    = -O3
+LDFLAGS_DEBUG     = -O0
 
-SOURCES          = $(shell find $(SOURCE_PATH) -name '*.cpp')
-OBJECTS          = $(SOURCES:.cpp=.o)
-OBJECTS_CLEANUP  = $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean after C file rename
-DEPENDENCY_FILES = $(shell find $(SOURCE_PATH) -name '*.d')
+SOURCES          := $(shell find $(SOURCE_PATH) -name '*.cpp')
+OBJECTS          := $(SOURCES:.cpp=.o)
+OBJECTS_CLEANUP  := $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean after C file rename
+DEPENDENCY_FILES := $(shell find $(SOURCE_PATH) -name '*.d')
 
 # Release & debug flags for compiler and linker
-ifeq ($(BUILD_DEBUG),)
-CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_RELEASE) $(CXXFLAGS_EXTRA)
-LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
-else
+ifeq ($(BUILD_DEBUG), 1)
 CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_DEBUG) $(CXXFLAGS_EXTRA)
 LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_DEBUG) $(LDFLAGS_EXTRA)
+else
+CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_RELEASE) $(CXXFLAGS_EXTRA)
+LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
+
+  ifeq ($(CXX), g++)
+  # This is to enable gcc's automatic SIMD vectorization for RandAlgoXoshiro256ppSIMD.
+  # ("-fopt-info-vec" can be used to confirm that all loops in nextInternalNway() get vectorized.)
+  # For background see https://prng.di.unimi.it/ section "Vectorization".
+  CXXFLAGS_SPECIAL_SIMD += -fdisable-tree-cunrolli 
+  endif
 endif
 
 # Dynamic or static linking
@@ -67,9 +83,87 @@ endif
 # Compiler and linker flags for S3 support
 # "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
 ifeq ($(S3_SUPPORT), 1)
-CXXFLAGS += -DS3_SUPPORT -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include -Wno-overloaded-virtual
+CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
 LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
 	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
+
+  # Apply user-provided AWS SDK include dir if given
+  ifeq ($(AWS_INCLUDE_DIR),)
+  CXXFLAGS += -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include
+  else
+  CXXFLAGS += -I $(AWS_INCLUDE_DIR)
+  endif
+
+endif
+
+# Use Microsoft mimalloc for memory allocations.
+# Note: This needs to come as very last in link order, thus we have a separate variable to ensure
+# it's the trailing arg for the linker. (Can be confirmed e.g. via MIMALLOC_SHOW_STATS=1)
+ifeq ($(USE_MIMALLOC), 1)
+CXXFLAGS += -DUSE_MIMALLOC
+LDFLAGS_MIMALLOC_TAIL := -L external/mimalloc/build -l:libmimalloc.a
+endif
+
+# Support for uWS (Micro Web Sockets) HTTP service.
+ifeq ($(ALTHTTPSVC_SUPPORT), 1)
+CXXFLAGS += -DALTHTTPSVC_SUPPORT -I $(EXTERNAL_PATH)/uWebSockets/src \
+	-I $(EXTERNAL_PATH)/uWebSockets/uSockets/src -DUWS_NO_ZLIB -DLIBUS_NO_SSL
+LDFLAGS  += -L $(EXTERNAL_PATH)/uWebSockets/uSockets -l:uSockets.a
+endif
+
+# Support build in Cygwin environment
+ifeq ($(CYGWIN_SUPPORT), 1)
+# EXE_UNSTRIPPED includes EXE in definition, so must be updated first 
+EXE_UNSTRIPPED     := $(EXE_UNSTRIPPED).exe
+EXE                := $(EXE).exe
+
+BACKTRACE_SUPPORT  := 0
+LIBAIO_SUPPORT     := 0
+SYNCFS_SUPPORT     := 0
+LIBNUMA_SUPPORT    := 0
+COREBIND_SUPPORT   := 0
+SYSCALLH_SUPPORT   := 0
+
+CXX_FLAVOR         := gnu++17
+CXXFLAGS           += -DCYGWIN_SUPPORT
+LDFLAGS_AIO        :=
+LDFLAGS_NUMA       :=
+endif
+
+# Backtrace support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(BACKTRACE_SUPPORT), 1)
+CXXFLAGS += -DBACKTRACE_SUPPORT
+endif
+
+# libaio support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(LIBAIO_SUPPORT), 1)
+CXXFLAGS += -DLIBAIO_SUPPORT
+endif
+
+# syncfs() call support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(SYNCFS_SUPPORT), 1)
+CXXFLAGS += -DSYNCFS_SUPPORT
+endif
+
+# libnuma support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(LIBNUMA_SUPPORT), 1)
+CXXFLAGS += -DLIBNUMA_SUPPORT
+endif
+
+# CPU core binding support
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(COREBIND_SUPPORT), 1)
+CXXFLAGS += -DCOREBIND_SUPPORT
+endif
+
+# sys/syscall.h include file support (for definition of SYS_..., e.g. SYS_gettid)
+# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
+ifeq ($(SYSCALLH_SUPPORT), 1)
+CXXFLAGS += -DSYSCALLH_SUPPORT
 endif
 
 # Include build helpers for auto detection
@@ -77,9 +171,6 @@ include build_helpers/AutoDetection.mk
 
 
 all: $(SOURCES) $(EXE)
-
-debug:
-	@$(MAKE) BUILD_DEBUG=1 all
 
 $(EXE): $(EXE_UNSTRIPPED)
 ifdef BUILD_VERBOSE
@@ -91,10 +182,21 @@ endif
 
 $(EXE_UNSTRIPPED): $(OBJECTS)
 ifdef BUILD_VERBOSE
-	$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS)
+	$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
 else
 	@echo [LINK] $@
-	@$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS)
+	@$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
+endif
+
+.c.o:
+ifdef BUILD_VERBOSE
+	$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -o $(@)
+else
+	@echo [DEP] $(@:.o=.d)
+	@$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	@echo [CXX] $@
+	@$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -o $(@)
 endif
 
 .cpp.o:
@@ -108,13 +210,30 @@ else
 	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -o $(@)
 endif
 
-$(OBJECTS): | externals features-info
+# This is a special case because we need special compile options to get gcc to enable loop unrolling
+# and SIMD conversion, hence the additional "CXXFLAGS_SPECIAL_SIMD".
+source/toolkits/random/RandAlgoSelectorTk.o: source/toolkits/random/RandAlgoSelectorTk.cpp
+ifdef BUILD_VERBOSE
+	$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) -c $(@:.o=.cpp) -o $(@)
+else
+	@echo [DEP] $(@:.o=.d)
+	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	@echo [CXX special SIMD] $@
+	@$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) -c $(@:.o=.cpp) -o $(@)
+endif
+
+$(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on Makefile change
 
 externals:
 ifdef BUILD_VERBOSE
-	PREP_AWS_SDK=$(S3_SUPPORT) $(EXTERNAL_PATH)/prepare-external.sh
+	PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
+		PREP_MIMALLOC=$(USE_MIMALLOC) PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
+		$(EXTERNAL_PATH)/prepare-external.sh
 else
-	@PREP_AWS_SDK=$(S3_SUPPORT) $(EXTERNAL_PATH)/prepare-external.sh
+	@PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
+		PREP_MIMALLOC=$(USE_MIMALLOC) PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
+		$(EXTERNAL_PATH)/prepare-external.sh
 endif
 
 features-info:
@@ -136,33 +255,44 @@ ifeq ($(CUDA_SUPPORT),1)
 else
 	$(info [OPT] CUDA support disabled)
 endif
-ifeq ($(NO_BACKTRACE),1)
-	$(info [OPT] Backtrace support disabled)
-else
-	$(info [OPT] Backtrace support enabled)
-endif
 ifeq ($(S3_SUPPORT),1)
 	$(info [OPT] S3 support enabled)
 else
 	$(info [OPT] S3 support disabled. (Enable via S3_SUPPORT=1))
 endif
+ifeq ($(USE_MIMALLOC),1)
+	$(info [OPT] mimalloc enabled)
+else
+	$(info [OPT] mimalloc disabled)
+endif
+ifeq ($(ALTHTTPSVC_SUPPORT),1)
+	$(info [OPT] Alternative HTTP service enabled)
+else
+	$(info [OPT] Alternative HTTP service disabled)
+endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
-	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED)
+	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe $(EXE_UNSTRIPPED) \
+		$(EXE_UNSTRIPPED).exe
 else
 	@echo "[DELETE] OBJECTS, DEPENDENCY_FILES, EXECUTABLES"
-	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE_UNSTRIPPED)
+	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe $(EXE_UNSTRIPPED) \
+		$(EXE_UNSTRIPPED).exe
 endif
 
 clean-externals:
 ifdef BUILD_VERBOSE
 	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server 
+	rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
+	rm -rf $(EXTERNAL_PATH)/mimalloc
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
+	@rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
+	@rm -rf $(EXTERNAL_PATH)/mimalloc
 endif
 
 clean-packaging:
@@ -282,9 +412,10 @@ version:
 	@echo $(EXE_VERSION)
 
 help:
-	@echo 'Building Optional Features:'
-	@echo '   S3_SUPPORT=1            - Build with S3 support. (Note: This will fetch a'
-	@echo '                             AWS SDK git repo of over 1GB size.)'
+	@echo 'Optional Build Features:'
+	@echo '   ALTHTTPSVC_SUPPORT=0|1  - Build with support for alternative HTTP service.'
+	@echo '                             (Default: 0)'
+	@echo '   BACKTRACE_SUPPORT=0|1   - Build with backtrace support. (Default: 1)'
 	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
 	@echo '                             CUDA to work with GPU memory. By default, CUDA'
 	@echo '                             support will be enabled when CUDA development files'
@@ -294,19 +425,31 @@ help:
 	@echo '                             By default, GDS support will be enabled when GDS'
 	@echo '                             development files are found. (cufile.h and'
 	@echo '                             libcufile.so)'
-	@echo '   NO_BACKTRACE=1          - Build without backtrace support for musl-libc.'
+	@echo '   CYGWIN_SUPPORT=0|1      - Reduce build features to enable build in Cygwin'
+	@echo '                             environment. (Default: 0)'
+	@echo '   USE_MIMALLOC=0|1        - Use Microsoft mimalloc library for memory'
+	@echo '                             allocation management. Recommended when using'
+	@echo '                             musl-libc. (Default: 0)'
+	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
+	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo
 	@echo 'Optional Compile/Link Arguments:'
 	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
+	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++17)'
 	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
 	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
 	@echo '   BUILD_STATIC=1          - Generate a static binary without dependencies.'
 	@echo '                             (Tested only on Alpine Linux.)'
+	@echo '   BUILD_DEBUG=1           - Include debug info in executable.'
+	@echo '   AWS_LIB_DIR=<path>      - If this is set in combination with S3_SUPPORT=1'
+	@echo '                             then link against pre-built libs in given dir'
+	@echo '                             instead of building the AWS SDK CPP.'
+	@echo '   AWS_INCLUDE_DIR=<path>  - Include files path for AWS_LIB_DIR. (Default: '
+	@echo '                             "/usr/include")'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
-	@echo '   debug             - Build executable with debug info'
 	@echo '   clean             - Remove build artifacts'
 	@echo '   clean-all         - Remove build artifacts and external sources'
 	@echo '   install           - Install executable to /usr/local/bin'
@@ -315,7 +458,7 @@ help:
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
 	@echo
-	@echo 'Note: Use "make clean" when changing any optional build features.'
+	@echo 'Note: Use "make clean-all" when changing any optional build features.'
 
 .PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
 features-info help prepare-buildroot rpm version

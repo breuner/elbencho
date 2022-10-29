@@ -9,6 +9,7 @@
 #endif
 
 #ifdef S3_SUPPORT
+	bool S3Tk::globalInitCalled = false;
 	Aws::SDKOptions* S3Tk::s3SDKOptions = NULL; // needed for init and again for uninit later
 #endif
 
@@ -29,6 +30,8 @@ void S3Tk::initS3Global(const ProgArgs& progArgs)
 #ifdef S3_SUPPORT
 
 	LOGGER(Log_DEBUG, "Initializing S3 SDK." << std::endl);
+
+	globalInitCalled = true;
 
 	if(progArgs.getS3LogLevel() > 0)
 		Aws::Utils::Logging::InitializeAWSLogging(
@@ -53,6 +56,9 @@ void S3Tk::initS3Global(const ProgArgs& progArgs)
 void S3Tk::uninitS3Global(const ProgArgs& progArgs)
 {
 #ifdef S3_SUPPORT
+
+	if(!globalInitCalled)
+		return; // nothing to do if init wasn't called
 
 	LOGGER(Log_DEBUG, "Shutting down S3 SDK." << std::endl);
 

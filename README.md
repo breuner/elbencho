@@ -42,9 +42,11 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 
 The built-in help (`elbencho --help`) provides simple examples to get started.
 
+You can get elbencho pre-built for Linux & Windows from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). 
+
 ## Build Prerequisites
 
-You can get elbencho pre-built from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). Building elbencho requires a C++14 compatible compiler, such as gcc version 5.x or higher.
+Building elbencho requires a C++17 compatible compiler, such as gcc version 7.x or higher.
 
 ### Dependencies for Debian/Ubuntu
 
@@ -113,7 +115,7 @@ Instead of giving benchmark parameters on the command line, you can also use a c
 
 ### Results & Charts
 
-Elbencho presents two result columns: One showing the status when the first I/O thread finished its work and one for the end result when the last thread finished its work. Ideally, both are close together.
+Elbencho presents two result columns: One showing the aggregate status at the point in time when the fastest I/O thread finished its work ("First Done") and one for the aggregate end result at the point in time when the slowest thread finished its work ("Last Done"). Ideally, both are close together.
 
 To generate charts from your result series, e.g. based on different block sizes or different thread counts, use elbencho's csv file option (`--csvfile`) and the `elbencho-chart` tool to easily generate a chart from your csv file. Alternatively, spreadsheet tools like Microsoft Excel or Google Sheets can be used for this.
 
@@ -140,7 +142,7 @@ Enabling S3 Object Storage support will automatically download a AWS SDK git rep
 ##### S3 Dependencies for RHEL/CentOS 8.0 or newer
 
 ```bash
-sudo yum install cmake libarchive libcurl-devel openssl-devel libuuid-devel
+sudo yum install cmake libarchive libcurl-devel openssl-devel libuuid-devel zlib zlib-devel
 ```
 
 ##### S3 Dependencies for Ubuntu 20.04 or newer

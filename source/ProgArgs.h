@@ -58,6 +58,8 @@ namespace bpt = boost::property_tree;
 #define ARG_SERVICEPORT_LONG		"port"
 #define ARG_NODETACH_LONG			"nodetach"
 #define ARG_HOSTS_LONG				"hosts"
+#define ARG_HOSTSFILE_LONG			"hostsfile"
+#define ARG_NUMHOSTS_LONG			"numhosts"
 #define ARG_INTERRUPT_LONG			"interrupt"
 #define ARG_ITERATIONS_LONG			"iterations"
 #define ARG_ITERATIONS_SHORT		"i"
@@ -66,8 +68,8 @@ namespace bpt = boost::property_tree;
 #define ARG_RANKOFFSET_LONG			"rankoffset"
 #define ARG_LOGLEVEL_LONG			"log"
 #define ARG_NUMAZONES_LONG			"zones"
+#define ARG_CPUCORES_LONG			"cores"
 #define ARG_SHOWALLELAPSED_LONG		"allelapsed"
-#define ARG_LIVESLEEPSEC_LONG		"refresh"
 #define ARG_RANDOMOFFSETS_LONG		"rand"
 #define ARG_RANDOMALIGN_LONG		"randalign"
 #define ARG_RANDOMAMOUNT_LONG		"randamount"
@@ -81,6 +83,9 @@ namespace bpt = boost::property_tree;
 #define ARG_RESULTSFILE_LONG		"resfile"
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
 #define ARG_CSVFILE_LONG			"csvfile"
+#define ARG_CSVLIVEFILE_LONG		"livecsv"
+#define ARG_CSVLIVEEXTENDED_LONG	"livecsvex"
+#define ARG_LIVEINTERVAL_LONG		"liveint"
 #define ARG_NOCSVLABELS_LONG		"nocsvlabels"
 #define ARG_GPUIDS_LONG				"gpuids"
 #define ARG_GPUPERSERVICE_LONG		"gpuperservice"
@@ -92,7 +97,6 @@ namespace bpt = boost::property_tree;
 #define ARG_SYNCPHASE_LONG			"sync"
 #define ARG_DROPCACHESPHASE_LONG	"dropcache"
 #define ARG_STATFILES_LONG			"stat"
-#define ARG_HOSTSFILE_LONG			"hostsfile"
 #define ARG_CPUUTIL_LONG			"cpu"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_VERSION_LONG			"version"
@@ -123,9 +127,19 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 #define ARG_REVERSESEQOFFSETS_LONG	"backward"
 #define ARG_INFINITEIOLOOP_LONG		"infloop"
-#define ARG_S3RWMIXTHREADS_LONG		"s3rwmixthr"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
+#define ARG_RWMIXTHREADS_LONG		"rwmixthr"
+#define ARG_BRIEFLIVESTATS_LONG		"live1"
+#define ARG_LIVESTATSNEWLINE_LONG	"live1n"
+#define ARG_GPUDIRECTSSTORAGE_LONG	"gds"
+#define ARG_BENCHLABEL_LONG			"label"
+#define ARG_NOFDSHARING_LONG		"nofdsharing"
+#define ARG_LIMITREAD_LONG			"limitread"
+#define ARG_LIMITWRITE_LONG			"limitwrite"
+#define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
+#define ARG_DIRSTATS_LONG			"dirstats"
+#define ARG_ALTHTTPSERVER_LONG		"althttpsvc"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -219,7 +233,9 @@ class ProgArgs
 		bool runServiceInForeground; // true to not daemonize service process into background
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string hostsStr; // list of service hosts, element format is hostname[:port]
+		std::string hostsFilePath; // path to file for service hosts
 		StringVec hostsVec; // service hosts broken down into individual hostname[:port]
+		int numHosts; // number of hosts to use from hostsStr/hostsFilePath ("-1" means "all")
 		bool interruptServices; // send interrupt msg to given hosts to stop current phase
 		bool quitServices; // send quit (via interrupt msg) to given hosts to exit service
 		bool noSharedServicePath; // true if bench paths not shared between service instances
@@ -227,8 +243,10 @@ class ProgArgs
 		unsigned short logLevel; // filter level for log messages (higher will not be logged)
 		std::string numaZonesStr; // comma-separted numa zones that this process may run on
 		IntVec numaZonesVec; // list from numaZoneStr broken down into individual elements
+		std::string cpuCoresStr; // comma-separted cpu cores that this process may run on
+		IntVec cpuCoresVec; // list from cpuCoresStr broken down into individual elements
 		bool showAllElapsed; // print elapsed time of each I/O worker
-		size_t liveStatsSleepSec; // sleep interval between live stats console refresh
+		size_t liveStatsSleepMS; // interval between live stats console/csv updates
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRandomAligned; // use block-aligned random offsets (when randomOffsets is used)
 		uint64_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
@@ -242,7 +260,9 @@ class ProgArgs
 		std::string resFilePath; // results output file path (or empty for no results file)
 		size_t timeLimitSecs; // time limit in seconds for each phase (0 to disable)
 		std::string configFilePath; // Configuration input using a config file (empty for none)
-		std::string csvFilePath; // results output file path for csv format (or empty for none)
+		std::string csvFilePath; // phase results file path for csv format (or empty for none)
+		std::string liveCSVFilePath; // live stats file path for csv format (or empty for none)
+		bool useExtendedLiveCSV; // false for total/aggregate results only, true for per-worker
 		bool noCSVLabels; // true to not print headline with labels to csv file
 		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
 		IntVec gpuIDsVec; // gpuIDsStr broken down into individual GPU IDs
@@ -259,7 +279,6 @@ class ProgArgs
 		bool runSyncPhase; // run the sync() phase to commit all dirty page cache buffers
 		bool runDropCachesPhase; // run "echo 3>drop_caches" phase to drop kernel page cache
 		bool runStatFilesPhase; // stat files
-		std::string hostsFilePath; // path to file for service hosts
 		bool showCPUUtilization; // show cpu utilization in phase stats results
 		size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
@@ -280,6 +299,7 @@ class ProgArgs
 			(useful for directIO with its alignment reqs on some file systems. 0 disables this.) */
 		std::string treeRoundUpSizeOrigStr; // original treeRoundUpSize str from user with unit
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
+		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3AccessKey; // s3 access key
 		std::string s3AccessSecret; // s3 access secret
@@ -295,9 +315,23 @@ class ProgArgs
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doReverseSeqOffsets; // backwards sequential read/write
 		bool doInfiniteIOLoop; // start I/O from the beginning when reaching the end
-		size_t numS3RWMixReadThreads; // number of rwmix read threads in write phase (req "-n"/"-N")
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3RandObjSelect; // random object selection for each read
+		size_t numRWMixReadThreads; // number of rwmix read threads in file/bdev write phase
+		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
+		bool useBriefLiveStats; // single-line live stats
+		bool useBriefLiveStatsNewLine; /* newline instead of line erase on update. implicitly sets
+											useBriefLiveStats=true */
+		std::string benchLabel; // user-defined label for benchmark run
+		std::string benchLabelNoCommas; // implict based on benchLabel with commas removed for csv
+		bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
+		uint64_t limitReadBps; // read limit per thread in bytes per sec
+		std::string limitReadBpsOrigStr; // original limitReadBps str from user with unit
+		uint64_t limitWriteBps; // write limit per thread in bytes per sec
+		std::string limitWriteBpsOrigStr; // original limitWriteBps str from user with unit
+		bool ignoreS3PartNum; // don't check for >10K parts in multi-part uploads
+		bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
+		bool useAlternativeHTTPService; // use alternative http service implememtation
 
 
 		void defineDefaults();
@@ -312,6 +346,7 @@ class ProgArgs
 		void prepareFileSize(int fd, std::string& path);
 		void parseHosts();
 		void parseNumaZones();
+		void parseCPUCores();
 		void parseGPUIDs();
 		void parseRandAlgos();
 		void parseS3Endpoints();
@@ -320,6 +355,7 @@ class ProgArgs
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
+		void checkCSVFileCompatibility();
 
 		void printHelpOverview();
 		void printHelpAllOptions();
@@ -363,7 +399,9 @@ class ProgArgs
 		bool getRunServiceInForeground() const { return runServiceInForeground; }
 		unsigned short getServicePort() const { return servicePort; }
 		std::string getHostsStr() const { return hostsStr; }
+		std::string getHostsFilePath() const { return hostsFilePath; }
 		const StringVec& getHostsVec() const { return hostsVec; }
+		int getNumHosts() const { return numHosts; }
 		bool getInterruptServices() const { return interruptServices; }
 		bool getQuitServices() const { return quitServices; }
 		bool getIsServicePathShared() const { return !noSharedServicePath; }
@@ -371,8 +409,10 @@ class ProgArgs
 		LogLevel getLogLevel() const { return (LogLevel)logLevel; }
 		std::string getNumaZonesStr() const { return numaZonesStr; }
 		const IntVec& getNumaZonesVec() const { return numaZonesVec; }
+		std::string getCPUCoresStr() const { return cpuCoresStr; }
+		const IntVec& getCPUCoresVec() const { return cpuCoresVec; }
 		bool getShowAllElapsed() const { return showAllElapsed; }
-		size_t getLiveStatsSleepSec() const { return liveStatsSleepSec; }
+		size_t getLiveStatsSleepMS() const { return liveStatsSleepMS; }
 		bool getUseRandomOffsets() const { return useRandomOffsets; }
 		bool getUseRandomAligned() const { return useRandomAligned; }
 		uint64_t getRandomAmount() const { return randomAmount; }
@@ -386,6 +426,8 @@ class ProgArgs
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		void setTimeLimitSecs(size_t timeLimitSecs) { this->timeLimitSecs = timeLimitSecs; }
 		std::string getCSVFilePath() const { return csvFilePath; }
+		std::string getLiveCSVFilePath() const { return liveCSVFilePath; }
+		bool getUseExtendedLiveCSV() const { return useExtendedLiveCSV; }
 		std::string getConfigFilePath() const { return configFilePath; }
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
 		std::string getGPUIDsStr() const { return gpuIDsStr; }
@@ -401,7 +443,6 @@ class ProgArgs
 		bool getRunSyncPhase() const { return runSyncPhase; }
 		bool getRunDropCachesPhase() const { return runDropCachesPhase; }
 		bool getRunStatFilesPhase() const { return runStatFilesPhase; }
-		std::string getHostsFilePath() const { return hostsFilePath; }
 		bool getShowCPUUtilization() const { return showCPUUtilization; }
 		size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
 		bool getDoTruncToSize() const { return doTruncToSize; }
@@ -421,6 +462,7 @@ class ProgArgs
 		bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
 		uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }
 		std::string getS3EndpointsStr() const { return s3EndpointsStr; }
+		std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
 		const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
 		std::string getS3AccessKey() const { return s3AccessKey; }
 		std::string getS3AccessSecret() const { return s3AccessSecret; }
@@ -436,9 +478,20 @@ class ProgArgs
 		bool getDoListObjVerify() const { return doS3ListObjVerify; }
 		bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
 		bool getDoInfiniteIOLoop() const { return doInfiniteIOLoop; }
-		size_t getNumS3RWMixReadThreads() const { return numS3RWMixReadThreads; }
 		unsigned short getS3SignPolicy() const { return s3SignPolicy; }
 		bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
+		size_t getNumRWMixReadThreads() const { return numRWMixReadThreads; }
+		bool hasUserSetRWMixReadThreads() const { return useRWMixReadThreads; }
+		bool getUseBriefLiveStats() const { return useBriefLiveStats; }
+		bool getUseBriefLiveStatsNewLine() const { return useBriefLiveStatsNewLine; }
+		std::string getBenchLabel() const { return benchLabel; }
+		const std::string& getBenchLabelNoCommas() const { return benchLabelNoCommas; }
+		bool getUseNoFDSharing() const { return useNoFDSharing; }
+		uint64_t getLimitReadBps() const { return limitReadBps; }
+		uint64_t getLimitWriteBps() const { return limitWriteBps; }
+		bool getIgnoreS3PartNum() const { return ignoreS3PartNum; }
+		bool getShowDirStats() const { return showDirStats; }
+		bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
 
 };
 

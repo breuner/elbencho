@@ -2,8 +2,8 @@
 #include "ProgException.h"
 #include "TranslatorTk.h"
 
-#define TRANSLATORTK_PHASENAME_RWMIX	"RWMIX" // rwmix with read percentage
-#define TRANSLATORTK_PHASENAME_S3MIXTH	"MIX-T" // s3 rwmix with separate reader threads
+#define TRANSLATORTK_PHASENAME_RWMIXPCT	"RWMIX" // rwmix with read percentage
+#define TRANSLATORTK_PHASENAME_RWMIXTHR	"MIX-T" // rwmix with separate reader threads
 
 /**
  * Get name of a phase from bench phase.
@@ -21,12 +21,13 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_DELETEDIRS: return PHASENAME_DELETEDIRS;
 		case BenchPhase_CREATEFILES:
 		{
-			if(!progArgs->getS3EndpointsVec().empty() && progArgs->getNumS3RWMixReadThreads() )
-				return TRANSLATORTK_PHASENAME_S3MIXTH +
-					std::to_string(progArgs->getNumS3RWMixReadThreads() );
+			if(progArgs->hasUserSetRWMixReadThreads() )
+				return TRANSLATORTK_PHASENAME_RWMIXTHR +
+					std::to_string(progArgs->getNumRWMixReadThreads() );
 			else
 			if(progArgs->hasUserSetRWMixPercent() )
-				return TRANSLATORTK_PHASENAME_RWMIX + std::to_string(progArgs->getRWMixPercent() );
+				return TRANSLATORTK_PHASENAME_RWMIXPCT +
+					std::to_string(progArgs->getRWMixPercent() );
 			else
 				return PHASENAME_CREATEFILES;
 		}
@@ -91,14 +92,14 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool
 /**
  * Get human-readable version of bench path type.
  */
-std::string TranslatorTk::benchPathTypeToStr(BenchPathType pathType)
+std::string TranslatorTk::benchPathTypeToStr(BenchPathType pathType, const ProgArgs* progArgs)
 {
 	switch(pathType)
 	{
 		case BenchPathType_DIR:
-			return "dir";
+			return progArgs->getS3EndpointsStr().empty() ? "dir" : "bucket";
 		case BenchPathType_FILE:
-			return "file";
+			return progArgs->getS3EndpointsStr().empty() ? "file" : "object";
 		case BenchPathType_BLOCKDEV:
 			return "blockdev";
 		default:

@@ -8,6 +8,11 @@ for dockerfile in $(ls build_helpers/docker/Dockerfile.*.local); do
     echo "Building: $dockerfile"
     echo
     
+    echo "Cleaning up build artifacts..."
+    make clean-all
+    
+    echo
+    
     docker build -t elbencho-local -f $dockerfile .
     if [ $? -ne 0 ]; then
         echo "ERROR: Docker build failed: $dockerfile"

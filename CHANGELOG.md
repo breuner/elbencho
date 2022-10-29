@@ -1,19 +1,131 @@
 # Changelog of elbencho
 
-## v2.0.4 (work in progress)
+## v2.2.3 (Sep 18, 2022)
+
+### New Features & Enhancements
+* Block variance algo "balanced" has been replaced with a new vectorized SIMD version to enable fast fill of buffers with higher quality random values ("--blockvaralgo"). The previous version still exists as "balanced_single" and remains the default for "--randalgo".
+
+### General Changes
+* Updated S3 to latest AWS SDK CPP v1.9.343. This adds compatibility with Ubuntu 22.04.
+* Block variance algo "fast" now gets reseeded every 256KiB at the latest to improve quality of generated random numbers.
+
+### Fixes
+* Set alpine 3.14 (instead of latest available 3.x) as exact version for static executable, as 3.15 & 3.16 produced executables that were not usable in service mode when trying to connect.
+
+## v2.2.1 (Sep 08, 2022)
+
+### Important Note
+Blocks now get filled with randomized data before each write ("--blockvarpct 100"). This is to prevent unintended effects on storage systems that have compression, deduplication or similar technology enabled. The generation of randomized data can slightly increase CPU utilization and latency for writes, but this increase is presumably neglectable in typical test cases.
+
+### New Features & Enhancements
+* Added support for an alternative HTTP service framework as compile-time and runtime option. ("elbencho --service --althttpsvc" enables the alternative framework at runtime when built with "ALTHTTPSVC_SUPPORT=1".)
+* Added script to cross-compile static arm64 executable on x86_64 platform. ("build_arm64_static_local.sh")
+* New option "--live1n" to print single-line live statistics to a new line on stderr on each update instead of updating in-place like "--live1" does.
+
+### General Changes
+* When using S3 option "--s3randobj" then show IOPS in addition to throughput.
+* Added new Nvidia CUDA repo keys to MagnumIO docker container.
+* When "--rand" is specified in S3 write phase then automatically use "--backward" instead of refusing to run.
+* Building elbencho now requires a C++17 compatible compiler.
+* Changed block variance percentage default to 100 ("--blockvarpct 100"). Previous default was 0.
+
+### Contributors
+* Thanks to Peter Grossoehme, Rob Mallory, Darren Miller and Sascha Kuebart for helpful comments and suggestions.
+
+### Fixes
+* Removed variables in comments of RPM spec template file for compatibility with RHEL9.
+* Windows executable used wrong allocation block size in stat() info, leading to a note on the console about files possibly being sparse or compressed although they were not.
+
+## v2.1.5 (Apr 30, 2022)
+
+### General Changes
+* Updated mimalloc memory allocation library to latest version 2.0.6
+* Added dockerfile for SLES 15
+
+### Contributors
+* Thanks to Sherif Louis for helpful comments and suggestions.
+
+## v2.1.3 (Apr 14, 2022)
+
+### Fixes
+* Fixed a problem that could lead to the csv header line of the "--csvfile" being printed for every run, not only once at the top.
+* Fixed a problem when "--blockvarpct" values other than "0" or "100" were selected together with the default "--blockvaralgo fast".
+
+### Contributors
+* Thanks to Glenn K. Lockwood and Daniel Drozdowski for reporting an issue.
+
+## v2.1.1 (Apr 10, 2022)
+
+### New Features & Enhancements
+* New support for Windows
+  * The Windows version is built via Cygwin
+  * Benchmark paths can be specified as `/cygdrive/<driveletter>/some/path`
+* New option "--dirstats" to show number of completed directories in file write/read phase.
+* New option "--livecsv" to log live statistics to csv file. This can be used e.g. to see performance drops within a benchmark phase.
+  * New option "--livecsvex" to see individual worker/service results instead of only aggregate results.
+  * New option "--liveint" can be used to set the interval for live statistics update in milliseconds.
+* New elbencho-chart tool option for custom line colors ("--linecolors").
+* When given path is a directory or bucket, option -n/--dirs accepts 0 (zero) now to place files directly in the given dir/bucket instead of using subdirs.
+* Service instances now accept "--s3endpoint" argument to specify different S3 endpoints for each service.
+
+### General Changes
+* Added check for S3 multi-part uploads that would exceed 10,000 parts per object to warn user early.
+* Old option "--refresh" has been renamed to "--liveint".
+* Updated to latest AWS SDK CPP v1.9.228.
+* Don't treat existing S3 buckets as error. Previously, existing S3 buckets were treated as error for the "-d" option if they were not owned by the current user.
+
+### Fixes
+* Init AWS SDK after daemonizing into background in service mode to not prevent shutdown of static builds.
+
+### Contributors
+* Thanks to Dima Kaputkin, Jeff Johnson, Greg Kemp and Shafay Latif for helpful comments and suggestions.
+
+## v2.0.9 (Jan 24, 2022)
+
+### New Features & Enhancements
+* New option "--cores" to bind threads to CPU cores.
+* New option "--nofdsharing" to have each thread open files individually instead of using a shared set of file descriptors for all threads if given path refers to a file or block device.
+* New options "--limitread"/"--limitwrite" to limit throughput of each thread.
+* New option "--numhosts" to limit the number of used hosts from a given hosts list or hosts file.
 
 ### General Changes ###
+* Added optional makefile parameters "AWS_LIB_DIR" and "AWS_INCLUDE_DIR" to support using pre-built AWS SDK CPP.
+
+### Contributors
+* Thanks to Alon Horev and Ray Coetzee for helpful comments and suggestions.
+
+## v2.0.7 (Jan 05, 2022)
+
+### New Features & Enhancements
+* New option "--rwmixthr N" to define the number of reader threads in a write phase. In contrast to "--rwmixpct N" (where each thread performs reads & writes and thus has to complete a certain number of writes before it can continue with reads), this removes the direct coupling of read and write speed by letting the readers run completely separate from the writers.
+* In read/write mix mode (--rwmixpct, --rwmixthr) read latency is now measured separate from write latency.
+  * Separate read latency rows will now be shown on console when "--lat" is given.
+  * Corresponding rwmix read latency columns were added to csv result files.
+* New option "--live1" to show single line live statistics instead of using full screen mode.
+* New option "--label" to defined custom labels for benchmark run, which will be printed in result files and csv files.
+* CSV files now contain columns for elbencho version and complete command line arguments.
+* The contributed sweep tools were extended with a new dataset generator script (dgen.sh).
+* New build option to use Microsoft mimalloc for memory allocations. This is useful to overcome AWS SDK performance limitations related to memory management when linking against musl-libc, e.g. on Alpine Linux.
+  * Alpine-based docker containers have been updated to support S3 with mimalloc.
+
+### General Changes ###
+* Added new GPUDirect Storage option "--gds" as shortcut for "--direct --cufile --gdsbufreg".
 * Added S3 support to Alpine Linux docker container.
 * Updated to latest AWS SDK CPP v1.9.162.
 * Label results as "RWMIX0" if "--rwmixpct 0" is given (instead of previously labeling as "WRITE" in this case).
 * When "--rand" is used and multiple files/blockdevs are given directly as parameters then each thread now randomly selects the next file/blockdev.
   * Previously each thread iterated over all files/blockdevs in a round-robin fashion.
+* Block variance percentage (--blockvarpct) now defines the percentage of bytes within each written block to be randomly generated. 
+  * Previously this defined the number out of 100 written blocks to be randomly filled. This change is intended to avoid longer sequences of identical blocks, e.g. in case of "--blockvarpct 50". (The result for "--blockvarpct 100" is the same as before.)
+* The option "--s3rwmixthr" has been removed and is now replaced by the new option "--rwmixthr", which also works for S3.
+* In files given as "--hostsfile", lines starting with a "#" character will now be ignored.
 
 ### Fixes
 * Previously, block variance (--blockvarpct) was calculated for all blocks in rwmix mode (--rwmixpct). Now we do it only for blocks that are actually being written and skip the read blocks to avoid unnecessary CPU overhead.
 
 ### Contributors
-* Thanks to Matt Gustafson for helpful comments and suggestions.
+* Thanks to Matt Gustafson, Kyle Lamb and Rupert Menezes for helpful comments and suggestions.
+* Thanks to Chin Fang for extending the contributed storage sweep tools.
 
 ## v2.0.3 (Nov 26, 2021)
 

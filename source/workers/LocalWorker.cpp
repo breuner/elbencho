@@ -1,4 +1,3 @@
-#include <libaio.h>
 #include "LocalWorker.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
 #include "WorkerException.h"
@@ -6,6 +5,10 @@
 
 #ifdef CUDA_SUPPORT
 	#include <cuda_runtime.h>
+#endif
+
+#ifdef LIBAIO_SUPPORT
+	#include <libaio.h>
 #endif
 
 #ifdef S3_SUPPORT
@@ -36,7 +39,6 @@
 
 #define PATH_BUF_LEN					64
 #define MKDIR_MODE						0777
-#define MKFILE_MODE						(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 #define INTERRUPTION_CHECK_INTERVAL		128
 #define AIO_MAX_WAIT_SEC				5
 #define AIO_MAX_EVENTS					4 // max number of events to retrieve in io_getevents()
@@ -98,7 +100,9 @@ void LocalWorker::run()
 		buuids::uuid currentBenchID = buuids::nil_uuid();
 
 		// preparation phase
-		applyNumaBinding();
+		applyNumaAndCoreBinding();
+		initThreadFDVec();
+		initThreadCuFileHandleDataVec();
 		allocIOBuffer();
 		allocGPUIOBuffer();
 		prepareCustomTreePathStores();
@@ -118,6 +122,7 @@ void LocalWorker::run()
 
 			do // for infinite I/O loop
 			{
+				initThreadPhaseVars();
 				initPhaseFileHandleVecs();
 				initPhaseRWOffsetGen();
 				initPhaseFunctionPointers();
@@ -355,6 +360,125 @@ void LocalWorker::uninitS3Client()
 }
 
 /**
+ * If progArgs::useNoFDSharing is set, initialize threadFDVec with separate open files in file/bdev
+ * mode. Otherwise do nothing.
+ *
+ * Note: It's assumed that progArgs did all the basic checks (e.g. to find out if all paths refer
+ * to the same type) and that progArgs also takes care of truncate options.
+ *
+ * @throw WorkerException on error, e.g. if open failed.
+ */
+void LocalWorker::initThreadFDVec()
+{
+	if(!progArgs->getUseNoFDSharing() )
+		return; // shared FDs, so nothing to do
+
+	if(progArgs->getBenchPathType() == BenchPathType_DIR)
+		return; // nothing to do in dir mode
+
+	const StringVec& benchPathsVec = progArgs->getBenchPaths();
+
+	fileHandles.threadFDVec.reserve(benchPathsVec.size() );
+
+	// check if each given path exists as dir and add it to pathFDsVec
+	// note: keep flags in sync with ProgArgs::prepareBenchPathFDsVec
+	for(std::string path : benchPathsVec)
+	{
+		int fd;
+		int openFlags = 0;
+
+		if(progArgs->getRunCreateFilesPhase() || progArgs->getRunDeleteFilesPhase() )
+			openFlags |= O_RDWR;
+		else
+			openFlags |= O_RDONLY;
+
+		if(progArgs->getUseDirectIO() )
+			openFlags |= O_DIRECT;
+
+		if(progArgs->getRunCreateFilesPhase() )
+			openFlags |= O_CREAT;
+
+		fd = open(path.c_str(), openFlags, MKFILE_MODE);
+
+		if(fd == -1)
+			throw WorkerException("Unable to open benchmark path: " + path + "; "
+				"SysErr: " + strerror(errno) );
+
+		fileHandles.threadFDVec.push_back(fd);
+	}
+
+}
+
+/**
+ * If progArgs::useNoFDSharing is set, close FDs of threadFDVec. Otherwise do nothing.
+ */
+void LocalWorker::uninitThreadFDVec()
+{
+	for(int fd : fileHandles.threadFDVec)
+	{
+		int closeRes = close(fd);
+
+		if(closeRes == -1)
+			ERRLOGGER(Log_NORMAL, "Error on file close. "
+				"FD: " << fd << "; "
+				"SysErr: " << strerror(errno) << std::endl);
+	}
+
+	fileHandles.threadFDVec.resize(0);
+}
+
+/**
+ * Similar to threadFDVec, here we init thread-local cuFile handles for progArgs::useNoFDSharing.
+ *
+ * @throw WorkerException if cuFile handle registration fails.
+ */
+void LocalWorker::initThreadCuFileHandleDataVec()
+{
+	for(int fd : fileHandles.threadFDVec)
+	{
+		// add new element to vec and reference it
+		fileHandles.threadCuFileHandleDataVec.resize(
+			fileHandles.threadCuFileHandleDataVec.size() + 1);
+		CuFileHandleData& cuFileHandleData =
+			fileHandles.threadCuFileHandleDataVec[fileHandles.threadCuFileHandleDataVec.size() - 1];
+
+		if(!progArgs->getUseCuFile() )
+			continue; // no registration to be done if cuFile API is not used
+
+		// note: cleanup won't be a prob if reg not done, as CuFileHandleData can handle that case
+
+		cuFileHandleData.registerHandle<WorkerException>(fd);
+	}
+}
+
+/*
+ * Deregsiter threadCuFileHandleVec entries.
+ */
+void LocalWorker::uninitThreadCuFileHandleDataVec()
+{
+	for(CuFileHandleData& cuFileHandleData : fileHandles.threadCuFileHandleDataVec)
+		cuFileHandleData.deregisterHandle();
+
+	fileHandles.threadCuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
+}
+
+/**
+ * Init thread-local phase values.
+ */
+void LocalWorker::initThreadPhaseVars()
+{
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+
+	if(isRWMixedReader)
+		benchPhase = BenchPhase_READFILES;
+	else
+		benchPhase = globalBenchPhase;
+}
+
+/**
  * Init fileHandle vectors for current phase.
  */
 void LocalWorker::initPhaseFileHandleVecs()
@@ -363,58 +487,56 @@ void LocalWorker::initPhaseFileHandleVecs()
 
 	fileHandles.errorFDVecIdx = -1; // clear ("-1" means "not set")
 
+	// reset/clear all vecs
+	fileHandles.fdVec.resize(0);
+	fileHandles.fdVecPtr = NULL;
+	fileHandles.cuFileHandleDataVec.resize(0);
+	fileHandles.cuFileHandleDataPtrVec.resize(0);
+
+
 	if(benchPathType == BenchPathType_DIR)
 	{
-		// there is only one current file per worker in dir mode
+		/* in dir mode, there is only one currently active file per worker.
+			files will be dynamically opened in the dir mode file iter method and their fd will be
+			stored in fileHandles.fdVec[0] */
 
 		fileHandles.fdVec.resize(1);
 		fileHandles.fdVec[0] = -1; // clear/reset
 
 		fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-		// fileHandles.cuFileHandleDataVec will be used for current file
+		// fileHandles.cuFileHandleDataVec[0] will be used for current file
 
-		fileHandles.cuFileHandleDataVec.resize(0); // clear/reset
 		fileHandles.cuFileHandleDataVec.resize(1);
 
-		fileHandles.cuFileHandleDataPtrVec.resize(0); // clear/reset
 		fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
 	}
 	else
 	if(!progArgs->getUseRandomOffsets() )
 	{
-		// there is only one current file in sequential file/bdev mode
-
-		// files are opened by progArgs, but FD will be copied to only use the single current file
+		/* in sequential file/bdev mode, there is only one currently active file per worker.
+			original file FDs will be taken from progArgs or fileHandles.threadFDVec, but FD will be
+			copied to fileHandles.fdVec[0] for the single current file. */
 
 		fileHandles.fdVec.resize(1);
 		fileHandles.fdVec[0] = -1; // clear/reset, will be set dynamically to current file
 
 		fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-		fileHandles.cuFileHandleDataVec.resize(0); // not needed, using cuFileHandle from progArgs
-
-		// fileHandles.cuFileHandleDataPtrVec will be set to progArgs cuFileHandle for current file
-
-		fileHandles.cuFileHandleDataPtrVec.resize(0); // clear/reset
 		fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
 	}
 	else
 	{
-		// in random file/bdev mode, all FDs from progArgs will be used round-robin
+		// in random file/bdev mode, rwBlockSized/aioBlockSized randomly select FDs from given set
 
-		fileHandles.fdVec.resize(0);
-		fileHandles.cuFileHandleDataVec.resize(0);
-		fileHandles.cuFileHandleDataPtrVec.resize(0);
+		fileHandles.fdVecPtr = fileHandles.threadFDVec.empty() ?
+			&progArgs->getBenchPathFDs() : &fileHandles.threadFDVec;
 
-		// FDs will be provided by progArgs
+		CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
+			progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
 
-		fileHandles.fdVecPtr = &progArgs->getBenchPathFDs();
-
-		// cuFileHandles will be provided by progArgs
-
-		for(size_t i=0; i < progArgs->getCuFileHandleDataVec().size(); i++)
-			fileHandles.cuFileHandleDataPtrVec.push_back(&progArgs->getCuFileHandleDataVec()[i] );
+		for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
+			fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
 	}
 }
 
@@ -442,7 +564,7 @@ void LocalWorker::initPhaseRWOffsetGen()
 
 	// note: in some cases these defs get overridden per-file later (e.g. for custom tree)
 
-	if(progArgs->getDoReverseSeqOffsets() ) // sequential backward
+	if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() ) // seq backward
 		rwOffsetGen = std::make_unique<OffsetGenReverseSeq>(
 			fileSize, 0, blockSize);
 	else
@@ -466,7 +588,8 @@ void LocalWorker::initPhaseRWOffsetGen()
 void LocalWorker::nullifyPhaseFunctionPointers()
 {
 	funcRWBlockSized = NULL;
-	funcPositionalRW = NULL;
+	funcPositionalWrite = NULL;
+	funcPositionalRead = NULL;
 	funcAioRwPrepper = NULL;
 	funcPreWriteCudaMemcpy = NULL;
 	funcPostReadCudaMemcpy = NULL;
@@ -475,6 +598,7 @@ void LocalWorker::nullifyPhaseFunctionPointers()
 	funcPostReadBlockChecker = NULL;
 	funcCuFileHandleReg = NULL;
 	funcCuFileHandleDereg = NULL;
+	funcRWRateLimiter = NULL;
 }
 
 /**
@@ -482,7 +606,6 @@ void LocalWorker::nullifyPhaseFunctionPointers()
  */
 void LocalWorker::initPhaseFunctionPointers()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const size_t ioDepth = progArgs->getIODepth();
 	const bool useCuFileAPI = progArgs->getUseCuFile();
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
@@ -493,22 +616,30 @@ void LocalWorker::initPhaseFunctionPointers()
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
 	const RandAlgoType blockVarAlgo = RandAlgoSelectorTk::stringToEnum(
 		progArgs->getBlockVarianceAlgo() );
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	nullifyPhaseFunctionPointers(); // set all function pointers to NULL
+
+
+	// independent of whether current phase is read or write...
+	// (these need to be set above the phase-dependent settings because those can override
+
+	funcPositionalWrite = useCuFileAPI ?
+		&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
+
+	funcPositionalRead = useCuFileAPI ?
+		&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
+
+
+	// phase-dependent settings...
 
 	if(benchPhase == BenchPhase_CREATEFILES)
 	{
 		funcRWBlockSized = (ioDepth == 1) ?
 			&LocalWorker::rwBlockSized : &LocalWorker::aioBlockSized;
-
-		funcPositionalRW = useCuFileAPI ?
-			&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
-
-		if(rwMixPercent && (funcPositionalRW == &LocalWorker::pwriteWrapper) )
-			funcPositionalRW = &LocalWorker::pwriteRWMixWrapper;
-		else
-		if(rwMixPercent && (funcPositionalRW == &LocalWorker::cuFileWriteWrapper) )
-			funcPositionalRW = &LocalWorker::cuFileRWMixWrapper;
 
 		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioWritePrepper;
 
@@ -538,23 +669,31 @@ void LocalWorker::initPhaseFunctionPointers()
 		if(doDirectVerify)
 		{
 			if(!useCuFileAPI)
-				funcPositionalRW = &LocalWorker::pwriteAndReadWrapper;
+				funcPositionalWrite = &LocalWorker::pwriteAndReadWrapper;
 			else
 			{
-				funcPositionalRW = &LocalWorker::cuFileWriteAndReadWrapper;
+				funcPositionalWrite = &LocalWorker::cuFileWriteAndReadWrapper;
 				funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 			}
 
 			funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
+		}
+
+		uint64_t rateLimitMiBps = isRWMixedReader ?
+			progArgs->getLimitReadBps() : progArgs->getLimitWriteBps();
+
+		if(!rateLimitMiBps)
+			funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
+		else
+		{
+			funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
+			rateLimiter.initStart(rateLimitMiBps);
 		}
 	}
 	else // BenchPhase_READFILES (and others which don't use these function pointers)
 	{
 		funcRWBlockSized = (ioDepth == 1) ?
 			&LocalWorker::rwBlockSized : &LocalWorker::aioBlockSized;
-
-		funcPositionalRW = useCuFileAPI ?
-			&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
 
 		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioReadPrepper;
 
@@ -568,6 +707,14 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
 		funcPostReadBlockChecker = integrityCheckEnabled ?
 			&LocalWorker::postReadIntegrityCheckVerifyBuf : &LocalWorker::noOpIntegrityCheck;
+
+		if(!progArgs->getLimitReadBps() )
+			funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
+		else
+		{
+			funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
+			rateLimiter.initStart(progArgs->getLimitReadBps() );
+		}
 	}
 
 	// independent of whether current phase is read or write...
@@ -584,6 +731,7 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcCuFileHandleReg = &LocalWorker::noOpCuFileHandleReg;
 		funcCuFileHandleDereg = &LocalWorker::noOpCuFileHandleDereg;
 	}
+
 }
 
 /**
@@ -618,10 +766,8 @@ void LocalWorker::allocIOBuffer()
 		ioBufVec.push_back(ioBuf);
 
 		// fill buffer with random data to ensure it's really alloc'ed (and not "sparse")
-		unsigned seed = 0;
-		int* intIOBuf = (int*)ioBuf;
-		for(size_t i=0; i < (progArgs->getBlockSize() / sizeof(unsigned) ); i++)
-			intIOBuf[i] = rand_r(&seed);
+		RandAlgoXoshiro256ss randGen;
+		randGen.fillBuf(ioBuf, progArgs->getBlockSize() );
 	}
 }
 
@@ -798,7 +944,7 @@ void LocalWorker::cleanup()
 		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
 
 		if(deregRes.err != CU_FILE_SUCCESS)
-			ERRLOGGER(Log_NORMAL, "ERROR: GPU DMA buffer deregistration via cuFileBufDeregister failed. "
+			ERRLOGGER(Log_VERBOSE, "GPU DMA buffer deregistration via cuFileBufDeregister failed. "
 				"GPU ID: " << gpuID << "; "
 				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl);
 	}
@@ -823,7 +969,8 @@ void LocalWorker::cleanup()
 			cudaError_t unregRes = cudaHostUnregister(ioBuf);
 
 			if(unregRes != cudaSuccess)
-				ERRLOGGER(Log_NORMAL, "ERROR: CPU DMA buffer deregistration via cudaHostUnregister failed. "
+				ERRLOGGER(Log_VERBOSE,
+					"CPU DMA buffer deregistration via cudaHostUnregister failed. "
 					"GPU ID: " << gpuID << "; "
 					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl);
 		}
@@ -833,6 +980,9 @@ void LocalWorker::cleanup()
 	// free host memory buffers
 	for(char* ioBuf : ioBufVec)
 		SAFE_FREE(ioBuf);
+
+	uninitThreadCuFileHandleDataVec();
+	uninitThreadFDVec();
 }
 
 /**
@@ -845,30 +995,56 @@ void LocalWorker::cleanup()
  */
 int64_t LocalWorker::rwBlockSized()
 {
-	OffsetGenRandom randFileIndexGen(
-		~(uint64_t)0, *randOffsetAlgo, fileHandles.fdVecPtr->size(), 0, 1);
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const unsigned rwMixPercent = progArgs->getRWMixPercent();
+	const size_t fileHandleVecSize = fileHandles.fdVecPtr->size();
+
+	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, fileHandleVecSize, 0, 1);
 
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
 		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const size_t fileHandleIdx = (fileHandles.fdVecPtr->size() > 1) ?
-			randFileIndexGen.getNextOffset() : 0;
+		const size_t fileHandleIdx = (fileHandleVecSize > 1) ? randFileIndexGen.getNextOffset() : 0;
+		bool isRWMixRead = false;
+		ssize_t rwRes;
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
-		ssize_t rwRes = ((*this).*funcPositionalRW)(
-			fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		if(benchPhase == BenchPhase_READFILES)
+		{ // this is a read, but could be a rwmix read thread
+			isRWMixRead = (benchPhase != globalBenchPhase);
+
+			rwRes = ((*this).*funcPositionalRead)(
+				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		}
+		else // this is a write or rwmixpct read
+		if(rwMixPercent &&
+			( ( (workerRank + numIOPSSubmitted) % 100) < rwMixPercent) )
+		{ // this is a rwmix read
+			isRWMixRead = true;
+
+			rwRes = ((*this).*funcPositionalRead)(
+				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		}
+		else
+		{ // this is a plain write
+			rwRes = ((*this).*funcPositionalWrite)(
+				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+		}
 
 		IF_UNLIKELY(rwRes <= 0)
 		{ // unexpected result
-			ERRLOGGER(Log_NORMAL, "rw failed: " << "blockSize: " << blockSize << "; " <<
+			ERRLOGGER(Log_NORMAL, "IO failed: " << "blockSize: " << blockSize << "; " <<
 				"currentOffset:" << currentOffset << "; " <<
 				"leftToSubmit:" << rwOffsetGen->getNumBytesLeftToSubmit() << "; " <<
-				"rank:" << workerRank << std::endl);
+				"rank:" << workerRank << "; " <<
+				"return code: " << rwRes << "; " <<
+				"errno: " << errno << std::endl);
 
 			fileHandles.errorFDVecIdx = fileHandleIdx;
 
@@ -886,12 +1062,22 @@ int64_t LocalWorker::rwBlockSized()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+		// iops lat & num done
+		if(isRWMixRead)
+		{ // inc special rwmix read stats
+			iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOpsReadMix.numBytesDone += rwRes;
+			atomicLiveOpsReadMix.numIOPSDone++;
+		}
+		else
+		{
+			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numBytesDone += rwRes;
+			atomicLiveOps.numIOPSDone++;
+		}
 
 		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(rwRes);
-		atomicLiveOps.numBytesDone += rwRes;
-		atomicLiveOps.numIOPSDone++;
 
 		checkInterruptionRequest();
 	}
@@ -912,7 +1098,16 @@ int64_t LocalWorker::rwBlockSized()
  */
 int64_t LocalWorker::aioBlockSized()
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t maxIODepth = progArgs->getIODepth();
+	const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
 
 	size_t numPending = 0; // num requests submitted and pending for completion
 	size_t numBytesDone = 0; // after successfully completed requests
@@ -924,8 +1119,7 @@ int64_t LocalWorker::aioBlockSized()
 	struct io_event ioEvents[AIO_MAX_EVENTS];
 	struct timespec ioTimeout;
 
-	OffsetGenRandom randFileIndexGen(
-		~(uint64_t)0, *randOffsetAlgo, fileHandles.fdVecPtr->size(), 0, 1);
+	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, fileHandlesVecSize, 0, 1);
 
 	int initRes = io_queue_init(maxIODepth, &ioContext);
 	IF_UNLIKELY(initRes)
@@ -939,7 +1133,7 @@ int64_t LocalWorker::aioBlockSized()
 	{
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		const size_t fileHandlesIdx = (fileHandles.fdVecPtr->size() > 1) ?
+		const size_t fileHandlesIdx = (fileHandlesVecSize > 1) ?
 			randFileIndexGen.getNextOffset() : 0;
 		const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 		const size_t ioVecIdx = numPending; // iocbVec index
@@ -953,6 +1147,7 @@ int64_t LocalWorker::aioBlockSized()
 
 		ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset); // fill
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
@@ -1044,18 +1239,21 @@ int64_t LocalWorker::aioBlockSized()
 				std::chrono::duration_cast<std::chrono::microseconds>
 				(ioEndT - ioStartTimeVec[ioVecIdx] );
 
-			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
-
 			numBytesDone += ioEvents[eventIdx].res;
-			atomicLiveOps.numBytesDone += ioEvents[eventIdx].res;
-			atomicLiveOps.numIOPSDone++;
 
-			// inc rwmix stats
-			if( (funcAioRwPrepper == &LocalWorker::aioRWMixPrepper) &&
-				(ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) )
+			// inc special rwmix read stats
+			if(	(ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) &&
+				(globalBenchPhase == BenchPhase_CREATEFILES) )
+			{ // this is a read in a write phase => inc rwmix read stats
+				iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numBytesDone += ioEvents[eventIdx].res;
+				atomicLiveOpsReadMix.numIOPSDone++;
+			}
+			else
 			{
-				atomicLiveRWMixReadOps.numBytesDone += ioEvents[eventIdx].res;
-				atomicLiveRWMixReadOps.numIOPSDone++;
+				iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numBytesDone += ioEvents[eventIdx].res;
+				atomicLiveOps.numIOPSDone++;
 			}
 
 			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
@@ -1070,7 +1268,7 @@ int64_t LocalWorker::aioBlockSized()
 
 			const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 			const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-			const size_t fileHandlesIdx = (fileHandles.fdVecPtr->size() > 1) ?
+			const size_t fileHandlesIdx = (fileHandlesVecSize > 1) ?
 				randFileIndexGen.getNextOffset() : 0;
 			const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
@@ -1080,6 +1278,7 @@ int64_t LocalWorker::aioBlockSized()
 
 			ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
+			((*this).*funcRWRateLimiter)(blockSize);
 			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
@@ -1105,6 +1304,8 @@ int64_t LocalWorker::aioBlockSized()
 	io_queue_release(ioContext);
 
 	return rwOffsetGen->getNumBytesTotal();
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -1209,33 +1410,58 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 }
 
 /**
- * Refill some percentage of buffers with random data. The percentage of buffers to refill is
- * defined in progArgs::blockVariancePercent.
+ * Fill buffer with given value. In contrast to memset() this can full 64bit values to at least
+ * make simple dedupe less likely among all the different non-variable block remainders.
+ */
+void LocalWorker::bufFill(char* buf, uint64_t fillValue, size_t bufLen)
+{
+	size_t numBytesDone = 0;
+
+	for(uint64_t i=0; i < (bufLen / sizeof(uint64_t) ); i++)
+	{
+		uint64_t* uint64Buf = (uint64_t*)buf;
+		*uint64Buf = fillValue;
+
+		buf += sizeof(uint64_t);
+		numBytesDone += sizeof(uint64_t);
+	}
+
+	if(numBytesDone == bufLen)
+		return; // all done, complete buffer filled
+
+	// we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
+	memcpy(buf, &fillValue, bufLen - numBytesDone);
+}
+
+/**
+ * Refill some percentage of the buffer with random data. The percentage to refill is defined via
+ * progArgs::blockVariancePercent.
  */
 void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset)
 {
-	// example: 40% means we refill 40 out of 100 buffers and the remaining 60 buffers are identical
-
-	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
-		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
-		work for this because aio would not inc counter directly on submission.) */
-
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
 		return; // this is a read in rwmix mode, so no need for refill in this round
 
-	// note: workerRank is used to have skew between different worker threads
-	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getBlockVariancePercent() )
-		return;
-
 	// refill buffer with random data
 
-	randBlockVarAlgo->fillBuf(buf, bufLen);
+	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+	const uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
+	const size_t constFillRemainderLen = bufLen - varFillLen;
+
+	randBlockVarAlgo->fillBuf(buf, varFillLen);
+
+	if(!constFillRemainderLen)
+		return;
+
+	// fill remainder of buffer with same 64bit value
+	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
+	bufFill(&buf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**
- * Refill some percentage of buffers with random data. The percentage of buffers to refill is
- * defined in progArgs::blockVariancePercent.
+ * Refill some percentage of the buffer with random data. The percentage to refill is defined via
+ * progArgs::blockVariancePercent.
  *
  * Note: The only reason why this function exists separate from preWriteBufRandRefill() which does
  * the same with RandAlgoGoldenPrime::fillBuf() is that tests have shown 30% lower perf for
@@ -1244,12 +1470,6 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
  */
 void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset)
 {
-	// example: 40% means we refill 40 out of 100 buffers and the remaining 60 buffers are identical
-
-	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
-		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
-		work for this because aio would not inc counter directly on submission.) */
-
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
 		return; // this is a read in rwmix mode, so no need for refill in this round
@@ -1260,11 +1480,15 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 	// refill buffer with random data
 
+	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+	const uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
+	const size_t constFillRemainderLen = bufLen - varFillLen;
+
 	uint64_t state = randBlockVarReseed->next();
 
 	size_t numBytesDone = 0;
 
-	for(uint64_t i=0; i < (bufLen / sizeof(uint64_t) ); i++)
+	for(uint64_t i=0; i < (varFillLen / sizeof(uint64_t) ); i++)
 	{
 		uint64_t* uint64Buf = (uint64_t*)buf;
 		state *= RANDALGO_GOLDEN_RATIO_PRIME;
@@ -1275,15 +1499,24 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 		numBytesDone += sizeof(uint64_t);
 	}
 
-	if(numBytesDone == bufLen)
-		return; // all done, complete buffer filled
+	if(numBytesDone < varFillLen)
+	{ // we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
+		state *= RANDALGO_GOLDEN_RATIO_PRIME;
+		state >>= 3;
+		uint64_t randUint64 = state;
 
-	// we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
-	state *= RANDALGO_GOLDEN_RATIO_PRIME;
-	state >>= 3;
-	uint64_t randUint64 = state;
+		const size_t memcpySize = varFillLen - numBytesDone;
 
-	memcpy(buf, &randUint64, bufLen - numBytesDone);
+		memcpy(buf, &randUint64, memcpySize);
+		buf += memcpySize;
+	}
+
+	if(!constFillRemainderLen)
+		return;
+
+	// fill remainder of buffer with same 64bit value
+	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
+	bufFill(buf, randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**
@@ -1292,7 +1525,16 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 void LocalWorker::aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count,
 	long long offset)
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
 	io_prep_pwrite(iocb, fd, buf, count, offset);
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -1301,7 +1543,16 @@ void LocalWorker::aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t c
 void LocalWorker::aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
 	long long offset)
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
 	io_prep_pread(iocb, fd, buf, count, offset);
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -1312,6 +1563,13 @@ void LocalWorker::aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t co
 void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
 	long long offset)
 {
+#ifndef LIBAIO_SUPPORT
+
+	throw WorkerException("Async IO via libaio requested, but this executable was built without "
+		"libaio support.");
+
+#else // LIBAIO_SUPPORT
+
 	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
 
 	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
@@ -1324,6 +1582,24 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 		io_prep_pwrite(iocb, fd, buf, count, offset);
 	else
 		io_prep_pread(iocb, fd, buf, count, offset);
+
+#endif // LIBAIO_SUPPORT
+}
+
+/**
+ * Noop for cases where no rate limit selected by user.
+ */
+void LocalWorker::noOpRateLimiter(size_t rwSize)
+{
+	return; // noop
+}
+
+/**
+ * Rate limiter before reads in case rate limit was selected by user.
+ */
+void LocalWorker::preRWRateLimiter(size_t rwSize)
+{
+	rateLimiter.wait(rwSize);
 }
 
 /**
@@ -1477,17 +1753,7 @@ ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
 		return pwrite(fd, buf, nbytes, offset);
 	else
-	{
-		ssize_t readRes = pread(fd, buf, nbytes, offset);
-
-		IF_UNLIKELY(readRes <= 0)
-			return readRes;
-
-		atomicLiveRWMixReadOps.numBytesDone += readRes;
-		atomicLiveRWMixReadOps.numIOPSDone++;
-
-		return readRes;
-	}
+		return pread(fd, buf, nbytes, offset);
 }
 
 /**
@@ -1567,18 +1833,8 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 		return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
 	else
-	{
-		ssize_t readRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+		return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
-
-		IF_UNLIKELY(readRes <= 0)
-			return readRes;
-
-		atomicLiveRWMixReadOps.numBytesDone += readRes;
-		atomicLiveRWMixReadOps.numIOPSDone++;
-
-		return readRes;
-	}
 #endif
 }
 
@@ -1589,8 +1845,10 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
  */
 void LocalWorker::dirModeIterateDirs()
 {
+	if(progArgs->getNumDirs() == 0)
+		return; // nothing to do
+
 	std::array<char, PATH_BUF_LEN> currentPath;
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const size_t numDirs = progArgs->getNumDirs();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
@@ -1713,7 +1971,6 @@ void LocalWorker::dirModeIterateDirs()
  */
 void LocalWorker::dirModeIterateCustomDirs()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const int benchPathFD = progArgs->getBenchPathFDs()[0];
 	const std::string benchPathStr = progArgs->getBenchPaths()[0];
 	const bool ignoreDelErrors = true; // in custom tree mode, all workers mk/del all dirs
@@ -1793,8 +2050,8 @@ void LocalWorker::dirModeIterateCustomDirs()
  */
 void LocalWorker::dirModeIterateFiles()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
-	const size_t numDirs = progArgs->getNumDirs();
+	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
+	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
 	const size_t numFiles = progArgs->getNumFiles();
 	const uint64_t fileSize = progArgs->getFileSize();
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
@@ -1803,6 +2060,10 @@ void LocalWorker::dirModeIterateFiles()
 	std::array<char, PATH_BUF_LEN> currentPath;
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -1812,7 +2073,7 @@ void LocalWorker::dirModeIterateFiles()
 	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
 	{
 		// occasional interruption check
-		if( (dirIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+		IF_UNLIKELY( (dirIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
 			checkInterruptionRequest();
 
 		// fill up this dir with all files before moving on to the next dir
@@ -1820,14 +2081,21 @@ void LocalWorker::dirModeIterateFiles()
 		for(size_t fileIndex = 0; fileIndex < numFiles; fileIndex++)
 		{
 			// occasional interruption check
-			if( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+			IF_UNLIKELY( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
 				checkInterruptionRequest();
 
 			// generate current dir path
-			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
-				workerDirRank, dirIndex, workerRank, fileIndex);
+			int printRes;
+
+			if(haveSubdirs)
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+					workerDirRank, dirIndex, workerRank, fileIndex);
+			else
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
+					workerRank, fileIndex);
+
 			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
-				throw WorkerException("mkdir path too long for static buffer. "
+				throw WorkerException("file path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) + "; "
 					"dirIndex: " + std::to_string(dirIndex) + "; "
@@ -1932,9 +2200,17 @@ void LocalWorker::dirModeIterateFiles()
 				std::chrono::duration_cast<std::chrono::microseconds>
 				(ioEndT - ioStartT);
 
-			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
-
-			atomicLiveOps.numEntriesDone++;
+			// inc special rwmix thread stats
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
 
 		} // end of files for loop
 	} // end of dirs for loop
@@ -1954,7 +2230,6 @@ void LocalWorker::dirModeIterateFiles()
  */
 void LocalWorker::dirModeIterateCustomFiles()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const IntVec& benchPathFDs = progArgs->getBenchPathFDs();
 	const unsigned benchPathFDIdx = 0; // multiple bench paths not supported with custom tree
 	const int benchPathFD = progArgs->getBenchPathFDs()[0];
@@ -1962,6 +2237,10 @@ void LocalWorker::dirModeIterateCustomFiles()
 	const int openFlags = getDirModeOpenFlags(benchPhase);
 	const bool ignoreDelErrors = true; // shared files are unliked by all workers, so no errs
 	const PathList& customTreePaths = customTreeFiles.getPaths();
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2078,9 +2357,21 @@ void LocalWorker::dirModeIterateCustomFiles()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+		// inc entry lat & num done count
+		if(currentPathElem.totalLen == currentPathElem.rangeLen)
+		{ // entry lat & done is only meaningful for fully processed entries
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
+		}
 
-		atomicLiveOps.numEntriesDone++;
 		numFilesDone++;
 
 	} // end of tree elements for-loop
@@ -2095,8 +2386,6 @@ void LocalWorker::dirModeIterateCustomFiles()
  */
 void LocalWorker::fileModeIterateFilesRand()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
-
 	// funcRWBlockSized() will send IOs round-robin to all user-given files.
 
 	if(benchPhase == BenchPhase_CREATEFILES)
@@ -2145,12 +2434,14 @@ void LocalWorker::fileModeIterateFilesRand()
  */
 void LocalWorker::fileModeIterateFilesSeq()
 {
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
-	const size_t numFiles = progArgs->getBenchPathFDs().size();
+	const IntVec& pathFDs = fileHandles.threadFDVec.empty() ?
+		progArgs->getBenchPathFDs() : fileHandles.threadFDVec;
+	CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
+		progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
+	const size_t numFiles = pathFDs.size();
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
 	const size_t numThreads = progArgs->getNumDataSetThreads();
-	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 
 	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 		( (fileSize % blockSize) ? 1 : 0);
@@ -2186,8 +2477,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 		// find the file index and inner file block index for current global block index
 		const uint64_t currentFileIndex = currentBlockIdx / numBlocksPerFile;
 		fileHandles.fdVec[0] = pathFDs[currentFileIndex];
-		fileHandles.cuFileHandleDataPtrVec[0] =
-			&progArgs->getCuFileHandleDataVec()[currentFileIndex];
+		fileHandles.cuFileHandleDataPtrVec[0] = &(cuFileHandleDataVec[currentFileIndex]);
 
 		const uint64_t currentBlockInFile = currentBlockIdx % numBlocksPerFile;
 		const uint64_t currentIOStart = currentBlockInFile * blockSize;
@@ -2259,7 +2549,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 void LocalWorker::fileModeDeleteFiles()
 {
 	const StringVec& benchPaths = progArgs->getBenchPaths();
-	const size_t numFiles = progArgs->getBenchPathFDs().size();
+	const size_t numFiles = benchPaths.size();
 
 	// walk over all files and delete each of them
 	// (note: each worker starts with a different file (based on workerRank) to spread the load)
@@ -2273,7 +2563,7 @@ void LocalWorker::fileModeDeleteFiles()
 		// delete current file
 
 		const std::string& path =
-			benchPaths[ (workerRank + fileIndex) % benchPaths.size() ];
+			benchPaths[ (workerRank + fileIndex) % numFiles];
 
 		int unlinkRes = unlink(path.c_str() );
 
@@ -2315,7 +2605,6 @@ void LocalWorker::s3ModeIterateBuckets()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	const size_t numBuckets = bucketVec.size();
 	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
@@ -2343,7 +2632,8 @@ void LocalWorker::s3ModeIterateBuckets()
 				auto s3Error = createOutcome.GetError();
 
 				// bucket already existing is not an error
-				if(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU)
+				if( (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
+					(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) )
 				{
 					throw WorkerException(std::string("Bucket creation failed. ") +
 						"Endpoint: " + s3EndpointStr + "; "
@@ -2405,15 +2695,14 @@ void LocalWorker::s3ModeIterateObjects()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
-
 	if( (benchPhase == BenchPhase_READFILES) && progArgs->getUseS3RandObjSelect() )
 	{
 		s3ModeIterateObjectsRand();
 		return;
 	}
 
-	const size_t numDirs = progArgs->getNumDirs();
+	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
+	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
 	const size_t numFiles = progArgs->getNumFiles();
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
@@ -2423,16 +2712,17 @@ void LocalWorker::s3ModeIterateObjects()
 		all workers use the dirs of worker rank 0 */
 	const bool useTransMan = progArgs->getUseS3TransferManager();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
-	const bool isRWMixedReader = ( (benchPhase == BenchPhase_CREATEFILES) &&
-		(localWorkerRank < progArgs->getNumS3RWMixReadThreads() ) );
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	// walk over each unique dir per worker
 
 	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
 	{
 		// occasional interruption check
-		if( (dirIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+		IF_UNLIKELY( (dirIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
 			checkInterruptionRequest();
 
 		// fill up this dir with all files before moving on to the next dir
@@ -2440,12 +2730,19 @@ void LocalWorker::s3ModeIterateObjects()
 		for(size_t fileIndex = 0; fileIndex < numFiles; fileIndex++)
 		{
 			// occasional interruption check
-			if( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+			IF_UNLIKELY( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
 				checkInterruptionRequest();
 
 			// generate current dir path
-			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
-				workerDirRank, dirIndex, workerRank, fileIndex);
+			int printRes;
+
+			if(haveSubdirs)
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+					workerDirRank, dirIndex, workerRank, fileIndex);
+			else
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
+					workerRank, fileIndex);
+
 			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 				throw WorkerException("object path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -2490,9 +2787,17 @@ void LocalWorker::s3ModeIterateObjects()
 				std::chrono::duration_cast<std::chrono::microseconds>
 				(ioEndT - ioStartT);
 
-			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
-
-			atomicLiveOps.numEntriesDone++;
+			// entry lat & num done count
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
 
 		} // end of files for loop
 	} // end of dirs for loop
@@ -2514,7 +2819,8 @@ void LocalWorker::s3ModeIterateObjectsRand()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const size_t numDirs = progArgs->getNumDirs();
+	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
+	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
 	const size_t numFiles = progArgs->getNumFiles();
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
@@ -2549,7 +2855,7 @@ void LocalWorker::s3ModeIterateObjectsRand()
 	while(numBytesDone < randomAmount)
 	{
 		// occasional interruption check
-		if( (numBytesDone % interruptCheckBytes) == 0)
+		IF_UNLIKELY( (numBytesDone % interruptCheckBytes) == 0)
 			checkInterruptionRequest();
 
 		const size_t dirIndex = randDirIndexGen.getNextOffset();
@@ -2557,8 +2863,15 @@ void LocalWorker::s3ModeIterateObjectsRand()
 		const uint64_t currentBlockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 
 		// generate current dir path
-		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
-			workerDirRank, dirIndex, workerRank, fileIndex);
+		int printRes;
+
+		if(haveSubdirs)
+			printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+				workerDirRank, dirIndex, workerRank, fileIndex);
+		else
+			printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
+				workerRank, fileIndex);
+
 		IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 			throw WorkerException("object path too long for static buffer. "
 				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -2596,11 +2909,14 @@ void LocalWorker::s3ModeIterateCustomObjects()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
 	const std::string bucketName = progArgs->getBenchPaths()[0];
 	const size_t blockSize = progArgs->getBlockSize();
 	const PathList& customTreePaths = customTreeFiles.getPaths();
 	const bool useTransMan = progArgs->getUseS3TransferManager();
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so "short" is ok)
 
@@ -2656,9 +2972,21 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+		// entry lat & num done count
+		if(currentPathElem.totalLen == currentPathElem.rangeLen)
+		{ // entry lat & done is only meaningful for fully processed entries
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
+		}
 
-		atomicLiveOps.numEntriesDone++;
 		numFilesDone++;
 
 	} // end of tree elements for-loop
@@ -2693,6 +3021,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	if(blockSize)
 	{
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 	}
@@ -2801,6 +3130,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
@@ -2877,7 +3207,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	// S T E P 3: submit upload completion
 
-	if(progArgs->getDoReverseSeqOffsets() )
+	if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() )
 	{ // we need to reverse the parts vector for ascending order
 		const Aws::Vector<S3::CompletedPart>& reversePartsVec = completedMultipartUpload.GetParts();
 		Aws::Vector<S3::CompletedPart> forwardPartsVec(reversePartsVec.size() );
@@ -2951,6 +3281,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
@@ -3180,6 +3511,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+		((*this).*funcRWRateLimiter)(blockSize);
 		((*this).*funcPreWriteBlockModifier)(ioBuf, blockSize, currentOffset); // fill buffer
 		((*this).*funcPreWriteCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
 
@@ -3200,10 +3532,10 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			[&](const Aws::Http::HttpRequest* request, Aws::Http::HttpResponse* response,
 			long long numBytes)
 			{
-				atomicLiveOps.numBytesDone += numBytes;
-
 				if(isRWMixedReader)
-					atomicLiveRWMixReadOps.numBytesDone += numBytes;
+					atomicLiveOpsReadMix.numBytesDone += numBytes;
+				else
+					atomicLiveOps.numBytesDone += numBytes;
 			} );
 
 		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
@@ -3246,14 +3578,19 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			std::chrono::duration_cast<std::chrono::microseconds>
 			(ioEndT - ioStartT);
 
-		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+		if(isRWMixedReader)
+		{
+			iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOpsReadMix.numIOPSDone++;
+		}
+		else
+		{
+			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numIOPSDone++;
+		}
 
 		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(blockSize);
-		atomicLiveOps.numIOPSDone++;
-
-		if(isRWMixedReader)
-			atomicLiveRWMixReadOps.numIOPSDone++;
 	}
 
 #endif // S3_SUPPORT
@@ -3296,10 +3633,10 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 			const uint64_t numBytesDone = handle->GetBytesTransferred() - numBytesDownloaded;
 
-			atomicLiveOps.numBytesDone += numBytesDone;
-
 			if(isRWMixedReader)
-				atomicLiveRWMixReadOps.numBytesDone += numBytesDone;
+				atomicLiveOpsReadMix.numBytesDone += numBytesDone;
+			else
+				atomicLiveOps.numBytesDone += numBytesDone;
 
 			numBytesDownloaded = handle->GetBytesTransferred();
 		};
@@ -3343,14 +3680,19 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 		std::chrono::duration_cast<std::chrono::microseconds>
 		(ioEndT - ioStartT);
 
-	iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+	if(isRWMixedReader)
+	{
+		iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+		atomicLiveOpsReadMix.numIOPSDone++;
+	}
+	else
+	{
+		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+		atomicLiveOps.numIOPSDone++;
+	}
 
 	numIOPSSubmitted++;
 	rwOffsetGen->addBytesSubmitted(downloadBytes);
-	atomicLiveOps.numIOPSDone++;
-
-	if(isRWMixedReader)
-		atomicLiveRWMixReadOps.numIOPSDone++;
 
 #endif // S3_SUPPORT
 }
@@ -3509,7 +3851,8 @@ void LocalWorker::s3ModeListObjParallel()
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const size_t numDirs = progArgs->getNumDirs();
+	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
+	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
 	const size_t numFiles = progArgs->getNumFiles();
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	std::array<char, PATH_BUF_LEN> currentPath;
@@ -3530,8 +3873,15 @@ void LocalWorker::s3ModeListObjParallel()
 		StringSet expectedObjs; // for verification (if requested by user)
 
 		// generate list prefix for current dir
-		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-",
-			workerDirRank, dirIndex, workerRank);
+		int printRes;
+
+		if(haveSubdirs)
+			printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-",
+						workerDirRank, dirIndex, workerRank);
+		else
+			printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-",
+						workerRank);
+
 		IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 			throw WorkerException("object path too long for static buffer. "
 				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -3544,8 +3894,15 @@ void LocalWorker::s3ModeListObjParallel()
 		// build list of expected objs in dir for verification. (std::set for alphabetic order)
 		for(size_t fileIndex = 0; doListObjVerify && (fileIndex < numFiles); fileIndex++)
 		{
-			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
-				workerDirRank, dirIndex, workerRank, fileIndex);
+			int printRes;
+
+			if(haveSubdirs)
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+					workerDirRank, dirIndex, workerRank, fileIndex);
+			else
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
+					workerRank, fileIndex);
+
 			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 				throw WorkerException("Verification object path too long for static buffer. "
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
@@ -3677,6 +4034,23 @@ void LocalWorker::s3ModeVerifyListing(StringSet& expectedSet, StringList& receiv
 }
 
 /**
+ * In S3 mode, decide if we do fallback to reverse upload. This would be the case if this is a write
+ * phase and user selected random offsets.
+ *
+ * @return true if we do fallback to reverse sequential, false otherwise.
+ */
+bool LocalWorker::getS3ModeDoReverseSeqFallback()
+{
+	if(progArgs->getUseRandomOffsets() &&
+		!progArgs->getS3EndpointsVec().empty() &&
+		(benchPhase == BenchPhase_CREATEFILES) )
+		return true;
+
+	return false;
+}
+
+
+/**
  * Return appropriate file open flags for the current benchmark phase in dir mode.
  *
  * @return flags for file open() in dir mode.
@@ -3786,6 +4160,12 @@ void LocalWorker::anyModeSync()
 	if(workerRank != progArgs->getRankOffset() )
 		return;
 
+#ifndef SYNCFS_SUPPORT
+
+		sync();
+
+#else // SYNCFS_SUPPORT
+
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
 
@@ -3802,6 +4182,8 @@ void LocalWorker::anyModeSync()
 				"Path: " + pathVec[currentIdx] + "; "
 				"SysErr: " + strerror(errno) );
 	}
+
+#endif // SYNCFS_SUPPORT
 }
 
 /**

@@ -68,6 +68,9 @@ usage()
    echo "                     Example: \"#ffffff\" for white background."
    echo "  --keypos STRING    Position of key with line descriptions within chart area."
    echo "                     Default is \"top center\"."
+   echo "  --linecolors LIST  Space-separated list of RGB color codes for chart lines"
+   echo "                     in quotes to appear as single argument, e.g.:"
+   echo "                     \"#ff0000 #00ff00 #0000ff\" (including quotes)."
    echo "  --linewidth NUM    Line width."
    echo "  --title STRING     Set chart title."
    echo "  --xrot NUM         Rotate x-axis tick labels by given number of degrees."
@@ -145,6 +148,10 @@ parse_args()
            ;;
         --keypos)
            CHARTKEYPOS="$2"
+           shift
+           ;;
+        --linecolors)
+           LINECOLORS=($2)
            shift
            ;;
         --linewidth)

@@ -13,20 +13,22 @@ class PhaseResults
 		uint64_t lastFinishUSec; // time to completion of slowest worker
 
 		LiveOps opsTotal; // processed by all workers
+		LiveOps opsTotalReadMix; // rwmix read processed by all workers
 		LiveOps opsStoneWallTotal; // processed by all workers when stonewall was hit
-		LiveOps opsRWMixReadTotal; // rwmix read processed by all workers
-		LiveOps opsStoneWallRWMixReadTotal; // rwmix read proc'ed by all workers when stonewall hit
+		LiveOps opsStoneWallTotalReadMix; // rwmix read proc'ed by all workers when stonewall hit
 
 		LiveOps opsPerSec; // total per sec for all workers by last finisher
+		LiveOps opsPerSecReadMix; // rwmix read total per sec for all workers by last finisher
 		LiveOps opsStoneWallPerSec; // total per sec for all workers by 1st finisher
-		LiveOps opsRWMixReadPerSec; // rwmix read total per sec for all workers by last finisher
-		LiveOps opsStoneWallRWMixReadPerSec; // rwmix read total per sec for all workers by 1st fin
+		LiveOps opsStoneWallPerSecReadMix; // rwmix read total per sec for all workers by 1st fin
 
 		float cpuUtilPercent; // cpu utilization until last finisher
 		float cpuUtilStoneWallPercent; // cpu utilization until first finisher
 
 		LatencyHistogram iopsLatHisto; // sum of all histograms
+		LatencyHistogram iopsLatHistoReadMix; // rwmix read sum of all histograms
 		LatencyHistogram entriesLatHisto; // sum of all histograms
+		LatencyHistogram entriesLatHistoReadMix; // rwmix read sum of all histograms
 };
 
 /**
@@ -38,7 +40,6 @@ class LiveResults
 		std::string phaseName; // read, write, mkdirs etc
 		std::string phaseEntryType; // files or dirs
 		std::string entryTypeUpperCase; // phaseEntryType uppercase
-		time_t startTime; // start time() of phase
 		size_t numEntriesPerWorker; // total number for this phase
 		uint64_t numBytesPerWorker; // total number for this phase
 
@@ -50,12 +51,13 @@ class LiveResults
 		int winWidth; // current width of terminal window
 
 		LiveOps lastLiveOps = {}; // live ops from last round for per-sec diff
-		LiveOps lastRWMixReadLiveOps = {}; // live ops from last round for per-sec diff
+		LiveOps lastLiveOpsReadMix = {}; // live ops from last round for per-sec diff
 		LiveOps newLiveOps; // live ops from current round
-		LiveOps newRWMixReadLiveOps; // live ops from current round
+		LiveOps newLiveOpsReadMix; // live ops from current round
 		LiveOps liveOpsPerSec; // live ops per sec from diff of new and last live ops
-		LiveOps rwMixReadliveOpsPerSec; // live ops per sec from diff of new and last live ops
+		LiveOps liveOpsPerSecReadMix; // live ops per sec from diff of new and last live ops
 		size_t percentDone; // total percent done based on bytes (if any) or num entries in phase
+		size_t percentDoneReadMix; // total percent done based on bytes (if any) or entries in phase
 };
 
 class Statistics
@@ -65,6 +67,7 @@ class Statistics
 			progArgs(progArgs), workerManager(workerManager),
 			workersSharedData(workerManager.getWorkersSharedData() ),
 			workerVec(workerManager.getWorkerVec() ) {}
+		~Statistics();
 
 		void printLiveCountdown();
 		void printLiveStats();
@@ -72,7 +75,6 @@ class Statistics
 		void printPhaseResultsTableHeader();
 		void printPhaseResults();
 
-		void getLiveOps(LiveOps& outLiveOps);
 		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps);
 		void getLiveStatsAsPropertyTree(bpt::ptree& outTree);
 		void getBenchResultAsPropertyTree(bpt::ptree& outTree);
@@ -85,10 +87,11 @@ class Statistics
 		WorkersSharedData& workersSharedData;
 		WorkerVec& workerVec;
 		bool consoleBufferingDisabled{false};
-		const std::string phaseResultsFormatStr{"%|-9| %|-16| %|1| %|10| %|10|"};
-		const std::string phaseResultsLeftFormatStr{"%|-9| %|-16| %|1| "}; // left side format str
+		const std::string phaseResultsFormatStr{"%|-9| %|-17|%|1| %|10| %|10|"};
+		const std::string phaseResultsLeftFormatStr{"%|-9| %|-17|%|1| "}; // left side format str
 		const std::string phaseResultsFooterStr = std::string(3, '-');
-		CPUUtil liveCpuUtil; // updated by live stats or through http service live stat calls
+		CPUUtil liveCpuUtil; // updated by live stats loop or through http service live stat calls
+		int liveCSVFileFD = -1; // fd for live stats csv file
 
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();
@@ -106,23 +109,25 @@ class Statistics
 
 		void printLiveCountdownLine(unsigned long long waittimeSec);
 
-		void printSingleLineLiveStatsLine(const char* phaseName, const char* phaseEntryType,
-			LiveOps& liveOpsPerSec, LiveOps& rwMixReadLiveOpsPerSec, LiveOps& liveOps,
-			unsigned long long numWorkersLeft, size_t cpuUtil, unsigned long long elapsedSec);
+		void printSingleLineLiveStatsLine(LiveResults& liveResults);
 		void deleteSingleLineLiveStatsLine();
-		void printSingleLineLiveStats();
-		void wholeScreenLiveStatsUpdateRemoteInfo(LiveResults& liveResults);
-		void wholeScreenLiveStatsUpdateLiveOps(LiveResults& liveResults);
-		void printWholeScreenLiveStatsGlobalInfo(LiveResults& liveResults);
-		void printWholeScreenLiveStatsWorkerTable(LiveResults& liveResults);
+		void loopSingleLineLiveStats();
 
-		void printWholeScreenLine(std::ostringstream& stream, unsigned lineLength,
+		void printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults);
+		void printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults);
+		void printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
 			bool fillIfShorter);
-		void printWholeScreenLiveStats();
+		void loopFullScreenLiveStats();
 
-		bool checkCSVFileEmpty();
+		void loopNoConsoleLiveStats();
+
+		void updateLiveStatsRemoteInfo(LiveResults& liveResults);
+		void updateLiveStatsLiveOps(LiveResults& liveResults);
 
 		void printDryRunPhaseInfo(BenchPhase benchPhase);
+
+		void prepLiveCSVFile();
+		void printLiveStatsCSV(const LiveResults& liveResults);
 
 	// inliners
 	public:

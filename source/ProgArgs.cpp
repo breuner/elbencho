@@ -11,6 +11,7 @@
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "Terminal.h"
+#include "toolkits/FileTk.h"
 #include "toolkits/NumaTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
@@ -19,7 +20,6 @@
 	#include <cufile.h>
 #endif
 
-#define MKFILE_MODE					(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 #define DIRECTIO_MINSIZE			512 // min size in bytes for direct IO
 #define BENCHPATH_DELIMITER			",\n\r@" // delimiters for user-defined bench dir paths
 #define HOSTLIST_DELIMITERS			", \n\r" // delimiters for hosts string (comma or space)
@@ -32,6 +32,8 @@
 
 #define FILESHAREBLOCKFACTOR		32 // in custom tree mode, blockSize factor as of which to share
 #define FILESHAREBLOCKFACTOR_STR	STRINGIZE(FILESHAREBLOCKFACTOR)
+
+#define CSVFILE_EXPECTED_COMMAS		54 // to check if existing csv was written with other version
 
 /**
  * Constructor.
@@ -57,14 +59,6 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 		bpo::options_description argsDescription;
 		argsDescription.add(argsGenericDescription).add(argsHiddenDescription);
-
-		// Add the configfile option before all the other options to prevent a cycle
-
-		argsDescription.add_options()
-		(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
-			"Path to benchmark configuration file. All command line options starting with "
-			"double dashes can be used as \"OPTIONNAME=VALUE\" in the config file. Multiple "
-			"options are newline-separated. Lines starting with \"#\" are ignored.");
 
 		bpo::positional_options_description positionalArgsDescription;
 		positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
@@ -111,6 +105,7 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 	initImplicitValues();
 	convertUnitStrings();
+	checkCSVFileCompatibility();
 	checkArgs();
 }
 
@@ -152,24 +147,39 @@ void ProgArgs::defineAllowedArgs()
     argsGenericDescription.add_options()
 /*al*/	(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
 			"Show elapsed time to completion of each I/O worker thread.")
+#ifdef ALTHTTPSVC_SUPPORT
+/*al*/	(ARG_ALTHTTPSERVER_LONG, bpo::bool_switch(&this->useAlternativeHTTPService),
+			"Use alternative implementation of HTTP service (for testing).")
+#endif // ALTHTTPSVC_SUPPORT
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
 			"Number of bytes to read/write in a single operation. (Default: 1M)")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
 			"Random number algorithm for \"--" ARG_BLOCKVARIANCE_LONG "\". Values: \""
-			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
-			"\" for good balance of speed and randomness; \"" RANDALGO_STRONG_STR "\" for high CPU "
-			"cost but strong randomness. (Default: " RANDALGO_FAST_STR ")")
+			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
+			RANDALGO_BALANCED_SIMD_STR "\" for good balance of speed and randomness; \""
+			RANDALGO_STRONG_STR "\" for high CPU cost but strong randomness. "
+			"(Default: " RANDALGO_FAST_STR ")")
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
-			"Percentage of blocks that should be refilled with random data between writes. This "
-			"can be used to control how well the generated data can be compressed or deduplicated. "
-			"(Default: 0; Max: 100)")
+			"Percentage of each block that will be refilled with random data between writes. "
+			"This can be used to defeat compression/deduplication. (Default: 100; Range: 0-100)")
+/*c*/	(ARG_CONFIGFILE_LONG "," ARG_CONFIGFILE_SHORT, bpo::value(&this->configFilePath),
+			"Path to benchmark configuration file. All command line options starting with "
+			"double dashes can be used as \"OPTIONNAME=VALUE\" in the config file. Multiple "
+			"options are newline-separated. Lines starting with \"#\" are ignored.")
+#ifdef COREBIND_SUPPORT
+/*co*/	(ARG_CPUCORES_LONG, bpo::value(&this->cpuCoresStr),
+			"Comma-separated list of CPU cores to bind this process to. If multiple cores are "
+			"given, then worker threads are bound round-robin to the cores. "
+			"(Hint: See 'lscpu' for available CPU cores.)")
+#endif // COREBIND_SUPPORT
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
 			"Show CPU utilization in phase stats results.")
 /*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
-			"Path to file for results in csv format. This way, result can be imported e.g. into "
-			"MS Excel. If the file exists, results will be appended.")
+			"Path to file for end results in csv format. This way, results can be imported e.g. "
+			"into MS Excel. If the file exists, results will be appended. (See also \"--"
+			ARG_CSVLIVEFILE_LONG "\" for progress results in csv format.)")
 #ifdef CUFILE_SUPPORT
 /*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
 			"Use cuFile API for reads/writes to/from GPU memory, also known as GPUDirect Storage "
@@ -192,6 +202,10 @@ void ProgArgs::defineAllowedArgs()
 			"instead of using different dirs for each thread. In this case, \"-" ARG_NUMDIRS_SHORT
 			"\" defines the total number of dirs for all threads instead of the number of dirs per "
 			"thread.")
+/*di*/	(ARG_DIRSTATS_LONG, bpo::bool_switch(&this->showDirStats),
+			"Show directory completion statistics in file write/read phase. A directory counts as "
+			"completed if all files in the directory have been written/read. Only effective if "
+			"benchmark path is a directory.")
 /*dr*/	(ARG_DROPCACHESPHASE_LONG, bpo::bool_switch(&this->runDropCachesPhase),
 			"Drop linux file system page cache, dentry cache and inode cache before/after each "
 			"benchmark phase. Requires root privileges. This should be used together with \"--"
@@ -208,6 +222,9 @@ void ProgArgs::defineAllowedArgs()
 			"When running as service, stay in foreground and connected to console instead of "
 			"detaching from console and daemonizing into backgorund.")
 #ifdef CUFILE_SUPPORT
+/*gd*/	(ARG_GPUDIRECTSSTORAGE_LONG,
+			"Use Nvidia GPUDirect Storage API. Enables \"--" ARG_DIRECTIO_LONG "\", \"--"
+			ARG_CUFILE_LONG "\", \"--" ARG_GDSBUFREG_LONG "\".")
 /*gd*/	(ARG_GDSBUFREG_LONG, bpo::bool_switch(&this->useGDSBufReg),
 			"Register GPU buffers for GPUDirect Storage (GDS) when using cuFile API.")
 #endif
@@ -242,6 +259,8 @@ void ProgArgs::defineAllowedArgs()
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
 			"Depth of I/O queue per thread for asynchronous I/O. Setting this to 2 or higher "
 			"turns on async I/O. (Default: 1)")
+/*cs*/	(ARG_BENCHLABEL_LONG, bpo::value(&this->benchLabel),
+			"Custom label to identify benchmark run in result files.")
 /*la*/	(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
 			"Show minimum, average and maximum latency for read/write operations and entries. "
 			"In read and write phases, entry latency includes file open, read/write and close.")
@@ -252,6 +271,28 @@ void ProgArgs::defineAllowedArgs()
 /*la*/	(ARG_LATENCYPERCENT9S_LONG, bpo::value(&this->numLatencyPercentile9s),
 			"Number of decimal nines to show in latency percentiles. 0 for 99%, 1 for 99.9%, 2 for "
 			"99.99% and so on. (Default: 0)")
+/*li*/	(ARG_LIMITREAD_LONG, bpo::value(&this->limitReadBpsOrigStr),
+			"Per-thread read limit in bytes per second.")
+/*li*/	(ARG_LIMITWRITE_LONG, bpo::value(&this->limitWriteBpsOrigStr),
+			"Per-thread write limit in bytes per second. (In combination with "
+			"\"--" ARG_RWMIXPERCENT_LONG "\" this defines the limit for read+write.)")
+/*liv*/	(ARG_BRIEFLIVESTATS_LONG, bpo::bool_switch(&this->useBriefLiveStats),
+			"Use brief live statistics format, i.e. a single line instead of full screen stats. "
+			"The line gets updated in-place.")
+/*liv*/	(ARG_LIVESTATSNEWLINE_LONG, bpo::bool_switch(&this->useBriefLiveStatsNewLine),
+			"Use brief live statistics format, i.e. a single line instead of full screen stats. "
+			"A new line is written to stderr for each update.")
+/*liv*/	(ARG_CSVLIVEFILE_LONG, bpo::value(&this->liveCSVFilePath),
+			"Path to file for live progress results in csv format. If the file exists, results "
+			"will be appended. This must not be the same file that is given as \"--"
+			ARG_CSVFILE_LONG "\".")
+/*liv*/	(ARG_CSVLIVEEXTENDED_LONG, bpo::bool_switch(&this->useExtendedLiveCSV),
+			"Use extended live results csv file. By default, only aggregate results of all worker "
+			"threads will be added. This option also adds results of individual threads in "
+			"standalone mode or results of individual services in distributed mode.")
+/*liv*/	(ARG_LIVEINTERVAL_LONG, bpo::value(&this->liveStatsSleepMS),
+			"Update interval for console and csv file live statistics in milliseconds. "
+			"(Default: 2000)")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
@@ -269,11 +310,17 @@ void ProgArgs::defineAllowedArgs()
 /*nod*/	(ARG_NODIRECTIOCHECK_LONG, bpo::bool_switch(&this->noDirectIOCheck),
 			"Don't check direct IO alignment. Many platforms require direct IO alignment. NFS is "
 			"a prominent exception.")
+/*nof*/	(ARG_NOFDSHARING_LONG, bpo::bool_switch(&this->useNoFDSharing),
+			"If benchmark path is a file or block device, let each worker thread open the given"
+			"file/bdev separately instead of sharing the same file descriptor among all threads.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
-			"Disable live statistics.")
+			"Disable live statistics on console.")
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service instances. Thus, each service instance "
 			"will work on its own full dataset instead of a fraction of the data set.")
+/*nu*/	(ARG_NUMHOSTS_LONG, bpo::value(&this->numHosts),
+			"Number of hosts to use from given hosts list or hosts file. (Default: use all given "
+			"hosts)")
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
@@ -286,9 +333,10 @@ void ProgArgs::defineAllowedArgs()
 			"Read/write at random offsets.")
 /*ra*/	(ARG_RANDSEEKALGO_LONG, bpo::value(&this->randOffsetAlgo),
 			"Random number algorithm for \"--" ARG_RANDOMOFFSETS_LONG "\". Values: \""
-			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \"" RANDALGO_BALANCED_STR
-			"\" for good balance of speed and randomness; \"" RANDALGO_STRONG_STR "\" for high CPU "
-			"cost but strong randomness. (Default: " RANDALGO_BALANCED_STR ")")
+			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
+			RANDALGO_BALANCED_SEQUENTIAL_STR "\" for good balance of speed and randomness; \""
+			RANDALGO_STRONG_STR "\" for high CPU cost but strong randomness. "
+			"(Default: " RANDALGO_BALANCED_SEQUENTIAL_STR ")")
 /*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
 			"Align random offsets to block size.")
 /*ra*/	(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmountOrigStr),
@@ -296,13 +344,17 @@ void ProgArgs::defineAllowedArgs()
 			"benchmark path is a file or block device. (Default: Set to file size)")
 /*ra*/	(ARG_RANKOFFSET_LONG, bpo::value(&this->rankOffset),
 			"Rank offset for worker threads. (Default: 0)")
-/*re*/	(ARG_LIVESLEEPSEC_LONG, bpo::value(&this->liveStatsSleepSec),
-			"Sleep interval between live stats console refresh in seconds. (Default: 2)")
 /*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
 			"Path to file for human-readable results, similar to console output. If the file "
 			"exists, new results will be appended.")
 /*rw*/	(ARG_RWMIXPERCENT_LONG, bpo::value(&this->rwMixPercent),
 			"Percentage of blocks that should be read in a write phase. (Default: 0; Max: 100)")
+/*rw*/	(ARG_RWMIXTHREADS_LONG, bpo::value(&this->numRWMixReadThreads),
+			"Number of threads that should do reads in a write phase for mixed read/write. The "
+			"given number is out of the total number of threads per host (\"-" ARG_NUMTHREADS_SHORT
+			"\"). This assumes that the full dataset has been precreated via normal write. "
+			"In S3 mode, this only works in combination with \"-" ARG_NUMDIRS_SHORT "\" and \"-"
+			ARG_NUMFILES_SHORT "\".")
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0)")
 #ifdef S3_SUPPORT
@@ -331,6 +383,8 @@ void ProgArgs::defineAllowedArgs()
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
 			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
 			"the current working directory. (Default: 0=disabled; Max: 6)")
+/*s3n*/	(ARG_S3NOMPCHECK_LONG, bpo::bool_switch(&this->ignoreS3PartNum),
+			"Don't check for S3 multi-part uploads exceeding 10,000 parts.")
 /*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
 			"is a bucket.")
@@ -341,11 +395,6 @@ void ProgArgs::defineAllowedArgs()
 			ARG_RANDOMAMOUNT_LONG "\".")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
-/*s3r*/	(ARG_S3RWMIXTHREADS_LONG, bpo::value(&this->numS3RWMixReadThreads),
-			"Number of threads that should do reads in a write phase for mixed read/write. The "
-			"given number is out of the total number of threads per host (\"-" ARG_NUMTHREADS_SHORT
-			"\"). This requires usage of \"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT
-			"\" and the full dataset needs to be precreated with a normal write.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
 			"S3 access secret.")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
@@ -412,10 +461,12 @@ void ProgArgs::defineAllowedArgs()
 /*w*/	(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT,
 			bpo::bool_switch(&this->runCreateFilesPhase),
 			"Write files. Create them if they don't exist.")
+#ifdef LIBNUMA_SUPPORT
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
 			"given, then worker threads are bound round-robin to the zones. "
 			"(Hint: See 'lscpu' for available NUMA zones.)")
+#endif // LIBNUMA_SUPPORT
     ;
 }
 
@@ -457,7 +508,7 @@ void ProgArgs::defineDefaults()
 	this->rankOffset = 0;
 	this->logLevel = Log_NORMAL;
 	this->showAllElapsed = false;
-	this->liveStatsSleepSec = 2;
+	this->liveStatsSleepMS = 2000;
 	this->useRandomOffsets = false;
 	this->useRandomAligned = false;
 	this->randomAmount = 0;
@@ -469,6 +520,7 @@ void ProgArgs::defineDefaults()
 	this->showLatencyHistogram = false;
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;
+	this->useExtendedLiveCSV = false;
 	this->noCSVLabels = false;
 	this->assignGPUPerService = false;
 	this->useCuFile = false;
@@ -485,11 +537,11 @@ void ProgArgs::defineDefaults()
 	this->doPreallocFile = false;
 	this->doDirSharing = false;
 	this->doDirectVerify = false;
-	this->blockVariancePercent = 0;
+	this->blockVariancePercent = 100;
 	this->rwMixPercent = 0;
 	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
-	this->randOffsetAlgo = RANDALGO_BALANCED_STR;
+	this->randOffsetAlgo = RANDALGO_BALANCED_SEQUENTIAL_STR;
 	this->fileShareSize = 0;
 	this->fileShareSizeOrigStr = "0";
 	this->useCustomTreeRandomize = false;
@@ -504,9 +556,21 @@ void ProgArgs::defineDefaults()
 	this->doS3ListObjVerify = false;
 	this->doReverseSeqOffsets = false;
 	this->doInfiniteIOLoop = false;
-	this->numS3RWMixReadThreads = 0;
 	this->s3SignPolicy = 0;
 	this->useS3RandObjSelect = false;
+	this->numRWMixReadThreads = 0;
+	this->useRWMixReadThreads = false;
+	this->useBriefLiveStats = false;
+	this->useBriefLiveStatsNewLine = false;
+	this->useNoFDSharing = false;
+	this->limitReadBps = 0;
+	this->limitReadBpsOrigStr = "0";
+	this->limitWriteBps = 0;
+	this->limitWriteBpsOrigStr = "0";
+	this->numHosts = -1;
+	this->ignoreS3PartNum = false;
+	this->showDirStats = false;
+	this->useAlternativeHTTPService = false;
 }
 
 /**
@@ -515,8 +579,45 @@ void ProgArgs::defineDefaults()
  */
 void ProgArgs::initImplicitValues()
 {
+	/* note: boost bool type options are always present (because they default to false), so can't
+		just be checked via argsVariablesMap.count(). */
+
 	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
 		useRWMixPercent = true;
+
+	if(argsVariablesMap.count(ARG_RWMIXTHREADS_LONG) )
+		useRWMixReadThreads = true;
+
+	numRWMixReadThreads = std::min(numRWMixReadThreads, numThreads);
+
+	if(argsVariablesMap.count(ARG_GPUDIRECTSSTORAGE_LONG) )
+	{
+		useDirectIO = true;
+		useCuFile = true;
+		useGDSBufReg = true;
+	}
+
+	if(useBriefLiveStatsNewLine)
+		useBriefLiveStats = true;
+
+	if(integrityCheckSalt && blockVariancePercent)
+	{
+		if(runCreateFilesPhase)
+			LOGGER(Log_NORMAL, "NOTE: Ingetrity check disables block variance." << std::endl);
+
+		blockVariancePercent = 0;
+	}
+
+	if(!s3EndpointsStr.empty() && runAsService)
+	{
+		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
+			"provided by master." << std::endl);
+
+		s3EndpointsServiceOverrideStr = s3EndpointsStr;
+	}
+
+	benchLabelNoCommas = benchLabel;
+	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
 }
 
 /**
@@ -531,6 +632,8 @@ void ProgArgs::convertUnitStrings()
 	randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
 	fileShareSize = UnitTk::numHumanToBytesBinary(fileShareSizeOrigStr, false);
 	treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
+	limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
+	limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
 }
 
 /**
@@ -542,6 +645,7 @@ void ProgArgs::checkArgs()
 {
 	// parse/apply numa zone as early as possible to have all further allocations in right zone
 	parseNumaZones();
+	parseCPUCores();
 
 	if(runAsService)
 	{
@@ -615,26 +719,40 @@ void ProgArgs::checkArgs()
 	}
 
 	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
-		throw ProgException("S3 write/upload cannot be used with random offsets. Consider using "
-			"\"--" ARG_REVERSESEQOFFSETS_LONG "\" as an alternative.");
+		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
+			"Falling back to \"--" ARG_REVERSESEQOFFSETS_LONG "\"." << std::endl);
 
 	if(useRandomOffsets && !s3EndpointsStr.empty() && useS3TransferManager)
 		throw ProgException("S3 TransferManager does not support random offsets.");
 
+	if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize &&
+		runCreateFilesPhase && ( (fileSize/blockSize) > 10000) )
+		throw ProgException("Specified multi-part upload would exceed 10,000 parts per object. "
+			"This exceeds the S3 specification and thus is likely to get rejected by the server. "
+			"(\"--" ARG_S3NOMPCHECK_LONG "\" disables this check.)");
+
 	if(useCuFile && !s3EndpointsStr.empty() )
 		throw ProgException("cuFile API cannot be used with S3");
 
+	if(hasUserSetRWMixPercent() && !s3EndpointsStr.empty() )
+		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
+			"Consider \"--" ARG_RWMIXTHREADS_LONG "\" as alternative.");
+
+	if(hasUserSetRWMixPercent() && hasUserSetRWMixReadThreads() )
+		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
+			"\"--" ARG_RWMIXTHREADS_LONG "\"");
+
 	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
-		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
+		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
 			"GPU memory copy");
 
 	if(integrityCheckSalt && rwMixPercent)
 		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
-			"option --" ARG_INTEGRITYCHECK_LONG);
+			"option \"--" ARG_INTEGRITYCHECK_LONG "\"");
 
-	if(integrityCheckSalt && blockVariancePercent)
-		throw ProgException("Option --" ARG_BLOCKVARIANCE_LONG " cannot be used together with "
-			"option --" ARG_INTEGRITYCHECK_LONG);
+	if(integrityCheckSalt && blockVariancePercent && runCreateFilesPhase)
+		throw ProgException("Option \"--" ARG_INTEGRITYCHECK_LONG "\" requires "
+			"\"--" ARG_BLOCKVARIANCE_LONG " 0\"");
 
 	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
 		throw ProgException("Integrity check writes are not supported in combination with random "
@@ -664,6 +782,16 @@ void ProgArgs::checkArgs()
  */
 void ProgArgs::checkPathDependentArgs()
 {
+	if( ( (benchPathType != BenchPathType_DIR) || !treeFilePath.empty() ) &&
+		(argsVariablesMap.count(ARG_NUMDIRS_LONG) || argsVariablesMap.count(ARG_NUMDIRS_SHORT) ) )
+		LOGGER(Log_NORMAL, "NOTE: \"--" ARG_NUMDIRS_LONG "\" is only effective when benchmark "
+			"path is a directory (or bucket) and when no custom tree file is given." << std::endl);
+
+	if( ( (benchPathType != BenchPathType_DIR) || !treeFilePath.empty() ) &&
+		(argsVariablesMap.count(ARG_NUMFILES_LONG) || argsVariablesMap.count(ARG_NUMFILES_SHORT) ) )
+		LOGGER(Log_NORMAL, "NOTE: \"--" ARG_NUMFILES_LONG "\" is only effective when benchmark "
+			"path is a directory (or bucket) and when no custom tree file is given." << std::endl);
+
 	if( (benchPathType != BenchPathType_DIR) && runStatFilesPhase)
 		throw ProgException("File stat phase can only be used when benchmark path is a directory.");
 
@@ -676,6 +804,12 @@ void ProgArgs::checkPathDependentArgs()
 
 	if(runS3ListObjNum && s3EndpointsVec.empty() )
 		throw ProgException("Object listing requires S3 endpoints definition.");
+
+	if( (hasUserSetRWMixPercent() || hasUserSetRWMixReadThreads() ) &&
+		!s3EndpointsStr.empty() &&
+		!treeFilePath.empty() )
+		throw ProgException("Options \"--" ARG_RWMIXPERCENT_LONG "\" & "
+			"\"--" ARG_RWMIXTHREADS_LONG "\" cannot be used with S3 custom tree.");
 
 	if(runS3ListObjNum && !treeFilePath.empty() )
 		LOGGER(Log_NORMAL, "NOTE: Ignoring custom tree file for object listing." << std::endl);
@@ -721,7 +855,7 @@ void ProgArgs::checkPathDependentArgs()
 			randomAmount = fileSize * benchPathsVec.size();
 		else
 		if( (benchPathType == BenchPathType_DIR) && !s3EndpointsVec.empty() && useS3RandObjSelect)
-			randomAmount = fileSize * numDirs * numFiles * numDataSetThreads;
+			randomAmount = fileSize * (numDirs ? numDirs : 1) * numFiles * numDataSetThreads;
 	}
 
 	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
@@ -769,7 +903,7 @@ void ProgArgs::checkPathDependentArgs()
 		const uint64_t numBlocksTotal = numBlocksPerFile * numFiles; // total for all files
 		const uint64_t blockSetSize = blockSize * numDataSetThreads;
 
-		if(useRandomOffsets && (randomAmount < blockSetSize) )
+		if(useRandomOffsets && (randomAmount < blockSetSize) && !doInfiniteIOLoop)
 			throw ProgException("Random I/O amount (--" ARG_RANDOMAMOUNT_LONG ") must be large "
 				"enough so that each I/O thread can at least read/write one block. "
 				"Current block size: " + std::to_string(blockSize) + "; "
@@ -955,7 +1089,7 @@ void ProgArgs::convertS3PathsToCustomTree()
 		// ensure we have a bucketName and objectName in each user-given path
 		if(currentPathVec.size() < 2)
 			throw ProgException("Conversion to S3 custom tree mode failed because a path without "
-				"multiple elements was found: " + currentPath);
+				"elements after slash was found: " + currentPathCopy);
 
 		// ensure all paths have the same bucketName
 		if(bucketName.empty() )
@@ -1039,11 +1173,10 @@ void ProgArgs::prepareBenchPathFDsVec()
 			throw ProgException("File delete option is not allowed if benchmark path is a block "
 				"device.");
 
-		if( (benchPathType == BenchPathType_DIR) && !numDirs)
-			throw ProgException("Number of directories may not be zero");
-
 		int fd;
 		int openFlags = 0;
+
+		// note: keep flags below in sync with LocalWorker::initThreadFDVec
 
 		if(pathType == BenchPathType_DIR)
 			openFlags |= (O_DIRECTORY | O_RDONLY); // O_DIRECTORY only works with O_RDONLY on xfs
@@ -1103,10 +1236,10 @@ void ProgArgs::prepareCuFileHandleDataVec()
 		cuFileHandleDataVec.resize(cuFileHandleDataVec.size() + 1);
 		CuFileHandleData& cuFileHandleData = cuFileHandleDataVec[cuFileHandleDataVec.size() - 1];
 
-		// note: cleanup won't be a problem if reg no done, as CuFileHandleData can handle that case
-
 		if(!useCuFile)
 			continue; // no registration to be done if cuFile API is not used
+
+		// note: cleanup won't be a prob if reg not done, as CuFileHandleData can handle that case
 
 		cuFileHandleData.registerHandle<ProgException>(fd);
 	}
@@ -1207,9 +1340,13 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 		// warn when reading sparse (or compressed) files
 		if(runReadPhase && !runCreateFilesPhase)
 		{
+			off_t allocatedFileSize;
+
+			bool isFileSparseorCompressed =
+				FileTk::checkFileSparseOrCompressed(statBuf, allocatedFileSize);
+
 			// let user know about reading sparse/compressed files
-			// (note: statBuf.st_blocks is in 512-byte units)
-			if( (statBuf.st_blocks * 512) < currentFileSize)
+			if(isFileSparseorCompressed)
 				LOGGER(Log_NORMAL,
 					"NOTE: Allocated file disk space smaller than file size. File seems sparse or "
 					"compressed. (Sequential write can fill sparse areas.) "
@@ -1260,6 +1397,13 @@ void ProgArgs::parseHosts()
 	if(hostsStr.empty() && hostsFilePath.empty() )
 		return; // nothing to do
 
+	if(!numHosts)
+	{ // user explicitly selected zero hosts, so ignore any given hosts list or hosts file
+		hostsStr.clear();
+		hostsFilePath.clear();
+		return;
+	}
+
 	// read service hosts from file and add to hostsStr
 	if(!hostsFilePath.empty() )
 	{
@@ -1273,7 +1417,12 @@ void ProgArgs::parseHosts()
 		std::string lineStr;
 
 		while(std::getline(hostsFile, lineStr) )
+		{
+			if(lineStr.rfind("#", 0) == 0)
+				continue; // skip lines starting with "#" as comment char
+
 			hostsStr += lineStr + ",";
+		}
 
 		hostsFile.close();
 	}
@@ -1309,6 +1458,11 @@ void ProgArgs::parseHosts()
 		throw ProgException("List of hosts contains duplicates. "
 			"Number of duplicates: " + std::to_string(hostsVec.size() - hostsSet.size() ) + "; "
 			"List: " + hostsStr);
+
+	// reduce to user-defined number of hosts
+	// ("numHosts==-1" means "use all hosts")
+	if( (numHosts != -1) && (hostsVec.size() > (unsigned)numHosts) )
+		hostsVec.resize(numHosts);
 }
 
 /**
@@ -1316,7 +1470,7 @@ void ProgArgs::parseHosts()
  * Also applies the given zones to the current thread.
  *
  * Note: We use libnuma in NumaTk, but we don't allow libnuma's NUMA string format to build
- * our vector that easily allows us to easily bind I/O workers round-robin to given zones.
+ * our vector. That allows us to easily bind I/O workers round-robin to given zones in vec.
  *
  * @throw ProgException if a problem is found, e.g. numa zones string was not empty, but parsed
  * 		result is empty.
@@ -1359,6 +1513,50 @@ void ProgArgs::parseNumaZones()
 	// convert from string vector to int vector
 	for(std::string& zoneStr : zonesStrVec)
 		numaZonesVec.push_back(std::stoi(zoneStr) );
+}
+
+/**
+ * Parse cpu cores string to fill cpuCoresVec. Do nothing if cpu cores string is empty.
+ * Also applies the given cores to the current thread.
+ *
+ * @throw ProgException if a problem is found, e.g. cpu cores string was not empty, but parsed
+ * 		result is empty.
+ */
+void ProgArgs::parseCPUCores()
+{
+	if(cpuCoresStr.empty() )
+		return; // nothing to do
+
+	StringVec coresStrVec; // temporary for split()
+
+	boost::split(coresStrVec, cpuCoresStr, boost::is_any_of(ZONELIST_DELIMITERS),
+			boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(coresStrVec.begin(), coresStrVec.end(), "");
+		if(iter == coresStrVec.end() )
+			break;
+
+		coresStrVec.erase(iter);
+	}
+
+	if(coresStrVec.empty() )
+		throw ProgException("CPU cores defined, but parsing resulted in an empty list: " +
+			cpuCoresStr);
+
+	// rebuild numaZonesStr clean from trimmed vec, because libnuma has probs with leading delimter
+	cpuCoresStr = "";
+	for(unsigned i=0; i < coresStrVec.size(); i++)
+		cpuCoresStr += (i ? "," : "") + coresStrVec[i];
+
+	// apply given cores to current thread
+	NumaTk::bindToCPUCores(cpuCoresVec);
+
+	// convert from string vector to int vector
+	for(std::string& coreStr : coresStrVec)
+		cpuCoresVec.push_back(std::stoi(coreStr) );
 }
 
 /**
@@ -1435,6 +1633,9 @@ void ProgArgs::parseS3Endpoints()
 
 	if(s3EndpointsStr.empty() )
 		return; // nothing to do
+
+	if(!s3EndpointsServiceOverrideStr.empty() && runAsService)
+		s3EndpointsStr = s3EndpointsServiceOverrideStr; // user specified override for service
 
 	boost::split(s3EndpointsVec, s3EndpointsStr, boost::is_any_of(S3ENDPOINTS_DELIMITERS),
 		boost::token_compress_on);
@@ -1798,13 +1999,13 @@ void ProgArgs::printHelpBlockDev()
 #ifdef CUDA_SUPPORT
 		std::endl <<
 		"  Stream data from large file into memory of first 2 GPUs via CUDA:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --cuhostbufreg \\" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 \\" ENDL
 		"        /mnt/myfs/file1" ENDL
 #endif
 #ifdef CUFILE_SUPPORT
 		std::endl <<
 		"  Stream data from large file into memory of first 2 GPUs via GPUDirect Storage:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --cufile --gdsbufreg --direct \\" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --gds \\" ENDL
 		"        /mnt/myfs/file1" ENDL
 #endif
 		std::endl;
@@ -1889,25 +2090,29 @@ void ProgArgs::printHelpMultiFile()
     std::cout <<
     	"Examples:" ENDL
 		"  Test 2 threads, each creating 3 directories with 4 1MiB files inside:" ENDL
-		"    $ " EXE_NAME " -t 2 -d -n 3 -w -N 4 -s 1m -b 1m /data/testdir" ENDL
+		"    $ " EXE_NAME " -w -d -t 2 -n 3 -N 4 -s 1m -b 1m /data/testdir" ENDL
+		std::endl <<
+		"  Same as above with long option names:" ENDL
+		"    $ " EXE_NAME " --write --mkdirs --threads 2 --dirs 3 --files 4 --size 1m \\" ENDL
+		"        --block 1m /data/testdir" ENDL
 		std::endl <<
 		"  Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k /data/testdir" ENDL
+		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k /data/testdir" ENDL
 #ifdef CUDA_SUPPORT
 		std::endl <<
 		"  As above, but also copy data into memory of first 2 GPUs via CUDA:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
-		"        --gpuids 0,1 --cuhostbufreg /data/testdir" ENDL
+		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k \\" ENDL
+		"        --gpuids 0,1 /data/testdir" ENDL
 #endif
 #ifdef CUFILE_SUPPORT
 		std::endl <<
 		"  As above, but read data into memory of first 2 GPUs via GPUDirect Storage:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -r -N 4 -s 1m -b 128k \\" ENDL
-		"        --gpuids 0,1 --cufile --gdsbufreg --direct /data/testdir" ENDL
+		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k \\" ENDL
+		"        --gpuids 0,1 --gds /data/testdir" ENDL
 #endif
 		std::endl <<
 		"  Delete files and directories created by example above:" ENDL
-		"    $ " EXE_NAME " -t 2 -n 3 -N 4 -F -D /data/testdir" <<
+		"    $ " EXE_NAME " -F -D -t 2 -n 3 -N 4 /data/testdir" <<
 		std::endl;
 }
 
@@ -2142,9 +2347,27 @@ void ProgArgs::printVersionAndBuildInfo()
 	std::ostringstream notIncludedStream; // not included optional build features
 
 	std::cout << EXE_NAME << std::endl;
-	std::cout << "Version: " EXE_VERSION << std::endl;
-	std::cout << "Net protocol version: " HTTP_PROTOCOLVERSION << std::endl;
-	std::cout << "Build date: " __DATE__ << " " << __TIME__ << std::endl;
+	std::cout << " * Version: " EXE_VERSION << std::endl;
+	std::cout << " * Net protocol version: " HTTP_PROTOCOLVERSION << std::endl;
+	std::cout << " * Build date: " __DATE__ << " " << __TIME__ << std::endl;
+
+#ifdef ALTHTTPSVC_SUPPORT
+	includedStream << "althttpsvc ";
+#else
+	notIncludedStream << "althttpsvc ";
+#endif
+
+#ifdef BACKTRACE_SUPPORT
+	includedStream << "backtrace ";
+#else
+	notIncludedStream << "backtrace ";
+#endif
+
+#ifdef COREBIND_SUPPORT
+	includedStream << "corebind ";
+#else
+	notIncludedStream << "corebind ";
+#endif
 
 #ifdef CUDA_SUPPORT
 	includedStream << "cuda ";
@@ -2158,10 +2381,22 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cufile/gds ";
 #endif
 
-#if NO_BACKTRACE == 1 // no backtraces for musl-libc compatibility
-	notIncludedStream << "backtrace ";
+#ifdef USE_MIMALLOC
+	includedStream << "mimalloc ";
 #else
-	includedStream << "backtrace ";
+	notIncludedStream << "mimalloc ";
+#endif
+
+#ifdef LIBAIO_SUPPORT
+	includedStream << "libaio ";
+#else
+	notIncludedStream << "libaio ";
+#endif
+
+#ifdef LIBNUMA_SUPPORT
+	includedStream << "libnuma ";
+#else
+	notIncludedStream << "libnuma ";
 #endif
 
 #ifdef S3_SUPPORT
@@ -2170,9 +2405,21 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "s3 ";
 #endif
 
-	std::cout << "Included optional build features: " <<
+#ifdef SYNCFS_SUPPORT
+	includedStream << "syncfs ";
+#else
+	notIncludedStream << "syncfs ";
+#endif
+
+#ifdef SYSCALLH_SUPPORT
+	includedStream << "syscallh ";
+#else
+	notIncludedStream << "syscallh ";
+#endif
+
+	std::cout << " * Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
-	std::cout << "Excluded optional build features: " <<
+	std::cout << " * Excluded optional build features: " <<
 		(notIncludedStream.str().empty() ? "-" : notIncludedStream.str() ) << std::endl;
 }
 
@@ -2235,9 +2482,13 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
 	doInfiniteIOLoop = tree.get<bool>(ARG_INFINITEIOLOOP_LONG);
-	numS3RWMixReadThreads = tree.get<size_t>(ARG_S3RWMIXTHREADS_LONG);
+	numRWMixReadThreads = tree.get<size_t>(ARG_RWMIXTHREADS_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
+	benchLabel = tree.get<std::string>(ARG_BENCHLABEL_LONG);
+	useNoFDSharing = tree.get<bool>(ARG_NOFDSHARING_LONG);
+	limitReadBps = tree.get<uint64_t>(ARG_LIMITREAD_LONG);
+	limitWriteBps = tree.get<uint64_t>(ARG_LIMITWRITE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2336,9 +2587,13 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
 	outTree.put(ARG_INFINITEIOLOOP_LONG, doInfiniteIOLoop);
-	outTree.put(ARG_S3RWMIXTHREADS_LONG, numS3RWMixReadThreads);
+	outTree.put(ARG_RWMIXTHREADS_LONG, numRWMixReadThreads);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
+	outTree.put(ARG_BENCHLABEL_LONG, benchLabel);
+	outTree.put(ARG_NOFDSHARING_LONG, useNoFDSharing);
+	outTree.put(ARG_LIMITREAD_LONG, limitReadBps);
+	outTree.put(ARG_LIMITWRITE_LONG, limitWriteBps);
 
 
 	// dynamically calculated values for service hosts...
@@ -2365,8 +2620,11 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
  */
 void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) const
 {
+	outLabelsVec.push_back("label");
+	outValuesVec.push_back(benchLabelNoCommas);
+
 	outLabelsVec.push_back("path type");
-	outValuesVec.push_back(TranslatorTk::benchPathTypeToStr(benchPathType) );
+	outValuesVec.push_back(TranslatorTk::benchPathTypeToStr(benchPathType, this) );
 
 	outLabelsVec.push_back("paths");
 	outValuesVec.push_back(std::to_string(benchPathsVec.size() ) );
@@ -2397,9 +2655,6 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 
 	outLabelsVec.push_back("random aligned");
 	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(useRandomAligned) );
-
-	outLabelsVec.push_back("random amount");
-	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(randomAmount) );
 
 	outLabelsVec.push_back("IO depth");
 	outValuesVec.push_back(std::to_string(ioDepth) );
@@ -2562,4 +2817,38 @@ void ProgArgs::checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos)
 				"Service_A random amount: " + std::to_string(firstInfo.randomAmount) + "; "
 				"Service_B random amount: " + std::to_string(otherInfo.randomAmount) );
 	}
+}
+
+/**
+ * Check an existing non-empty CSV file for compatibility. This means we count the number of commas
+ * in the header line to see if it matches the current number of commas. This way, we can avoid
+ * adding to a CSV file that was written with a different version and thus uses a different number
+ * of columns.
+ *
+ * @throw ProgException on incompatibility
+ */
+void ProgArgs::checkCSVFileCompatibility()
+{
+	if(csvFilePath.empty() )
+		return; // nothing to do
+
+	if(FileTk::checkFileEmpty(csvFilePath) )
+		return; // no csv file yet or file is empty, so nothing to do
+
+	std::string lineStr;
+
+	std::ifstream fileStream(csvFilePath.c_str() );
+	if(!fileStream)
+		throw ProgException("Opening csv file for compatibility check failed: " + csvFilePath);
+
+	// read first line
+	std::getline(fileStream, lineStr);
+
+	int numCommas = std::count(lineStr.begin(), lineStr.end(), ',');
+
+	if(numCommas != CSVFILE_EXPECTED_COMMAS)
+		throw ProgException("CSV file compatibility check failed. "
+			"Was this file written with a different version? "
+			"Found commas: " + std::to_string(numCommas) + "; "
+			"Expected commas: " + std::to_string(CSVFILE_EXPECTED_COMMAS) );
 }

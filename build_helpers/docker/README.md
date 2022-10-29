@@ -71,10 +71,13 @@ docker run -it --entrypoint elbencho-scan-path breuner/elbencho:master-ubuntu200
 
 ### S3 Support
 
-The following image flavor tags include elbencho's S3 support as of elbencho v2.0:
-- ubuntu2004
-- centos7, centos8
-- magnum-io
+Images with stable version tags include S3 support as of elbencho v2.0. Additionally, the following image flavor tags include S3 support:
+- latest
+- master-alpine
+- master-centos7, master-centos8
+- master-magnum-io
+- master-sles15
+- master-ubuntu2004
 
 ### Local Image Builds
 

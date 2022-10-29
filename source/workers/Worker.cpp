@@ -75,30 +75,45 @@ void Worker::checkInterruptionRequest(std::function<void()> func)
 }
 
 /**
- * Apply configured NUMA binding to calling worker thread. Do nothing if NUMA binding is not
- * configured.
+ * Apply configured NUMA and CPU core binding to calling worker thread. Do nothing if NUMA or core
+ * binding is not configured.
  *
  * @throw WorkerException on error, e.g. if binding fails.
  */
-void Worker::applyNumaBinding()
+void Worker::applyNumaAndCoreBinding()
 {
 	const IntVec& numaZonesVec = progArgs->getNumaZonesVec();
+	const IntVec& cpuCoresVec = progArgs->getCPUCoresVec();
 
-	if(numaZonesVec.empty() || !NumaTk::isNumaInfoAvailable() )
-		return;
-
-	int zoneNum = numaZonesVec[workerRank % numaZonesVec.size() ];
-
-	try
+	if(!numaZonesVec.empty() && NumaTk::isNumaInfoAvailable() )
 	{
-		NumaTk::bindToNumaZone(std::to_string(zoneNum) );
-	}
-	catch(ProgException& e)
-	{
-		// turn NumaTk's ProgException into WorkerException
-		throw WorkerException(e.what() );
+		int zoneNum = numaZonesVec[workerRank % numaZonesVec.size() ];
+
+		try
+		{
+			NumaTk::bindToNumaZone(std::to_string(zoneNum) );
+		}
+		catch(ProgException& e)
+		{
+			// turn NumaTk's ProgException into WorkerException
+			throw WorkerException(e.what() );
+		}
 	}
 
+	if(!cpuCoresVec.empty() )
+	{
+		int coreNum = cpuCoresVec[workerRank % cpuCoresVec.size() ];
+
+		try
+		{
+			NumaTk::bindToCPUCore(coreNum);
+		}
+		catch(ProgException& e)
+		{
+			// turn NumaTk's ProgException into WorkerException
+			throw WorkerException(e.what() );
+		}
+	}
 }
 
 /**

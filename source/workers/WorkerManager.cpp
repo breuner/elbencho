@@ -336,7 +336,9 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 					}
 					else
 					{ // normal case: based on number of dirs and files per dir
-						outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+						const size_t numDirs = progArgs.getNumDirs() ? progArgs.getNumDirs() : 1;
+
+						outNumEntriesPerWorker = numDirs * progArgs.getNumFiles();
 						outNumBytesPerWorker = outNumEntriesPerWorker * progArgs.getFileSize();
 					}
 				} break;
@@ -345,7 +347,9 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 				case BenchPhase_STATFILES:
 				case BenchPhase_LISTOBJPARALLEL:
 				{
-					outNumEntriesPerWorker = progArgs.getNumDirs() * progArgs.getNumFiles();
+					const size_t numDirs = progArgs.getNumDirs() ? progArgs.getNumDirs() : 1;
+
+					outNumEntriesPerWorker = numDirs * progArgs.getNumFiles();
 					outNumBytesPerWorker = 0;
 				} break;
 

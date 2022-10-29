@@ -3,7 +3,6 @@
 #include <iostream>
 #include <sstream>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <sys/types.h>
 #include <thread>
 #include <unistd.h>
@@ -11,8 +10,12 @@
 #include "ProgException.h"
 #include "SignalTk.h"
 
-#if NO_BACKTRACE == 0
-#include <execinfo.h>
+#ifdef SYSCALLH_SUPPORT
+	#include <sys/syscall.h>
+#endif
+
+#ifdef BACKTRACE_SUPPORT
+	#include <execinfo.h>
 #endif
 
 #define SIGNALTK_BACKTRACE_ARRAY_SIZE	32
@@ -138,11 +141,11 @@ bool SignalTk::unblockInterruptSignals()
  */
 std::string SignalTk::logBacktrace()
 {
-#if NO_BACKTRACE == 1
+#ifndef BACKTRACE_SUPPORT
 
 	return ""; // no backtrace support for musl-libc compatibility
 
-#else
+#else // BACKTRACE_SUPPORT
 
 	std::ostringstream stream; // return value
 	int backtraceLength = 0;
@@ -177,7 +180,8 @@ std::string SignalTk::logBacktrace()
 	SAFE_FREE(backtraceSymbols);
 
 	return stream.str();
-#endif
+
+#endif // BACKTRACE_SUPPORT
 }
 
 /**
@@ -190,5 +194,9 @@ std::string SignalTk::logBacktrace()
  */
 pid_t SignalTk::getThreadID()
 {
+#ifdef SYS_gettid
 	return syscall(SYS_gettid);
+#else // SYS_gettid
+	return (unsigned long)pthread_self();
+#endif // SYS_gettid
 }

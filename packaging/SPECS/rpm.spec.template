@@ -8,11 +8,6 @@ License:        GPLv3+
 Unified storage benchmark for file, directory and block device operations.
 Runs on single host or distributed across multiple hosts and supports GPUs.
 
-#%prep
-#%setup
-#%build
-#%install
-
 %clean
 rm -rf %{buildroot}
 

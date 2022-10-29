@@ -1,0 +1,25 @@
+# Full elbencho rpm install of latest github master on SLES 15
+#
+# Run docker build from elbencho repository root dir like this:
+# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.sles15.local .
+
+FROM registry.suse.com/bci/bci-base:15.3 as builder
+
+COPY ./ /root/elbencho
+
+RUN zypper update -y && \
+    zypper install -y cmake gcc-c++ git libaio-devel libboost_program_options-devel libboost_system-devel libboost_thread-devel libcurl-devel libnuma-devel libuuid-devel make ncurses-devel openssl-devel rpm-build && \
+    cd /root/elbencho && \
+    make S3_SUPPORT=1 -j "$(nproc)" && \
+    make rpm
+
+FROM registry.suse.com/bci/bci-base:15.3
+
+COPY --from=builder /root/elbencho/packaging/RPMS/*/elbencho*.rpm /tmp/
+
+RUN zypper --no-gpg-checks install -y /tmp/elbencho*.rpm && \
+    rm -f /tmp/elbencho*.rpm && \
+    zypper clean && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]

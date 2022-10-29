@@ -18,7 +18,7 @@ class TranslatorTk
 		static std::string benchPhaseToPhaseName(BenchPhase benchPhase, const ProgArgs* progArgs);
 		static std::string benchPhaseToPhaseEntryType(BenchPhase benchPhase,
 			bool firstToUpper=false);
-		static std::string benchPathTypeToStr(BenchPathType pathType);
+		static std::string benchPathTypeToStr(BenchPathType pathType, const ProgArgs* progArgs);
 		static std::string stringVecToString(const StringVec& vec, std::string separator);
 };
 

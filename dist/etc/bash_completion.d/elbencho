@@ -23,11 +23,13 @@ _elbencho_opts()
 
    longopts="
         --allelapsed
+        --althttpsvc
         --backward
         --block
         --blockvaralgo
         --blockvarpct
         --configfile
+        --cores
         --cpu
         --csvfile
         --cufile
@@ -38,6 +40,7 @@ _elbencho_opts()
         --direct
         --dirs
         --dirsharing
+        --dirstats
         --dropcache
         --dryrun
         --files
@@ -62,6 +65,13 @@ _elbencho_opts()
         --lathisto
         --latpercent
         --latpercent9s
+        --limitread
+        --limitwrite
+        --live1
+        --live1n
+        --livecsv
+        --livecsvex
+        --liveint
         --log
         --mkdirs
         --no0usecerr
@@ -69,6 +79,7 @@ _elbencho_opts()
         --nodelerr
         --nodetach
         --nodiocheck
+        --nofdsharing
         --nolive
         --nosvcshare
         --perthread
@@ -81,9 +92,9 @@ _elbencho_opts()
         --randamount
         --rankoffset
         --read
-        --refresh
         --resfile
         --rwmixpct
+        --rwmixthr
         --s3endpoints
         --s3fastget
         --s3key
@@ -94,7 +105,6 @@ _elbencho_opts()
         --s3objprefix
         --s3randobj
         --s3region
-        --s3rwmixthr
         --s3secret
         --s3transman
         --service
@@ -140,6 +150,8 @@ _elbencho()
         ;&
         --blockvarpct)
         ;&
+        --cores)
+        ;&
         --dirs)
         ;&
         --files)
@@ -153,6 +165,12 @@ _elbencho()
         --iodepth)
         ;&
         --latpercent9s)
+        ;&
+        --limitread)
+        ;&
+        --limitwrite)
+        ;&
+        --liveint)
         ;&
         --log)
         ;&
@@ -168,9 +186,9 @@ _elbencho()
         ;&
         --rankoffset)
         ;&
-        --refresh)
-        ;&
         --rwmixpct)
+        ;&
+        --rwmixthr)
         ;&
         -s)
         ;&
@@ -183,8 +201,6 @@ _elbencho()
         --s3objprefix)
         ;&
         --s3region)
-        ;&
-        --s3rwmixthr)
         ;&
         --s3secret)
         ;&
@@ -218,6 +234,8 @@ _elbencho()
         --csvfile)
         ;&
         --hostsfile)
+        ;&
+        --livecsv)
         ;&
         --resfile)
         ;&

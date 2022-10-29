@@ -11,6 +11,7 @@
 #include "CuFileHandleData.h"
 #include "OffsetGenerator.h"
 #include "toolkits/random/RandAlgoInterface.h"
+#include "toolkits/RateLimiter.h"
 #include "Worker.h"
 
 #ifdef S3_SUPPORT
@@ -50,6 +51,8 @@ typedef void (LocalWorker::*CUFILE_HANDLE_DEREGISTER)(CuFileHandleData& handleDa
 // preWriteIntegrityCheckFillBuf/postReadIntegrityCheckVerifyBuf
 typedef void (LocalWorker::*BLOCK_MODIFIER)(char* buf, size_t bufLen, off_t fileOffset);
 
+// preRWRateLimiter
+typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize);
 
 
 /**
@@ -73,6 +76,10 @@ class LocalWorker : public Worker
 
 		struct
 		{
+			IntVec threadFDVec; // separate open files in file/bdev mode (progArgs::useNoFDSharing)
+			CuFileHandleDataVec threadCuFileHandleDataVec; /* separate cuFile handles
+															(progArgs::useNoFDSharing) */
+
 			IntVec fdVec; // fd of current file in dir mode
 			const IntVec* fdVecPtr{NULL}; /* for funcPositionalRW; fdVec in dir mode,
 				progArgs fdVec in file/bdev mode */
@@ -83,11 +90,17 @@ class LocalWorker : public Worker
 				elements corresponds to num elems in fdVecPtr target */
 		} fileHandles;
 
+		RateLimiter rateLimiter; // for r/w rate limit per sec if set by user
+
 		uint64_t numIOPSSubmitted{0}; // internal sequential counter, not reset between phases
+
+		// phase-dependent variables
+		BenchPhase benchPhase{BenchPhase_IDLE};
 
 		// phase-dependent function & offsetGen pointers
 		RW_BLOCKSIZED funcRWBlockSized; // pointer to sync or async read/write
-		POSITIONAL_RW funcPositionalRW; // pread/write, cuFileRead/Write for sync read/write
+		POSITIONAL_RW funcPositionalWrite; // pwrite, cuFileWrite for sync write
+		POSITIONAL_RW funcPositionalRead; // pread, cuFileRead for sync read
 		AIO_RW_PREPPER funcAioRwPrepper; // io_prep_pwrite/io_prep_read for async read/write
 		BLOCK_MODIFIER funcPreWriteBlockModifier; // mod block buf before write (e.g. integrity chk)
 		BLOCK_MODIFIER funcPostReadBlockChecker; // check block buf post read (e.g. integrity check)
@@ -95,6 +108,7 @@ class LocalWorker : public Worker
 		GPU_MEMCPY_RW funcPostReadCudaMemcpy; // copy to GPU memory
 		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
 		CUFILE_HANDLE_DEREGISTER funcCuFileHandleDereg; // cuFile handle deregister
+		RW_RATE_LIMITER funcRWRateLimiter; // limit per-thread read or write throughput
 		std::unique_ptr<OffsetGenerator> rwOffsetGen; // r/w offset gen for phase-dependent funcs
 		std::unique_ptr<RandAlgoInterface> randOffsetAlgo; // for random offsets
 		std::unique_ptr<RandAlgoInterface> randBlockVarAlgo; // for random block contents variance
@@ -108,10 +122,17 @@ class LocalWorker : public Worker
 		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 #endif
 
+		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
+
 		void finishPhase();
 
 		void initS3Client();
 		void uninitS3Client();
+		void initThreadFDVec();
+		void uninitThreadFDVec();
+		void initThreadCuFileHandleDataVec();
+		void uninitThreadCuFileHandleDataVec();
+		void initThreadPhaseVars();
 		void initPhaseFileHandleVecs();
 		void initPhaseRWOffsetGen();
 		void nullifyPhaseFunctionPointers();
@@ -155,6 +176,7 @@ class LocalWorker : public Worker
 		void s3ModeListObjParallel();
 		void s3ModeVerifyListing(StringSet& expectedSet, StringList& receivedList,
 			std::string bucketName, std::string listPrefix);
+		bool getS3ModeDoReverseSeqFallback();
 
 		void anyModeSync();
 		void anyModeDropCaches();
@@ -192,6 +214,9 @@ class LocalWorker : public Worker
 		void aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
+
+		void noOpRateLimiter(size_t rwSize);
+		void preRWRateLimiter(size_t rwSize);
 };
 
 

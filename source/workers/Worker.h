@@ -39,13 +39,16 @@ class Worker
 			LocalWorker: finish of only thread; for RemoteWorker: finish of each worker on host */
 		std::atomic_bool isInterruptionRequested{false}; // set true to request self-termination
 		AtomicLiveOps atomicLiveOps; // done in current phase
-		AtomicLiveOps atomicLiveRWMixReadOps; // read ops done in current write phase with rwmix>0
+		AtomicLiveOps atomicLiveOpsReadMix; // done in current phase
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
+		AtomicLiveOps oldAtomicLiveOpsReadMix; // copy of old atomicLiveOps for diff stats
 		std::atomic_bool stoneWallTriggered{false}; // true after 1st worker triggered stonewall
 		LiveOps stoneWallOps; // done values when stonewall was hit
-		LiveOps stoneWallRWMixReadOps; // read ops done values when stonewall was hit with rwmix>0
-		LatencyHistogram iopsLatHisto; // read/write ops latency histogram (valid only at phase end)
+		LiveOps stoneWallOpsReadMix; // done values when stonewall was hit
+		LatencyHistogram iopsLatHisto; // ops latency histogram (valid only at phase end)
+		LatencyHistogram iopsLatHistoReadMix; // ops latency histogram (valid only at phase end)
 		LatencyHistogram entriesLatHisto; // entry latency histogram (valid only at phase end)
+		LatencyHistogram entriesLatHistoReadMix; // entry lat histogram (valid only at phase end)
 
 		virtual void run() = 0;
 		virtual void cleanup() {}; // cleanup that needs to be done after run()
@@ -55,13 +58,20 @@ class Worker
 		void waitForNextPhase(const buuids::uuid& oldBenchID);
 		void checkInterruptionRequest();
 		void checkInterruptionRequest(std::function<void()> func);
-		void applyNumaBinding();
+		void applyNumaAndCoreBinding();
 
 	// inliners
 	public:
-		const SizeTVec& getElapsedUSecVec() const { return elapsedUSecVec; }
-		const LatencyHistogram& getIOPSLatencyHistogram() const { return iopsLatHisto; }
-		const LatencyHistogram& getEntriesLatencyHistogram() const { return entriesLatHisto; }
+		const SizeTVec& getElapsedUSecVec() const
+			{ return elapsedUSecVec; }
+		const LatencyHistogram& getIOPSLatencyHistogram() const
+			{ return iopsLatHisto; }
+		const LatencyHistogram& getIOPSLatencyHistogramReadMix() const
+			{ return iopsLatHistoReadMix; }
+		const LatencyHistogram& getEntriesLatencyHistogram() const
+			{ return entriesLatHisto; }
+		const LatencyHistogram& getEntriesLatencyHistogramReadMix() const
+			{ return entriesLatHistoReadMix; }
 
 		virtual void resetStats()
 		{
@@ -69,67 +79,90 @@ class Worker
 
 			elapsedUSecVec.resize(0);
 			atomicLiveOps.setToZero();
-			atomicLiveRWMixReadOps.setToZero();
+			atomicLiveOpsReadMix.setToZero();
 			oldAtomicLiveOps.setToZero();
+			oldAtomicLiveOpsReadMix.setToZero();
 			stoneWallTriggered = false;
 			stoneWallOps.setToZero();
-			stoneWallRWMixReadOps.setToZero();
+			stoneWallOpsReadMix.setToZero();
 			iopsLatHisto.reset();
+			iopsLatHistoReadMix.reset();
 			entriesLatHisto.reset();
+			entriesLatHistoReadMix.reset();
 		}
 
-		void getLiveOps(LiveOps& outLiveOps) const
+		/**
+		 * Get sum of normal liveOps and liveOpsReadMix.
+		 */
+		void getLiveOpsCombined(LiveOps& outLiveOpsCombined) const
 		{
-			atomicLiveOps.getAsLiveOps(outLiveOps);
+			atomicLiveOps.getAsLiveOps(outLiveOpsCombined);
+			atomicLiveOpsReadMix.getAndAddLiveOps(outLiveOpsCombined);
+		}
+
+		/**
+		 * Get normal liveOps and liveOpsReadMix.
+		 */
+		void getLiveOps(LiveOps& outSumLiveOps, LiveOps& outSumLiveOpsReadMix) const
+		{
+			atomicLiveOps.getAsLiveOps(outSumLiveOps);
+			atomicLiveOpsReadMix.getAsLiveOps(outSumLiveOpsReadMix);
 		}
 
 		/**
 		 * Add current live ops values of this worker to given outSumLiveOps.
 		 */
-		void getAndAddLiveOps(LiveOps& outSumLiveOps) const
+		void getAndAddLiveOps(LiveOps& outSumLiveOps, LiveOps& outSumLiveOpsReadMix) const
 		{
 			atomicLiveOps.getAndAddLiveOps(outSumLiveOps);
-		}
-
-		/**
-		 * Add current live ops values of this worker to given outSumLiveOps.
-		 */
-		void getAndAddLiveOps(LiveOps& outSumLiveOps, LiveOps& outSumLiveRWMixReadOps) const
-		{
-			atomicLiveOps.getAndAddLiveOps(outSumLiveOps);
-			atomicLiveRWMixReadOps.getAndAddLiveOps(outSumLiveRWMixReadOps);
-		}
-
-		/**
-		 * Add stonewall ops values of this worker to given outSumStoneWallOps.
-		 */
-		void getAndAddStoneWallOps(LiveOps& outSumStoneWallOps) const
-		{
-			stoneWallOps.getAndAddOps(outSumStoneWallOps);
+			atomicLiveOpsReadMix.getAndAddLiveOps(outSumLiveOpsReadMix);
 		}
 
 		/**
 		 * Add stonewall ops values of this worker to given outSumStoneWallOps.
 		 */
 		void getAndAddStoneWallOps(LiveOps& outSumStoneWallOps,
-			LiveOps& outSumStoneWallRWMixReadOps) const
+			LiveOps& outSumStoneWallOpsReadMix) const
 		{
 			stoneWallOps.getAndAddOps(outSumStoneWallOps);
-			stoneWallRWMixReadOps.getAndAddOps(outSumStoneWallRWMixReadOps);
+			stoneWallOpsReadMix.getAndAddOps(outSumStoneWallOpsReadMix);
 		}
 
 		/**
-		 * Store differnce of current and old live ops in outLiveOpsDiff and copy current
+		 * Store difference of current and old live ops in outLiveOpsDiff and copy current
 		 * live ops to old live ops.
 		 */
-		void getAndResetDiffStats(LiveOps& outLiveOpsDiff)
+		void getAndResetDiffStats(LiveOps& outLiveOpsDiff, LiveOps& outLiveOpsReadMixDiff)
 		{
 			outLiveOpsDiff.numEntriesDone = atomicLiveOps.numEntriesDone -
-					oldAtomicLiveOps.numEntriesDone.exchange(atomicLiveOps.numEntriesDone);
+				oldAtomicLiveOps.numEntriesDone.exchange(atomicLiveOps.numEntriesDone);
 			outLiveOpsDiff.numBytesDone = atomicLiveOps.numBytesDone -
-					oldAtomicLiveOps.numBytesDone.exchange(atomicLiveOps.numBytesDone);
+				oldAtomicLiveOps.numBytesDone.exchange(atomicLiveOps.numBytesDone);
 			outLiveOpsDiff.numIOPSDone = atomicLiveOps.numIOPSDone -
-					oldAtomicLiveOps.numIOPSDone.exchange(atomicLiveOps.numIOPSDone);
+				oldAtomicLiveOps.numIOPSDone.exchange(atomicLiveOps.numIOPSDone);
+
+			outLiveOpsReadMixDiff.numEntriesDone = atomicLiveOpsReadMix.numEntriesDone -
+				oldAtomicLiveOpsReadMix.numEntriesDone.exchange(
+					atomicLiveOpsReadMix.numEntriesDone);
+			outLiveOpsReadMixDiff.numBytesDone = atomicLiveOpsReadMix.numBytesDone -
+				oldAtomicLiveOpsReadMix.numBytesDone.exchange(
+					atomicLiveOpsReadMix.numBytesDone);
+			outLiveOpsReadMixDiff.numIOPSDone = atomicLiveOpsReadMix.numIOPSDone -
+				oldAtomicLiveOpsReadMix.numIOPSDone.exchange(
+						atomicLiveOpsReadMix.numIOPSDone);
+		}
+
+		/**
+		 * Store difference of current and old live ops in outLiveOpsDiff and copy current
+		 * live ops to old live ops.
+		 */
+		void getAndResetDiffStatsCombined(LiveOps& outLiveOpsDiff)
+		{
+			LiveOps liveOpsReadMixDiff;
+
+			getAndResetDiffStats(outLiveOpsDiff, liveOpsReadMixDiff);
+
+			liveOpsReadMixDiff.getAndAddOps(outLiveOpsDiff);
 		}
 
 		/**
@@ -140,7 +173,7 @@ class Worker
 			stoneWallTriggered = true;
 
 			atomicLiveOps.getAsLiveOps(stoneWallOps);
-			atomicLiveRWMixReadOps.getAsLiveOps(stoneWallRWMixReadOps);
+			atomicLiveOpsReadMix.getAsLiveOps(stoneWallOpsReadMix);
 		}
 
 		/**

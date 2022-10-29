@@ -245,7 +245,7 @@ check_space_available()
     fi
     local sa
     # The df man page states that SIZE units default to 1024 bytes
-    sa=$(df $src_data_dir|tail -1|awk '{ printf "%d", $4*1024 }')
+    sa=$(df $src_data_dir|tail -1|awk '{ printf "%.0f", $4*1024 }')
     [[ "$verbose" ]] && echo "Space availability now is: $sa bytes."
     [[ "$verbose" ]] && echo "Minimal requirement is   : $minimal_space bytes."
     if [[ "$sa" -lt "$minimal_space" ]]; then

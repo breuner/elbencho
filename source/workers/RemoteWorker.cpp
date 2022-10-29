@@ -1,3 +1,5 @@
+#include <chrono>
+#include <thread>
 #include <string>
 #include <sstream>
 #include "RemoteWorker.h"
@@ -30,7 +32,7 @@ void RemoteWorker::run()
 		buuids::uuid currentBenchID = buuids::nil_uuid();
 
 		// preparation phase
-		applyNumaBinding();
+		applyNumaAndCoreBinding();
 		prepareRemoteFile();
 		preparePhase();
 
@@ -202,6 +204,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		cpuUtil.stoneWall = resultTree.get<unsigned>(XFER_STATS_CPUUTIL_STONEWALL);
 		cpuUtil.lastDone = resultTree.get<unsigned>(XFER_STATS_CPUUTIL);
+		cpuUtil.live = 0;
 
 		elapsedUSecVec.resize(0);
 		elapsedUSecVec.reserve(progArgs->getNumThreads() );
@@ -214,12 +217,19 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
+			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
 		{
-			atomicLiveRWMixReadOps.numBytesDone =
+			atomicLiveOpsReadMix.numEntriesDone =
+					resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
+			atomicLiveOpsReadMix.numBytesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
-			atomicLiveRWMixReadOps.numIOPSDone =
+			atomicLiveOpsReadMix.numIOPSDone =
 					resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
+
+			iopsLatHistoReadMix.setFromPropertyTree(
+				resultTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
+			entriesLatHistoReadMix.setFromPropertyTree(
+				resultTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
 		}
 
 		phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
@@ -390,13 +400,20 @@ void RemoteWorker::startBenchPhase()
 void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 {
 	bool firstRound = true;
-	size_t sleepUS = progArgs->getSvcUpdateIntervalMS() * 1000;
-	size_t firstRoundSleepUS = std::min( (size_t)500000, sleepUS/2); /* sleep half sec in first
-		round to have first result when live stats get printed for the first time after 1 sec */
+
+	size_t svcUpdateIntervalMS = progArgs->getSvcUpdateIntervalMS();
+	if(svcUpdateIntervalMS > (progArgs->getLiveStatsSleepMS() / 2) )
+		svcUpdateIntervalMS = progArgs->getLiveStatsSleepMS() / 2;
+
+	std::chrono::milliseconds sleepMS(svcUpdateIntervalMS );
+	std::chrono::milliseconds firstRoundSleepMS( std::min(500, (int)(sleepMS.count() / 2) ) ); /*
+		shorter first round sleep to have results when live stats get printed for the first time */
+	std::chrono::steady_clock::time_point lastSleepT = workersSharedData->phaseStartT;
 
 	while(numWorkersDone < progArgs->getNumThreads() )
 	{
-		usleep(firstRound ? firstRoundSleepUS : sleepUS);
+		lastSleepT += firstRound ? firstRoundSleepMS : sleepMS;
+		std::this_thread::sleep_until(lastSleepT);
 
 		if(checkInterruption)
 			checkInterruptionRequest();
@@ -432,11 +449,13 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixPercent() || progArgs->getNumS3RWMixReadThreads() ) )
+				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
 			{
-				atomicLiveRWMixReadOps.numBytesDone =
+				atomicLiveOpsReadMix.numEntriesDone =
+					statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
+				atomicLiveOpsReadMix.numBytesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
-				atomicLiveRWMixReadOps.numIOPSDone =
+				atomicLiveOpsReadMix.numIOPSDone =
 					statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
 			}
 
@@ -480,7 +499,7 @@ void RemoteWorker::interruptBenchPhase(bool allowExceptionThrow, bool logSuccess
 		std::string requestPath = HTTPCLIENTPATH_INTERRUPTPHASE;
 
 		if(progArgs->getQuitServices() )
-			requestPath += "?" XFER_INTERRUPT_QUIT;
+			requestPath += "?" XFER_INTERRUPT_QUIT "=1"; // "=1" because some parsers expect "=" val
 
 		auto response = httpClient.request("GET", requestPath);
 

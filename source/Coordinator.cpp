@@ -1,7 +1,8 @@
 #include <csignal>
 #include <iostream>
 #include "Coordinator.h"
-#include "HTTPService.h"
+#include "HTTPServiceSWS.h"
+#include "HTTPServiceUWS.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "toolkits/S3Tk.h"
@@ -22,7 +23,6 @@ int Coordinator::main()
 	try
 	{
 		SignalTk::registerFaultSignalHandlers();
-		S3Tk::initS3Global(progArgs);
 
 		// HTTP service mode
 		// note: no other threads may be running when HTTPService.startServer() daemonizes.
@@ -30,14 +30,25 @@ int Coordinator::main()
 		{
 			LoggerBase::enableErrHistory();
 
-			HTTPService(progArgs, workerManager, statistics).startServer();
+			if(progArgs.getUseAlternativeHTTPService() )
+			{
+				#ifndef ALTHTTPSVC_SUPPORT
+					throw ProgException("This executable was built without support for alternative "
+						"HTTP service.");
+				#else
+					HTTPServiceUWS(progArgs, workerManager, statistics).startServer();
+				#endif // ALTHTTPSVC_SUPPORT
+			}
+			else
+				HTTPServiceSWS(progArgs, workerManager, statistics).startServer();
 
-			Logger() << "HTTP service ended." << std::endl; // should not happen
+			LOGGER(Log_VERBOSE, "HTTP service stopped." << std::endl);
 
 			workerManager.interruptAndNotifyWorkers();
 			goto joinall_and_exit;
 		}
 
+		S3Tk::initS3Global(progArgs); // inits threads and thus after potential service daemonize
 		workerManager.prepareThreads();
 
 		/* register signal handlers for clean worker stop and stats print after ctrl+c. This is not
