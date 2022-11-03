@@ -343,7 +343,9 @@ extract_results_for_plotting()
         ((i++))
     done
     # Join the p"$i" files into a single output file, using the default \t
-    paste "$output_dir"/p* > "$pasted_file"
+    # The [0-9] regex prevents hostnames with a leading p from messing up
+    # the resulting file.
+    paste "$output_dir"/p[0-9]* > "$pasted_file"
     ensure_file_exists "$pasted_file"
     # Create the final input file for gnuplot, stored in $sweep_csv, a global
     # variable :)

@@ -108,7 +108,7 @@ check_elbencho_version()
         echo "elbencho could not be found. Abort!"
         exit 1
     fi
-    vs=$(elbencho --version|grep ^Version|
+    vs=$(elbencho --version|grep Version|
              cut -d ':' -f 2|sed -e 's/^[ \t]*//' -e 's/\-[0-9]//')
     # Use bash's numeric context. Use the following to ensure that the
     # check remains functional with elbencho that's newer than 1.6.x
