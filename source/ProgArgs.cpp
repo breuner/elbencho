@@ -300,7 +300,8 @@ void ProgArgs::defineAllowedArgs()
 			"-" ARG_NUMTHREADS_SHORT "2 -" ARG_NUMDIRS_SHORT "3 -" ARG_NUMFILES_SHORT "4\" will "
 			"use 2x3x4=24 files.")
 /*n*/	(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirsOrigStr),
-			"Number of directories per thread. (Default: 1)")
+			"Number of directories per thread. This can be 0 to disable creation of any subdirs, "
+			"in which case all workers share the given dir. (Default: 1)")
 /*no0*/	(ARG_IGNORE0USECERR_LONG, bpo::bool_switch(&this->ignore0USecErrors),
 			"Do not warn if worker thread completion time is less than 1 microsecond.")
 /*noc*/	(ARG_NOCSVLABELS_LONG, bpo::bool_switch(&this->noCSVLabels),
@@ -2040,7 +2041,8 @@ void ProgArgs::printHelpMultiFile()
 		(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
 			"Number of I/O worker threads. (Default: 1)")
 		(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirs),
-			"Number of directories per I/O worker thread. (Default: 1)")
+			"Number of directories per I/O worker thread. This can be 0 to disable creation of any "
+			"subdirs, in which case all workers share the given dir. (Default: 1)")
 		(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
 			"Number of files per thread per directory. (Default: 1) Example: \""
 			"-" ARG_NUMTHREADS_SHORT "2 -" ARG_NUMDIRS_SHORT "3 -" ARG_NUMFILES_SHORT "4\" will "
@@ -2161,7 +2163,7 @@ void ProgArgs::printHelpS3()
 			"Number of I/O worker threads. (Default: 1)")
 		(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirs),
 			"Number of directories per I/O worker thread. Directories are slash-separated object "
-			"key prefixes. (Default: 1)")
+			"key prefixes. This can be 0 to disable creation of any subdirs. (Default: 1)")
 		(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
 			"Number of objects per thread per directory. (Default: 1) Example: \""
 			"-" ARG_NUMTHREADS_SHORT "2 -" ARG_NUMDIRS_SHORT "3 -" ARG_NUMFILES_SHORT "4\" will "
