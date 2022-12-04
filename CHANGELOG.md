@@ -1,5 +1,13 @@
 # Changelog of elbencho
 
+## v2.2.5 (Dec 04, 2022)
+
+### New Features & Enhancements
+* New option "--svcelapsed" shows service instances ordered by completion time of their slowest thread to make it easier to see if some services are always slower/faster than others.
+
+### Contributors
+* Thanks to Samuel Fulcomer for helpful comments and suggestions.
+
 ## v2.2.3 (Sep 18, 2022)
 
 ### New Features & Enhancements

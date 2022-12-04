@@ -1418,7 +1418,6 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	// print individual elapsed time results for each worker
 	if(progArgs.getShowAllElapsed() )
 	{
-		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% ""
 			% "Time ms each"
@@ -1432,6 +1431,46 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
 				outStream << (elapsedUSec / 1000) << " ";
 		}
+
+		outStream << "]" << std::endl;
+	}
+
+	// print hosts sorted from fastest to slowest (if this was a distributed run)
+	if(progArgs.getShowServicesElapsed() && !progArgs.getHostsVec().empty() )
+	{
+		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
+			% ""
+			% "Service compl. ms"
+			% ":";
+
+		outStream << "[ ";
+
+		typedef std::multimap<uint64_t, std::string> CompletionTimeMultiMap;
+		typedef CompletionTimeMultiMap::value_type CompletionTimeMultiMapVal;
+		CompletionTimeMultiMap completionTimeMap; // key is time ms, val is svc name
+
+		// build map by slowest finisher of each service instance
+		for(Worker* worker : workerVec)
+		{
+			RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
+			uint64_t slowestThreadUSec = 0;
+
+			// find slowest thread of this service instance
+			for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
+			{
+				if(elapsedUSec > slowestThreadUSec)
+					slowestThreadUSec = elapsedUSec;
+			}
+
+			completionTimeMap.insert(
+				CompletionTimeMultiMapVal(slowestThreadUSec/1000, remoteWorker->getHost() ) );
+		}
+
+		// services are now ordered by completion time of their slowest thread through the map
+
+		// print ordered list of services ascending by slowest thread completion time
+		for(const CompletionTimeMultiMapVal& mapVal : completionTimeMap)
+			outStream << mapVal.second << "=" << mapVal.first << " ";
 
 		outStream << "]" << std::endl;
 	}

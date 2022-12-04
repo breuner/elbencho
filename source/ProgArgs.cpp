@@ -418,6 +418,8 @@ void ProgArgs::defineAllowedArgs()
 			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
 			"start of benchmarks on different hosts, assuming they use synchronized clocks. "
 			"(Hint: Try 'date +%s' to get seconds since the epoch.)")
+/*sv*/	(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
+			"Show elapsed time to completion of each service instance ordered by slowest thread.")
 /*sv*/	(ARG_SVCUPDATEINTERVAL_LONG, bpo::value(&this->svcUpdateIntervalMS),
 			"Update retrieval interval for service hosts in milliseconds. (Default: 500)")
 /*sy*/	(ARG_SYNCPHASE_LONG, bpo::bool_switch(&this->runSyncPhase),
@@ -509,6 +511,7 @@ void ProgArgs::defineDefaults()
 	this->rankOffset = 0;
 	this->logLevel = Log_NORMAL;
 	this->showAllElapsed = false;
+	this->showServicesElapsed = false;
 	this->liveStatsSleepMS = 2000;
 	this->useRandomOffsets = false;
 	this->useRandomAligned = false;
@@ -2288,6 +2291,8 @@ void ProgArgs::printHelpDistributed()
 		(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service hosts. Thus, each service host will"
 			"work on the full given dataset instead of its own fraction of the data set.")
+		(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
+			"Show elapsed time to completion of each service instance ordered by slowest thread.")
 		(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 		(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),

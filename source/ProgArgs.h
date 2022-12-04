@@ -70,6 +70,7 @@ namespace bpt = boost::property_tree;
 #define ARG_NUMAZONES_LONG			"zones"
 #define ARG_CPUCORES_LONG			"cores"
 #define ARG_SHOWALLELAPSED_LONG		"allelapsed"
+#define ARG_SHOWSVCELAPSED_LONG		"svcelapsed"
 #define ARG_RANDOMOFFSETS_LONG		"rand"
 #define ARG_RANDOMALIGN_LONG		"randalign"
 #define ARG_RANDOMAMOUNT_LONG		"randamount"
@@ -245,7 +246,8 @@ class ProgArgs
 		IntVec numaZonesVec; // list from numaZoneStr broken down into individual elements
 		std::string cpuCoresStr; // comma-separted cpu cores that this process may run on
 		IntVec cpuCoresVec; // list from cpuCoresStr broken down into individual elements
-		bool showAllElapsed; // print elapsed time of each I/O worker
+		bool showAllElapsed; // print elapsed time of each I/O worker thread
+		bool showServicesElapsed; // print elapsed time of each service by slowest thread
 		size_t liveStatsSleepMS; // interval between live stats console/csv updates
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRandomAligned; // use block-aligned random offsets (when randomOffsets is used)
@@ -412,6 +414,7 @@ class ProgArgs
 		std::string getCPUCoresStr() const { return cpuCoresStr; }
 		const IntVec& getCPUCoresVec() const { return cpuCoresVec; }
 		bool getShowAllElapsed() const { return showAllElapsed; }
+		bool getShowServicesElapsed() const { return showServicesElapsed; }
 		size_t getLiveStatsSleepMS() const { return liveStatsSleepMS; }
 		bool getUseRandomOffsets() const { return useRandomOffsets; }
 		bool getUseRandomAligned() const { return useRandomAligned; }
