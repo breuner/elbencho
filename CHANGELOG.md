@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v2.2.6 (work in progress)
+
+### General Changes
+* Improved help text for distributed tests ("--help-dist").
+
 ## v2.2.5 (Dec 04, 2022)
 
 ### New Features & Enhancements
