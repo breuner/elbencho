@@ -1892,7 +1892,7 @@ void ProgArgs::printHelpOverview()
 		"Large shared files or block devices (e.g. streaming or random IOPS):" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPLARGE_LONG ENDL
 		std::endl <<
-		"Many files in different directories (e.g. lots of small files):" ENDL
+		"Multiple dirs and files per thread (e.g. lots of small files):" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPMULTIFILE_LONG ENDL
 		std::endl <<
 #ifdef S3_SUPPORT
