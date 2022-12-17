@@ -2304,17 +2304,17 @@ void ProgArgs::printHelpDistributed()
 
     std::cout <<
     	"Examples:" ENDL
-		"  Run service on two different NUMA zones of host node001:" ENDL
-		"    $ " EXE_NAME " --service --zone 0 --port 1611" ENDL
-		"    $ " EXE_NAME " --service --zone 1 --port 1612" ENDL
+		"  Start services on hosts node001 and node002:" ENDL
+		"    $ ssh node001 " EXE_NAME " --service" ENDL
+		"    $ ssh node002 " EXE_NAME " --service" ENDL
 		std::endl <<
-		"  Run master to coordinate benchmarks on node001 services, using 4 threads per" ENDL
-		"  service and creating 8 dirs per thread, each containing 16 1MiB files:" ENDL
-		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 \\" ENDL
+		"  Run distributed test on node001 and node002, using 4 threads per service" ENDL
+		"  instance and creating 8 dirs per thread, each containing 16 1MiB files:" ENDL
+		"    $ " EXE_NAME " --hosts node001,node002 \\" ENDL
 		"        -t 4 -d -n 8 -w -N 16 -s 1M /data/testdir" ENDL
 		std::endl <<
-		"  Quit services on host node001:" ENDL
-		"    $ " EXE_NAME " --hosts node001:1611,node001:1612 --quit" <<
+		"  Quit services on host node001 and node002:" ENDL
+		"    $ " EXE_NAME " --hosts node001,node002 --quit" <<
 		std::endl;
 }
 
