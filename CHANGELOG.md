@@ -8,6 +8,9 @@
 ### General Changes
 * Improved help text for distributed tests ("--help-dist").
 
+### Contributors
+* Thanks to Leon Clayton for helpful comments and suggestions.
+
 ## v2.2.5 (Dec 04, 2022)
 
 ### New Features & Enhancements

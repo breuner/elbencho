@@ -1899,7 +1899,11 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
  */
 ssize_t LocalWorker::hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
 	return hdfsPread(hdfsFSHandle, hdfsFileHandle, offset, buf, nbytes);
+#endif // HDFS_SUPPORT
 }
 
 /**
@@ -1909,7 +1913,11 @@ ssize_t LocalWorker::hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nby
  */
 ssize_t LocalWorker::hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
 	return hdfsWrite(hdfsFSHandle, hdfsFileHandle, buf, nbytes);
+#endif // HDFS_SUPPORT
 }
 
 /**
@@ -4226,6 +4234,10 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
  */
 void LocalWorker::hdfsDirModeIterateDirs()
 {
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
+
 	if(progArgs->getNumDirs() == 0)
 		return; // nothing to do
 
@@ -4339,6 +4351,7 @@ void LocalWorker::hdfsDirModeIterateDirs()
 		}
 	}
 
+#endif // HDFS_SUPPORT
 }
 
 /**
@@ -4350,6 +4363,10 @@ void LocalWorker::hdfsDirModeIterateDirs()
  */
 void LocalWorker::hdfsDirModeIterateFiles()
 {
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
+
 	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
 	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
 	const size_t numFiles = progArgs->getNumFiles();
@@ -4507,6 +4524,8 @@ void LocalWorker::hdfsDirModeIterateFiles()
 		} // end of files for loop
 	} // end of dirs for loop
 
+
+#endif // HDFS_SUPPORT
 }
 
 
