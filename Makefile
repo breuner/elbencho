@@ -111,6 +111,14 @@ CXXFLAGS += -DALTHTTPSVC_SUPPORT -I $(EXTERNAL_PATH)/uWebSockets/src \
 LDFLAGS  += -L $(EXTERNAL_PATH)/uWebSockets/uSockets -l:uSockets.a
 endif
 
+# Support for Hadoop HDFS
+# (Note: "lib/amd64/server" is for OpenJDK 1.8 on RHEL8.)
+ifeq ($(HDFS_SUPPORT), 1)
+CXXFLAGS += -DHDFS_SUPPORT -I $(HADOOP_HOME)/include
+LDFLAGS  += -L $(HADOOP_HOME)/lib/native -l:libhdfs.a -L $(JAVA_HOME)/lib/server \
+	-L $(JAVA_HOME)/lib/amd64/server -l jvm
+endif
+
 # Support build in Cygwin environment
 ifeq ($(CYGWIN_SUPPORT), 1)
 # EXE_UNSTRIPPED includes EXE in definition, so must be updated first 
@@ -270,6 +278,11 @@ ifeq ($(ALTHTTPSVC_SUPPORT),1)
 else
 	$(info [OPT] Alternative HTTP service disabled)
 endif
+ifeq ($(HDFS_SUPPORT),1)
+	$(info [OPT] HDFS support enabled. (HADOOP_HOME: $(HADOOP_HOME); JAVA_HOME: $(JAVA_HOME)))
+else
+	$(info [OPT] HDFS support disabled)
+endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
@@ -427,6 +440,11 @@ help:
 	@echo '                             libcufile.so)'
 	@echo '   CYGWIN_SUPPORT=0|1      - Reduce build features to enable build in Cygwin'
 	@echo '                             environment. (Default: 0)'
+	@echo '   HDFS_SUPPORT=0|1        - Build with support for Hadoop HDFS. HADOOP_HOME'
+	@echo '                             and JAVA_HOME need to be set correctly so that'
+	@echo '                             $$HADDOP_HOME/include/hdfs.h and'
+	@echo '                             $$JAVA_HOME/lib/server/libjvm.so can be found.'
+	@echo '                             (Default: 0)'
 	@echo '   USE_MIMALLOC=0|1        - Use Microsoft mimalloc library for memory'
 	@echo '                             allocation management. Recommended when using'
 	@echo '                             musl-libc. (Default: 0)'

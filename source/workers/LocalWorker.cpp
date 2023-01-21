@@ -107,6 +107,7 @@ void LocalWorker::run()
 		allocGPUIOBuffer();
 		prepareCustomTreePathStores();
 		initS3Client();
+		initHDFS();
 
 		// signal coordinator that our preparations phase is done
 		phaseFinished = true; // before incNumWorkersDone(), as Coordinator can reset after done inc
@@ -144,6 +145,9 @@ void LocalWorker::run()
 							throw WorkerException("Directory creation and deletion are not "
 								"available in file and block device mode.");
 
+						if(progArgs->getUseHDFS() )
+							hdfsDirModeIterateDirs();
+						else
 						if(progArgs->getS3EndpointsVec().empty() )
 						{
 							progArgs->getTreeFilePath().empty() ?
@@ -159,6 +163,9 @@ void LocalWorker::run()
 					{
 						if(progArgs->getBenchPathType() == BenchPathType_DIR)
 						{
+							if(progArgs->getUseHDFS() )
+								hdfsDirModeIterateFiles();
+							else
 							if(progArgs->getS3EndpointsVec().empty() )
 								progArgs->getTreeFilePath().empty() ?
 									dirModeIterateFiles() : dirModeIterateCustomFiles();
@@ -181,6 +188,9 @@ void LocalWorker::run()
 							throw WorkerException("File stat operation not available in file and "
 								"block device mode.");
 
+						if(progArgs->getUseHDFS() )
+							hdfsDirModeIterateFiles();
+						else
 						if(progArgs->getS3EndpointsVec().empty() )
 							progArgs->getTreeFilePath().empty() ?
 								dirModeIterateFiles() : dirModeIterateCustomFiles();
@@ -207,6 +217,9 @@ void LocalWorker::run()
 					{
 						if(progArgs->getBenchPathType() == BenchPathType_DIR)
 						{
+							if(progArgs->getUseHDFS() )
+								hdfsDirModeIterateFiles();
+							else
 							if(progArgs->getS3EndpointsVec().empty() )
 								progArgs->getTreeFilePath().empty() ?
 									dirModeIterateFiles() : dirModeIterateCustomFiles();
@@ -357,6 +370,37 @@ void LocalWorker::uninitS3Client()
 	s3Client.reset();
 
 #endif // S3_SUPPORT
+}
+
+void LocalWorker::initHDFS()
+{
+#ifdef HDFS_SUPPORT
+
+	if(!progArgs->getUseHDFS() )
+		return; // nothing to do
+
+	hdfsFSHandle = hdfsConnect("default", 0);
+	if(!hdfsFSHandle)
+		throw WorkerException("Unable to connect to HDFS using \"default\" config.");
+
+#endif // HDFS_SUPPORT
+}
+
+void LocalWorker::uninitHDFS()
+{
+#ifdef HDFS_SUPPORT
+
+	if(!progArgs->getUseHDFS() )
+		return; // nothing to do
+
+	if(!hdfsFSHandle)
+		return; // nothing to do
+
+	hdfsDisconnect(hdfsFSHandle);
+
+	hdfsFSHandle = NULL;
+
+#endif // HDFS_SUPPORT
 }
 
 /**
@@ -607,6 +651,7 @@ void LocalWorker::nullifyPhaseFunctionPointers()
 void LocalWorker::initPhaseFunctionPointers()
 {
 	const size_t ioDepth = progArgs->getIODepth();
+	const bool useHDFS = progArgs->getUseHDFS();
 	const bool useCuFileAPI = progArgs->getUseCuFile();
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
 	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
@@ -627,11 +672,21 @@ void LocalWorker::initPhaseFunctionPointers()
 	// independent of whether current phase is read or write...
 	// (these need to be set above the phase-dependent settings because those can override
 
-	funcPositionalWrite = useCuFileAPI ?
-		&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
+	if(useHDFS)
+		funcPositionalWrite = &LocalWorker::hdfsWriteWrapper;
+	else
+	if(useCuFileAPI)
+		funcPositionalWrite = &LocalWorker::cuFileWriteWrapper;
+	else
+		funcPositionalWrite = &LocalWorker::pwriteWrapper;
 
-	funcPositionalRead = useCuFileAPI ?
-		&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
+	if(useHDFS)
+		funcPositionalRead = &LocalWorker::hdfsReadWrapper;
+	else
+	if(useCuFileAPI)
+		funcPositionalRead = &LocalWorker::cuFileReadWrapper;
+	else
+		funcPositionalRead = &LocalWorker::preadWrapper;
 
 
 	// phase-dependent settings...
@@ -929,6 +984,7 @@ void LocalWorker::cleanup()
 	// delete rwOffsetGen (unique ptr) to eliminate any references to progArgs data etc.
 	rwOffsetGen.reset();
 
+	uninitHDFS();
 	uninitS3Client();
 
 	// reset custom tree mode path store
@@ -1839,6 +1895,24 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 }
 
 /**
+ * Wrapper for positional sync read for HDFS.
+ */
+ssize_t LocalWorker::hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+	return hdfsPread(hdfsFSHandle, hdfsFileHandle, offset, buf, nbytes);
+}
+
+/**
+ * Wrapper for positional sync write for HDFS.
+ *
+ * HDFS does not support seeking for writes, so offset is ignored.
+ */
+ssize_t LocalWorker::hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+	return hdfsWrite(hdfsFSHandle, hdfsFileHandle, buf, nbytes);
+}
+
+/**
  * Iterate over all directories to create or remove them.
  *
  * @throw WorkerException on error.
@@ -2044,7 +2118,7 @@ void LocalWorker::dirModeIterateCustomDirs()
 /**
  * This is for directory mode. Iterate over all files to create/read/remove them.
  * By default, this uses a unique dir per worker and fills up each dir before moving on to the next.
- * If dir sharing is enabled, all workers will use dirs or rank 0.
+ * If dir sharing is enabled, all workers will use dirs of rank 0.
  *
  * @throw WorkerException on error.
  */
@@ -2685,7 +2759,7 @@ void LocalWorker::s3ModeIterateBuckets()
  * This is for s3 mode. Iterate over all objects to create/read/remove them.
  * By default, this uses a unique "dir" (i.e. prefix with slashes inside a bucket) per worker and
  * fills up each dir before moving on to the next. If dir sharing is enabled, all workers will use
- * dirs or rank 0.
+ * dirs of rank 0.
  *
  * @throw WorkerException on error.
  */
@@ -4144,6 +4218,297 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 		throw;
 	}
 }
+
+/**
+ * Iterate over all directories in HDFS dir mode to create or remove them.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::hdfsDirModeIterateDirs()
+{
+	if(progArgs->getNumDirs() == 0)
+		return; // nothing to do
+
+	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t numDirs = progArgs->getNumDirs();
+	const StringVec& pathVec = progArgs->getBenchPaths();
+	const bool ignoreDelErrors = progArgs->getDoDirSharing() ?
+		true : progArgs->getIgnoreDelErrors(); // in dir share mode, all workers mk/del all dirs
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+
+	// create rank dir inside each pathFD
+	if(benchPhase == BenchPhase_CREATEDIRS)
+	{
+		for(unsigned pathFDsIndex = 0; pathFDsIndex < pathVec.size(); pathFDsIndex++)
+		{
+			// create rank dir for current pathFD...
+
+			checkInterruptionRequest();
+
+			// generate path
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("mkdir path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) );
+
+			std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+			int mkdirRes = hdfsCreateDirectory(hdfsFSHandle, fullPath.c_str() );
+
+			if( (mkdirRes == -1) && (errno != EEXIST) )
+				throw WorkerException(std::string("Rank directory creation failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+	}
+
+	// create user-specified number of directories round-robin across all given bench paths
+	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
+	{
+		checkInterruptionRequest();
+
+		// generate current dir path
+		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu",
+			workerDirRank, dirIndex);
+		IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+			throw WorkerException("mkdir path too long for static buffer. "
+				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+				"dirIndex: " + std::to_string(dirIndex) + "; "
+				"workerRank: " + std::to_string(workerRank) );
+
+		unsigned pathFDsIndex = (workerRank + dirIndex) % pathVec.size();
+
+		std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		if(benchPhase == BenchPhase_CREATEDIRS)
+		{ // create dir
+			int mkdirRes = hdfsCreateDirectory(hdfsFSHandle, fullPath.c_str() );
+
+			if( (mkdirRes == -1) && (errno != EEXIST) )
+				throw WorkerException(std::string("Directory creation failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+
+		if(benchPhase == BenchPhase_DELETEDIRS)
+		{ // remove dir
+			int rmdirRes = hdfsDelete(hdfsFSHandle, fullPath.c_str(), 0 /* recursive */ );
+
+			if( (rmdirRes == -1) && !ignoreDelErrors) // hdfs doesn't have a meaningful error code
+				throw WorkerException(std::string("Directory deletion failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+
+		// calc entry operations latency
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		atomicLiveOps.numEntriesDone++;
+	} // end of for loop
+
+
+	// delete rank dir inside each pathFD
+	if(benchPhase == BenchPhase_DELETEDIRS)
+	{
+		for(unsigned pathFDsIndex = 0; pathFDsIndex < pathVec.size(); pathFDsIndex++)
+		{
+			// delete rank dir for current pathFD...
+
+			checkInterruptionRequest();
+
+			// generate path
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("mkdir path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) );
+
+			std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+			int rmdirRes = hdfsDelete(hdfsFSHandle, fullPath.c_str(), 0 /* recursive */ );
+
+			if( (rmdirRes == -1) && !ignoreDelErrors) // hdfs doesn't have a meaningful error code
+				throw WorkerException(std::string("Directory deletion failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+	}
+
+}
+
+/**
+ * This is for HDFS directory mode. Iterate over all files to create/read/remove them.
+ * By default, this uses a unique dir per worker and fills up each dir before moving on to the next.
+ * If dir sharing is enabled, all workers will use dirs of rank 0.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::hdfsDirModeIterateFiles()
+{
+	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
+	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
+	const size_t numFiles = progArgs->getNumFiles();
+	const uint64_t fileSize = progArgs->getFileSize();
+	const StringVec& pathVec = progArgs->getBenchPaths();
+	const int openFlags = (benchPhase == BenchPhase_CREATEFILES) ? O_WRONLY : O_RDONLY;
+	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+
+	// walk over each unique dir per worker
+
+	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
+	{
+		// occasional interruption check
+		IF_UNLIKELY( (dirIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+			checkInterruptionRequest();
+
+		// fill up this dir with all files before moving on to the next dir
+
+		for(size_t fileIndex = 0; fileIndex < numFiles; fileIndex++)
+		{
+			// occasional interruption check
+			IF_UNLIKELY( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+				checkInterruptionRequest();
+
+			// generate current dir path
+			int printRes;
+
+			if(haveSubdirs)
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+					workerDirRank, dirIndex, workerRank, fileIndex);
+			else
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
+					workerRank, fileIndex);
+
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("file path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) + "; "
+					"dirIndex: " + std::to_string(dirIndex) + "; "
+					"fileIndex: " + std::to_string(fileIndex) );
+
+			unsigned pathFDsIndex = (workerRank + dirIndex) % pathVec.size();
+
+			std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+			rwOffsetGen->reset(); // reset for next file
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
+			{
+				hdfsFileHandle = hdfsOpenFile(hdfsFSHandle, fullPath.c_str(), openFlags, 0, 0, 0);
+
+				IF_UNLIKELY(hdfsFileHandle == NULL) // hdfs doesn't provide a meaningful error code
+					throw WorkerException(std::string("File open failed. ") +
+						"Path: " + fullPath);
+
+				if(progArgs->getUseDirectIO() )
+					hdfsUnbufferFile(hdfsFileHandle);
+
+				// try-block to ensure that fd is closed in case of exception
+				try
+				{
+					if(benchPhase == BenchPhase_CREATEFILES)
+					{
+						int64_t writeRes = ((*this).*funcRWBlockSized)();
+
+						IF_UNLIKELY(writeRes == -1)
+							throw WorkerException(std::string("File write failed. ") +
+								( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+									"Can be caused by directIO misalignment. " : "") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"SysErr: " + strerror(errno) );
+
+						IF_UNLIKELY( (size_t)writeRes != fileSize)
+							throw WorkerException(std::string("Unexpected short file write. ") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"Bytes written: " + std::to_string(writeRes) + "; "
+								"Expected written: " + std::to_string(fileSize) );
+					}
+
+					if(benchPhase == BenchPhase_READFILES)
+					{
+						ssize_t readRes = ((*this).*funcRWBlockSized)();
+
+						IF_UNLIKELY(readRes == -1)
+							throw WorkerException(std::string("File read failed. ") +
+								( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+									"Can be caused by directIO misalignment. " : "") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"SysErr: " + strerror(errno) );
+
+						IF_UNLIKELY( (size_t)readRes != fileSize)
+							throw WorkerException(std::string("Unexpected short file read. ") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"Bytes read: " + std::to_string(readRes) + "; "
+								"Expected read: " + std::to_string(fileSize) );
+					}
+				}
+				catch(...)
+				{ // ensure that we don't leak an open file fd
+					hdfsCloseFile(hdfsFSHandle, hdfsFileHandle);
+					throw;
+				}
+
+				int closeRes = hdfsCloseFile(hdfsFSHandle, hdfsFileHandle);
+
+				IF_UNLIKELY(closeRes == -1) // hdfs doesn't provide a meaningful error code
+					throw WorkerException(std::string("File close failed. ") +
+						"Path: " + fullPath);
+			}
+
+			if(benchPhase == BenchPhase_STATFILES)
+			{
+				hdfsFileInfo* fileInfo = hdfsGetPathInfo(hdfsFSHandle, fullPath.c_str() );
+
+				if(fileInfo == NULL) // hdfs doesn't provide a meaningful error code
+					throw WorkerException(std::string("File stat failed. ") +
+						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+			}
+
+			if(benchPhase == BenchPhase_DELETEFILES)
+			{
+				int unlinkRes =  hdfsDelete(hdfsFSHandle, fullPath.c_str(), 0 /* recursive */ );
+
+				if( (unlinkRes == -1) && !progArgs->getIgnoreDelErrors() )
+					throw WorkerException(std::string("File delete failed. ") +
+						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+			}
+
+			// calc entry operations latency. (for create, this includes open/rw/close.)
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			// inc special rwmix thread stats
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
+
+		} // end of files for loop
+	} // end of dirs for loop
+
+}
+
 
 /**
  * Calls the general sync() command to commit dirty pages from the linux page cache to stable

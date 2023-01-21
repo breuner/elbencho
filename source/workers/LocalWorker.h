@@ -21,6 +21,10 @@
 	#include "S3UploadStore.h"
 #endif
 
+#ifdef HDFS_SUPPORT
+	#include <hdfs.h>
+#endif
+
 // delaration for function typedefs below
 class LocalWorker;
 
@@ -122,12 +126,19 @@ class LocalWorker : public Worker
 		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 #endif
 
+#ifdef HDFS_SUPPORT
+		hdfsFS hdfsFSHandle{NULL}; // currently referenced hdfs instance
+		hdfsFile hdfsFileHandle{NULL}; // currently open file on hdfs
+#endif
+
 		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
 
 		void finishPhase();
 
 		void initS3Client();
 		void uninitS3Client();
+		void initHDFS();
+		void uninitHDFS();
 		void initThreadFDVec();
 		void uninitThreadFDVec();
 		void initThreadCuFileHandleDataVec();
@@ -178,6 +189,9 @@ class LocalWorker : public Worker
 			std::string bucketName, std::string listPrefix);
 		bool getS3ModeDoReverseSeqFallback();
 
+		void hdfsDirModeIterateDirs();
+		void hdfsDirModeIterateFiles();
+
 		void anyModeSync();
 		void anyModeDropCaches();
 
@@ -204,6 +218,8 @@ class LocalWorker : public Worker
 		ssize_t cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 
 		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
 		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);

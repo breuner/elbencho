@@ -97,7 +97,14 @@ std::string TranslatorTk::benchPathTypeToStr(BenchPathType pathType, const ProgA
 	switch(pathType)
 	{
 		case BenchPathType_DIR:
-			return progArgs->getS3EndpointsStr().empty() ? "dir" : "bucket";
+			if(progArgs->getUseHDFS() )
+				return "hdfs";
+			else
+			if(!progArgs->getS3EndpointsStr().empty() )
+				return "bucket";
+			else
+				return "dir";
+
 		case BenchPathType_FILE:
 			return progArgs->getS3EndpointsStr().empty() ? "file" : "object";
 		case BenchPathType_BLOCKDEV:

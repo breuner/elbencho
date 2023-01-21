@@ -9,7 +9,7 @@
  */
 void Worker::threadStart(Worker* worker)
 {
-	SignalTk::registerFaultSignalHandlers();
+	SignalTk::registerFaultSignalHandlers(*(worker->progArgs) );
 
 	worker->run();
 	worker->cleanup();

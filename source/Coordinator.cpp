@@ -22,7 +22,7 @@ int Coordinator::main()
 
 	try
 	{
-		SignalTk::registerFaultSignalHandlers();
+		SignalTk::registerFaultSignalHandlers(progArgs);
 
 		// HTTP service mode
 		// note: no other threads may be running when HTTPService.startServer() daemonizes.

@@ -240,6 +240,16 @@ void ProgArgs::defineAllowedArgs()
 			"Assign GPUs round robin to service instances (i.e. one GPU per service) instead of "
 			"default round robin to threads (i.e. multiple GPUs per service, if multiple given).")
 #endif
+#ifdef HDFS_SUPPORT
+/*hd*/	(ARG_HDFS_LONG, bpo::bool_switch(&this->useHDFS),
+			"Use Hadoop HDFS through the official libhdfs. Make sure that CLASSPATH contains "
+			"Hadoop XML conf files dir as first value, so that connecting to the \"default\" HDFS "
+			"instance works. This can only be used with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
+			ARG_NUMFILES_SHORT "\" and a single dir given as argument. (Hint: You might need to "
+			"set these environment variables: CLASSPATH=\"$(hadoop classpath)\" "
+			"LD_LIBRARY_PATH=\"$JAVA_HOME/lib/server:$HADOOP_HOME/lib/native\" "
+			"LIBHDFS_OPTS=\"-Xrs -Xms20g\".)")
+#endif
 /*ho*/	(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
 			"Comma-separated list of hosts in service mode for coordinated benchmark. When this "
 			"argument is used, this program instance runs in master mode to coordinate the given "
@@ -449,8 +459,7 @@ void ProgArgs::defineAllowedArgs()
 			"Truncate files to 0 size when opening for writing.")
 /*tr*/	(ARG_TRUNCTOSIZE_LONG, bpo::bool_switch(&this->doTruncToSize),
 			"Truncate files to given \"--" ARG_FILESIZE_LONG "\" via ftruncate() when opening for "
-			"writing. If the file previously was larger then the remainder is discarded. This flag "
-			"is automatically enabled when \"--" ARG_RANDOMOFFSETS_LONG "\" is given.")
+			"writing. If the file previously was larger then the remainder is discarded.")
 /*ve*/	(ARG_INTEGRITYCHECK_LONG, bpo::value(&this->integrityCheckSalt),
 			"Enable data integrity check. Writes sum of given 64bit salt plus current 64bit offset "
 			"as file or block device content, which can afterwards be verified in a read phase "
@@ -575,6 +584,7 @@ void ProgArgs::defineDefaults()
 	this->ignoreS3PartNum = false;
 	this->showDirStats = false;
 	this->useAlternativeHTTPService = false;
+	this->useHDFS = false;
 }
 
 /**
@@ -721,6 +731,24 @@ void ProgArgs::checkArgs()
 
 		useDirectIO = true;
 	}
+
+	if(useRandomOffsets && useHDFS && runCreateFilesPhase)
+		throw ProgException("HDFS does not support random offsets for writes.");
+
+	if(!treeFilePath.empty() && useHDFS)
+		throw ProgException("HDFS mode does not support custom tree files.");
+
+	if(!gpuIDsStr.empty() && useHDFS)
+		throw ProgException("HDFS mode does not support GPUs.");
+
+	if(rwMixPercent && useHDFS)
+		throw ProgException("HDFS does not support rwmix.");
+
+	if( (ioDepth > 1) && useHDFS)
+		throw ProgException("HDFS does not support IO depth larger than 1.");
+
+	if(!noDirectIOCheck && useHDFS)
+		noDirectIOCheck = true; // direct IO flag not relevant for hdfs buffering
 
 	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
 		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
@@ -1037,7 +1065,7 @@ void ProgArgs::parseAndCheckPaths()
 	// if we get here then this is not the master of a distributed run...
 
 	// skip open of local paths for S3
-	if(!s3EndpointsStr.empty() )
+	if(!s3EndpointsStr.empty() || useHDFS)
 	{
 		benchPathType = BenchPathType_DIR;
 		return;
@@ -1285,7 +1313,8 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			fileSize = currentFileSize;
 		}
 
-		if(!runCreateFilesPhase && ( (uint64_t)currentFileSize < fileSize) )
+		if(!runCreateFilesPhase && ( (uint64_t)currentFileSize < fileSize) &&
+			S_ISREG(statBuf.st_mode) ) // ignore character devices like "/dev/zero"
 			throw ProgException("Given size to use is larger than detected size. "
 				"File: " + path + "; "
 				"Detected size: " + std::to_string(currentFileSize) + "; "
@@ -1305,7 +1334,7 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			}
 
 			// truncate file to given size if set by user or when running in random mode
-			// (note: in random mode for reads to work across full length)
+			// (note: this is for reads in random mode to work across full length)
 			if(doTruncToSize ||
 				(useRandomOffsets && ( (size_t)currentFileSize < fileSize) ) )
 			{
@@ -1349,14 +1378,17 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			bool isFileSparseorCompressed =
 				FileTk::checkFileSparseOrCompressed(statBuf, allocatedFileSize);
 
+			double allocPercent = currentFileSize ?
+				100 * (double(allocatedFileSize) / double(currentFileSize) ) : 100;
+
 			// let user know about reading sparse/compressed files
 			if(isFileSparseorCompressed)
 				LOGGER(Log_NORMAL,
 					"NOTE: Allocated file disk space smaller than file size. File seems sparse or "
 					"compressed. (Sequential write can fill sparse areas.) "
 					"Path: " << path << "; "
-					"File size: " << currentFileSize << "; "
-					"Allocated size: " << (statBuf.st_blocks * 512) << std::endl);
+					"Allocated: " << std::setprecision(2) << std::fixed << allocPercent << "%" <<
+					std::endl);
 		}
 	}
 
@@ -1801,6 +1833,7 @@ BenchPathType ProgArgs::findBenchPathType(std::string pathStr)
 		case S_IFBLK: return BenchPathType_BLOCKDEV;
 		case S_IFDIR: return BenchPathType_DIR;
 		case S_IFREG: return BenchPathType_FILE;
+		case S_IFCHR: return BenchPathType_FILE; // for "/dev/null"
     }
 
     throw ProgException("Invalid path type: " + pathStr);
@@ -2388,10 +2421,10 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cufile/gds ";
 #endif
 
-#ifdef USE_MIMALLOC
-	includedStream << "mimalloc ";
+#ifdef HDFS_SUPPORT
+	includedStream << "hdfs ";
 #else
-	notIncludedStream << "mimalloc ";
+	notIncludedStream << "hdfs ";
 #endif
 
 #ifdef LIBAIO_SUPPORT
@@ -2404,6 +2437,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	includedStream << "libnuma ";
 #else
 	notIncludedStream << "libnuma ";
+#endif
+
+#ifdef USE_MIMALLOC
+	includedStream << "mimalloc ";
+#else
+	notIncludedStream << "mimalloc ";
 #endif
 
 #ifdef S3_SUPPORT
@@ -2496,6 +2535,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useNoFDSharing = tree.get<bool>(ARG_NOFDSHARING_LONG);
 	limitReadBps = tree.get<uint64_t>(ARG_LIMITREAD_LONG);
 	limitWriteBps = tree.get<uint64_t>(ARG_LIMITWRITE_LONG);
+	useHDFS = tree.get<bool>(ARG_HDFS_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2601,6 +2641,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_NOFDSHARING_LONG, useNoFDSharing);
 	outTree.put(ARG_LIMITREAD_LONG, limitReadBps);
 	outTree.put(ARG_LIMITWRITE_LONG, limitWriteBps);
+	outTree.put(ARG_HDFS_LONG, useHDFS);
 
 
 	// dynamically calculated values for service hosts...

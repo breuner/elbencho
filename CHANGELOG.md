@@ -2,6 +2,9 @@
 
 ## v2.2.6 (work in progress)
 
+### New Features & Enhancements
+* Added support for Hadoop HDFS through the offical libhdfs. See new option "--hdfs".
+
 ### General Changes
 * Improved help text for distributed tests ("--help-dist").
 

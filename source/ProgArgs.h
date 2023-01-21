@@ -141,6 +141,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_DIRSTATS_LONG			"dirstats"
 #define ARG_ALTHTTPSERVER_LONG		"althttpsvc"
+#define ARG_HDFS_LONG				"hdfs"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -334,6 +335,7 @@ class ProgArgs
 		bool ignoreS3PartNum; // don't check for >10K parts in multi-part uploads
 		bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
 		bool useAlternativeHTTPService; // use alternative http service implememtation
+		bool useHDFS; // use Hadoop HDFS
 
 
 		void defineDefaults();
@@ -495,6 +497,7 @@ class ProgArgs
 		bool getIgnoreS3PartNum() const { return ignoreS3PartNum; }
 		bool getShowDirStats() const { return showDirStats; }
 		bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
+		bool getUseHDFS() const { return useHDFS; }
 
 };
 
