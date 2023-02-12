@@ -1,4 +1,5 @@
 #include "LocalWorker.h"
+#include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
@@ -938,13 +939,16 @@ void LocalWorker::prepareCustomTreePathStores()
 	if(progArgs->getTreeFilePath().empty() )
 		return; // nothing to do here
 
-	bool throwOnSmallerThanBlockSize = progArgs->getUseRandomOffsets();
+	const bool throwOnSmallerThanBlockSize = progArgs->getUseRandomOffsets();
+
+	const size_t numThreads = progArgs->getNumThreads();
+	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+
+	progArgs->getCustomTreeDirs().getWorkerSublistNonShared(workerRank,
+		numDataSetThreads, false, customTreeDirs);
 
 	progArgs->getCustomTreeFilesNonShared().getWorkerSublistNonShared(workerRank,
-		progArgs->getNumDataSetThreads(), throwOnSmallerThanBlockSize, customTreeFiles);
-
-	size_t numThreads = progArgs->getNumThreads();
-	size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+		numDataSetThreads, throwOnSmallerThanBlockSize, customTreeFiles);
 
 	if(progArgs->getRunAsService() && !progArgs->getS3EndpointsStr().empty() &&
 		progArgs->getRunCreateFilesPhase() && (numDataSetThreads != numThreads) )
@@ -2042,8 +2046,11 @@ void LocalWorker::dirModeIterateDirs()
 }
 
 /**
- * In directory mode with custom tree, iterate over all directories to create or remove them.
- * All workers create/remove all dirs.
+ * In directory mode with custom tree, for creation we iterate over a fair share per worker and
+ * and create parents as needed (because there is no communication between workers that
+ * guarantees that all parents have been created). For deletion, first worker of each instance
+ * iterates over all dirs remove them (because we have no way to guarantee otherwise that all
+ * subdirs under a certain dir have been deleted).
  *
  * Note: With a custom tree, multiple benchmark paths are not supported (because otherwise we
  * 	can't ensure in file creation phase that the matching parent dir has been created for the
@@ -2056,13 +2063,19 @@ void LocalWorker::dirModeIterateCustomDirs()
 	const int benchPathFD = progArgs->getBenchPathFDs()[0];
 	const std::string benchPathStr = progArgs->getBenchPaths()[0];
 	const bool ignoreDelErrors = true; // in custom tree mode, all workers mk/del all dirs
-	const PathList& customTreePaths = progArgs->getCustomTreeDirs().getPaths();
+	const PathList& customTreePaths = (benchPhase == BenchPhase_DELETEDIRS) ?
+		progArgs->getCustomTreeDirs().getPaths() : customTreeDirs.getPaths();
 	const bool reverseOrder = (benchPhase == BenchPhase_DELETEDIRS);
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+
 
 	IF_UNLIKELY(customTreePaths.empty() )
 		return; // nothing to do here
 
-	/* note on reverse: dirs are ordered by path length, so that parents dirs come before their
+	if( (benchPhase == BenchPhase_DELETEDIRS) && (workerRank != 0) )
+		return; // only first worker iterates over all dirs for delete, others do nothing
+
+	/* note on reverse: dirs are ordered by path length, so that parent dirs come before their
 		subdirs. for tree removal, we need to remove subdirs first, hence the reverse order */
 
 	PathList::const_iterator forwardIter = customTreePaths.cbegin();
@@ -2079,7 +2092,8 @@ void LocalWorker::dirModeIterateCustomDirs()
 
 		if(benchPhase == BenchPhase_CREATEDIRS)
 		{ // create dir
-			int mkdirRes = mkdirat(benchPathFD, currentPathElem.path.c_str(), MKDIR_MODE);
+			int mkdirRes = FileTk::mkdiratBottomUp(
+				benchPathFD, currentPathElem.path.c_str(), MKDIR_MODE);
 
 			if( (mkdirRes == -1) && (errno != EEXIST) )
 				throw WorkerException(std::string("Directory creation failed. ") +

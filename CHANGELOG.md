@@ -7,6 +7,7 @@
 
 ### General Changes
 * Improved help text for distributed tests ("--help-dist").
+* Improved speed of directory creation in custom tree mode by making each worker only create a subset of the dirs.
 
 ### Contributors
 * Thanks to Leon Clayton for helpful comments and suggestions.

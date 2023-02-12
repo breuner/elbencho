@@ -118,6 +118,7 @@ class LocalWorker : public Worker
 		std::unique_ptr<RandAlgoInterface> randBlockVarAlgo; // for random block contents variance
 		std::unique_ptr<RandAlgoInterface> randBlockVarReseed; // reseed for golden prime block var
 
+		PathStore customTreeDirs; // non-shared dirs for custom tree mode
 		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
 
 #ifdef S3_SUPPORT

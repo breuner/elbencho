@@ -1,4 +1,5 @@
 #include <cstring>
+#include <filesystem>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -65,3 +66,41 @@ bool FileTk::checkFileSparseOrCompressed(struct stat& statBuf, off_t& outAllocat
 	return false;
 }
 
+/**
+ * Try to create the given dir. If this fails because the parents at higher levels don't exist,
+ * then try to create the parents from deepest level bottom up to highest level. (Bottom up because
+ * this is intended to be used in scenarios where multiple threads might call this, so the higher
+ * the parent, the higher the chances that it already exists.)
+ *
+ * return 0 on success, "-1" and errno on error similar to mkdirat().
+ */
+int FileTk::mkdiratBottomUp(int dirFD, const char* path, mode_t mode)
+{
+	int mkdirRes = mkdirat(dirFD, path, mode);
+
+	if(!mkdirRes || (errno == EEXIST) )
+		return mkdirRes;
+
+	if(errno == ENOENT)
+	{ // parent doesn't exist yet
+		std::filesystem::path pathObj(path);
+		std::filesystem::path parentPathObj = pathObj.parent_path();
+		if( (parentPathObj == pathObj) || (pathObj.string() == "") )
+		{ // we reached the root
+			errno = ENOENT;
+			return -1;
+		}
+
+		// we haven't reached the root of the path yet, so try to create the next parent
+
+		int mkdirParentRes = mkdiratBottomUp(dirFD, parentPathObj.string().c_str(), mode);
+		if( (mkdirParentRes == -1) && (errno != EEXIST) )
+			return mkdirParentRes; // parent creation failed
+
+		// parent creation succeeded, so try again to create actual dir
+		return mkdirat(dirFD, path, mode);
+	}
+
+	// any error that's not ENOENT and not EEXIST
+	return mkdirRes;
+}

@@ -447,7 +447,7 @@ void ProgArgs::defineAllowedArgs()
 			"treefile based on an existing data set. Otherwise, options are similar to \"--"
 			ARG_HELPMULTIFILE_LONG "\" with the exception of file size and number of dirs/files, "
 			"as these are defined in the treefile. (Note: The file list will be split across "
-			"worker threads, but each thread create/delete all of the dirs, so don't use this for "
+			"worker threads, but dir create/delete is not fully parallel, so don't use this for "
 			"dir create/delete performance testing.)")
 /*tr*/	(ARG_TREERANDOMIZE_LONG, bpo::bool_switch(&this->useCustomTreeRandomize),
 			"In custom tree mode: Randomize file order. Default is order by file size.")

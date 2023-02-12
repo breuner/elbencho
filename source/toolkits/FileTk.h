@@ -11,6 +11,7 @@ class FileTk
 	public:
 		static bool checkFileEmpty(std::string path);
 		static bool checkFileSparseOrCompressed(struct stat& statBuf, off_t& outAllocatedSize);
+		static int mkdiratBottomUp(int dirFD, const char* path, mode_t mode);
 
 	private:
 		FileTk() {}

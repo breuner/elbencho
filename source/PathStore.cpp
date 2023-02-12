@@ -232,8 +232,10 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
 	while(true)
 	{
 		const uint64_t fileSize = pathsIter->totalLen;
-		const uint64_t numFileBlocks = (fileSize / blockSize) +
-				( (fileSize % blockSize) ? 1 : 0);
+		uint64_t numFileBlocks = 0;
+
+		if(blockSize) // (blockSize can be zero for dir store)
+			numFileBlocks = (fileSize / blockSize) + ( (fileSize % blockSize) ? 1 : 0);
 
 		if(throwOnFileSmallerBlock && (fileSize < blockSize) )
 			throw ProgException("Found file that is smaller than block size. Consider using "

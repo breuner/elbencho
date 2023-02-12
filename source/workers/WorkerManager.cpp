@@ -376,7 +376,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
 				{
-					outNumEntriesPerWorker = numDirs; // all workers create/remove all dirs
+					outNumEntriesPerWorker = numDirs / numDataSetThreads;
 					outNumBytesPerWorker = 0;
 				} break;
 
