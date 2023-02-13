@@ -2067,12 +2067,13 @@ void LocalWorker::dirModeIterateCustomDirs()
 		progArgs->getCustomTreeDirs().getPaths() : customTreeDirs.getPaths();
 	const bool reverseOrder = (benchPhase == BenchPhase_DELETEDIRS);
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
-
+	const bool thisWorkerDoesDelDirs = progArgs->getIsServicePathShared() ?
+		(workerRank == 0) : (localWorkerRank == 0);
 
 	IF_UNLIKELY(customTreePaths.empty() )
 		return; // nothing to do here
 
-	if( (benchPhase == BenchPhase_DELETEDIRS) && (workerRank != 0) )
+	if( (benchPhase == BenchPhase_DELETEDIRS) && !thisWorkerDoesDelDirs)
 		return; // only first worker iterates over all dirs for delete, others do nothing
 
 	/* note on reverse: dirs are ordered by path length, so that parent dirs come before their

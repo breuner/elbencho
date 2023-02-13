@@ -1,5 +1,4 @@
 #include <cstring>
-#include <filesystem>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -7,6 +6,15 @@
 #include "Logger.h"
 #include "ProgException.h"
 
+#if __has_include(<filesystem>)
+  #include <filesystem>
+  namespace fs = std::filesystem;
+#elif __has_include(<experimental/filesystem>)
+  #include <experimental/filesystem>
+  namespace fs = std::experimental::filesystem;
+#else
+  error "Missing the <filesystem> header."
+#endif
 
 /**
  * Check if file is empty or not existing.
@@ -83,8 +91,8 @@ int FileTk::mkdiratBottomUp(int dirFD, const char* path, mode_t mode)
 
 	if(errno == ENOENT)
 	{ // parent doesn't exist yet
-		std::filesystem::path pathObj(path);
-		std::filesystem::path parentPathObj = pathObj.parent_path();
+		fs::path pathObj(path);
+		fs::path parentPathObj = pathObj.parent_path();
 		if( (parentPathObj == pathObj) || (pathObj.string() == "") )
 		{ // we reached the root
 			errno = ENOENT;
