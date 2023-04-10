@@ -2,6 +2,7 @@
 #define STATISTICS_H_
 
 #include "CPUUtil.h"
+#include "LiveLatency.h"
 #include "ProgArgs.h"
 #include "workers/WorkerManager.h"
 #include "workers/WorkersSharedData.h"
@@ -58,6 +59,8 @@ class LiveResults
 		LiveOps liveOpsPerSecReadMix; // live ops per sec from diff of new and last live ops
 		size_t percentDone; // total percent done based on bytes (if any) or num entries in phase
 		size_t percentDoneReadMix; // total percent done based on bytes (if any) or entries in phase
+
+		LiveLatency liveLatency; // avg latency across all workers for current live stats interval
 };
 
 class Statistics
@@ -75,7 +78,8 @@ class Statistics
 		void printPhaseResultsTableHeader();
 		void printPhaseResults();
 
-		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps);
+		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
+			LiveLatency& outLiveLatency);
 		void getLiveStatsAsPropertyTree(bpt::ptree& outTree);
 		void getBenchResultAsPropertyTree(bpt::ptree& outTree);
 
@@ -87,7 +91,7 @@ class Statistics
 		WorkersSharedData& workersSharedData;
 		WorkerVec& workerVec;
 		bool consoleBufferingDisabled{false};
-		const std::string phaseResultsFormatStr{"%|-9| %|-17|%|1| %|10| %|10|"};
+		const std::string phaseResultsFormatStr{"%|-9| %|-17|%|1| %|11| %|11|"};
 		const std::string phaseResultsLeftFormatStr{"%|-9| %|-17|%|1| "}; // left side format str
 		const std::string phaseResultsFooterStr = std::string(3, '-');
 		CPUUtil liveCpuUtil; // updated by live stats loop or through http service live stat calls

@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include "LatencyHistogram.h"
+#include "LiveLatency.h"
 #include "LiveOps.h"
 #include "ProgArgs.h"
 #include "WorkersSharedData.h"
@@ -116,6 +117,24 @@ class Worker
 		{
 			atomicLiveOps.getAndAddLiveOps(outSumLiveOps);
 			atomicLiveOpsReadMix.getAndAddLiveOps(outSumLiveOpsReadMix);
+		}
+
+		/**
+		 * Add current live latency values of this worker to given outSumLiveOps and reset them.
+		 */
+		virtual void getAndAddLiveLatency(LiveLatency& outLiveLatency)
+		{
+			iopsLatHisto.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgIOLatValues, outLiveLatency.avgIOLatMicroSecsSum);
+
+			iopsLatHistoReadMix.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgIOLatReadMixValues, outLiveLatency.avgIOLatReadMixMicroSecsSum);
+
+			entriesLatHisto.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgEntriesLatValues, outLiveLatency.avgEntriesLatMicroSecsSum);
+
+			entriesLatHistoReadMix.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgEntriesLatReadMixValues, outLiveLatency.avgEntriesLatReadMixMicrosSecsSum);
 		}
 
 		/**

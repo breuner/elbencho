@@ -47,7 +47,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"2.0.15"
+#define HTTP_PROTOCOLVERSION	"2.3.1"
 
 /**
  * Default access mode bits for new files.
@@ -158,6 +158,14 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define XFER_STATS_ELAPSEDUSECLIST_ITEM			"ElapsedUSecList.item"
 #define XFER_STATS_ELAPSEDSECS 					"ElapsedSecs"
 #define XFER_STATS_ERRORHISTORY					XFER_PREP_ERRORHISTORY
+#define XFER_STATS_LAT_NUM_IOPS					"NumIOLatUSec"
+#define XFER_STATS_LAT_SUM_IOPS					"SumIOLatUSec"
+#define XFER_STATS_LAT_NUM_IOPS_RWMIXREAD		"NumIOLatUSecRWMixRead"
+#define XFER_STATS_LAT_SUM_IOPS_RWMIXREAD		"SumIOLatUSecRWMixRead"
+#define XFER_STATS_LAT_NUM_ENTRIES				"NumEntLatUSec"
+#define XFER_STATS_LAT_SUM_ENTRIES				"SumEntLatUSec"
+#define XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD	"NumEntLatUSecRWMixRead"
+#define XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD	"SumEntLatUSecRWMixRead"
 #define XFER_STATS_LAT_PREFIX_IOPS				"IOPS_"
 #define XFER_STATS_LAT_PREFIX_ENTRIES			"Entries_"
 #define XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD	"IOPSRWMixRead_"

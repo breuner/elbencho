@@ -1,16 +1,19 @@
 # Changelog of elbencho
 
-## v2.2.6 (work in progress)
+## v2.3.0 (work in progress)
 
 ### New Features & Enhancements
 * Added support for Hadoop HDFS through the offical libhdfs. See new option "--hdfs".
+* Added average latency to live statistics. Will be shown in "--livecsv" and in fullscreen live stats when "--lat" is given as argument.
 
 ### General Changes
 * Improved help text for distributed tests ("--help-dist").
 * Improved speed of directory creation in custom tree mode by making each worker only create a subset of the dirs.
+* Elapsed time is shown more human-friendly in phase results table and in live statistics. (Hours and minutes instead of previously only seconds and milliseconds.)
+* Improved error message when existing CSV file fails compatibility check.
 
 ### Contributors
-* Thanks to Leon Clayton for helpful comments and suggestions.
+* Thanks to Leon Clayton, Andy Black, Roger Goff, John Legato for helpful comments and suggestions.
 
 ## v2.2.5 (Dec 04, 2022)
 

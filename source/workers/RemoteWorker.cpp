@@ -204,7 +204,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		cpuUtil.stoneWall = resultTree.get<unsigned>(XFER_STATS_CPUUTIL_STONEWALL);
 		cpuUtil.lastDone = resultTree.get<unsigned>(XFER_STATS_CPUUTIL);
-		cpuUtil.live = 0;
+		cpuUtil.live = 0; // this service is done, so no more cpu util
 
 		elapsedUSecVec.resize(0);
 		elapsedUSecVec.reserve(progArgs->getNumThreads() );
@@ -215,6 +215,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
+
+		liveLatency.setToZero(); // this service is done, so no more latency
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
 			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
@@ -230,6 +232,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 				resultTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
 			entriesLatHistoReadMix.setFromPropertyTree(
 				resultTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
+
+			// (note: liveLatency is nulled via .setToZero() above)
 		}
 
 		phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
@@ -448,6 +452,16 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			atomicLiveOps.numIOPSDone = statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
+			liveLatency.numAvgIOLatValues =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS);
+			liveLatency.avgIOLatMicroSecsSum =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS);
+
+			liveLatency.numAvgEntriesLatValues =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES);
+			liveLatency.avgEntriesLatMicroSecsSum =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES);
+
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
 				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
 			{
@@ -457,6 +471,16 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 					statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
 				atomicLiveOpsReadMix.numIOPSDone =
 					statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
+
+				liveLatency.numAvgIOLatReadMixValues =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD);
+				liveLatency.avgIOLatReadMixMicroSecsSum =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD);
+
+				liveLatency.numAvgEntriesLatReadMixValues =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD);
+				liveLatency.avgEntriesLatReadMixMicrosSecsSum =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD);
 			}
 
 			IF_UNLIKELY(numWorkersDoneWithError)

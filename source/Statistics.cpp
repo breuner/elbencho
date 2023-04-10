@@ -203,7 +203,7 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 	}
 
 	stream <<
-		elapsedSec.count() << "s";
+		UnitTk::elapsedSecToHumanStr(elapsedSec.count() );
 
 	std::string lineStr(stream.str() );
 
@@ -515,7 +515,7 @@ void Statistics::updateLiveStatsRemoteInfo(LiveResults& liveResults)
  */
 void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
 {
-	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix);
+	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
 
 	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
 	(liveResults.liveOpsPerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
@@ -553,6 +553,9 @@ void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
 		liveResults.percentDone = 0; // no % available in phases like "sync" or "dropcaches"
 		liveResults.percentDoneReadMix = 0; // no % available in phases like "sync" or "dropcaches"
 	}
+
+	// calc latency average values
+	liveResults.liveLatency.divAllByNumValues();
 }
 
 /**
@@ -566,11 +569,77 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
 
 	std::ostringstream stream;
 
-	stream << boost::format("Phase: %||  CPU: %|3|%%  Active: %||  Elapsed: %||s")
+	stream << boost::format("Phase: %||  CPU: %|3|%%  Active: %||  Elapsed: %||")
 		% liveResults.phaseName
 		% (unsigned) liveCpuUtil.getCPUUtilPercent()
 		% (workerVec.size() - liveResults.numWorkersDone)
-		% elapsedSec.count();
+		% UnitTk::elapsedSecToHumanStr(elapsedSec.count() );
+
+	printFullScreenLiveStatsLine(stream, liveResults.winWidth, false);
+
+	if(!progArgs.getShowLatency() )
+		return;
+
+	// latency
+
+	const bool isRWMixPhase = (liveResults.newLiveOpsReadMix.numBytesDone ||
+		liveResults.newLiveOpsReadMix.numEntriesDone);
+	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
+
+	stream << "Latency: ";
+
+	if(!isRWMixPhase)
+	{
+		if(progArgs.getBenchPathType() != BenchPathType_DIR)
+			stream << UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum);
+		else
+		{ // BenchPathType_DIR
+			stream <<
+				"IO=" <<
+				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
+				" " <<
+				liveResults.entryTypeUpperCase << "=" <<
+				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgEntriesLatMicroSecsSum);
+		}
+	}
+	else
+	{ // rwmix
+		stream <<
+			"IO ["
+			"wr=" <<
+			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
+			" "
+			"rd=" <<
+			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatReadMixMicroSecsSum) <<
+			"]";
+
+		if(progArgs.getBenchPathType() == BenchPathType_DIR)
+		{
+			stream << "  "; // double space as separator
+
+			if(!isRWMixThreadsPhase)
+			{
+				stream <<
+					liveResults.entryTypeUpperCase << "=" <<
+					UnitTk::latencyUsToHumanStr(
+						liveResults.liveLatency.avgEntriesLatMicroSecsSum);
+			}
+			else
+			{
+				stream <<
+					liveResults.entryTypeUpperCase <<
+					" ["
+					"wr=" <<
+					UnitTk::latencyUsToHumanStr(
+						liveResults.liveLatency.avgEntriesLatMicroSecsSum) <<
+					" "
+					"rd=" <<
+					UnitTk::latencyUsToHumanStr(
+						liveResults.liveLatency.avgEntriesLatReadMixMicrosSecsSum) <<
+					"]";
+			}
+		}
+	}
 
 	printFullScreenLiveStatsLine(stream, liveResults.winWidth, false);
 }
@@ -806,14 +875,21 @@ void Statistics::printLiveStats()
  * @param outLiveOps entries/ops/bytes done for all workers (does not need to be initialized to 0).
  * @param outLiveRWMixReadOps rwmix mode read entries/ops/bytes done for all workers (does not need
  * 		to be initialized to 0).
+ * @param outLiveLatency this method will call divAllByNumValues(), so struct values are avg across
+ * 		all workers.
  */
-void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps)
+void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
+	LiveLatency& outLiveLatency)
 {
 	outLiveOps = {}; // set all members to zero
 	outLiveRWMixReadOps = {}; // set all members to zero
+	outLiveLatency = {}; // set all members to zero
 
 	for(size_t i=0; i < workerVec.size(); i++)
+	{
 		workerVec[i]->getAndAddLiveOps(outLiveOps, outLiveRWMixReadOps);
+		workerVec[i]->getAndAddLiveLatency(outLiveLatency);
+	}
 }
 
 /**
@@ -823,8 +899,9 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
 	LiveOps liveOpsReadMix;
+	LiveLatency liveLatency;
 
-	getLiveOps(liveOps, liveOpsReadMix);
+	getLiveOps(liveOps, liveOpsReadMix, liveLatency);
 
 	std::chrono::seconds elapsedDurationSecs =
 				std::chrono::duration_cast<std::chrono::seconds>
@@ -842,6 +919,10 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_NUMIOPSDONE, liveOps.numIOPSDone);
 	outTree.put(XFER_STATS_CPUUTIL, (unsigned) liveCpuUtil.getCPUUtilPercent() );
 	outTree.put(XFER_STATS_ELAPSEDSECS, elapsedSecs);
+	outTree.put(XFER_STATS_LAT_NUM_IOPS, liveLatency.numAvgIOLatValues);
+	outTree.put(XFER_STATS_LAT_SUM_IOPS, liveLatency.avgIOLatMicroSecsSum);
+	outTree.put(XFER_STATS_LAT_NUM_ENTRIES, liveLatency.numAvgEntriesLatValues);
+	outTree.put(XFER_STATS_LAT_SUM_ENTRIES, liveLatency.avgEntriesLatMicroSecsSum);
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
 		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ) )
@@ -849,6 +930,15 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 		outTree.put(XFER_STATS_NUMENTRIESDONE_RWMIXREAD, liveOpsReadMix.numEntriesDone);
 		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveOpsReadMix.numBytesDone);
 		outTree.put(XFER_STATS_NUMIOPSDONE_RWMIXREAD, liveOpsReadMix.numIOPSDone);
+
+		outTree.put(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD,
+			liveLatency.numAvgIOLatReadMixValues);
+		outTree.put(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD,
+			liveLatency.avgIOLatReadMixMicroSecsSum);
+		outTree.put(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD,
+			liveLatency.numAvgEntriesLatReadMixValues);
+		outTree.put(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD,
+			liveLatency.avgEntriesLatReadMixMicrosSecsSum);
 	}
 
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );
@@ -1191,10 +1281,10 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	// elapsed time
 	outStream << boost::format(Statistics::phaseResultsFormatStr)
 		% phaseName
-		% "Elapsed ms"
+		% "Elapsed time"
 		% ":"
-		% (phaseResults.firstFinishUSec / 1000)
-		% (phaseResults.lastFinishUSec / 1000)
+		% UnitTk::elapsedMSToHumanStr(phaseResults.firstFinishUSec / 1000)
+		% UnitTk::elapsedMSToHumanStr(phaseResults.lastFinishUSec / 1000)
 		<< std::endl;
 
 	// entries (dirs/files) per second
@@ -1440,7 +1530,7 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	{
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% ""
-			% "Service compl. ms"
+			% "Svc compl. time"
 			% ":";
 
 		outStream << "[ ";
@@ -1470,7 +1560,7 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 
 		// print ordered list of services ascending by slowest thread completion time
 		for(const CompletionTimeMultiMapVal& mapVal : completionTimeMap)
-			outStream << mapVal.second << "=" << mapVal.first << " ";
+			outStream << mapVal.second << "=" << UnitTk::elapsedMSToHumanStr(mapVal.first) << " ";
 
 		outStream << "]" << std::endl;
 	}
@@ -1685,14 +1775,14 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% ""
-			% (latTypeStr + " lat us")
+			% (latTypeStr + " latency")
 			% ":";
 
 		outStream <<
 			"[ " <<
-			"min=" << latHisto.getMinMicroSecLat() << " "
-			"avg=" << latHisto.getAverageMicroSec() << " "
-			"max=" << latHisto.getMaxMicroSecLat() <<
+			"min=" << UnitTk::latencyUsToHumanStr(latHisto.getMinMicroSecLat() ) << " "
+			"avg=" << UnitTk::latencyUsToHumanStr(latHisto.getAverageMicroSec() ) << " "
+			"max=" << UnitTk::latencyUsToHumanStr(latHisto.getMaxMicroSecLat() ) <<
 			" ]" << std::endl;
 	}
 
@@ -1784,12 +1874,13 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
 	LiveOps liveOpsReadMix;
+	LiveLatency liveLatency;
 	LatencyHistogram iopsLatHisto; // sum of all histograms
 	LatencyHistogram iopsLatHistoReadMix; // sum of all histograms
 	LatencyHistogram entriesLatHisto; // sum of all histograms
 	LatencyHistogram entriesLatHistoReadMix; // sum of all histograms
 
-	getLiveOps(liveOps, liveOpsReadMix);
+	getLiveOps(liveOps, liveOpsReadMix, liveLatency);
 
 	outTree.put(XFER_STATS_BENCHID, workersSharedData.currentBenchID);
 	outTree.put(XFER_STATS_BENCHPHASENAME,
@@ -1944,6 +2035,8 @@ void Statistics::prepLiveCSVFile()
 			"IOPS,"
 			"Entries,"
 			"Entries/s,"
+			"Lat Ent us,"
+			"Lat IO us,"
 			"Active,"
 			"CPU,"
 			"Service," << std::endl;
@@ -1999,6 +2092,8 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 		liveResults.liveOpsPerSec.numIOPSDone << "," <<
 		(isDirBenchPath ? liveResults.newLiveOps.numEntriesDone : 0) << "," <<
 		(isDirBenchPath ? liveResults.liveOpsPerSec.numEntriesDone : 0) << "," <<
+		liveResults.liveLatency.avgEntriesLatMicroSecsSum << "," <<
+		liveResults.liveLatency.avgIOLatMicroSecsSum << "," <<
 		numActiveWorkers << "," <<
 		cpuUtil << ","
 		"" << ","; // service
@@ -2027,6 +2122,8 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 			liveResults.liveOpsPerSecReadMix.numIOPSDone << "," <<
 			(isDirBenchPath ? numEntriesDone : 0) << "," <<
 			(isDirBenchPath ? numEntriesDonePerSec : 0) << "," <<
+			liveResults.liveLatency.avgEntriesLatReadMixMicrosSecsSum << "," <<
+			liveResults.liveLatency.avgIOLatReadMixMicroSecsSum << "," <<
 			numActiveWorkers << "," <<
 			cpuUtil << ","
 			"" << ","; // service
@@ -2078,7 +2175,9 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 			"" << "," << // bytes/s
 			"" << "," << // iops
 			(isDirBenchPath ? workerDone.numEntriesDone : 0) << "," <<
-			"" << ","; // entries/s
+			"" << "," // entries/s
+			"" << "," // entries lat
+			"" << ","; // io lat
 
 		// add columns for remote mode
 		if(progArgs.getHostsVec().empty() )
@@ -2125,7 +2224,9 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 				"" << "," << // bytes/s
 				"" << "," << // iops
 				(isDirBenchPath ? numEntriesDone : 0) << "," <<
-				"" << ","; // entries/s
+				"" << "," // entries/s
+				"" << "," // entries lat
+				"" << ","; // io lat
 
 			// add columns for remote mode
 			if(progArgs.getHostsVec().empty() )

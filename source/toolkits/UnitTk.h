@@ -11,6 +11,9 @@ class UnitTk
 {
 	public:
 		static uint64_t numHumanToBytesBinary(std::string numHuman, bool throwOnEmpty);
+		static std::string latencyUsToHumanStr(uint64_t numMicroSec);
+		static std::string elapsedSecToHumanStr(uint64_t elapsedSec);
+		static std::string elapsedMSToHumanStr(uint64_t elapsedMS);
 
 	private:
 		UnitTk() {}
