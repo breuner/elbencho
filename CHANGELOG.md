@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v2.3.0 (work in progress)
+## v2.3.1 (Apr 10, 2023)
 
 ### New Features & Enhancements
 * Added support for Hadoop HDFS through the offical libhdfs. See new option "--hdfs".
