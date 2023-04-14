@@ -1,6 +1,7 @@
 #ifndef LATENCYHISTOGRAM_H_
 #define LATENCYHISTOGRAM_H_
 
+#include <atomic>
 #include <cmath>
 #include <ctype.h>
 #include <vector>

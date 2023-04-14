@@ -1,5 +1,13 @@
 # Changelog of elbencho
 
+## v2.3.2 (work in progress)
+
+### Fixes
+* Fixed compilation error (missing include directive) when building without S3 support.
+
+### Contributors
+* Thanks to Glenn K. Lockwood for reporting an issue.
+
 ## v2.3.1 (Apr 10, 2023)
 
 ### New Features & Enhancements
