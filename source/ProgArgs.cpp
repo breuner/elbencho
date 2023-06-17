@@ -27,6 +27,7 @@
 #define ZONELIST_DELIMITERS			", " // delimiters for numa zones string (comma or space)
 #define GPULIST_DELIMITERS			", \n\r" // delimiters for gpuIDs string
 #define S3ENDPOINTS_DELIMITERS		", \n\r" // delimiters for S3 endpoints list string
+#define NETDEV_DELIMITERS			", \n\r" // delimiters for net dev list string
 
 #define ENDL						<< std::endl << // just to make help text print lines shorter
 
@@ -152,7 +153,8 @@ void ProgArgs::defineAllowedArgs()
 			"Use alternative implementation of HTTP service (for testing).")
 #endif // ALTHTTPSVC_SUPPORT
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
-			"Number of bytes to read/write in a single operation. (Default: 1M)")
+			"Number of bytes to read/write in a single operation. (Default: 1M; "
+			"supports base2 suffixes, e.g. \"2M\")")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
@@ -312,6 +314,21 @@ void ProgArgs::defineAllowedArgs()
 /*n*/	(ARG_NUMDIRS_LONG "," ARG_NUMDIRS_SHORT, bpo::value(&this->numDirsOrigStr),
 			"Number of directories per thread. This can be 0 to disable creation of any subdirs, "
 			"in which case all workers share the given dir. (Default: 1)")
+/*net*/	(ARG_NETBENCH_LONG, bpo::bool_switch(&this->useNetBench),
+			"Run network benchmarking. This will transfer data from clients to servers using the "
+			"given filesize as amount to send by each client thread. To simulate a storage access "
+			"request/response pattern, a client thread waits for a response of length "
+			"\"--" ARG_RESPSIZE_LONG "\" bytes after each sent blocksized chunk. "
+			"See \"--" ARG_NUMNETBENCHSERVERS_LONG "\" for how to define servers as subset of the "
+			"service instances list. Netbench always implies a write phase. To simulate reads, "
+			"a 1 byte blocksize (\"-" ARG_BLOCK_SHORT " 1\") can be used with an inrecreased "
+			"\"--" ARG_RESPSIZE_LONG "\". The used network port for data transfer connections will "
+			"be \"--" ARG_SERVICEPORT_LONG "\" plus 1000. (Netbench mode defaults to disabled "
+			"block variance.)")
+/*net*/	(ARG_NETDEVS_LONG, bpo::value(&this->netDevsStr),
+			"Comma-separated list of network device names (e.g. \"eth0\") for "
+			"round-robin binding of outgoing (client-side) connections in network benchmark mode. "
+			"Requires root privileges.")
 /*no0*/	(ARG_IGNORE0USECERR_LONG, bpo::bool_switch(&this->ignore0USecErrors),
 			"Do not warn if worker thread completion time is less than 1 microsecond.")
 /*noc*/	(ARG_NOCSVLABELS_LONG, bpo::bool_switch(&this->noCSVLabels),
@@ -332,6 +349,9 @@ void ProgArgs::defineAllowedArgs()
 /*nu*/	(ARG_NUMHOSTS_LONG, bpo::value(&this->numHosts),
 			"Number of hosts to use from given hosts list or hosts file. (Default: use all given "
 			"hosts)")
+/*nu*/	(ARG_NUMNETBENCHSERVERS_LONG, bpo::value(&this->numNetBenchServers),
+			"Number of servers for network benchmark mode, counted from the beginning of the given "
+			"hosts list or hosts file. The rest will be used as clients. (Default: 1)")
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
@@ -355,6 +375,13 @@ void ProgArgs::defineAllowedArgs()
 			"benchmark path is a file or block device. (Default: Set to file size)")
 /*ra*/	(ARG_RANKOFFSET_LONG, bpo::value(&this->rankOffset),
 			"Rank offset for worker threads. (Default: 0)")
+/*re*/	(ARG_RECVBUFSIZE_LONG, bpo::value(&this->sockRecvBufSizeOrigStr),
+			"In netbench mode, this sets the receive buffer size of sockets in bytes. "
+			"(Supports base2 suffixes, e.g. \"2M\")")
+/*re*/	(ARG_RESPSIZE_LONG, bpo::value(&this->netBenchRespSizeOrigStr),
+			"Netbench mode server response size in bytes. Servers will send this amount of data as "
+			"response to each received block from a client. (Default: 1; "
+			"supports base2 suffixes, e.g. \"2M\")")
 /*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
 			"Path to file for human-readable results, similar to console output. If the file "
 			"exists, new results will be appended.")
@@ -367,12 +394,12 @@ void ProgArgs::defineAllowedArgs()
 			"In S3 mode, this only works in combination with \"-" ARG_NUMDIRS_SHORT "\" and \"-"
 			ARG_NUMFILES_SHORT "\".")
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
-			"File size. (Default: 0)")
+			"File size. (Default: 0; supports base2 suffixes, e.g. \"2M\")")
 #ifdef S3_SUPPORT
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
-			"Comma-separated list of S3 endpoints. When this argument is used, the given benchmark "
-			"paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & \"--"
-			ARG_S3ACCESSSECRET_LONG "\". (Format: [http(s)://]hostname[:port])")
+			"Comma-separated list of S3 endpoints. When this argument is used, the given "
+			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
+			"\"--" ARG_S3ACCESSSECRET_LONG "\". (Format: [http(s)://]hostname[:port])")
 /*s3f*/	(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3FastRead),
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
@@ -415,6 +442,9 @@ void ProgArgs::defineAllowedArgs()
 			"1, but only supports simple sequential downloads. This is incompatible with "
 			"post-processing options similar to \"--" ARG_S3FASTGET_LONG "\".")
 #endif // S3_SUPPORT
+/*se*/	(ARG_SENDBUFSIZE_LONG, bpo::value(&this->sockSendBufSizeOrigStr),
+			"In netbench mode, this sets the send buffer size of sockets in bytes. "
+			"(Supports base2 suffixes, e.g. \"2M\")")
 /*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
 			"Run as service for distributed mode, waiting for requests from master.")
 /*sh*/	(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
@@ -585,6 +615,14 @@ void ProgArgs::defineDefaults()
 	this->showDirStats = false;
 	this->useAlternativeHTTPService = false;
 	this->useHDFS = false;
+	this->useNetBench = false;
+	this->numNetBenchServers = 1;
+	this->netBenchRespSize = 1;
+	this->netBenchRespSizeOrigStr = "1";
+	this->sockRecvBufSize = 0;
+	this->sockRecvBufSizeOrigStr = "0";
+	this->sockSendBufSize = 0;
+	this->sockSendBufSizeOrigStr = "0";
 }
 
 /**
@@ -614,14 +652,6 @@ void ProgArgs::initImplicitValues()
 	if(useBriefLiveStatsNewLine)
 		useBriefLiveStats = true;
 
-	if(integrityCheckSalt && blockVariancePercent)
-	{
-		if(runCreateFilesPhase)
-			LOGGER(Log_NORMAL, "NOTE: Ingetrity check disables block variance." << std::endl);
-
-		blockVariancePercent = 0;
-	}
-
 	if(!s3EndpointsStr.empty() && runAsService)
 	{
 		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
@@ -632,6 +662,30 @@ void ProgArgs::initImplicitValues()
 
 	benchLabelNoCommas = benchLabel;
 	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
+
+	if(useNetBench)
+	{
+		runCreateFilesPhase = true;
+
+		// default to no block variance unless explicitly requested by user
+		if(!argsVariablesMap.count(ARG_BLOCKVARIANCE_LONG) )
+			blockVariancePercent = 0;
+
+		// netbench uses dir mode. transfer size is 1x filesize per thread. this is for live stats.
+		numDirsOrigStr = "0";
+		numDirs = 0;
+		numFilesOrigStr = "1";
+		numFiles = 1;
+	}
+
+	if(integrityCheckSalt && blockVariancePercent)
+	{
+		if(runCreateFilesPhase)
+			LOGGER(Log_NORMAL, "NOTE: Ingetrity check disables block variance." << std::endl);
+
+		blockVariancePercent = 0;
+	}
+
 }
 
 /**
@@ -648,6 +702,9 @@ void ProgArgs::convertUnitStrings()
 	treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
 	limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
 	limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
+	netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
+	sockRecvBufSize = UnitTk::numHumanToBytesBinary(sockRecvBufSizeOrigStr, false);
+	sockSendBufSize = UnitTk::numHumanToBytesBinary(sockSendBufSizeOrigStr, false);
 }
 
 /**
@@ -660,6 +717,7 @@ void ProgArgs::checkArgs()
 	// parse/apply numa zone as early as possible to have all further allocations in right zone
 	parseNumaZones();
 	parseCPUCores();
+	parseNetDevs();
 
 	if(runAsService)
 	{
@@ -731,6 +789,19 @@ void ProgArgs::checkArgs()
 
 		useDirectIO = true;
 	}
+
+	if(useCuFile && blockVariancePercent && runCreateFilesPhase)
+		LOGGER(Log_NORMAL, "Note: Block variance is not supported for cuFile/GDS writes.");
+
+	if(useNetBench && hostsVec.empty() )
+		throw ProgException("Missing hosts definition for netbench mode.");
+
+	if(useNetBench && (numNetBenchServers >= hostsVec.size() ) )
+		throw ProgException("At least one client needed in hosts list.");
+
+	if(useNetBench && (runCreateDirsPhase || runDeleteDirsPhase || runStatFilesPhase ||
+		runReadPhase || runDeleteFilesPhase) )
+		throw ProgException("Netbench only supports write/send phase.");
 
 	if(useRandomOffsets && useHDFS && runCreateFilesPhase)
 		throw ProgException("HDFS does not support random offsets for writes.");
@@ -1055,7 +1126,7 @@ void ProgArgs::parseAndCheckPaths()
 		}
 	}
 
-	if(benchPathsVec.empty() || benchPathStr.empty() )
+	if( (benchPathsVec.empty() || benchPathStr.empty() ) && !useNetBench)
 		throw ProgException("Benchmark path missing.");
 
 	// skip open of local paths if this is the master of a distributed run
@@ -1065,7 +1136,7 @@ void ProgArgs::parseAndCheckPaths()
 	// if we get here then this is not the master of a distributed run...
 
 	// skip open of local paths for S3
-	if(!s3EndpointsStr.empty() || useHDFS)
+	if(!s3EndpointsStr.empty() || useHDFS || useNetBench)
 	{
 		benchPathType = BenchPathType_DIR;
 		return;
@@ -1502,6 +1573,72 @@ void ProgArgs::parseHosts()
 }
 
 /**
+ * Parse netBenchServersVec from netBenchServersStr. This is only used in service instances.
+ * The master sends the full service hosts list, so we only keep the configured numNetBenchServers
+ * and calculate the ports as service port +1 for each service.
+ */
+void ProgArgs::parseNetBenchServersForService()
+{
+	if(!useNetBench || netBenchServersStr.empty() || !numNetBenchServers)
+		return; // nothing to do
+
+	StringVec tmpServersVec; // intermediate vec before host/port split
+	std::string tmpNetBenchServersLogStr; // list of servers just for log message
+
+	boost::split(tmpServersVec, netBenchServersStr, boost::is_any_of(HOSTLIST_DELIMITERS),
+			boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(tmpServersVec.begin(), tmpServersVec.end(), "");
+		if(iter == tmpServersVec.end() )
+			break;
+
+		tmpServersVec.erase(iter);
+	}
+
+	// fill actual netBenchServersVec from individual host names/IPs that might also come with port
+	for(std::string& server : tmpServersVec)
+	{
+		std::size_t findRes = server.find(HOST_PORT_SEPARATOR);
+
+		NetBenchServerAddr newServerAddr;
+
+		// add default port to hosts where port is not provided by user
+		// note: netbench port is service port + 1000.
+		if(findRes == std::string::npos)
+		{ // no port given
+			newServerAddr.host = server;
+			newServerAddr.port = ARGDEFAULT_SERVICEPORT + 1000;
+		}
+		else
+		{ // port given by user
+			newServerAddr.host = server.substr(0, findRes);
+
+			std::string portStr = server.substr(findRes+1);
+			newServerAddr.port = std::stoi(portStr) + 1000;
+		}
+
+		netBenchServersVec.push_back(newServerAddr);
+	}
+
+	if(netBenchServersVec.empty() )
+		throw ProgException("Netbench servers defined, but parsing resulted in an empty list: " +
+			netBenchServersStr);
+
+	// reduce to user-defined number of servers
+	if(netBenchServersVec.size() > numNetBenchServers)
+		netBenchServersVec.resize(numNetBenchServers);
+
+	// just for log message
+	for(NetBenchServerAddr& addr : netBenchServersVec)
+		tmpNetBenchServersLogStr += addr.host + ":" + std::to_string(addr.port) + " ";
+
+	LOGGER(Log_VERBOSE, "netbench servers: " << tmpNetBenchServersLogStr << std::endl);
+}
+
+/**
  * Parse numa zones string to fill numaZonesVec. Do nothing if numa zones string is empty.
  * Also applies the given zones to the current thread.
  *
@@ -1690,6 +1827,36 @@ void ProgArgs::parseS3Endpoints()
 		throw ProgException("S3 endpoints defined, but parsing resulted in an empty list: " +
 			s3EndpointsStr);
 }
+
+/**
+ * Parse network interface devices list. Do nothing if given list is empty.
+ *
+ * @throw ProgException if a problem is found, e.g. given list was not empty, but parsed
+ * 		result is empty.
+ */
+void ProgArgs::parseNetDevs()
+{
+	if(netDevsStr.empty() )
+		return; // nothing to do
+
+	boost::split(netDevsVec, netDevsStr, boost::is_any_of(NETDEV_DELIMITERS),
+		boost::token_compress_on);
+
+	// delete empty string elements from vec (they come from delimiter use at beginning or end)
+	for( ; ; )
+	{
+		StringVec::iterator iter = std::find(netDevsVec.begin(), netDevsVec.end(), "");
+		if(iter == netDevsVec.end() )
+			break;
+
+		netDevsVec.erase(iter);
+	}
+
+	if(netDevsVec.empty() )
+		throw ProgException("Network devices for binding defined, but parsing resulted in "
+			"an empty list: " + netDevsStr);
+}
+
 
 /**
  * Parse random number generator selection for random offsets and block variance..
@@ -2540,6 +2707,12 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	limitReadBps = tree.get<uint64_t>(ARG_LIMITREAD_LONG);
 	limitWriteBps = tree.get<uint64_t>(ARG_LIMITWRITE_LONG);
 	useHDFS = tree.get<bool>(ARG_HDFS_LONG);
+	useNetBench = tree.get<bool>(ARG_NETBENCH_LONG);
+	numNetBenchServers = tree.get<unsigned>(ARG_NUMNETBENCHSERVERS_LONG);
+	netBenchServersStr = tree.get<std::string>(ARG_NETBENCHSERVERSSTR_LONG);
+	netBenchRespSize = tree.get<size_t>(ARG_RESPSIZE_LONG);
+	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
+	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2566,6 +2739,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	}
 
 	parseS3Endpoints();
+	parseNetBenchServersForService();
 
 	// rebuild benchPathsVec/benchPathFDsVec and check if bench dirs are accessible
 	parseAndCheckPaths();
@@ -2646,6 +2820,12 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_LIMITREAD_LONG, limitReadBps);
 	outTree.put(ARG_LIMITWRITE_LONG, limitWriteBps);
 	outTree.put(ARG_HDFS_LONG, useHDFS);
+	outTree.put(ARG_NETBENCH_LONG, useNetBench);
+	outTree.put(ARG_NUMNETBENCHSERVERS_LONG, numNetBenchServers);
+	outTree.put(ARG_NETBENCHSERVERSSTR_LONG, hostsStr); // (yes, hostsStr sent as netbench servers)
+	outTree.put(ARG_RESPSIZE_LONG, netBenchRespSize);
+	outTree.put(ARG_RECVBUFSIZE_LONG, sockRecvBufSize);
+	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
 
 
 	// dynamically calculated values for service hosts...
@@ -2749,6 +2929,7 @@ void ProgArgs::resetBenchPath()
 	customTree.filesShared.clear();
 
 	s3EndpointsVec.clear();
+	netBenchServersVec.clear();
 
 #ifdef CUFILE_SUPPORT
 	if(isCuFileDriverOpen)

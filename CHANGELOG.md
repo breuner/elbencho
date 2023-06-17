@@ -1,12 +1,15 @@
 # Changelog of elbencho
 
-## v2.3.2 (work in progress)
+## v3.0.0 (work in progress)
+
+### New Features & Enhancements
+* Added N-to-M network bandwidth test. See new option "--netbench".
 
 ### Fixes
 * Fixed compilation error (missing include directive) when building without S3 support.
 
 ### Contributors
-* Thanks to Glenn K. Lockwood for reporting an issue.
+* Thanks to Glenn K. Lockwood for reporting an issue. Thanks to Jan Heichler and Rob Mallory for helpful comments and suggestions.
 
 ## v2.3.1 (Apr 10, 2023)
 

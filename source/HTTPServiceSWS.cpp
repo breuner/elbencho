@@ -334,7 +334,8 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 				running workers first) */
 			workerManager.interruptAndNotifyWorkers();
 			workerManager.joinAllThreads();
-			workerManager.cleanupThreads();
+			workerManager.cleanupWorkersAfterPhaseDone();
+			workerManager.deleteThreads();
 
 			progArgs.resetBenchPath();
 
@@ -371,6 +372,7 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 			workerManager.interruptAndNotifyWorkers();
 			workerManager.joinAllThreads();
+			workerManager.cleanupWorkersAfterPhaseDone();
 
 			progArgs.resetBenchPath();
 
@@ -438,8 +440,8 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 			quitAfterInterrupt = true;
 
 		workerManager.interruptAndNotifyWorkers();
-
 		workerManager.joinAllThreads();
+		workerManager.cleanupWorkersAfterPhaseDone();
 
 		progArgs.resetBenchPath();
 

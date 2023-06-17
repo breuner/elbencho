@@ -47,7 +47,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"2.3.1"
+#define HTTP_PROTOCOLVERSION	"3.0.0"
 
 /**
  * Default access mode bits for new files.
@@ -148,6 +148,7 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define XFER_STATS_BENCHPHASECODE				"PhaseCode"
 #define XFER_STATS_NUMWORKERSDONE				"NumWorkersDone"
 #define XFER_STATS_NUMWORKERSDONEWITHERR		"NumWorkersDoneWithError"
+#define XFER_STATS_TRIGGERSTONEWALL				"TriggerStoneWall"
 #define XFER_STATS_NUMENTRIESDONE 				"NumEntriesDone"
 #define XFER_STATS_NUMBYTESDONE 				"NumBytesDone"
 #define XFER_STATS_NUMIOPSDONE 					"NumIOPSDone"

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <mutex>
 #include <sstream>
+#include <sys/time.h>
 
 #define LOGGER(logLevel, stream) 	do { Logger(logLevel) << stream; } while(0)
 #define ERRLOGGER(logLevel, stream) do { ErrLogger(logLevel, true) << stream; } while(0)
@@ -14,6 +15,9 @@
 #define LOGGER_DEBUG_BUILD(stream)	/* nothing to do if not a debug build */
 #endif
 
+/**
+ * Note: Log_NORMAL must be lowest level, so that we can test via "if(level > Log_NORMAL)"
+ */
 enum LogLevel
 {
 	Log_NORMAL=0,
@@ -82,11 +86,17 @@ class LoggerBase
 			if(logLevel > filterLevel)
 				return; // nothing to log
 
+			// add timestamp as prefix to normal log msgs only if log level is above normal
+			std::string timestampPrefixStr;
+
+			if(filterLevel > Log_NORMAL)
+				timestampPrefixStr = getTimestamp() + " ";
+
 			switch(logLevel)
 			{
-				case Log_VERBOSE: std::cout << "VERBOSE: " << msg; break;
-				case Log_DEBUG: std::cout << "DEBUG: " << msg; break;
-				default: std::cout << msg;
+				case Log_VERBOSE: std::cout << timestampPrefixStr << "VERBOSE: " << msg; break;
+				case Log_DEBUG: std::cout << timestampPrefixStr << "DEBUG: " << msg; break;
+				default: std::cout << timestampPrefixStr << msg;
 			}
 		}
 
@@ -112,10 +122,33 @@ class LoggerBase
 			}
 
 			if(keepErrHistory)
-				errHistoryStream << prefixStr << msg;
+				errHistoryStream << getTimestamp() << " " << prefixStr << msg;
 
 			if(logToConsole)
-				std::cerr << prefixStr << msg;
+				std::cerr << getTimestamp() << " " << prefixStr << msg;
+		}
+
+	private:
+		/**
+		 * Returns a short string representing current time of day in the format hh:mm:ss.ms ("ms"
+		 * as width 3).
+		 */
+		static std::string getTimestamp()
+		{
+			timeval currentTime;
+			gettimeofday(&currentTime, NULL);
+			int milliSecs = currentTime.tv_usec / 1000;
+
+			char strBuf[16]; // (16 is just long enough for the string)
+			strftime(strBuf, sizeof(strBuf), "%H:%M:%S", localtime(&currentTime.tv_sec) );
+
+			std::string resultStr(strBuf);
+
+			snprintf(strBuf, sizeof(strBuf), ".%03d", milliSecs);
+
+			resultStr += strBuf;
+
+			return resultStr;
 		}
 };
 

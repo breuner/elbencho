@@ -142,6 +142,13 @@ namespace bpt = boost::property_tree;
 #define ARG_DIRSTATS_LONG			"dirstats"
 #define ARG_ALTHTTPSERVER_LONG		"althttpsvc"
 #define ARG_HDFS_LONG				"hdfs"
+#define ARG_NETBENCH_LONG			"netbench"
+#define ARG_NUMNETBENCHSERVERS_LONG	"numservers"
+#define ARG_NETBENCHSERVERSSTR_LONG "netbenchservers" // internal (not set by user)
+#define ARG_NETDEVS_LONG			"netdevs"
+#define ARG_RESPSIZE_LONG			"respsize"
+#define ARG_RECVBUFSIZE_LONG		"recvbuf"
+#define ARG_SENDBUFSIZE_LONG		"sendbuf"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -159,6 +166,14 @@ namespace bpt = boost::property_tree;
 
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
 typedef std::vector<CuFileHandleData*> CuFileHandleDataPtrVec;
+
+struct NetBenchServerAddr
+{
+	std::string host;
+	unsigned short port;
+};
+
+typedef std::vector<NetBenchServerAddr> NetBenchServerAddrVec;
 
 
 /**
@@ -336,6 +351,18 @@ class ProgArgs
 		bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
 		bool useAlternativeHTTPService; // use alternative http service implememtation
 		bool useHDFS; // use Hadoop HDFS
+		bool useNetBench; // run network benchmarking
+		unsigned numNetBenchServers; // number of servers in service hosts list for netbench mode
+		std::string netBenchServersStr; // implictly inited from numNetBenchServers and hosts list
+		NetBenchServerAddrVec netBenchServersVec; // set for services based on netBenchServersStr
+		std::string netDevsStr; // user-given network devices for round-robin conn binding
+		StringVec netDevsVec; // netDevsStr broken down into individual elements
+		size_t netBenchRespSize; // server response length for each received client block
+		std::string netBenchRespSizeOrigStr; // original netBenchRespSize str from user with unit
+		int sockRecvBufSize; // custom netbench socket recv buf size (0 means no change)
+		std::string sockRecvBufSizeOrigStr; // original sockRecvBufSize str from user with unit
+		int sockSendBufSize; // custom netbench socket send buf size (0 means no change)
+		std::string sockSendBufSizeOrigStr; // original sockSendBufSize str from user with unit
 
 
 		void defineDefaults();
@@ -349,11 +376,13 @@ class ProgArgs
 		void prepareCuFileHandleDataVec();
 		void prepareFileSize(int fd, std::string& path);
 		void parseHosts();
+		void parseNetBenchServersForService();
 		void parseNumaZones();
 		void parseCPUCores();
 		void parseGPUIDs();
 		void parseRandAlgos();
 		void parseS3Endpoints();
+		void parseNetDevs();
 		void loadCustomTreeFile();
 		void splitCustomTreeForSharedS3Upload();
 		std::string absolutePath(std::string pathStr);
@@ -498,7 +527,14 @@ class ProgArgs
 		bool getShowDirStats() const { return showDirStats; }
 		bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
 		bool getUseHDFS() const { return useHDFS; }
-
+		bool getUseNetBench() const { return useNetBench; }
+		unsigned getNumNetBenchServers() const { return numNetBenchServers; }
+		const NetBenchServerAddrVec& getNetBenchServers() const { return netBenchServersVec; }
+		std::string getNetDevsStr() const { return netDevsStr; }
+		const StringVec& getNetDevsVec() const { return netDevsVec; }
+		size_t getNetBenchRespSize() const { return netBenchRespSize; }
+		int getSockRecvBufSize() const { return sockRecvBufSize; }
+		int getSockSendBufSize() const { return sockSendBufSize; }
 };
 
 

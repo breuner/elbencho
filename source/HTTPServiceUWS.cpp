@@ -45,7 +45,8 @@ void HTTPServiceUWS::startServer()
 			if(listenSocket)
 			{
 				globalListenSocket = listenSocket;
-				std::cout << "Elbencho alternative service now listening. Port: " << listenPort << std::endl;
+				std::cout << "Elbencho alternative service now listening. Port: " << listenPort
+					<< std::endl;
 			}
 			else
 				std::cout << "Failed to start listening. Port: " << listenPort << std::endl;
@@ -335,11 +336,12 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 
 					// prepare environment for new benchmarks
 
-					/* (we update progArgs and workers have pointers to progArgs (e.g. pathFDs), so kill any
-						running workers first) */
+					/* (we update progArgs and workers have pointers to progArgs (e.g. pathFDs), so
+						kill any running workers first) */
 					workerManager.interruptAndNotifyWorkers();
 					workerManager.joinAllThreads();
-					workerManager.cleanupThreads();
+					workerManager.cleanupWorkersAfterPhaseDone();
+					workerManager.deleteThreads();
 
 					progArgs.resetBenchPath();
 
@@ -370,12 +372,13 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 				}
 				catch(const std::exception& e)
 				{
-					/* we will not get another interrupt or stop from master when prep fails, because the
-						corresponding RemoteWorker on master terminates on prep error reply, so we need to
-						clean up and release everything here before replying. */
+					/* we will not get another interrupt or stop from master when prep fails,
+						because the corresponding RemoteWorker on master terminates on prep error
+						reply, so we need to clean up and release everything here before replying.*/
 
 					workerManager.interruptAndNotifyWorkers();
 					workerManager.joinAllThreads();
+					workerManager.cleanupWorkersAfterPhaseDone();
 
 					progArgs.resetBenchPath();
 
@@ -402,6 +405,7 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 
 			workerManager.interruptAndNotifyWorkers();
 			workerManager.joinAllThreads();
+			workerManager.cleanupWorkersAfterPhaseDone();
 
 			progArgs.resetBenchPath();
 
@@ -465,8 +469,8 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 			quitAfterInterrupt = true;
 
 		workerManager.interruptAndNotifyWorkers();
-
 		workerManager.joinAllThreads();
+		workerManager.cleanupWorkersAfterPhaseDone();
 
 		progArgs.resetBenchPath();
 

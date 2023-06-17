@@ -198,6 +198,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 				"numWorkersDoneWithError: " + host + "; "
 				"numThreads: " + host + "; ");
 
+		workerGotPhaseWork = resultTree.get<bool>(XFER_STATS_TRIGGERSTONEWALL);
+
 		atomicLiveOps.numEntriesDone = resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE);
 		atomicLiveOps.numBytesDone = resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 		atomicLiveOps.numIOPSDone = resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
@@ -209,9 +211,12 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		elapsedUSecVec.resize(0);
 		elapsedUSecVec.reserve(progArgs->getNumThreads() );
 
-		for(bpt::ptree::value_type& elapsedUSecItem :
-			resultTree.get_child(XFER_STATS_ELAPSEDUSECLIST) )
-			elapsedUSecVec.push_back(elapsedUSecItem.second.get_value<uint64_t>() );
+		if(resultTree.count(XFER_STATS_ELAPSEDUSECLIST) )
+		{
+			for(bpt::ptree::value_type& elapsedUSecItem :
+				resultTree.get_child(XFER_STATS_ELAPSEDUSECLIST) )
+				elapsedUSecVec.push_back(elapsedUSecItem.second.get_value<uint64_t>() );
+		}
 
 		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
@@ -219,7 +224,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		liveLatency.setToZero(); // this service is done, so no more latency
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
+			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ||
+				progArgs->getUseNetBench() ) )
 		{
 			atomicLiveOpsReadMix.numEntriesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
@@ -463,7 +469,8 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES);
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
+				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ||
+					progArgs->getUseNetBench() ) )
 			{
 				atomicLiveOpsReadMix.numEntriesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
@@ -489,8 +496,11 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				throw WorkerRemoteException(frameHostErrorMsg(errorMsg) );
 			}
 
-			if(numWorkersDone && !stoneWallTriggered)
-			{
+			bool svcHasTriggeredStonewall = statusTree.get<bool>(XFER_STATS_TRIGGERSTONEWALL);
+
+			if(numWorkersDone && svcHasTriggeredStonewall && workerGotPhaseWork &&
+				!stoneWallTriggered)
+			{ // stonewall triggered
 				for(Worker* worker : *workersSharedData->workerVec)
 					worker->createStoneWallStats();
 			}

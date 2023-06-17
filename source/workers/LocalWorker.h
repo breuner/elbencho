@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include "../toolkits/net/BasicSocket.h"
 #include "CuFileHandleData.h"
 #include "OffsetGenerator.h"
 #include "toolkits/random/RandAlgoInterface.h"
@@ -24,6 +26,8 @@
 #ifdef HDFS_SUPPORT
 	#include <hdfs.h>
 #endif
+
+typedef std::vector<BasicSocket*> SocketVec;
 
 // delaration for function typedefs below
 class LocalWorker;
@@ -67,6 +71,8 @@ class LocalWorker : public Worker
 	public:
 		explicit LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank);
 		~LocalWorker();
+
+		virtual void cleanupAfterPhaseDone() override;
 
 	protected:
 		virtual void run() override;
@@ -132,6 +138,10 @@ class LocalWorker : public Worker
 		hdfsFile hdfsFileHandle{NULL}; // currently open file on hdfs
 #endif
 
+		static SocketVec serverSocketVec; // singleton netbench server sockets for all local threads
+		BasicSocket* clientSocket{NULL}; // netbench socket for client
+
+
 		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
 
 		void finishPhase();
@@ -140,6 +150,11 @@ class LocalWorker : public Worker
 		void uninitS3Client();
 		void initHDFS();
 		void uninitHDFS();
+		void initNetBench();
+		void initNetBenchServer();
+		void initNetBenchClient();
+		void uninitNetBench();
+		void uninitNetBenchAfterPhaseDone();
 		void initThreadFDVec();
 		void uninitThreadFDVec();
 		void initThreadCuFileHandleDataVec();
@@ -192,6 +207,10 @@ class LocalWorker : public Worker
 
 		void hdfsDirModeIterateDirs();
 		void hdfsDirModeIterateFiles();
+
+		void netbenchDoTransfer();
+		void netbenchDoTransferServer();
+		void netbenchDoTransferClient();
 
 		void anyModeSync();
 		void anyModeDropCaches();

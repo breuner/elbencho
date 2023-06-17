@@ -11,6 +11,10 @@ CONTAINER_NAME="elbencho-static"
 IMAGE_NAME="alpine:3.14"
 ELBENCHO_VERSION=$(make version)
 
+ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-1}"
+S3_SUPPORT="${OVERRIDE_S3_SUPPORT:-1}"
+USE_MIMALLOC="${OVERRIDE_USE_MIMALLOC:-1}"
+
 rm -f packaging/elbencho-\${ELBENCHO_VERSION}-static-$(uname -m).tar.gz
 
 docker rm $CONTAINER_NAME
@@ -25,8 +29,8 @@ docker run --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_N
     adduser -u $UID -D -H builduser && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $(nproc) \
-        LDFLAGS_EXTRA='-lexecinfo' ALTHTTPSVC_SUPPORT=1 S3_SUPPORT=1 USE_MIMALLOC=1 \
-        BUILD_STATIC=1" && \
+        LDFLAGS_EXTRA='-lexecinfo' ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT \
+        S3_SUPPORT=$S3_SUPPORT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1" && \
 docker rm $CONTAINER_NAME && \
 cd bin/ && \
 ./elbencho --version && \

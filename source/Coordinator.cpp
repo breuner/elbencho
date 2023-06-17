@@ -180,6 +180,8 @@ void Coordinator::runBenchmarkPhase(BenchPhase newBenchPhase)
 	// print stats
 	statistics.printPhaseResults();
 
+	workerManager.cleanupWorkersAfterPhaseDone();
+
 	// check again for interrupted or timeout (might be last phase and we want to return an error)
 	checkInterruptionBetweenPhases();
 }

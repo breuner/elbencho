@@ -24,11 +24,20 @@ void Worker::incNumWorkersDone()
 {
 	std::unique_lock<std::mutex> lock(workersSharedData->mutex); // L O C K (scoped)
 
-	workersSharedData->incNumWorkersDoneUnlocked();
+	/* ensure that last worker triggers stonewall if all have !workerCanTriggerStoneWall, but only
+		if this is not a server, because then master will have this trigger if needed and we don't
+		want the first finishing service to trigger stonewall if the service didn't do anything */
+	size_t numWorkersTotal = workersSharedData->workerVec->size();
+	bool lastFinisherTrigger = progArgs->getRunAsService() ?
+		false : ( (workersSharedData->numWorkersDone + 1) == numWorkersTotal);
+	bool triggerStoneWall = (!stoneWallTriggered &&
+		(workerGotPhaseWork || lastFinisherTrigger) );
 
-	/* create stonewall stats when 1st worker finishes (mutex guarantees that no other worker
+	workersSharedData->incNumWorkersDoneUnlocked(triggerStoneWall);
+
+	/* create stonewall stats when 1st real worker finishes. (mutex guarantees that no other worker
 	   increases the done counter in the meantime) */
-	if( (workersSharedData->numWorkersDone == 1) && !stoneWallTriggered)
+	if(triggerStoneWall)
 	{
 		for(Worker* worker : *workersSharedData->workerVec)
 			worker->createStoneWallStats();

@@ -129,6 +129,7 @@ class Statistics
 		void updateLiveStatsLiveOps(LiveResults& liveResults);
 
 		void printDryRunPhaseInfo(BenchPhase benchPhase);
+		void printDryRunInfoNetBench();
 
 		void prepLiveCSVFile();
 		void printLiveStatsCSV(const LiveResults& liveResults);

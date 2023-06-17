@@ -4,6 +4,7 @@
 
 #define TRANSLATORTK_PHASENAME_RWMIXPCT	"RWMIX" // rwmix with read percentage
 #define TRANSLATORTK_PHASENAME_RWMIXTHR	"MIX-T" // rwmix with separate reader threads
+#define TRANSLATORTK_PHASENAME_NETBENCH "NET" // write/create phase name in netbench mode
 
 /**
  * Get name of a phase from bench phase.
@@ -21,6 +22,9 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_DELETEDIRS: return PHASENAME_DELETEDIRS;
 		case BenchPhase_CREATEFILES:
 		{
+			if(progArgs->getUseNetBench() )
+				return TRANSLATORTK_PHASENAME_NETBENCH;
+			else
 			if(progArgs->hasUserSetRWMixReadThreads() )
 				return TRANSLATORTK_PHASENAME_RWMIXTHR +
 					std::to_string(progArgs->getNumRWMixReadThreads() );
