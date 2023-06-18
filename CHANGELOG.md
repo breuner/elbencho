@@ -5,6 +5,9 @@
 ### New Features & Enhancements
 * Added N-to-M network bandwidth test. See new option "--netbench".
 
+### General Changes
+* Updated S3 to latest AWS SDK CPP v1.11.102.
+
 ### Fixes
 * Fixed compilation error (missing include directive) when building without S3 support.
 

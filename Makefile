@@ -78,7 +78,7 @@ LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlid
 	-l dl
 else # dynamic linking
 LDFLAGS += -lncurses
-LDFLAGS_S3_DYNAMIC += -l curl -l ssl -l crypto -l dl
+LDFLAGS_S3_DYNAMIC += -l curl -l ssl -l crypto -l z -l dl
 endif
 
 # Compiler and linker flags for S3 support
