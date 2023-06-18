@@ -7,6 +7,7 @@
 
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.102.
+* Updated mimalloc memory allocation library to latest version 2.1.2.
 
 ### Fixes
 * Fixed compilation error (missing include directive) when building without S3 support.
