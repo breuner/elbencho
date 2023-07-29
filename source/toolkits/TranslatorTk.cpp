@@ -1,3 +1,4 @@
+#include <boost/algorithm/string.hpp>
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "TranslatorTk.h"
@@ -141,3 +142,91 @@ std::string TranslatorTk::stringVecToString(const StringVec& vec, std::string se
 
 	return result;
 }
+
+/**
+ * Parse a list of ARG_FADVISE_FLAG_x_NAME elements separated by FADVISELIST_DELIMITERS into
+ * a ARG_FADVISE_FLAG_x flags value.
+ *
+ * @return combined ARG_FADVISE_FLAG_x flags value.
+ *
+ * @throw ProgException in case of invalid string in fadviseArgsStr.
+ */
+unsigned TranslatorTk::fadviseArgsStrToFlags(std::string fadviseArgsStr)
+{
+	StringVec fadviseStrVec;
+	unsigned fadviseFlags = 0;
+
+	boost::split(fadviseStrVec, fadviseArgsStr, boost::is_any_of(FADVISELIST_DELIMITERS),
+		boost::token_compress_on);
+
+	for(std::string currentFadviseArgStr : fadviseStrVec)
+	{
+		if(currentFadviseArgStr.empty() )
+			continue;
+		else
+		if(currentFadviseArgStr == ARG_FADVISE_FLAG_SEQ_NAME)
+			fadviseFlags |= ARG_FADVISE_FLAG_SEQ;
+		else
+		if(currentFadviseArgStr == ARG_FADVISE_FLAG_RAND_NAME)
+			fadviseFlags |= ARG_FADVISE_FLAG_RAND;
+		else
+		if(currentFadviseArgStr == ARG_FADVISE_FLAG_WILLNEED_NAME)
+			fadviseFlags |= ARG_FADVISE_FLAG_WILLNEED;
+		else
+		if(currentFadviseArgStr == ARG_FADVISE_FLAG_DONTNEED_NAME)
+			fadviseFlags |= ARG_FADVISE_FLAG_DONTNEED;
+		else
+		if(currentFadviseArgStr == ARG_FADVISE_FLAG_NOREUSE_NAME)
+			fadviseFlags |= ARG_FADVISE_FLAG_NOREUSE;
+		else
+			throw ProgException("Invalid fadvise: " + currentFadviseArgStr);
+	}
+
+	return fadviseFlags;
+}
+
+/**
+ * Parse a list of ARG_MADVISE_FLAG_x_NAME elements separated by MADVISELIST_DELIMITERS into
+ * a ARG_MADVISE_FLAG_x flags value.
+ *
+ * @return combined ARG_MADVISE_FLAG_x flags value.
+ *
+ * @throw ProgException in case of invalid string in madviseArgsStr.
+ */
+unsigned TranslatorTk::madviseArgsStrToFlags(std::string madviseArgsStr)
+{
+	StringVec madviseStrVec;
+	unsigned madviseFlags = 0;
+
+	boost::split(madviseStrVec, madviseArgsStr, boost::is_any_of(MADVISELIST_DELIMITERS),
+		boost::token_compress_on);
+
+	for(std::string currentMadviseArgStr : madviseStrVec)
+	{
+		if(currentMadviseArgStr.empty() )
+			continue;
+		else
+		if(currentMadviseArgStr == ARG_MADVISE_FLAG_SEQ_NAME)
+			madviseFlags |= ARG_MADVISE_FLAG_SEQ;
+		else
+		if(currentMadviseArgStr == ARG_MADVISE_FLAG_RAND_NAME)
+			madviseFlags |= ARG_MADVISE_FLAG_RAND;
+		else
+		if(currentMadviseArgStr == ARG_MADVISE_FLAG_WILLNEED_NAME)
+			madviseFlags |= ARG_MADVISE_FLAG_WILLNEED;
+		else
+		if(currentMadviseArgStr == ARG_MADVISE_FLAG_DONTNEED_NAME)
+			madviseFlags |= ARG_MADVISE_FLAG_DONTNEED;
+		else
+		if(currentMadviseArgStr == ARG_MADVISE_FLAG_HUGEPAGE_NAME)
+			madviseFlags |= ARG_MADVISE_FLAG_HUGEPAGE;
+		else
+		if(currentMadviseArgStr == ARG_MADVISE_FLAG_NOHUGEPAGE_NAME)
+			madviseFlags |= ARG_MADVISE_FLAG_NOHUGEPAGE;
+		else
+			throw ProgException("Invalid madvise: " + currentMadviseArgStr);
+	}
+
+	return madviseFlags;
+}
+

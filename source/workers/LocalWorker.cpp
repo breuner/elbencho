@@ -1,3 +1,5 @@
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include "LocalWorker.h"
 #include "toolkits/FileTk.h"
@@ -108,6 +110,7 @@ void LocalWorker::run()
 		applyNumaAndCoreBinding();
 		initThreadFDVec();
 		initThreadCuFileHandleDataVec();
+		initThreadMmapVec();
 		allocIOBuffer();
 		allocGPUIOBuffer();
 		prepareCustomTreePathStores();
@@ -769,7 +772,7 @@ void LocalWorker::initThreadCuFileHandleDataVec()
 	}
 }
 
-/*
+/**
  * Deregsiter threadCuFileHandleVec entries.
  */
 void LocalWorker::uninitThreadCuFileHandleDataVec()
@@ -779,6 +782,57 @@ void LocalWorker::uninitThreadCuFileHandleDataVec()
 
 	fileHandles.threadCuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
 }
+
+/**
+ * Init fileHandles.mmapVec from progArgs->getBenchPathFDs() if this is a random phase with files
+ * as bench paths. Otherwise the init will happen later in initPhaseFileHandleVecs().
+ */
+void LocalWorker::initThreadMmapVec()
+{
+	if(!progArgs->getUseMmap() )
+		return; // nothing to do
+
+	if(progArgs->getBenchPathType() == BenchPathType_DIR)
+		return; // init will happen in initPhaseFileHandleVecs()
+
+	if(!progArgs->getUseRandomOffsets() )
+		return; // init will happen in initPhaseFileHandleVecs()
+
+	fileHandles.mmapVec = progArgs->getMmapVec();
+}
+
+/**
+ * Unmap fileHandles.mmapVec entries after a run of possibly multiple phases.
+ */
+void LocalWorker::uninitThreadMmapVec()
+{
+	if( (progArgs->getBenchPathType() != BenchPathType_DIR) &&
+		progArgs->getUseRandomOffsets() )
+	{ // random file/bdev mode: we copied mappings from progArgs, so don't unmap here
+		fileHandles.mmapVec.resize(0);
+
+		return;
+	}
+
+	// if we got here then we're not in random file/bdev mode, so we did our own mapping in worker
+
+	for(char*& mmapPtr : fileHandles.mmapVec)
+	{
+		if(mmapPtr == MAP_FAILED)
+			continue;
+
+		int unmapRes = munmap(mmapPtr, progArgs->getFileSize() );
+
+		if(unmapRes == -1)
+			ERRLOGGER(Log_NORMAL, "File memory unmap failed. "
+				"SysErr: " << strerror(errno) << std::endl);
+
+		mmapPtr = (char*)MAP_FAILED;
+	}
+
+	fileHandles.mmapVec.resize(0);
+}
+
 
 /**
  * Init thread-local phase values.
@@ -828,6 +882,8 @@ void LocalWorker::initPhaseFileHandleVecs()
 		fileHandles.cuFileHandleDataVec.resize(1);
 
 		fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
+
+		fileHandles.mmapVec.resize(1, (char*)MAP_FAILED);
 	}
 	else
 	if(!progArgs->getUseRandomOffsets() )
@@ -842,6 +898,9 @@ void LocalWorker::initPhaseFileHandleVecs()
 		fileHandles.fdVecPtr = &fileHandles.fdVec;
 
 		fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
+
+		fileHandles.mmapVec.resize(1, (char*)MAP_FAILED); /* fileModeIterateFilesSeq() will do the
+			mmap() dynamically when this thread switches to a new file */
 	}
 	else
 	{
@@ -855,6 +914,8 @@ void LocalWorker::initPhaseFileHandleVecs()
 
 		for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
 			fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
+
+		// note: nothing for fileHandles.mmapVec here; init was done in initThreadMmapVec
 	}
 }
 
@@ -926,6 +987,7 @@ void LocalWorker::initPhaseFunctionPointers()
 {
 	const size_t ioDepth = progArgs->getIODepth();
 	const bool useHDFS = progArgs->getUseHDFS();
+	const bool useMmap = progArgs->getUseMmap();
 	const bool useCuFileAPI = progArgs->getUseCuFile();
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
 	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
@@ -949,6 +1011,9 @@ void LocalWorker::initPhaseFunctionPointers()
 	if(useHDFS)
 		funcPositionalWrite = &LocalWorker::hdfsWriteWrapper;
 	else
+	if(useMmap)
+		funcPositionalWrite = &LocalWorker::mmapWriteWrapper;
+	else
 	if(useCuFileAPI)
 		funcPositionalWrite = &LocalWorker::cuFileWriteWrapper;
 	else
@@ -956,6 +1021,9 @@ void LocalWorker::initPhaseFunctionPointers()
 
 	if(useHDFS)
 		funcPositionalRead = &LocalWorker::hdfsReadWrapper;
+	else
+	if(useMmap)
+		funcPositionalRead = &LocalWorker::mmapReadWrapper;
 	else
 	if(useCuFileAPI)
 		funcPositionalRead = &LocalWorker::cuFileReadWrapper;
@@ -1212,7 +1280,8 @@ void LocalWorker::prepareCustomTreePathStores()
 	if(progArgs->getTreeFilePath().empty() )
 		return; // nothing to do here
 
-	const bool throwOnSmallerThanBlockSize = progArgs->getUseRandomOffsets();
+	const bool throwOnSmallerThanBlockSize = !progArgs->getNoDirectIOCheck() &&
+		progArgs->getUseDirectIO() && progArgs->getUseRandomOffsets();
 
 	const size_t numThreads = progArgs->getNumThreads();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
@@ -1315,6 +1384,7 @@ void LocalWorker::cleanup()
 	for(char* ioBuf : ioBufVec)
 		SAFE_FREE(ioBuf);
 
+	uninitThreadMmapVec();
 	uninitThreadCuFileHandleDataVec();
 	uninitThreadFDVec();
 }
@@ -2219,6 +2289,26 @@ ssize_t LocalWorker::hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nb
 }
 
 /**
+ * Wrapper for positional sync read via mmap.
+ */
+ssize_t LocalWorker::mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+	memcpy(buf, &(fileHandles.mmapVec[fileHandleIdx][offset]), nbytes);
+
+	return nbytes;
+}
+
+/**
+ * Wrapper for positional sync write via mmap.
+ */
+ssize_t LocalWorker::mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+	memcpy(&(fileHandles.mmapVec[fileHandleIdx][offset]), buf, nbytes);
+
+	return nbytes;
+}
+
+/**
  * Iterate over all directories to create or remove them.
  *
  * @throw WorkerException on error.
@@ -2458,6 +2548,7 @@ void LocalWorker::dirModeIterateFiles()
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+	const bool useMmap = progArgs->getUseMmap();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2548,11 +2639,31 @@ void LocalWorker::dirModeIterateFiles()
 					}
 				}
 				catch(...)
-				{ // ensure that we don't leak an open file fd
+				{
+					// release memory mapping
+					if(useMmap && (fileHandles.mmapVec[0] != MAP_FAILED) )
+					{
+						munmap(fileHandles.mmapVec[0], fileSize);
+						fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+					}
+
 					((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
 					close(fd);
 					throw;
+				}
+
+				// release memory mapping
+				if(useMmap)
+				{
+					int unmapRes = munmap(fileHandles.mmapVec[0], fileSize);
+
+					IF_UNLIKELY(unmapRes == -1)
+						ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
+							"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+							"SysErr: " << strerror(errno) << std::endl);
+
+					fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 				}
 
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
@@ -2635,6 +2746,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+	const bool useMmap = progArgs->getUseMmap();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2705,11 +2817,31 @@ void LocalWorker::dirModeIterateCustomFiles()
 				}
 			}
 			catch(...)
-			{ // ensure that we don't leak an open file fd
+			{
+				// release memory mapping
+				if(useMmap && (fileHandles.mmapVec[0] != MAP_FAILED) )
+				{
+					munmap(fileHandles.mmapVec[0], currentPathElem.totalLen);
+					fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+				}
+
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
 				close(fd);
 				throw;
+			}
+
+			// release memory mapping
+			if(useMmap)
+			{
+				int unmapRes = munmap(fileHandles.mmapVec[0], currentPathElem.totalLen);
+
+				IF_UNLIKELY(unmapRes == -1)
+					ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+						"SysErr: " << strerror(errno) << std::endl);
+
+				fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 			}
 
 			((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
@@ -2836,6 +2968,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
 	const size_t numThreads = progArgs->getNumDataSetThreads();
+	const bool useMmap = progArgs->getUseMmap();
 
 	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 		( (fileSize % blockSize) ? 1 : 0);
@@ -2884,53 +3017,95 @@ void LocalWorker::fileModeIterateFilesSeq()
 		// prep offset generator for current file range
 		rwOffsetGen->reset(currentIOLen, currentIOStart);
 
-		// write/read our range of this file
+		FileTk::fadvise<WorkerException>(fileHandles.fdVec[0], progArgs->getFadviseFlags(),
+			progArgs->getBenchPaths()[currentFileIndex].c_str() );
 
-		if(benchPhase == BenchPhase_CREATEFILES)
+		// prep memory mapping
+		if(useMmap)
 		{
-			ssize_t writeRes = ((*this).*funcRWBlockSized)();
+			int protectionMode = (benchPhase == BenchPhase_READFILES) ?
+				PROT_READ : (PROT_WRITE | PROT_READ);
 
-			IF_UNLIKELY(writeRes == -1)
-				throw WorkerException(std::string("File write failed. ") +
-					( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
-						"Can be caused by directIO misalignment. " : "") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"SysErr: " + strerror(errno) );
-
-			IF_UNLIKELY( (size_t)writeRes != currentIOLen)
-				throw WorkerException(std::string("Unexpected short file write. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"Bytes written: " + std::to_string(writeRes) + "; "
-					"Expected written: " + std::to_string(currentIOLen) );
+			fileHandles.mmapVec[0] = (char*)FileTk::mmapAndMadvise<WorkerException>(
+				fileSize, protectionMode, MAP_SHARED, fileHandles.fdVec[0],
+				progArgs->getMadviseFlags(), progArgs->getBenchPaths()[currentFileIndex].c_str() );
 		}
 
-		if(benchPhase == BenchPhase_READFILES)
+		// (try-block for munmap on error)
+		try
 		{
-			ssize_t readRes = ((*this).*funcRWBlockSized)();
+			// write/read our range of this file
 
-			IF_UNLIKELY(readRes == -1)
-				throw WorkerException(std::string("File read failed. ") +
-					( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
-						"Can be caused by directIO misalignment. " : "") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"SysErr: " + strerror(errno) );
+			if(benchPhase == BenchPhase_CREATEFILES)
+			{
+				ssize_t writeRes = ((*this).*funcRWBlockSized)();
 
-			IF_UNLIKELY( (size_t)readRes != currentIOLen)
-				throw WorkerException(std::string("Unexpected short file read. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"Bytes read: " + std::to_string(readRes) + "; "
-					"Expected read: " + std::to_string(currentIOLen) );
+				IF_UNLIKELY(writeRes == -1)
+					throw WorkerException(std::string("File write failed. ") +
+						( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+							"Can be caused by directIO misalignment. " : "") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"SysErr: " + strerror(errno) );
+
+				IF_UNLIKELY( (size_t)writeRes != currentIOLen)
+					throw WorkerException(std::string("Unexpected short file write. ") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"Bytes written: " + std::to_string(writeRes) + "; "
+						"Expected written: " + std::to_string(currentIOLen) );
+			}
+
+			if(benchPhase == BenchPhase_READFILES)
+			{
+				ssize_t readRes = ((*this).*funcRWBlockSized)();
+
+				IF_UNLIKELY(readRes == -1)
+					throw WorkerException(std::string("File read failed. ") +
+						( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+							"Can be caused by directIO misalignment. " : "") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"SysErr: " + strerror(errno) );
+
+				IF_UNLIKELY( (size_t)readRes != currentIOLen)
+					throw WorkerException(std::string("Unexpected short file read. ") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"Bytes read: " + std::to_string(readRes) + "; "
+						"Expected read: " + std::to_string(currentIOLen) );
+			}
+
+			// calc completed number of blocks to inc for next loop pass
+			const uint64_t numBlocksDone = (currentIOLen / blockSize) +
+				( (currentIOLen % blockSize) ? 1 : 0);
+
+			LOGGER_DEBUG_BUILD("  w" << workerRank << " f" << currentFileIndex <<
+				" b" << currentBlockInFile << " " <<
+				currentIOStart << " - " << (currentIOStart+currentIOLen) << std::endl);
+
+			currentBlockIdx += numBlocksDone;
+		}
+		catch(...)
+		{
+			// release memory mapping
+			if(useMmap)
+			{
+				munmap(fileHandles.mmapVec[0], fileSize);
+				fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+			}
+
+			throw;
 		}
 
-		// calc completed number of blocks to inc for next loop pass
-		const uint64_t numBlocksDone = (currentIOLen / blockSize) +
-			( (currentIOLen % blockSize) ? 1 : 0);
+		// release memory mapping
+		if(useMmap)
+		{
+			int unmapRes = munmap(fileHandles.mmapVec[0], fileSize);
 
-		LOGGER_DEBUG_BUILD("  w" << workerRank << " f" << currentFileIndex <<
-			" b" << currentBlockInFile << " " <<
-			currentIOStart << " - " << (currentIOStart+currentIOLen) << std::endl);
+			IF_UNLIKELY(unmapRes == -1)
+				ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
+					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+					"SysErr: " << strerror(errno) << std::endl);
 
-		currentBlockIdx += numBlocksDone;
+			fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+		}
 
 	} // end of global blocks while-loop
 }
@@ -4491,11 +4666,14 @@ int LocalWorker::getDirModeOpenFlags(BenchPhase benchPhase)
 int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
 		unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileSize)
 {
+	const bool useMmap = progArgs->getUseMmap();
+	const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
+
 	int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
 
 	IF_UNLIKELY(fd == -1)
 		throw WorkerException(std::string("File open failed. ") +
-			"Path: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath + "; "
+			"Path: " + currentPath + "; "
 			"SysErr: " + strerror(errno) );
 
 	// try block to ensure file close on error
@@ -4508,8 +4686,7 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 				int truncRes = ftruncate(fd, fileSize);
 				if(truncRes == -1)
 					throw WorkerException("Unable to set file size through ftruncate. "
-						"Path: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath +
-							"; "
+						"Path: " + currentPath + "; "
 						"Size: " + std::to_string(fileSize) + "; "
 						"SysErr: " + strerror(errno) );
 			}
@@ -4521,23 +4698,41 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 				if(preallocRes != 0)
 					throw WorkerException(
 						"Unable to preallocate file size through posix_fallocate. "
-						"File: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath +
-							"; "
+						"File: " + currentPath + "; "
 						"Size: " + std::to_string(fileSize) + "; "
 						"SysErr: " + strerror(preallocRes) );
 			}
+		}
+
+		FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(), currentPath.c_str() );
+
+		// create memory mapping
+		if(useMmap)
+		{
+			int protectionMode = (benchPhase == BenchPhase_READFILES) ?
+				PROT_READ : (PROT_WRITE | PROT_READ);
+
+			fileHandles.mmapVec[0] =  (char*)FileTk::mmapAndMadvise<WorkerException>(
+				fileSize, protectionMode, MAP_SHARED, fd, progArgs->getMadviseFlags(),
+				currentPath.c_str() );
 		}
 
 		return fd;
 	}
 	catch(WorkerException& e)
 	{
+		// release memory mapping
+		if(useMmap)
+		{
+			munmap(fileHandles.mmapVec[0], fileSize);
+			fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+		}
+
 		int closeRes = close(fd);
 
 		if(closeRes == -1)
 			ERRLOGGER(Log_NORMAL, "File close failed. " <<
-				"Path: " << progArgs->getBenchPaths()[pathFDsIndex] << "/" << relativePath <<
-					"; " <<
+				"Path: " << currentPath << "; " <<
 				"FD: " << std::to_string(fd) << "; " <<
 				"SysErr: " << strerror(errno) << std::endl);
 

@@ -20,6 +20,8 @@ class TranslatorTk
 			bool firstToUpper=false);
 		static std::string benchPathTypeToStr(BenchPathType pathType, const ProgArgs* progArgs);
 		static std::string stringVecToString(const StringVec& vec, std::string separator);
+		static unsigned fadviseArgsStrToFlags(std::string fadviseArgsStr);
+		static unsigned madviseArgsStrToFlags(std::string madviseArgsStr);
 };
 
 

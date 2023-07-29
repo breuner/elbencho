@@ -1,10 +1,14 @@
 #include <cstring>
-#include <sys/types.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include "FileTk.h"
 #include "Logger.h"
+#include "ProgArgs.h"
 #include "ProgException.h"
+#include "workers/WorkerException.h"
 
 #if __has_include(<filesystem>)
   #include <filesystem>
@@ -112,3 +116,219 @@ int FileTk::mkdiratBottomUp(int dirFD, const char* path, mode_t mode)
 	// any error that's not ENOENT and not EEXIST
 	return mkdirRes;
 }
+
+/**
+ * Call posix_fadvise() with all advices given in flags on the whole file range.
+ *
+ * @fd file descriptor.
+ * @progArgsFadvsiseFlags combination of ARG_FADVISE_FLAG_...
+ * @path only used for error messages.
+ *
+ * @throw template EXCEPTION on error.
+ */
+template <class EXCEPTION>
+void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
+{
+	int fadviseRes;
+
+	if(!progArgsFadviseFlags)
+		return; // nothing to do
+
+	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_SEQ)
+	{
+		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+
+		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
+			throw EXCEPTION(
+				std::string("Unable to set POSIX fadvise. ") +
+				"Advise: POSIX_FADV_SEQUENTIAL; "
+				"File: " + path + "; "
+				"SysErr: " + strerror(fadviseRes) );
+	}
+
+	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_RAND)
+	{
+		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
+
+		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
+			throw EXCEPTION(
+				std::string("Unable to set POSIX fadvise. ") +
+				"Advise: POSIX_FADV_RANDOM; "
+				"File: " + path + "; "
+				"SysErr: " + strerror(fadviseRes) );
+	}
+
+	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_WILLNEED)
+	{
+		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED);
+
+		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
+			throw EXCEPTION(
+				std::string("Unable to set POSIX fadvise. ") +
+				"Advise: POSIX_FADV_WILLNEED; "
+				"File: " + path + "; "
+				"SysErr: " + strerror(fadviseRes) );
+	}
+
+	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_DONTNEED)
+	{
+		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+
+		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
+			throw EXCEPTION(
+				std::string("Unable to set POSIX fadvise. ") +
+				"Advise: POSIX_FADV_DONTNEED; "
+				"File: " + path + "; "
+				"SysErr: " + strerror(fadviseRes) );
+	}
+
+	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_NOREUSE)
+	{
+		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_NOREUSE);
+
+		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
+			throw EXCEPTION(
+				std::string("Unable to set POSIX fadvise. ") +
+				"Advise: POSIX_FADV_NOREUSE; "
+				"File: " + path + "; "
+				"SysErr: " + strerror(fadviseRes) );
+	}
+}
+
+// teach the linker which template instantiation we need so that definition can be in cpp file
+template void FileTk::fadvise<ProgException>(int fd, unsigned progArgsFadviseFlags,
+	const char* path);
+template void FileTk::fadvise<WorkerException>(int fd, unsigned progArgsFadviseFlags,
+	const char* path);
+
+/**
+ * Call posix_fadvise() with all advices given in flags on the whole file range.
+ *
+ * @length as in man mmap().
+ * @protect  as in man mmap().
+ * @flags as in man mmap().
+ * @fd as in man mmap().
+ * @progArgsFadvsiseFlags combination of ARG_MADVISE_FLAG_...
+ * @path only used for error messages.
+ * @return pointer to valid memory mapping; invalid will throw exception.
+ *
+ * @throw template EXCEPTION on error.
+ */
+template <class EXCEPTION>
+void* FileTk::mmapAndMadvise(size_t length, int protect, int flags, int fd,
+	unsigned progArgsMadviseFlags, const char* path)
+{
+	void* mmapRes = mmap(NULL, length, protect, MAP_SHARED, fd, 0);
+
+	IF_UNLIKELY(mmapRes == MAP_FAILED)
+		throw EXCEPTION(
+			std::string("Unable to create file memory mapping. ") +
+			"Path: " + path + "; "
+			"Mapping Size: " + std::to_string(length) + "; "
+			"SysErr: " + strerror(errno) );
+
+	// set madvises...
+
+	if(!progArgsMadviseFlags)
+		return mmapRes;
+
+	// (try-block for munmap on error)
+	try
+	{
+		int madviseRes;
+
+		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_SEQ)
+		{
+			madviseRes = posix_madvise(mmapRes, length, POSIX_MADV_SEQUENTIAL);
+
+			IF_UNLIKELY(madviseRes) // this is special: returns errno instead of setting errno
+				throw EXCEPTION(
+					std::string("Unable to set madvise. ") +
+					"Advise: POSIX_MADV_SEQUENTIAL; "
+					"File: " + path + "; "
+					"SysErr: " + strerror(madviseRes) );
+		}
+
+		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_RAND)
+		{
+			madviseRes = posix_madvise(mmapRes, length, POSIX_MADV_RANDOM);
+
+			IF_UNLIKELY(madviseRes) // this is special: returns errno instead of setting errno
+				throw EXCEPTION(
+					std::string("Unable to set madvise. ") +
+					"Advise: POSIX_MADV_RANDOM; "
+					"File: " + path + "; "
+					"SysErr: " + strerror(madviseRes) );
+		}
+
+		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_WILLNEED)
+		{
+			madviseRes = posix_madvise(mmapRes, length, POSIX_MADV_WILLNEED);
+
+			IF_UNLIKELY(madviseRes) // this is special: returns errno instead of setting errno
+				throw EXCEPTION(
+					std::string("Unable to set madvise. ") +
+					"Advise: POSIX_MADV_WILLNEED; "
+					"File: " + path + "; "
+					"SysErr: " + strerror(madviseRes) );
+		}
+
+		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_DONTNEED)
+		{
+			madviseRes = posix_madvise(mmapRes, length, POSIX_MADV_DONTNEED);
+
+			IF_UNLIKELY(madviseRes) // this is special: returns errno instead of setting errno
+				throw EXCEPTION(
+					std::string("Unable to set madvise. ") +
+					"Advise: POSIX_MADV_DONTNEED; "
+					"File: " + path + "; "
+					"SysErr: " + strerror(madviseRes) );
+		}
+
+		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_HUGEPAGE)
+		{
+			#ifndef MADV_HUGEPAGE
+				throw EXCEPTION("MADV_HUGEPAGE not supported by platform.");
+			#else // MADV_HUGEPAGE
+				madviseRes = madvise(mmapRes, length, MADV_HUGEPAGE);
+
+				IF_UNLIKELY(madviseRes == -1) // (madvise sets errno, in contrast to posix_madvise)
+					throw EXCEPTION(
+						std::string("Unable to set madvise. ") +
+						"Advise: MADV_HUGEPAGE; "
+						"File: " + path + "; "
+						"SysErr: " + strerror(errno) );
+			#endif // MADV_HUGEPAGE
+		}
+
+		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_NOHUGEPAGE)
+		{
+			#ifndef MADV_HUGEPAGE
+				throw EXCEPTION("MADV_NOHUGEPAGE not supported by platform.");
+			#else // MADV_HUGEPAGE
+				madviseRes = madvise(mmapRes, length, MADV_NOHUGEPAGE);
+
+				IF_UNLIKELY(madviseRes == -1) // (madvise sets errno, in contrast to posix_madvise)
+					throw EXCEPTION(
+						std::string("Unable to set madvise. ") +
+						"Advise: MADV_NOHUGEPAGE; "
+						"File: " + path + "; "
+						"SysErr: " + strerror(errno) );
+			#endif // MADV_HUGEPAGE
+		}
+
+		return mmapRes;
+	}
+	catch(...)
+	{
+		munmap(mmapRes, length);
+
+		throw;
+	}
+}
+
+// teach the linker which template instantiation we need so that definition can be in cpp file
+template void* FileTk::mmapAndMadvise<ProgException>(size_t length, int protect, int flags,
+	int fd, unsigned progArgsMadviseFlags, const char* path);
+template void* FileTk::mmapAndMadvise<WorkerException>(size_t length, int protect, int flags,
+	int fd, unsigned progArgsMadviseFlags, const char* path);

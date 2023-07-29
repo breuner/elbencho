@@ -16,7 +16,7 @@
 namespace bpo = boost::program_options;
 namespace bpt = boost::property_tree;
 
-
+// command line args and config file options
 #define ARG_HELP_LONG 				"help"
 #define ARG_HELP_SHORT 				"h"
 #define ARG_HELPBLOCKDEV_LONG 		"help-bdev" // for backwards compat (new: help-large)
@@ -149,6 +149,9 @@ namespace bpt = boost::property_tree;
 #define ARG_RESPSIZE_LONG			"respsize"
 #define ARG_RECVBUFSIZE_LONG		"recvbuf"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
+#define ARG_MMAP_LONG				"mmap"
+#define ARG_MADVISE_LONG			"madv"
+#define ARG_FADVISE_LONG			"fadv"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -162,6 +165,37 @@ namespace bpt = boost::property_tree;
 #define S3_IMPLICIT_TREEFILE_PATH				("/var/tmp/" EXE_NAME "_" + \
 												SystemTk::getUsername() + "_" + \
 												"treefile_implicit.txt")
+
+
+// flags for fadvise
+#define FADVISELIST_DELIMITERS				", \n\r" // delimiters for fadvise args string
+
+#define ARG_FADVISE_FLAG_SEQ				1
+#define ARG_FADVISE_FLAG_SEQ_NAME			"seq"
+#define ARG_FADVISE_FLAG_RAND				2
+#define ARG_FADVISE_FLAG_RAND_NAME			"rand"
+#define ARG_FADVISE_FLAG_WILLNEED			4
+#define ARG_FADVISE_FLAG_WILLNEED_NAME		"willneed"
+#define ARG_FADVISE_FLAG_DONTNEED			8
+#define ARG_FADVISE_FLAG_DONTNEED_NAME		"dontneed"
+#define ARG_FADVISE_FLAG_NOREUSE			16
+#define ARG_FADVISE_FLAG_NOREUSE_NAME		"noreuse"
+
+// flags for madvise
+#define MADVISELIST_DELIMITERS				", \n\r" // delimiters for madvise args string
+
+#define ARG_MADVISE_FLAG_SEQ				1
+#define ARG_MADVISE_FLAG_SEQ_NAME			"seq"
+#define ARG_MADVISE_FLAG_RAND				2
+#define ARG_MADVISE_FLAG_RAND_NAME			"rand"
+#define ARG_MADVISE_FLAG_WILLNEED			4
+#define ARG_MADVISE_FLAG_WILLNEED_NAME		"willneed"
+#define ARG_MADVISE_FLAG_DONTNEED			8
+#define ARG_MADVISE_FLAG_DONTNEED_NAME		"dontneed"
+#define ARG_MADVISE_FLAG_HUGEPAGE			16
+#define ARG_MADVISE_FLAG_HUGEPAGE_NAME		"hugepage"
+#define ARG_MADVISE_FLAG_NOHUGEPAGE			32
+#define ARG_MADVISE_FLAG_NOHUGEPAGE_NAME	"nohugepage"
 
 
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
@@ -363,6 +397,13 @@ class ProgArgs
 		std::string sockRecvBufSizeOrigStr; // original sockRecvBufSize str from user with unit
 		int sockSendBufSize; // custom netbench socket send buf size (0 means no change)
 		std::string sockSendBufSizeOrigStr; // original sockSendBufSize str from user with unit
+		bool useMmap; // use memory mapped IO
+		BufferVec mmapVec; /* pointers to mmap regions if user selected mmap IO; number of
+			entries and their order matches fdVec. only used in file/bdev random mode. */
+		unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
+		std::string fadviseFlagsOrigStr; // flags for fadvise() (ARG_FADVISE_FLAG_x_NAME)
+		unsigned madviseFlags; // flags for madvise() (ARG_MADVISE_FLAG_x)
+		std::string madviseFlagsOrigStr; // flags for madvise() (ARG_MADVISE_FLAG_x_NAME)
 
 
 		void defineDefaults();
@@ -374,6 +415,7 @@ class ProgArgs
 		void convertS3PathsToCustomTree();
 		void prepareBenchPathFDsVec();
 		void prepareCuFileHandleDataVec();
+		void prepareMmapVec();
 		void prepareFileSize(int fd, std::string& path);
 		void parseHosts();
 		void parseNetBenchServersForService();
@@ -535,6 +577,10 @@ class ProgArgs
 		size_t getNetBenchRespSize() const { return netBenchRespSize; }
 		int getSockRecvBufSize() const { return sockRecvBufSize; }
 		int getSockSendBufSize() const { return sockSendBufSize; }
+		bool getUseMmap() const { return useMmap; }
+		const BufferVec& getMmapVec() const { return mmapVec; }
+		unsigned getFadviseFlags() const { return fadviseFlags; };
+		unsigned getMadviseFlags() const { return madviseFlags; };
 };
 
 

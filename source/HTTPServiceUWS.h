@@ -21,7 +21,8 @@ class HTTPServiceUWS : public HTTPService
 		virtual void startServer();
 
 	private:
-	    struct us_listen_socket_t* globalListenSocket; // init in .listen, later used to quit server
+	    struct us_listen_socket_t* globalListenSocket{NULL}; /* init in .listen, later used to
+	    														quit server */
 
 		void defineServerResources(uWS::App& uWSApp);
 		void logReqAndError(uWS::HttpResponse<false>* res, std::string urlStr,

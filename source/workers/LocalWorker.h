@@ -9,9 +9,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "../toolkits/net/BasicSocket.h"
 #include "CuFileHandleData.h"
 #include "OffsetGenerator.h"
+#include "toolkits/net/BasicSocket.h"
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
 #include "Worker.h"
@@ -98,6 +98,9 @@ class LocalWorker : public Worker
 			CuFileHandleDataVec cuFileHandleDataVec; // cuFile handle for current file in dir mode
 			CuFileHandleDataPtrVec cuFileHandleDataPtrVec; /* for funcPositionalRW; number of
 				elements corresponds to num elems in fdVecPtr target */
+
+			BufferVec mmapVec; /* pointers to mmap regions if user selected mmap IO; number of
+				entries and their order matches fdVec */
 		} fileHandles;
 
 		RateLimiter rateLimiter; // for r/w rate limit per sec if set by user
@@ -159,6 +162,8 @@ class LocalWorker : public Worker
 		void uninitThreadFDVec();
 		void initThreadCuFileHandleDataVec();
 		void uninitThreadCuFileHandleDataVec();
+		void initThreadMmapVec();
+		void uninitThreadMmapVec();
 		void initThreadPhaseVars();
 		void initPhaseFileHandleVecs();
 		void initPhaseRWOffsetGen();
@@ -240,6 +245,8 @@ class LocalWorker : public Worker
 		ssize_t cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 
 		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
 		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);

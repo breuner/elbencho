@@ -6,6 +6,7 @@
 #include <libgen.h>
 #include <string>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "ProgArgs.h"
@@ -119,6 +120,9 @@ ProgArgs::~ProgArgs()
 	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
 			cuFileHandleData.deregisterHandle();
 
+	for(char* mmapPtr : mmapVec)
+		munmap(mmapPtr, fileSize);
+
 #ifdef CUFILE_SUPPORT
 	if(isCuFileDriverOpen)
 		cuFileDriverClose();
@@ -220,6 +224,9 @@ void ProgArgs::defineAllowedArgs()
 /*F*/	(ARG_DELETEFILES_LONG "," ARG_DELETEFILES_SHORT,
 			bpo::bool_switch(&this->runDeleteFilesPhase),
 			"Delete files.")
+/*fa*/	(ARG_FADVISE_LONG, bpo::value(&this->fadviseFlagsOrigStr),
+			"Provide file access hints via fadvise(). This value is a comma-separated list of the "
+			"following flags: seq, rand, willneed, dontneed, noreuse.")
 /*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
 			"detaching from console and daemonizing into backgorund.")
@@ -307,6 +314,19 @@ void ProgArgs::defineAllowedArgs()
 			"(Default: 2000)")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
+/*ma*/	(ARG_MADVISE_LONG, bpo::value(&this->madviseFlagsOrigStr),
+			"When using mmap, provide access hints via madvise(). This value is a comma-separated "
+			"list of the following flags: seq, rand, willneed, dontneed, hugepage, nohugepage.")
+/*mm*/	(ARG_MMAP_LONG, bpo::bool_switch(&this->useMmap),
+			"Do file IO through memory mapping. Mmap writes cannot extend a file beyond its "
+			"current size; if you try this, you will cause a Bus Error (SIGBUS). Thus, you "
+			"typically use mmap writes together with \"--" ARG_TRUNCTOSIZE_LONG "\" or \"--"
+			ARG_PREALLOCFILE_LONG "\". For random read tests, consider using direct IO and adding "
+			"an madvise for random access to disable prefetching. But caching is in the nature of "
+			"how mmap IO works, so direct IO won't disable caching in this case. Note also that "
+			"memory maps count towards the total virtual address limit of a process and "
+			"platform. A typical limit is 128TB, seen as 48 bits virtual address size in "
+			"\"/proc/cpuinfo\".")
 /*N*/	(ARG_NUMFILES_LONG "," ARG_NUMFILES_SHORT, bpo::value(&this->numFilesOrigStr),
 			"Number of files per thread per directory. (Default: 1) Example: \""
 			"-" ARG_NUMTHREADS_SHORT "2 -" ARG_NUMDIRS_SHORT "3 -" ARG_NUMFILES_SHORT "4\" will "
@@ -355,7 +375,7 @@ void ProgArgs::defineAllowedArgs()
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
-			"Preallocate file disk space on creation via posix_fallocate().")
+			"Preallocate file disk space in a write phase via posix_fallocate().")
 /*qu*/	(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
 			"Quit services on given service mode hosts.")
 /*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
@@ -623,6 +643,9 @@ void ProgArgs::defineDefaults()
 	this->sockRecvBufSizeOrigStr = "0";
 	this->sockSendBufSize = 0;
 	this->sockSendBufSizeOrigStr = "0";
+	this->useMmap = false;
+	this->fadviseFlags = 0;
+	this->madviseFlags = 0;
 }
 
 /**
@@ -681,7 +704,7 @@ void ProgArgs::initImplicitValues()
 	if(integrityCheckSalt && blockVariancePercent)
 	{
 		if(runCreateFilesPhase)
-			LOGGER(Log_NORMAL, "NOTE: Ingetrity check disables block variance." << std::endl);
+			LOGGER(Log_NORMAL, "NOTE: Integrity check disables block variance." << std::endl);
 
 		blockVariancePercent = 0;
 	}
@@ -689,7 +712,9 @@ void ProgArgs::initImplicitValues()
 }
 
 /**
- * Convert human strings with units (e.g. "4K") to actual numbers.
+ * Convert human strings/units to machine units. This includes conversion of unit suffixes
+ * (e.g. "4K") to actual numbers and human flags (e.g. madvise=rand,hugepage) to combined numeric
+ * flags values.
  */
 void ProgArgs::convertUnitStrings()
 {
@@ -705,6 +730,9 @@ void ProgArgs::convertUnitStrings()
 	netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
 	sockRecvBufSize = UnitTk::numHumanToBytesBinary(sockRecvBufSizeOrigStr, false);
 	sockSendBufSize = UnitTk::numHumanToBytesBinary(sockSendBufSizeOrigStr, false);
+
+	fadviseFlags = TranslatorTk::fadviseArgsStrToFlags(fadviseFlagsOrigStr);
+	madviseFlags = TranslatorTk::madviseArgsStrToFlags(madviseFlagsOrigStr);
 }
 
 /**
@@ -820,6 +848,12 @@ void ProgArgs::checkArgs()
 
 	if(!noDirectIOCheck && useHDFS)
 		noDirectIOCheck = true; // direct IO flag not relevant for hdfs buffering
+
+	if( (ioDepth > 1) && useMmap)
+		throw ProgException("Memory mapped IO (mmap) does not support IO depth larger than 1.");
+
+	if(!gpuIDsStr.empty() && useMmap)
+		throw ProgException("Memory mapped IO (mmap) cannot be used with GPUs.");
 
 	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
 		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
@@ -1144,6 +1178,7 @@ void ProgArgs::parseAndCheckPaths()
 
 	prepareBenchPathFDsVec();
 	prepareCuFileHandleDataVec();
+	prepareMmapVec();
 }
 
 /**
@@ -1345,6 +1380,69 @@ void ProgArgs::prepareCuFileHandleDataVec()
 		// note: cleanup won't be a prob if reg not done, as CuFileHandleData can handle that case
 
 		cuFileHandleData.registerHandle<ProgException>(fd);
+	}
+}
+
+/**
+ * Fill mmapVec based on benchPathFDsVec with open file descriptors from benchPathsVec.
+ * This is only effective in file/bdev mode for random IO (where we really need to have mapped all
+ * files/bdevs instead of only one file/bdev per thread at a time), because there is typically a
+ * 128TB max virtual address size limit per process (as seen in "lscpu | grep Address").
+ *
+ * Unmapping usually happens in ProgArgs destructor or resetBenchPath(), but this method also
+ * includes unmapping of any previous mappings.
+ *
+ * @throw ProgException on error.
+ */
+void ProgArgs::prepareMmapVec()
+{
+	// cleanup any old memory mappings
+
+	for(char*& mmapPtr : mmapVec)
+	{
+		if(mmapPtr == MAP_FAILED)
+			continue;
+
+		int unmapRes = munmap(mmapPtr, fileSize);
+
+		if(unmapRes == -1)
+			ERRLOGGER(Log_NORMAL, "File memory unmap failed. "
+				"SysErr: " << strerror(errno) << std::endl);
+
+		mmapPtr = (char*)MAP_FAILED;
+	}
+
+	mmapVec.resize(0);
+
+	if(!useMmap)
+		return; // nothing to do
+
+	if(benchPathType == BenchPathType_DIR)
+		return; // each worker will do own init
+
+	if(!useRandomOffsets)
+		return; // each worker will do own init
+
+	// prep mappings based on benchPathFDsVec
+
+	mmapVec.resize(benchPathFDsVec.size(), (char*)MAP_FAILED);
+
+	for(unsigned i=0; i < benchPathFDsVec.size(); i++)
+	{
+		int protectionMode = runCreateFilesPhase ? (PROT_WRITE | PROT_READ) : PROT_READ;
+		int fd = benchPathFDsVec[i];
+
+		if(fd == -1)
+		{
+			LOGGER(Log_DEBUG, "Cancelling mmap init loop because of fd \"-1\". "
+				"Problem path: " << "File: " + benchPathsVec[i] << std::endl);
+			break;
+		}
+
+		FileTk::fadvise<ProgException>(fd, fadviseFlags, benchPathsVec[i].c_str() );
+
+		mmapVec[i] = (char*)FileTk::mmapAndMadvise<ProgException>(fileSize, protectionMode,
+			MAP_SHARED, fd, madviseFlags, benchPathsVec[i].c_str() );
 	}
 }
 
@@ -2713,6 +2811,9 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	netBenchRespSize = tree.get<size_t>(ARG_RESPSIZE_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
+	useMmap = tree.get<bool>(ARG_MMAP_LONG);
+	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
+	madviseFlags = tree.get<unsigned>(ARG_MADVISE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2826,6 +2927,9 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_RESPSIZE_LONG, netBenchRespSize);
 	outTree.put(ARG_RECVBUFSIZE_LONG, sockRecvBufSize);
 	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
+	outTree.put(ARG_MMAP_LONG, useMmap);
+	outTree.put(ARG_FADVISE_LONG, fadviseFlags);
+	outTree.put(ARG_MADVISE_LONG, madviseFlags);
 
 
 	// dynamically calculated values for service hosts...
@@ -2906,6 +3010,24 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
  */
 void ProgArgs::resetBenchPath()
 {
+	// cleanup any old memory mappings
+
+	for(char*& mmapPtr : mmapVec)
+	{
+		if(mmapPtr == MAP_FAILED)
+			continue;
+
+		int unmapRes = munmap(mmapPtr, fileSize);
+
+		if(unmapRes == -1)
+			ERRLOGGER(Log_NORMAL, "File memory unmap failed. "
+				"SysErr: " << strerror(errno) << std::endl);
+
+		mmapPtr = (char*)MAP_FAILED;
+	}
+
+	mmapVec.resize(0);
+
 	// dereg prev registered handles. (CuFileHandleData can handle the case of entries not reg'ed.)
 	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
 			cuFileHandleData.deregisterHandle();

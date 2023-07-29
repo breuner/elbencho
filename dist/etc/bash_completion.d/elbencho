@@ -43,6 +43,7 @@ _elbencho_opts()
         --dirstats
         --dropcache
         --dryrun
+        --fadv
         --files
         --foreground
         --gdsbufreg
@@ -73,7 +74,9 @@ _elbencho_opts()
         --livecsvex
         --liveint
         --log
+        --madv
         --mkdirs
+        --mmap
         --netbench
         --netdevs
         --no0usecerr
@@ -160,6 +163,8 @@ _elbencho()
         ;&
         --dirs)
         ;&
+        --fadv)
+        ;&
         --files)
         ;&
         --gpuids)
@@ -179,6 +184,8 @@ _elbencho()
         --liveint)
         ;&
         --log)
+        ;&
+        --madv)
         ;&
         -N)
         ;&

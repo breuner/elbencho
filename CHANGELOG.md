@@ -4,6 +4,9 @@
 
 ### New Features & Enhancements
 * Added N-to-M network bandwidth test. See new option "--netbench".
+* Added support for memory mapped IO (aka mmap). See new option "--mmap".
+* Added support for file access hints via fadvise. See new option "--fadv".
+* Added support for mmap access hints via madvise. See new option "--madv".
 
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.102.
@@ -11,9 +14,10 @@
 
 ### Fixes
 * Fixed compilation error (missing include directive) when building without S3 support.
+* Fixed check for file slice smaller than block size in situations without direct IO.
 
 ### Contributors
-* Thanks to Glenn K. Lockwood for reporting an issue. Thanks to Jan Heichler and Rob Mallory for helpful comments and suggestions.
+* Thanks to Glenn K. Lockwood for reporting an issue. Thanks to Jan Heichler, Rob Mallory, Maria Gutierrez for helpful comments and suggestions.
 
 ## v2.3.1 (Apr 10, 2023)
 

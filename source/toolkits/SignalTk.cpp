@@ -70,6 +70,9 @@ void SignalTk::faultSignalHandler(int sig)
 		{
 			stream << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Bus error (bad memory access)" << std::endl;
+			stream << "NOTE: If this happened with mmap, then you probably forgot to grow the "
+				"files to their full size, e.g. via \"--" << ARG_TRUNCTOSIZE_LONG << "\" or "
+				"\"--" << ARG_PREALLOCFILE_LONG "\"." << std::endl;
 		} break;
 
 		case SIGILL:

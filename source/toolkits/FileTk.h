@@ -12,6 +12,11 @@ class FileTk
 		static bool checkFileEmpty(std::string path);
 		static bool checkFileSparseOrCompressed(struct stat& statBuf, off_t& outAllocatedSize);
 		static int mkdiratBottomUp(int dirFD, const char* path, mode_t mode);
+		template <class EXCEPTION>
+		static void fadvise (int fd, unsigned progArgsFadviseFlags, const char* path);
+		template <class EXCEPTION>
+		static void* mmapAndMadvise(size_t length, int protect, int flags, int fd,
+			unsigned progArgsMadviseFlags, const char* path);
 
 	private:
 		FileTk() {}
