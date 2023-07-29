@@ -4,7 +4,11 @@
 #
 # This example config is equivalent to the following elbencho arguments:
 # $ elbencho -t 2 --iodepth 4 --timelimit 10 -b 1M --direct -s 1G \
-#   -N 10 -n1 -D -F -d -w
+#   -N 10 -n1 -D -F -d -w --rand
+#
+# This example doesn't contain a path. You would specify the path and possibly
+# other options on the command line like this:
+# $ elbencho -c randomWrite.elbencho /mnt/storage/mydir
 
 threads=2
 iodepth=4
@@ -18,3 +22,4 @@ deldirs=1
 delfiles=1
 mkdirs=1
 write=1
+rand=1
