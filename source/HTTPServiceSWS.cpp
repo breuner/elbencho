@@ -38,6 +38,11 @@ void HTTPServiceSWS::startServer()
 
 	defineServerResources(server);
 
+#ifdef CYGWIN_SUPPORT
+	/* SWS defaults to listening for IPv6, which implies also IPv4 on linux, but is interpreted
+		as really only IPv6 and no IPv4 on cygwin, so rather force it to IPv4 only on cygwin. */
+	server.config.address = "0.0.0.0";
+#endif
 	server.config.port = progArgs.getServicePort(); // desired port (std::promise confirms this)
 	std::promise<unsigned short> actualServerPort; // set by HttpServer after startup (0 for error)
 

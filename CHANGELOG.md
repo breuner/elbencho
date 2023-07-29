@@ -16,9 +16,10 @@
 * Fixed compilation error (missing include directive) when building without S3 support.
 * Fixed check for file slice smaller than block size in situations without direct IO.
 * Fixed missing random IO flag in config file example.
+* Fixed Windows build not listening for TCP/IPv4 connections in service mode. 
 
 ### Contributors
-* Thanks to Glenn K. Lockwood and Avi Drabkin for reporting an issues. Thanks to Jan Heichler, Rob Mallory, Maria Gutierrez for helpful comments and suggestions.
+* Thanks to Glenn K. Lockwood, Avi Drabkin, Michael Bertelson for reporting an issues. Thanks to Jan Heichler, Rob Mallory, Maria Gutierrez for helpful comments and suggestions.
 
 ## v2.3.1 (Apr 10, 2023)
 
