@@ -28,6 +28,8 @@ _elbencho_opts()
         --block
         --blockvaralgo
         --blockvarpct
+        --clients
+        --clientsfile
         --configfile
         --cores
         --cpu
@@ -116,6 +118,8 @@ _elbencho_opts()
         --s3secret
         --s3transman
         --sendbuf
+        --servers
+        --serversfile
         --service
         --sharesize
         --size
@@ -252,6 +256,8 @@ _elbencho()
         # options that take a file/dir argument
         -c)
         ;&
+        --clientsfile)
+        ;&
         --configfile)
         ;&
         --csvfile)
@@ -262,6 +268,8 @@ _elbencho()
         ;&
         --resfile)
         ;&
+        --serversfile)
+        ;&
         --treefile)
             compopt -o filenames 2>/dev/null
             COMPREPLY=( $(compgen -f ${cur}) )
@@ -269,7 +277,11 @@ _elbencho()
         ;;
 
         # options that take a hostname argument
+        --clients)
+        ;&
         --hosts)
+        ;&
+        --servers)
             compopt -o nospace 2>/dev/null
             COMPREPLY=( $(compgen -A hostname ${cur}) )
             return 0

@@ -265,7 +265,7 @@ void LocalWorker::run()
 
 				checkInterruptionRequest(); // for infinite loop workers with no work
 
-			} while(doInfiniteIOLoop); // end of infinite loop
+			} while(doInfiniteIOLoop && workerGotPhaseWork); // end of infinite loop
 
 			// let coordinator know that we are done
 			finishPhase();
@@ -5203,7 +5203,7 @@ void LocalWorker::netbenchDoTransferServer()
 				LOGGER(Log_DEBUG,"Server: Transfer finished: " <<
 					workerSocketVec[i]->getPeername() << std::endl);
 
-				try { workerSocketVec[i]->shutdown(); } catch(...) {}
+				// (note: no sock shutdown() here because of possible infloop)
 
 				transferredBytesVec.erase(transferredBytesVec.begin() + i);
 				pollFDVec.erase(pollFDVec.begin() + i);
@@ -5316,7 +5316,7 @@ void LocalWorker::netbenchDoTransferClient()
 			LOGGER(Log_DEBUG,"Client: Transfer finished: " <<
 				clientSocket->getPeername() << std::endl);
 
-			try { clientSocket->shutdown(); } catch(...) {}
+			// (note: no sock shutdown() here because of possible infloop)
 		}
 
 	} // end of for-loop for each block

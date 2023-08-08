@@ -804,6 +804,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 
 		(workerDonePerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
 
+		const char* netbenchServiceSuffixStr = ""; // only set in netbench mode
 		size_t workerPercentDoneNum = 0;
 		std::string workerPercentDoneStr = "-";
 
@@ -820,8 +821,16 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 		workerPercentDoneNum = std::min(workerPercentDoneNum, (size_t)100);
 		workerPercentDoneStr = std::to_string(workerPercentDoneNum);
 
-		if(useNetBench && (i < progArgs.getNumNetBenchServers() ) )
-			workerPercentDoneStr = "-"; // this is a server, we only have pct done for clients
+		if(useNetBench)
+		{ // special settings for netbench mode
+			if(i < progArgs.getNumNetBenchServers() )
+			{ // this is a netbench server
+				workerPercentDoneStr = "-"; // this is a server, we only have pct done for clients
+				netbenchServiceSuffixStr = " [server]";
+			}
+			else // this is a netbench client
+				netbenchServiceSuffixStr = " [client]";
+		}
 
 		stream << boost::format(tableHeadlineFormat)
 			% i
@@ -850,7 +859,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 			stream << boost::format(remoteTableHeadlineFormat)
 				% (progArgs.getNumThreads() - remoteWorker->getNumWorkersDone() )
 				% remoteWorker->getCPUUtilLive()
-				% progArgs.getHostsVec()[i];
+				% (progArgs.getHostsVec()[i] + netbenchServiceSuffixStr);
 		}
 
 		printFullScreenLiveStatsLine(stream, liveResults.winWidth, true);

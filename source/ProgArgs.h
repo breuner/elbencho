@@ -60,6 +60,10 @@ namespace bpt = boost::property_tree;
 #define ARG_HOSTS_LONG				"hosts"
 #define ARG_HOSTSFILE_LONG			"hostsfile"
 #define ARG_NUMHOSTS_LONG			"numhosts"
+#define ARG_SERVERS_LONG			"servers"
+#define ARG_SERVERSFILE_LONG		"serversfile"
+#define ARG_CLIENTS_LONG			"clients"
+#define ARG_CLIENTSFILE_LONG		"clientsfile"
 #define ARG_INTERRUPT_LONG			"interrupt"
 #define ARG_ITERATIONS_LONG			"iterations"
 #define ARG_ITERATIONS_SHORT		"i"
@@ -287,6 +291,10 @@ class ProgArgs
 		std::string hostsFilePath; // path to file for service hosts
 		StringVec hostsVec; // service hosts broken down into individual hostname[:port]
 		int numHosts; // number of hosts to use from hostsStr/hostsFilePath ("-1" means "all")
+		std::string serversStr; // prepended to hostsStr in netbench mode
+		std::string serversFilePath; // path to file for preprended service hosts
+		std::string clientsStr; // // appended to hostsStr in netbench mode
+		std::string clientsFilePath; // path to file for appended service hosts
 		bool interruptServices; // send interrupt msg to given hosts to stop current phase
 		bool quitServices; // send quit (via interrupt msg) to given hosts to exit service
 		bool noSharedServicePath; // true if bench paths not shared between service instances

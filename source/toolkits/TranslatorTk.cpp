@@ -135,7 +135,7 @@ std::string TranslatorTk::stringVecToString(const StringVec& vec, std::string se
 	for(const std::string& elem : vec)
 	{
 		if(!result.empty() )
-			result += separator; // not the first element, so prepend separator
+			result += separator; // this is not the first element, so add separator
 
 		result += elem;
 	}
