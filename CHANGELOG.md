@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.0 (work in progress)
+## v3.0.1 (Aug 08, 2023)
 
 ### New Features & Enhancements
 * Added N-to-M network bandwidth test. See new option "--netbench".
