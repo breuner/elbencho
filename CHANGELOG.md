@@ -1,5 +1,14 @@
 # Changelog of elbencho
 
+## v3.0.2 (work in progress)
+
+### New Features & Enhancements
+* Block variance to defeat compression is now also effective for writes from GPUs.
+* Makefile now provides options to manually specify CUDA include and library paths.
+
+### Contributors
+* Thanks to Prabhjyot Singh Saluja and David Johnson for helpful comments and suggestions.
+
 ## v3.0.1 (Aug 08, 2023)
 
 ### New Features & Enhancements

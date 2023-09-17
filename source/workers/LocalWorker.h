@@ -16,6 +16,11 @@
 #include "toolkits/RateLimiter.h"
 #include "Worker.h"
 
+#ifdef CUDA_SUPPORT
+	#include <cuda_runtime.h>
+	#include <curand.h>
+#endif
+
 #ifdef S3_SUPPORT
 	#include <aws/core/Aws.h>
 	#include <aws/s3/S3Client.h>
@@ -57,7 +62,8 @@ typedef void (LocalWorker::*CUFILE_HANDLE_REGISTER)(int fd, CuFileHandleData& ha
 typedef void (LocalWorker::*CUFILE_HANDLE_DEREGISTER)(CuFileHandleData& handleData);
 
 // preWriteIntegrityCheckFillBuf/postReadIntegrityCheckVerifyBuf
-typedef void (LocalWorker::*BLOCK_MODIFIER)(char* buf, size_t bufLen, off_t fileOffset);
+typedef void (LocalWorker::*BLOCK_MODIFIER)(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset);
 
 // preRWRateLimiter
 typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize);
@@ -129,6 +135,10 @@ class LocalWorker : public Worker
 
 		PathStore customTreeDirs; // non-shared dirs for custom tree mode
 		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
+
+#ifdef CUDA_SUPPORT
+		curandGenerator_t gpuRandGen{NULL};
+#endif
 
 #ifdef S3_SUPPORT
 		std::shared_ptr<Aws::S3::S3Client> s3Client; // (shared_ptr expected by some SDK functions)
@@ -241,18 +251,25 @@ class LocalWorker : public Worker
 		ssize_t pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+			off_t offset);
 		ssize_t cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 
-		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
-		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);
-		void postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset);
-		void preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset);
-		void preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset);
+		void noOpIntegrityCheck(char* hostIOBuf, char* gpuIOBuf, size_t bufLen, off_t fileOffset);
+		void preWriteIntegrityCheckFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void postReadIntegrityCheckVerifyBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void preWriteBufRandRefillFast(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
 
 		void aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);

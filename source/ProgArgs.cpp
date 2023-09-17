@@ -169,6 +169,8 @@ void ProgArgs::defineAllowedArgs()
 			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
 			RANDALGO_BALANCED_SIMD_STR "\" for good balance of speed and randomness; \""
 			RANDALGO_STRONG_STR "\" for high CPU cost but strong randomness. "
+			"When GPUs are given then the CUDA default (\"XORWOW\") random generator will be "
+			"used and this value is ignored. "
 			"(Default: " RANDALGO_FAST_STR ")")
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
 			"Block variance percentage. Defines the percentage of each block that will be refilled "
@@ -832,9 +834,6 @@ void ProgArgs::checkArgs()
 
 		useDirectIO = true;
 	}
-
-	if(useCuFile && blockVariancePercent && runCreateFilesPhase)
-		LOGGER(Log_NORMAL, "Note: Block variance is not supported for cuFile/GDS writes.");
 
 	if(useNetBench && hostsVec.empty() )
 		throw ProgException("Missing servers & clients definition for netbench mode.");

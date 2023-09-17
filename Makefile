@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 3
 EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 1
+EXE_VER_PATCHLEVEL ?= 2
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -453,19 +453,29 @@ help:
 	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo
 	@echo 'Optional Compile/Link Arguments:'
-	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
-	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++17)'
-	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
-	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
 	@echo '   BUILD_STATIC=1          - Generate a static binary without dependencies.'
 	@echo '                             (Tested only on Alpine Linux.)'
 	@echo '   BUILD_DEBUG=1           - Include debug info in executable.'
-	@echo '   AWS_LIB_DIR=<path>      - If this is set in combination with S3_SUPPORT=1'
-	@echo '                             then link against pre-built libs in given dir'
-	@echo '                             instead of building the AWS SDK CPP.'
-	@echo '   AWS_INCLUDE_DIR=<path>  - Include files path for AWS_LIB_DIR. (Default: '
-	@echo '                             "/usr/include")'
+	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
+	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++17)'
+	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
+	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
+	@echo
+	@echo 'Include and library paths:'
+	@echo '   AWS_LIB_DIR=<path>         - If this is set in combination with S3_SUPPORT=1'
+	@echo '                                then link against pre-built libs in given dir'
+	@echo '                                instead of building the AWS SDK CPP.'
+	@echo '   AWS_INCLUDE_DIR=<path>     - Include files path for AWS_LIB_DIR.'
+	@echo '                                (Default: /usr/include")'
+	@echo '   CUDA_INCLUDE_PATH=<path>   - Path to directory containing cuda_runtime.h.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUDA_LIB_PATH=<path>       - Path to directory containing libcudart.so.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUFILE_INCLUDE_PATH=<path> - Path to directory containing cufile.h.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUFILE_LIB_PATH=<path>     - Path to directory containing libcufile.so.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'

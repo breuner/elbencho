@@ -1047,11 +1047,14 @@ void LocalWorker::initPhaseFunctionPointers()
 			&LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
 		funcPostReadCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
 
-		if(useCuFileAPI && integrityCheckEnabled)
+		if(areGPUsGiven && integrityCheckEnabled)
 			funcPreWriteCudaMemcpy = &LocalWorker::cudaMemcpyHostToGPU;
 
 		if(integrityCheckEnabled)
 			funcPreWriteBlockModifier = &LocalWorker::preWriteIntegrityCheckFillBuf;
+		else
+		if(blockVariancePercent && areGPUsGiven)
+			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillCuda;
 		else
 		if(blockVariancePercent && (blockVarAlgo == RandAlgo_GOLDENRATIOPRIME) )
 			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillFast;
@@ -1179,13 +1182,13 @@ void LocalWorker::allocGPUIOBuffer()
 		return; // nothing to do here
 
 	if(progArgs->getGPUIDsVec().empty() )
-	{
-		// gpu bufs won't be accessed, but vec elems might be passed e.g. to noOpCudaMemcpy
+	{ // gpu bufs won't be accessed, but gpuIOBufVec elems might be passed e.g. to noOpCudaMemcpy
 		gpuIOBufVec.resize(progArgs->getIODepth(), NULL);
 		return;
 	}
 
 #ifndef CUDA_SUPPORT
+
 	throw WorkerException("GPU given, but this executable was built without CUDA support.");
 
 #else // CUDA_SUPPORT
@@ -1205,6 +1208,17 @@ void LocalWorker::allocGPUIOBuffer()
 		throw WorkerException("Setting CUDA device failed. "
 			"GPU ID: " + std::to_string(gpuID) + "; "
 			"CUDA Error: " + cudaGetErrorString(setDevRes) );
+
+	curandStatus_t createGenRes = curandCreateGenerator(&gpuRandGen, CURAND_RNG_PSEUDO_DEFAULT);
+	if(createGenRes != CURAND_STATUS_SUCCESS)
+		throw WorkerException("Initialization of GPU/CUDA random number generator failed. "
+			"curand error code: " + std::to_string(createGenRes) );
+
+	curandStatus_t seedRes = curandSetPseudoRandomGeneratorSeed(gpuRandGen,
+		( (uint64_t)std::random_device()() << 32) | (uint32_t)std::random_device()() );
+	if(seedRes != CURAND_STATUS_SUCCESS)
+		throw WorkerException("Seeding GPU/CUDA random number generator failed. "
+			"curand error code: " + std::to_string(seedRes) );
 
 	// alloc number of GPU IO buffers matching iodepth
 	for(size_t i=0; i < progArgs->getIODepth(); i++)
@@ -1378,6 +1392,12 @@ void LocalWorker::cleanup()
 					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl);
 		}
 	}
+
+	if(gpuRandGen)
+	{
+		curandDestroyGenerator(gpuRandGen);
+		gpuRandGen = NULL;
+	}
 #endif
 
 	// free host memory buffers
@@ -1434,7 +1454,7 @@ int64_t LocalWorker::rwBlockSized()
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
 		if(benchPhase == BenchPhase_READFILES)
@@ -1476,7 +1496,7 @@ int64_t LocalWorker::rwBlockSized()
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -1571,7 +1591,8 @@ int64_t LocalWorker::aioBlockSized()
 
 		ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset); // fill
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize,
+			currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
 		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[ioVecIdx] );
@@ -1654,7 +1675,8 @@ int64_t LocalWorker::aioBlockSized()
 			((*this).*funcPostReadCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
 				ioEvents[eventIdx].obj->u.c.nbytes);
 			((*this).*funcPostReadBlockChecker)( (char*)ioEvents[eventIdx].obj->u.c.buf,
-				ioEvents[eventIdx].obj->u.c.nbytes, ioEvents[eventIdx].obj->u.c.offset); // verify
+				gpuIOBufVec[ioVecIdx], ioEvents[eventIdx].obj->u.c.nbytes,
+				ioEvents[eventIdx].obj->u.c.offset);
 
 			// calc io operation latency
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -1703,7 +1725,8 @@ int64_t LocalWorker::aioBlockSized()
 
 			ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset);
+			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
+				blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
 			int submitRes = io_submit(
@@ -1735,7 +1758,8 @@ int64_t LocalWorker::aioBlockSized()
 /**
  * Noop for the case when no integrity check selected by user.
  */
-void LocalWorker::noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::noOpIntegrityCheck(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	return; // noop
 }
@@ -1746,7 +1770,8 @@ void LocalWorker::noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset)
  * @bufLen buf len to fill with checksums
  * @fileOffset file offset for buf
  */
-void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::preWriteIntegrityCheckFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	const size_t checkSumLen = sizeof(uint64_t);
 	const uint64_t checkSumSalt = progArgs->getIntegrityCheckSalt();
@@ -1775,7 +1800,7 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
 		off_t checkSumArrayStartIdx = currentOffset - checkSumStartOffset;
 		size_t checkSumCopyLen = std::min(numBytesLeft, checkSumLen - checkSumArrayStartIdx);
 
-		memcpy(&buf[numBytesDone], &checkSumArray[checkSumArrayStartIdx], checkSumCopyLen);
+		memcpy(&hostIOBuf[numBytesDone], &checkSumArray[checkSumArrayStartIdx], checkSumCopyLen);
 
 		numBytesDone += checkSumCopyLen;
 		numBytesLeft -= checkSumCopyLen;
@@ -1790,7 +1815,8 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
  * @fileOffset file offset for buf
  * @throw WorkerException if verification fails.
  */
-void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::postReadIntegrityCheckVerifyBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	IF_UNLIKELY(!bufLen)
 		return;
@@ -1802,10 +1828,10 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 			"Size: " + std::to_string(bufLen) );
 
 	// fill verifyBuf with the correct data
-	preWriteIntegrityCheckFillBuf(verifyBuf, bufLen, fileOffset);
+	preWriteIntegrityCheckFillBuf(verifyBuf, gpuIOBuf, bufLen, fileOffset);
 
 	// compare correct data to actual data
-	int compareRes = memcmp(buf, verifyBuf, bufLen);
+	int compareRes = memcmp(hostIOBuf, verifyBuf, bufLen);
 
 	if(!compareRes)
 	{ // buffers are equal, so all good
@@ -1816,13 +1842,13 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 	// verification failed, find exact mismatch offset
 	for(size_t i=0; i < bufLen; i++)
 	{
-		if(verifyBuf[i] == buf[i])
+		if(verifyBuf[i] == hostIOBuf[i])
 			continue;
 
 		// we found the exact offset for mismatch
 
 		unsigned expectedVal = (unsigned char)verifyBuf[i];
-		unsigned actualVal = (unsigned char)buf[i];
+		unsigned actualVal = (unsigned char)hostIOBuf[i];
 
 		free(verifyBuf);
 
@@ -1834,7 +1860,7 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 }
 
 /**
- * Fill buffer with given value. In contrast to memset() this can full 64bit values to at least
+ * Fill buffer with given value. In contrast to memset() this can fill 64bit values to at least
  * make simple dedupe less likely among all the different non-variable block remainders.
  */
 void LocalWorker::bufFill(char* buf, uint64_t fillValue, size_t bufLen)
@@ -1861,7 +1887,8 @@ void LocalWorker::bufFill(char* buf, uint64_t fillValue, size_t bufLen)
  * Refill some percentage of the buffer with random data. The percentage to refill is defined via
  * progArgs::blockVariancePercent.
  */
-void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
@@ -1873,14 +1900,14 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 	const uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
 	const size_t constFillRemainderLen = bufLen - varFillLen;
 
-	randBlockVarAlgo->fillBuf(buf, varFillLen);
+	randBlockVarAlgo->fillBuf(hostIOBuf, varFillLen);
 
 	if(!constFillRemainderLen)
 		return;
 
 	// fill remainder of buffer with same 64bit value
 	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
-	bufFill(&buf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
+	bufFill(&hostIOBuf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**
@@ -1892,7 +1919,8 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
  * "-w -t 1 -b 128k --iodepth 128 --blockvarpct 100 --rand --direct" when the function in the
  * RandAlgo object is called (which is quite mysterious).
  */
-void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::preWriteBufRandRefillFast(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
@@ -1914,12 +1942,12 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 	for(uint64_t i=0; i < (varFillLen / sizeof(uint64_t) ); i++)
 	{
-		uint64_t* uint64Buf = (uint64_t*)buf;
+		uint64_t* uint64Buf = (uint64_t*)hostIOBuf;
 		state *= RANDALGO_GOLDEN_RATIO_PRIME;
 		state >>= 3;
 		*uint64Buf = state;
 
-		buf += sizeof(uint64_t);
+		hostIOBuf += sizeof(uint64_t);
 		numBytesDone += sizeof(uint64_t);
 	}
 
@@ -1931,8 +1959,8 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 		const size_t memcpySize = varFillLen - numBytesDone;
 
-		memcpy(buf, &randUint64, memcpySize);
-		buf += memcpySize;
+		memcpy(hostIOBuf, &randUint64, memcpySize);
+		hostIOBuf += memcpySize;
 	}
 
 	if(!constFillRemainderLen)
@@ -1940,8 +1968,56 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 	// fill remainder of buffer with same 64bit value
 	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
-	bufFill(buf, randBlockVarAlgo->next(), constFillRemainderLen);
+	bufFill(hostIOBuf, randBlockVarAlgo->next(), constFillRemainderLen);
 }
+
+/**
+ * Refill some percentage of the GPU buffer with random data. The percentage to refill is defined
+ * via progArgs::blockVariancePercent.
+ */
+void LocalWorker::preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
+{
+#ifndef CUDA_SUPPORT
+
+	throw WorkerException("preWriteBufRandRefillCuda called, but this executable was built without "
+		"CUDA support.");
+
+#else // CUDA_SUPPORT
+
+	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
+	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
+		return; // this is a read in rwmix mode, so no need for refill in this round
+
+	// refill buffer with random data
+
+	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+	uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
+
+	if(varFillLen % sizeof(int) ) // curandGenerate can only fill full 32bit values
+		varFillLen -= (varFillLen % sizeof(int) );
+
+	const size_t constFillRemainderLen = bufLen - varFillLen;
+
+	curandStatus_t randGenRes = curandGenerate(gpuRandGen, (unsigned int*)gpuIOBuf,
+		varFillLen / sizeof(int) );
+
+	IF_UNLIKELY(randGenRes != CURAND_STATUS_SUCCESS)
+		throw WorkerException("Random number generation via GPU/CUDA failed. "
+			"curand error code: " + std::to_string(randGenRes) );
+
+	if(!constFillRemainderLen)
+		return;
+
+	/* fill remainder of host buffer with same 64bit value and copy over to gpu (in lack of a good
+		way of filling a buffer with a 64bit value directly on the gpu) */
+	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
+	bufFill(&hostIOBuf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
+	cudaMemcpyHostToGPU(&hostIOBuf[varFillLen], &gpuIOBuf[varFillLen], constFillRemainderLen);
+
+#endif // CUDA_SUPPORT
+}
+
 
 /**
  * Simple wrapper for io_prep_pwrite().
@@ -3594,7 +3670,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	if(blockSize)
 	{
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 	}
 
@@ -3632,7 +3708,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	if(blockSize)
 	{
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 	}
 
 	// calc io operation latency
@@ -3704,7 +3780,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
 		// prepare part upload
@@ -3763,7 +3839,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		completedMultipartUpload.AddParts(completedPart);
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3856,7 +3932,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
 		// prepare part upload
@@ -3918,7 +3994,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			bucketName, objectName, blockSize, objectTotalSize, completedPart);
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -4087,7 +4163,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteBlockModifier)(ioBuf, blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBuf, gpuIOBuf, blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
 
 		S3::GetObjectRequest request;
@@ -4145,7 +4221,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBuf, blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBuf, gpuIOBuf, blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -5166,7 +5242,7 @@ void LocalWorker::netbenchDoTransferServer()
 					(transferredBytesVec[i] == transferBytesPerConn) )
 				{
 					((*this).*funcPreWriteBlockModifier)(
-						transferBuf.get(), respSize, transferredBytesVec[i] ); // fill buffer
+						transferBuf.get(), gpuIOBufVec[0], respSize, transferredBytesVec[i] );
 
 					workerSocketVec[i]->send(transferBuf.get(), respSize, 0);
 
@@ -5244,7 +5320,7 @@ void LocalWorker::netbenchDoTransferClient()
 			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 			((*this).*funcPreWriteBlockModifier)(
-				transferBuf.get(), currentBlockSize, transferredBytes); // fill buffer
+				transferBuf.get(), gpuIOBufVec[0], currentBlockSize, transferredBytes);
 
 			clientSocket->send(transferBuf.get(), currentBlockSize, 0);
 
