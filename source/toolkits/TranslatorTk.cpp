@@ -43,6 +43,7 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_STATFILES: return PHASENAME_STATFILES;
 		case BenchPhase_LISTOBJECTS: return PHASENAME_LISTOBJECTS;
 		case BenchPhase_LISTOBJPARALLEL: return PHASENAME_LISTOBJPAR;
+		case BenchPhase_MULTIDELOBJ: return PHASENAME_MULTIDELOBJ;
 		default:
 		{ // should never happen
 			throw ProgException("Phase name requested for unknown/invalid phase type: " +
@@ -78,6 +79,7 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool
 		case BenchPhase_STATFILES:
 		case BenchPhase_LISTOBJECTS:
 		case BenchPhase_LISTOBJPARALLEL:
+		case BenchPhase_MULTIDELOBJ:
 		{
 			retVal = PHASEENTRYTYPE_FILES;
 		} break;

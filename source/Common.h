@@ -35,6 +35,7 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_STATFILES		"STAT"
 #define PHASENAME_LISTOBJECTS	"LISTOBJ"
 #define PHASENAME_LISTOBJPAR	"LISTOBJ_P"
+#define PHASENAME_MULTIDELOBJ	"MULTIDEL"
 
 
 // human-readable entry type in current benchmark phase
@@ -47,7 +48,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.0.1"
+#define HTTP_PROTOCOLVERSION	"3.0.2"
 
 /**
  * Default access mode bits for new files.
@@ -105,6 +106,7 @@ enum BenchPhase
 	BenchPhase_STATFILES,
 	BenchPhase_LISTOBJECTS,
 	BenchPhase_LISTOBJPARALLEL,
+	BenchPhase_MULTIDELOBJ,
 };
 
 

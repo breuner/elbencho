@@ -218,6 +218,7 @@ class LocalWorker : public Worker
 		void s3ModeListObjParallel();
 		void s3ModeVerifyListing(StringSet& expectedSet, StringList& receivedList,
 			std::string bucketName, std::string listPrefix);
+		void s3ModeListAndMultiDeleteObjects();
 		bool getS3ModeDoReverseSeqFallback();
 
 		void hdfsDirModeIterateDirs();

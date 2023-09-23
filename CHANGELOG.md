@@ -5,9 +5,13 @@
 ### New Features & Enhancements
 * Block variance to defeat compression is now also effective for writes from GPUs.
 * Makefile now provides options to manually specify CUDA include and library paths.
+* Added support for S3 multi-delete (S3 DeleteObjects) operation. See new option "--s3multidel".
+
+### General Changes
+* S3 error messages now also show HTTP error code.
 
 ### Contributors
-* Thanks to Prabhjyot Singh Saluja and David Johnson for helpful comments and suggestions.
+* Thanks to Prabhjyot Singh Saluja, David Johnson, Erez Zilber, Dima Persov, Omri Zedan for helpful comments and suggestions.
 
 ## v3.0.1 (Aug 08, 2023)
 

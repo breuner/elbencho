@@ -67,6 +67,7 @@ void RemoteWorker::run()
 				case BenchPhase_STATFILES:
 				case BenchPhase_LISTOBJECTS:
 				case BenchPhase_LISTOBJPARALLEL:
+				case BenchPhase_MULTIDELOBJ:
 				{
 					startBenchPhase();
 

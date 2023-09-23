@@ -452,6 +452,15 @@ void ProgArgs::defineAllowedArgs()
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
 			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
 			"the current working directory. (Default: 0=disabled; Max: 6)")
+/*s3m*/	(ARG_S3MULTIDELETE_LONG, bpo::value(&this->runS3MultiDelObjNum),
+			"Delete multiple objects in a single DeleteObjects request. This loops on retrieving "
+			"a chunk of objects from a listing request and then deleting the retrieved set of "
+			"objects in a single request. This makes no assumption about the retrieved object "
+			"names and deletes arbitrary object names in the given bucket(s). The given number is "
+			"the maximum number of objects to retrieve and delete in a single request. 1000 is a "
+			"typical max value. Use \"--" ARG_S3OBJECTPREFIX_LONG "\" to list/delete only objects "
+			"with the given prefix. (Multiple threads will only be effecive if multiple buckets "
+			"are given.)")
 /*s3n*/	(ARG_S3NOMPCHECK_LONG, bpo::bool_switch(&this->ignoreS3PartNum),
 			"Don't check for S3 multi-part uploads exceeding 10,000 parts.")
 /*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
@@ -663,6 +672,7 @@ void ProgArgs::defineDefaults()
 	this->useMmap = false;
 	this->fadviseFlags = 0;
 	this->madviseFlags = 0;
+	this->runS3MultiDelObjNum = 0;
 }
 
 /**
@@ -2880,6 +2890,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useMmap = tree.get<bool>(ARG_MMAP_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
 	madviseFlags = tree.get<unsigned>(ARG_MADVISE_LONG);
+	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -2996,6 +3007,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_MMAP_LONG, useMmap);
 	outTree.put(ARG_FADVISE_LONG, fadviseFlags);
 	outTree.put(ARG_MADVISE_LONG, madviseFlags);
+	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
 
 
 	// dynamically calculated values for service hosts...

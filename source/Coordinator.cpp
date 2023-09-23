@@ -253,7 +253,13 @@ void Coordinator::runBenchmarks()
 			runBenchmarkPhase(BenchPhase_READFILES);
 			runSyncAndDropCaches();
 		}
-	
+
+		if(progArgs.getRunMultiDelObjPhase() )
+		{
+			runBenchmarkPhase(BenchPhase_MULTIDELOBJ);
+			runSyncAndDropCaches();
+		}
+
 		if(progArgs.getRunDeleteFilesPhase() )
 		{
 			runBenchmarkPhase(BenchPhase_DELETEFILES);

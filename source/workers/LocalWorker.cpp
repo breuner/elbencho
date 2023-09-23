@@ -32,6 +32,7 @@
 	#include <aws/s3/model/CreateMultipartUploadRequest.h>
 	#include <aws/s3/model/DeleteBucketRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
+	#include <aws/s3/model/DeleteObjectsRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
@@ -223,6 +224,11 @@ void LocalWorker::run()
 								"custom tree mode.");
 
 						s3ModeListObjParallel();
+					} break;
+
+					case BenchPhase_MULTIDELOBJ:
+					{
+						s3ModeListAndMultiDeleteObjects();
 					} break;
 
 					case BenchPhase_DELETEFILES:
@@ -3255,12 +3261,15 @@ void LocalWorker::s3ModeIterateBuckets()
 	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
 
+	workerGotPhaseWork = false; // not all workers might get work
 
 	for(unsigned bucketIndex = workerRank;
 		bucketIndex < numBuckets;
 		bucketIndex += numDataSetThreads)
 	{
 		checkInterruptionRequest();
+
+		workerGotPhaseWork = true;
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -3307,7 +3316,8 @@ void LocalWorker::s3ModeIterateBuckets()
 					throw WorkerException(std::string("Bucket deletion failed. ") +
 						"Bucket: " + bucketVec[bucketIndex] + "; "
 						"Exception: " + s3Error.GetExceptionName() + "; " +
-						"Message: " + s3Error.GetMessage() );
+						"Message: " + s3Error.GetMessage() + "; " +
+						"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 				}
 			}
 		}
@@ -3702,7 +3712,8 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
 	if(blockSize)
@@ -3754,7 +3765,8 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			"Endpoint: " + s3EndpointStr + "; "
 			"Bucket: " + bucketName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
@@ -3980,7 +3992,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 				"UploadID: " + uploadID + "; "
 				"Rank: " + std::to_string(workerRank) + "; "
 				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 		}
 
 		// mark part as completed
@@ -4206,7 +4219,8 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 				"Object: " + objectName + "; "
 				"Range: " + objectRange + "; "
 				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 		}
 
 		IF_UNLIKELY( (size_t)outcome.GetResult().GetContentLength() < blockSize)
@@ -4375,7 +4389,8 @@ void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectNam
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
 #endif // S3_SUPPORT
@@ -4392,13 +4407,17 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+
 	S3::DeleteObjectRequest request;
 	request.WithBucket(bucketName)
 		.WithKey(objectName);
 
 	S3::DeleteObjectOutcome outcome = s3Client->DeleteObject(request);
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
+	IF_UNLIKELY(!outcome.IsSuccess() &&
+		(!ignoreDelErrors ||
+			(outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) ) )
 	{
 		auto s3Error = outcome.GetError();
 
@@ -4407,7 +4426,8 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
 #endif // S3_SUPPORT
@@ -4429,6 +4449,8 @@ void LocalWorker::s3ModeListObjects()
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
 
+	workerGotPhaseWork = false; // not all workers might get work
+
 	for(unsigned bucketIndex = workerRank;
 		bucketIndex < numBuckets;
 		bucketIndex += numDataSetThreads)
@@ -4436,6 +4458,8 @@ void LocalWorker::s3ModeListObjects()
 		uint64_t numObjectsLeft = progArgs->getS3ListObjNum();
 		std::string nextContinuationToken;
 		bool isTruncated; // true if S3 server reports more objects left to retrieve
+
+		workerGotPhaseWork = true;
 
 		do
 		{
@@ -4464,7 +4488,8 @@ void LocalWorker::s3ModeListObjects()
 					"ContinuationToken: " + nextContinuationToken + "; "
 					"NumObjectsLeft: " + std::to_string(numObjectsLeft) + "; "
 					"Exception: " + s3Error.GetExceptionName() + "; " +
-					"Message: " + s3Error.GetMessage() );
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 			}
 
 			// calc entry operations latency
@@ -4594,7 +4619,8 @@ void LocalWorker::s3ModeListObjParallel()
 					"ContinuationToken: " + nextContinuationToken + "; "
 					"NumObjectsLeft: " + std::to_string(numObjectsLeft) + "; "
 					"Exception: " + s3Error.GetExceptionName() + "; " +
-					"Message: " + s3Error.GetMessage() );
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 			}
 
 			// calc entry operations latency
@@ -4679,6 +4705,120 @@ void LocalWorker::s3ModeVerifyListing(StringSet& expectedSet, StringList& receiv
 			"Prefix: " + listPrefix + "; "
 			"NumObjectsExpected: " + std::to_string(expectedSet.size() ) + "; " +
 			"NumObjectsReceived: " + std::to_string(receivedList.size() ) );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * List objects and add multi-delete them in given buckets with user-defined limit for number of
+ * entries.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeListAndMultiDeleteObjects()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	const size_t numBuckets = bucketVec.size();
+	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+	const uint64_t numObjectsPerRequest = progArgs->getS3MultiDelObjNum();
+	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+
+	workerGotPhaseWork = false; // not all workers might get work
+
+	for(unsigned bucketIndex = workerRank;
+		bucketIndex < numBuckets;
+		bucketIndex += numDataSetThreads)
+	{
+		std::string nextContinuationToken;
+		bool isTruncated; // true if S3 server reports more objects left to retrieve
+
+		workerGotPhaseWork = true;
+
+		do
+		{
+			checkInterruptionRequest();
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			// receive a batch of object names through listing...
+
+			S3::ListObjectsV2Request listRequest;
+			listRequest.SetBucket(bucketVec[bucketIndex] );
+			listRequest.SetPrefix(objectPrefix);
+			listRequest.SetMaxKeys(numObjectsPerRequest);
+
+			if(!nextContinuationToken.empty() )
+				listRequest.SetContinuationToken(nextContinuationToken);
+
+			S3::ListObjectsV2Outcome listOutcome = s3Client->ListObjectsV2(listRequest);
+
+			IF_UNLIKELY(!listOutcome.IsSuccess() )
+			{
+				auto s3Error = listOutcome.GetError();
+
+				throw WorkerException(std::string("Object listing v2 failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketVec[bucketIndex] + "; "
+					"Prefix: " + objectPrefix + "; "
+					"ContinuationToken: " + nextContinuationToken + "; "
+					"NumObjectsPerRequest: " + std::to_string(numObjectsPerRequest) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+			}
+
+			// send multi-delete request for received batch of objects...
+
+			Aws::S3::Model::Delete deleteObjectList;
+
+			for(const Aws::S3::Model::Object& obj : listOutcome.GetResult().GetContents() )
+				deleteObjectList.AddObjects(
+					Aws::S3::Model::ObjectIdentifier().WithKey(obj.GetKey() ) );
+
+			S3::DeleteObjectsRequest delRequest;
+			delRequest.SetBucket(bucketVec[bucketIndex] );
+			delRequest.SetDelete(deleteObjectList);
+
+			S3::DeleteObjectsOutcome delOutcome = s3Client->DeleteObjects(delRequest);
+
+			IF_UNLIKELY(!delOutcome.IsSuccess() &&
+				(!ignoreDelErrors ||
+					(delOutcome.GetError().GetResponseCode() ==
+						Aws::Http::HttpResponseCode::NOT_FOUND) ) )
+			{
+				auto s3Error = delOutcome.GetError();
+
+				throw WorkerException(std::string("DeleteObjects failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketVec[bucketIndex] + "; "
+					"NumObjectsPerRequest: " + std::to_string(numObjectsPerRequest) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+			}
+
+			// calc entry operations latency
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+			unsigned keyCount = listOutcome.GetResult().GetKeyCount();
+
+			atomicLiveOps.numEntriesDone += keyCount;
+
+			nextContinuationToken = listOutcome.GetResult().GetNextContinuationToken();
+			isTruncated = listOutcome.GetResult().GetIsTruncated();
+
+		} while(isTruncated); // end of while numObjectsLeft loop
 	}
 
 #endif // S3_SUPPORT

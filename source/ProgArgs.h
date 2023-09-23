@@ -156,6 +156,7 @@ namespace bpt = boost::property_tree;
 #define ARG_MMAP_LONG				"mmap"
 #define ARG_MADVISE_LONG			"madv"
 #define ARG_FADVISE_LONG			"fadv"
+#define ARG_S3MULTIDELETE_LONG		"s3multidel"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -412,6 +413,7 @@ class ProgArgs
 		std::string fadviseFlagsOrigStr; // flags for fadvise() (ARG_FADVISE_FLAG_x_NAME)
 		unsigned madviseFlags; // flags for madvise() (ARG_MADVISE_FLAG_x)
 		std::string madviseFlagsOrigStr; // flags for madvise() (ARG_MADVISE_FLAG_x_NAME)
+		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
 
 
 		void defineDefaults();
@@ -589,6 +591,8 @@ class ProgArgs
 		const BufferVec& getMmapVec() const { return mmapVec; }
 		unsigned getFadviseFlags() const { return fadviseFlags; };
 		unsigned getMadviseFlags() const { return madviseFlags; };
+		uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
+		bool getRunMultiDelObjPhase() const { return (runS3MultiDelObjNum > 0); }
 };
 
 
