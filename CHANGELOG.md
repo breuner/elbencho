@@ -10,8 +10,11 @@
 ### General Changes
 * S3 error messages now also show HTTP error code.
 
+### Fixes
+* elbencho-chart tool now also works with csv files created via "--livecsv".
+
 ### Contributors
-* Thanks to Prabhjyot Singh Saluja, David Johnson, Erez Zilber, Dima Persov, Omri Zedan for helpful comments and suggestions.
+* Thanks to Prabhjyot Singh Saluja, David Johnson, Erez Zilber, Dima Persov, Omri Zedan, Andy Black for helpful comments and suggestions.
 
 ## v3.0.1 (Aug 08, 2023)
 
