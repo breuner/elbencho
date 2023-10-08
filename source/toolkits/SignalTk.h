@@ -2,6 +2,7 @@
 #define TOOLKITS_SIGNALTK_H_
 
 #include <string>
+#include <unistd.h>
 
 class ProgArgs; // forward declaration
 

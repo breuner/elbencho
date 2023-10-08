@@ -1,5 +1,6 @@
 #include "toolkits/NumaTk.h"
 #include "toolkits/SignalTk.h"
+#include "toolkits/TranslatorTk.h"
 #include "Worker.h"
 #include "WorkerException.h"
 
@@ -94,6 +95,11 @@ void Worker::applyNumaAndCoreBinding()
 	const IntVec& numaZonesVec = progArgs->getNumaZonesVec();
 	const IntVec& cpuCoresVec = progArgs->getCPUCoresVec();
 
+	if(!numaZonesVec.empty() || !cpuCoresVec.empty() )
+		LOGGER(Log_DEBUG, __func__ << " entry: " << "workerRank: " << workerRank << "; "
+			"numCores: " << std::thread::hardware_concurrency() << "; "
+			"cpu core affinity list: " << NumaTk::getCurrentCPUAffinityStrHuman() << std::endl);
+
 	if(!numaZonesVec.empty() && NumaTk::isNumaInfoAvailable() )
 	{
 		int zoneNum = numaZonesVec[workerRank % numaZonesVec.size() ];
@@ -123,6 +129,11 @@ void Worker::applyNumaAndCoreBinding()
 			throw WorkerException(e.what() );
 		}
 	}
+
+	if(!numaZonesVec.empty() || !cpuCoresVec.empty() )
+		LOGGER(Log_DEBUG, __func__ << " end: " << "workerRank: " << workerRank << "; "
+			"numCores: " << std::thread::hardware_concurrency() << "; "
+			"cpu core affinity list: " << NumaTk::getCurrentCPUAffinityStrHuman() << std::endl);
 }
 
 /**

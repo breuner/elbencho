@@ -22,6 +22,7 @@
 #endif
 
 #define DIRECTIO_MINSIZE			512 // min size in bytes for direct IO
+
 #define BENCHPATH_DELIMITER			",\n\r@" // delimiters for user-defined bench dir paths
 #define HOSTLIST_DELIMITERS			", \n\r" // delimiters for hosts string (comma or space)
 #define HOST_PORT_SEPARATOR			":" // separator for hostname:port
@@ -39,6 +40,9 @@
 
 #define NETBENCH_PORT_OFFSET		1000 // offset from service port for netbench listen socket
 #define NETBENCH_PORT_OFFSET_STR	STRINGIZE(NETBENCH_PORT_OFFSET)
+
+#define NUMAZONES_ALL_ARG			"all" // shortcut for user to select all numa zones
+#define CPUCORES_ALL_ARG			"all" // shortcut for user to select all cpu cores
 
 /**
  * Constructor.
@@ -189,7 +193,8 @@ void ProgArgs::defineAllowedArgs()
 #ifdef COREBIND_SUPPORT
 /*co*/	(ARG_CPUCORES_LONG, bpo::value(&this->cpuCoresStr),
 			"Comma-separated list of CPU cores to bind this process to. If multiple cores are "
-			"given, then worker threads are bound round-robin to the cores. "
+			"given, then worker threads are bound round-robin to the cores. The special value "
+			"\"" CPUCORES_ALL_ARG "\" is short for the list of all available CPU cores."
 			"(Hint: See 'lscpu' for available CPU cores.)")
 #endif // COREBIND_SUPPORT
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
@@ -552,7 +557,8 @@ void ProgArgs::defineAllowedArgs()
 #ifdef LIBNUMA_SUPPORT
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
-			"given, then worker threads are bound round-robin to the zones. "
+			"given, then worker threads are bound round-robin to the zones. The special value "
+			"\"" NUMAZONES_ALL_ARG "\" is short for the list of all available NUMA zones."
 			"(Hint: See 'lscpu' for available NUMA zones.)")
 #endif // LIBNUMA_SUPPORT
     ;
@@ -1830,6 +1836,15 @@ void ProgArgs::parseNumaZones()
 	if(!NumaTk::isNumaInfoAvailable() )
 		throw ProgException("No NUMA zone info available.");
 
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"numCores: " << std::thread::hardware_concurrency() << "; "
+		"cpu core affinity list: " << NumaTk::getCurrentCPUAffinityStrHuman() << std::endl);
+
+	if(numaZonesStr == NUMAZONES_ALL_ARG)
+		numaZonesStr = NumaTk::getAllNumaZonesStr();
+
+	LOGGER(Log_DEBUG, "raw numaZonesStr: " + numaZonesStr << std::endl);
+
 	StringVec zonesStrVec; // temporary for split()
 
 	boost::split(zonesStrVec, numaZonesStr, boost::is_any_of(ZONELIST_DELIMITERS),
@@ -1854,12 +1869,16 @@ void ProgArgs::parseNumaZones()
 	for(unsigned i=0; i < zonesStrVec.size(); i++)
 		numaZonesStr += (i ? "," : "") + zonesStrVec[i];
 
-	// apply given zones to current thread
-	NumaTk::bindToNumaZones(numaZonesStr);
-
 	// convert from string vector to int vector
 	for(std::string& zoneStr : zonesStrVec)
 		numaZonesVec.push_back(std::stoi(zoneStr) );
+
+	// apply given zones to current thread
+	NumaTk::bindToNumaZones(numaZonesStr);
+
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"numCores: " << std::thread::hardware_concurrency() << "; "
+		"cpu core affinity list after: " << NumaTk::getCurrentCPUAffinityStrHuman() << std::endl);
 }
 
 /**
@@ -1873,6 +1892,12 @@ void ProgArgs::parseCPUCores()
 {
 	if(cpuCoresStr.empty() )
 		return; // nothing to do
+
+	if(cpuCoresStr == CPUCORES_ALL_ARG)
+		cpuCoresStr = NumaTk::getCurrentCPUAffinityStr();
+
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"raw cpuCoresStr: " + cpuCoresStr << std::endl);
 
 	StringVec coresStrVec; // temporary for split()
 
@@ -1898,12 +1923,24 @@ void ProgArgs::parseCPUCores()
 	for(unsigned i=0; i < coresStrVec.size(); i++)
 		cpuCoresStr += (i ? "," : "") + coresStrVec[i];
 
-	// apply given cores to current thread
-	NumaTk::bindToCPUCores(cpuCoresVec);
-
 	// convert from string vector to int vector
 	for(std::string& coreStr : coresStrVec)
 		cpuCoresVec.push_back(std::stoi(coreStr) );
+
+	/* note: we don't sort the vectors here, because user might initionally have chosen the order
+		based on order of other args like gpu IDs. */
+
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"numCores: " << std::thread::hardware_concurrency() << "; "
+		"cpu core affinity list before: " << TranslatorTk::intVectoHumanStr(cpuCoresVec) <<
+		std::endl);
+
+	// apply given cores to current thread
+	NumaTk::bindToCPUCores(cpuCoresVec);
+
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"numCores: " << std::thread::hardware_concurrency() << "; "
+		"cpu core affinity list after: " << NumaTk::getCurrentCPUAffinityStrHuman() << std::endl);
 }
 
 /**

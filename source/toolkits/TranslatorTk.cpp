@@ -232,3 +232,47 @@ unsigned TranslatorTk::madviseArgsStrToFlags(std::string madviseArgsStr)
 	return madviseFlags;
 }
 
+/**
+ * Get a human-readable string from an IntVec. The result groups ranges and comma-separates
+ * non-consecutive numbers, e.g. "2,6-31,983". Grouping relies on intVec being sorted.
+ *
+ * @return e.g. "2,6-31,983" or empty string if intVec is empty.
+ */
+std::string TranslatorTk::intVectoHumanStr(const IntVec& intVec)
+{
+	int rangeStart;
+	int rangeLast;
+	std::string resultStr;
+
+	if(intVec.empty() )
+		return resultStr;
+
+	rangeStart = intVec[0];
+	rangeLast = intVec[0];
+
+	for(size_t i=1; i < intVec.size(); i++)
+	{
+		// existing range => check if next num is still consecutive
+		if(intVec[i] == (rangeLast + 1) )
+			rangeLast = intVec[i]; // consecutive number in current range
+		else
+		{ // non-consecutive number, so finish current range and start a new range
+			if(rangeStart == rangeLast)
+				resultStr += std::to_string(rangeStart) + ",";
+			else
+				resultStr += std::to_string(rangeStart) + "-" + std::to_string(rangeLast) + ",";
+
+			rangeStart = intVec[i];
+			rangeLast = intVec[i];
+		}
+	}
+
+	// we still need to add the last range. (it cannot be empty, because we have an empty check)
+
+	if(rangeStart == rangeLast)
+		resultStr += std::to_string(rangeStart);
+	else
+		resultStr += std::to_string(rangeStart) + "-" + std::to_string(rangeLast);
+
+	return resultStr;
+}
