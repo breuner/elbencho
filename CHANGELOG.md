@@ -9,6 +9,7 @@
 
 ### General Changes
 * S3 error messages now also show HTTP error code.
+* Use latest Alpine Linux 3.x for static builds instead of always 3.14.
 
 ### Fixes
 * elbencho-chart tool now also works with csv files created via "--livecsv".

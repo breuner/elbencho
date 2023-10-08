@@ -14,22 +14,28 @@
 #    $ docker run --rm -t arm64v8/ubuntu uname -m 
 
 CONTAINER_NAME="elbencho-static"
-IMAGE_NAME="alpine:3.14"
+IMAGE_NAME="alpine:3"
 ELBENCHO_VERSION=$(make version)
+
+ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-0}"
+S3_SUPPORT="${OVERRIDE_S3_SUPPORT:-1}"
+USE_MIMALLOC="${OVERRIDE_USE_MIMALLOC:-1}"
 
 docker rm $CONTAINER_NAME
 
 #docker pull $IMAGE_NAME && \
 docker run --platform linux/arm64 --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_NAME \
     sh -c "\
-    apk add bash boost-dev build-base gcc g++ git libaio-dev libexecinfo-dev make numactl-dev \
-        cmake curl-dev curl-static openssl-libs-static ncurses-static libexecinfo-static \
+    apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
+        cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar && \
+    apk update && apk upgrade && \
     adduser -u $UID -D -H builduser && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $(nproc) \
-        LDFLAGS_EXTRA='-lexecinfo' S3_SUPPORT=1 USE_MIMALLOC=1 BUILD_STATIC=1 && \
+        BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT \
+        S3_SUPPORT=$S3_SUPPORT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1 && \
     cd bin/ && \
     sudo -u builduser ./elbencho --version && \
     sudo -u builduser cp elbencho elbencho-${ELBENCHO_VERSION}-static-\$(uname -m) && \
