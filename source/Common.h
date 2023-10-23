@@ -7,6 +7,7 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <cstdint>
 
 typedef std::list<std::string> StringList;
 typedef std::set<std::string> StringSet;
