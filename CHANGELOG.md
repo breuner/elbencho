@@ -11,6 +11,7 @@
 * S3 error messages now also show HTTP error code.
 * Use latest Alpine Linux 3.x for static builds instead of always 3.14.
 * Core binding arguments now support "all" as value: "--zones all" & "--cores all".
+* GPU list argument now supports "all" as value: "--gpuids all".
 
 ### Fixes
 * elbencho-chart tool now also works with csv files created via "--livecsv".

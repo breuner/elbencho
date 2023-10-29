@@ -18,6 +18,7 @@
 #include "toolkits/UnitTk.h"
 
 #ifdef CUFILE_SUPPORT
+	#include <cuda_runtime.h>
 	#include <cufile.h>
 #endif
 
@@ -43,6 +44,7 @@
 
 #define NUMAZONES_ALL_ARG			"all" // shortcut for user to select all numa zones
 #define CPUCORES_ALL_ARG			"all" // shortcut for user to select all cpu cores
+#define GPUIDS_ALL_ARG				"all" // shortcut for user to select all gpus
 
 /**
  * Constructor.
@@ -261,7 +263,8 @@ void ProgArgs::defineAllowedArgs()
 			"to/from GPU buffers. GPU IDs will be assigned round robin to different threads. "
 			"When this is given in service mode then the given list will override any list given "
 			"by the master, which can be used to bind specific service instances to specific GPUs. "
-			"(Hint: CUDA GPU IDs are 0-based.)")
+			"The special value \"" GPUIDS_ALL_ARG "\" is short for the list of all available GPUs. "
+			"(Hint: CUDA GPU IDs are 0-based; see 'nvidia-smi' for available GPU IDs.)")
 /*gp*/	(ARG_GPUPERSERVICE_LONG, bpo::bool_switch(&this->assignGPUPerService),
 			"Assign GPUs round robin to service instances (i.e. one GPU per service) instead of "
 			"default round robin to threads (i.e. multiple GPUs per service, if multiple given).")
@@ -1961,6 +1964,24 @@ void ProgArgs::parseGPUIDs()
 		throw ProgException("GPU IDs defined, but built without CUDA support.");
 	#endif
 
+	if(gpuIDsStr == GPUIDS_ALL_ARG)
+	{
+		gpuIDsStr = "";
+		int numCudaDevs;
+
+		cudaError_t getDevsRes = cudaGetDeviceCount(&numCudaDevs);
+
+		if(getDevsRes != cudaSuccess)
+			throw ProgException(std::string("Getting CUDA device count failed. ") +
+				"CUDA Error: " + cudaGetErrorString(getDevsRes) );
+
+		for(int i=0; i < numCudaDevs; i++)
+			gpuIDsStr += ( (i > 0) ? "," + std::to_string(i) : std::to_string(i) );
+	}
+
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"raw gpuIDsStr: " + gpuIDsStr << std::endl);
+
 	StringVec gpuIDsStrVec; // temporary for split()
 
 	boost::split(gpuIDsStrVec, gpuIDsStr, boost::is_any_of(GPULIST_DELIMITERS),
@@ -2000,6 +2021,9 @@ void ProgArgs::parseGPUIDs()
 			isCuFileDriverOpen = true;
 		}
 	#endif
+
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"gpu vec: " << TranslatorTk::intVectoHumanStr(gpuIDsVec) << std::endl);
 }
 
 /**
