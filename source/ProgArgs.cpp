@@ -1962,22 +1962,22 @@ void ProgArgs::parseGPUIDs()
 
 	#ifndef CUDA_SUPPORT
 		throw ProgException("GPU IDs defined, but built without CUDA support.");
-	#endif
+	#else
+		if(gpuIDsStr == GPUIDS_ALL_ARG)
+		{
+			gpuIDsStr = "";
+			int numCudaDevs;
 
-	if(gpuIDsStr == GPUIDS_ALL_ARG)
-	{
-		gpuIDsStr = "";
-		int numCudaDevs;
+			cudaError_t getDevsRes = cudaGetDeviceCount(&numCudaDevs);
 
-		cudaError_t getDevsRes = cudaGetDeviceCount(&numCudaDevs);
+			if(getDevsRes != cudaSuccess)
+				throw ProgException(std::string("Getting CUDA device count failed. ") +
+					"CUDA Error: " + cudaGetErrorString(getDevsRes) );
 
-		if(getDevsRes != cudaSuccess)
-			throw ProgException(std::string("Getting CUDA device count failed. ") +
-				"CUDA Error: " + cudaGetErrorString(getDevsRes) );
-
-		for(int i=0; i < numCudaDevs; i++)
-			gpuIDsStr += ( (i > 0) ? "," + std::to_string(i) : std::to_string(i) );
-	}
+			for(int i=0; i < numCudaDevs; i++)
+				gpuIDsStr += ( (i > 0) ? "," + std::to_string(i) : std::to_string(i) );
+		}
+	#endif // CUDA_SUPPORT
 
 	LOGGER(Log_DEBUG, __func__ << ": "
 		"raw gpuIDsStr: " + gpuIDsStr << std::endl);
@@ -2020,7 +2020,7 @@ void ProgArgs::parseGPUIDs()
 
 			isCuFileDriverOpen = true;
 		}
-	#endif
+	#endif // CUFILE_SUPPORT
 
 	LOGGER(Log_DEBUG, __func__ << ": "
 		"gpu vec: " << TranslatorTk::intVectoHumanStr(gpuIDsVec) << std::endl);
