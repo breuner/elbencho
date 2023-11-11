@@ -124,7 +124,7 @@ prepare_awssdk_prebuilt_libs()
 	local AWS_LIBS="libaws-c-auth.a libaws-c-compression.a libaws-c-http.a libaws-cpp-sdk-core.a \
 		libaws-crt-cpp.a libaws-c-cal.a libaws-c-event-stream.a libaws-c-io.a libaws-cpp-sdk-s3.a \
 		libaws-c-s3.a libaws-c-common.a libaws-checksums.a libaws-c-mqtt.a \
-		libaws-cpp-sdk-transfer.a"
+		libaws-cpp-sdk-transfer.a libaws-c-sdkutils.a"
 
 	echo "Resolving given AWS SDK libs path: $AWS_LIB_DIR"
 	

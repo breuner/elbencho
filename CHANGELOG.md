@@ -17,7 +17,7 @@
 * elbencho-chart tool now also works with csv files created via "--livecsv".
 
 ### Contributors
-* Thanks to Github user bolochavaez for a code contribution. Thanks to Prabhjyot Singh Saluja, David Johnson, Erez Zilber, Dima Persov, Omri Zedan, Andy Black for helpful comments and suggestions.
+* Thanks to Bob Holmes and Github user bolochavaez for code contributions. Thanks to Prabhjyot Singh Saluja, David Johnson, Erez Zilber, Dima Persov, Omri Zedan, Andy Black for helpful comments and suggestions.
 
 ## v3.0.1 (Aug 08, 2023)
 

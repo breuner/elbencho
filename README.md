@@ -153,7 +153,26 @@ sudo apt install cmake libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev
 
 ##### Build elbencho with S3 Support
 
+The static Linux executable in the [Releases section](https://github.com/breuner/elbencho/releases) includes S3 support, in case you prefer to use this instead of building your own version.
+
 To build elbencho with S3 support, just add the `S3_SUPPORT=1` parameter to the make command. (If you previously built elbencho without S3 support, then run `make clean-all` before this.)
+
+The S3 support of elbencho is based on Amazon's AWS SDK CPP. Thus, you either need to provide it or elbencho needs to download and build it.
+
+<ins>Option A</ins>: If you prefer to provide your own version of the AWS SDK CPP instead of having elbencho download it, then here is an example of a cmake command to generate an SDK that is compatible with elbencho and the corresponding elbencho build command:
+
+```bash
+# In the AWS SDK build dir:
+cmake ../aws-sdk-cpp -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local/ -DCMAKE_INSTALL_PREFIX=/usr/local/ -DBUILD_ONLY="s3;transfer" -DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DBYO_CRYPTO=ON -DBUILD_SHARED_LIBS=OFF
+
+make -j $(nproc)
+sudo make install
+
+# In the elbencho git clone top level dir:
+make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
+```
+
+<ins>Option B</ins>: If you are not sure whether you can provide a compatible build of the SDK or if you just generally prefer to have elbencho take care of the AWS SDK CPP build then use this command:
 
 ```bash
 make S3_SUPPORT=1 -j $(nproc)
