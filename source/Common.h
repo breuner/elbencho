@@ -2,12 +2,12 @@
 #define COMMON_H_
 
 #include <boost/config.hpp> // for BOOST_LIKELY
+#include <cstdint>
 #include <list>
 #include <set>
 #include <string>
 #include <unistd.h>
 #include <vector>
-#include <cstdint>
 
 typedef std::list<std::string> StringList;
 typedef std::set<std::string> StringSet;
