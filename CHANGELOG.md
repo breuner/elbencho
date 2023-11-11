@@ -12,6 +12,7 @@
 * Use latest Alpine Linux 3.x for static builds instead of always 3.14.
 * Core binding arguments now support "all" as value: "--zones all" & "--cores all".
 * GPU list argument now supports "all" as value: "--gpuids all".
+* Added cygserver.exe to Windows .zip package to speed up Active Directory lookups.
 
 ### Fixes
 * elbencho-chart tool now also works with csv files created via "--livecsv".
