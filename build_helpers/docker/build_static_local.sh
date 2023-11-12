@@ -25,7 +25,7 @@ docker run --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_N
     apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
         cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
-        brotli-static ncurses-dev sudo && \
+        brotli-static ncurses-dev sudo tar libidn2-static libunistring-static && \
     apk update && apk upgrade && \
     adduser -u $UID -D -H builduser && \
     sudo -u builduser make clean-all && \
@@ -35,7 +35,8 @@ docker run --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_N
 docker rm $CONTAINER_NAME && \
 cd bin/ && \
 ./elbencho --version && \
-cp elbencho elbencho-${ELBENCHO_VERSION}-static-$(uname -m) && \
+sh -c "file elbencho | grep static" && \
+cp -v elbencho elbencho-${ELBENCHO_VERSION}-static-$(uname -m) && \
 tar -czf ../packaging/elbencho-${ELBENCHO_VERSION}-static-$(uname -m).tar.gz elbencho && \
 cd .. && \
 echo "All Done. Your tar file is here:" && \
