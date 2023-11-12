@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.2 (work in progress)
+## v3.0.3 (Nov 11, 2023)
 
 ### New Features & Enhancements
 * Block variance to defeat compression is now also effective for writes from GPUs.
