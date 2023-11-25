@@ -13,7 +13,7 @@ for dockerfile in $(ls build_helpers/docker/Dockerfile.*.local); do
     
     echo
     
-    docker build -t elbencho-local -f $dockerfile .
+    docker build --progress plain -t elbencho-local -f $dockerfile .
     if [ $? -ne 0 ]; then
         echo "ERROR: Docker build failed: $dockerfile"
         exit 1

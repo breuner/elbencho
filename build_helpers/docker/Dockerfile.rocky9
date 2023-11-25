@@ -1,4 +1,4 @@
-# Full elbencho rpm install of latest github master on AlmaLinux 8
+# Full elbencho rpm install of latest github master on RockyLinux 9
 
 FROM rockylinux:9 as builder
 

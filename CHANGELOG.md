@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v3.0.4 (work in progress)
+
+### General Changes
+* Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.
+
 ## v3.0.3 (Nov 11, 2023)
 
 ### New Features & Enhancements
