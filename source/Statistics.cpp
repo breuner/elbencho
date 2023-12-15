@@ -2,8 +2,6 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <chrono>
-#include <ncurses.h>
-#undef OK // defined by ncurses.h, but conflicts with AWS SDK CPP using OK in enum in HttpResponse.h
 #include "ProgException.h"
 #include "Statistics.h"
 #include "Terminal.h"
@@ -13,9 +11,14 @@
 #include "workers/Worker.h"
 #include "workers/WorkerException.h"
 
+#ifdef NCURSES_SUPPORT
+	#include <ncurses.h>
+	#undef OK // defined by ncurses.h, but conflicts with AWS SDK using OK in enum in HttpResponse.h
+#endif
+
 #define CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN	"\x1B[2K\r" /* "\x1B[2K" is the VT100 code to
 										clear the line. "\r" moves cursor to beginning of line. */
-#define WHOLESCREEN_GLOBALINFO_NUMLINES		1 // lines for global info (to calc per-worker lines)
+#define FULLSCREEN_GLOBALINFO_NUMLINES		1 // lines for global info (to calc per-worker lines)
 
 
 Statistics::~Statistics()
@@ -290,8 +293,6 @@ void Statistics::loopSingleLineLiveStats()
 
 		printLiveStatsCSV(liveResults); // live stats csv file
 
-		getmaxyx(stdscr, liveResults.winHeight, liveResults.winWidth); // update screen dimensions
-
 		printSingleLineLiveStatsLine(liveResults);
 	}
 
@@ -358,36 +359,7 @@ workers_done:
 	return;
 }
 
-/**
- * Print a single line of whole screen live stats to the ncurses buffer, taking the line length
- * into account by reducing the length if it exceeds the console line length.
- *
- * @stream buffer containing the line to print to ncurses buffer; will be cleared after contents
- * 		have been added to ncurses buffer.
- * @lineLength the maximum line length that max not be exceeded.
- * @fillIfShorter if stream buffer length is shorter than line length then fill it up with spaces
- * 		to match given line length.
- */
-void Statistics::printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
-	bool fillIfShorter)
-{
-	std::string lineStr(stream.str() );
-
-	// cut off or fill as requested
-	if( (lineStr.length() > lineLength) ||
-		(fillIfShorter && (lineStr.length() < lineLength) ) )
-		lineStr.resize(lineLength, ' ');
-
-	// add to ncurses buffer
-	addstr(lineStr.c_str() );
-
-	// add newline only if string doesn't fill up the complete line
-	if(lineStr.length() < lineLength)
-		addch('\n');
-
-	// clear stream for next round
-	stream.str(std::string() );
-}
+#ifdef NCURSES_SUPPORT
 
 /**
  * Print whole screen version of live stats until workers are done with phase.
@@ -447,9 +419,12 @@ void Statistics::loopFullScreenLiveStats()
 			SCREEN* initRes = newterm(getenv("TERM"), stdout, stdin); // init curses mode
 			if(!initRes)
 			{
-				std::cerr << "NOTE: ncurses terminal init for live statistics failed. " <<
-					"Try \"--" ARG_BRIEFLIVESTATS_LONG "\" or \"--" ARG_NOLIVESTATS_LONG "\"." <<
+				std::cerr << "NOTE: ncurses terminal init for fullscreeen live statistics failed. " <<
+					"Falling back \"--" ARG_BRIEFLIVESTATS_LONG "\"." <<
 					std::endl;
+
+				loopSingleLineLiveStats();
+
 				return;
 			}
 
@@ -487,75 +462,34 @@ workers_done:
 }
 
 /**
- * In master mode, update number of remote threads left in liveResults and avg cpu; otherwise do
- * nothing.
+ * Print a single line of fullscreen live stats to the ncurses buffer, taking the line length
+ * into account by reducing the length if it exceeds the console line length.
+ *
+ * @stream buffer containing the line to print to ncurses buffer; will be cleared after contents
+ * 		have been added to ncurses buffer.
+ * @lineLength the maximum line length that max not be exceeded.
+ * @fillIfShorter if stream buffer length is shorter than line length then fill it up with spaces
+ * 		to match given line length.
  */
-void Statistics::updateLiveStatsRemoteInfo(LiveResults& liveResults)
+void Statistics::printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
+	bool fillIfShorter)
 {
-	if(progArgs.getHostsVec().empty() )
-		return; // nothing to do if not in master mode
+	std::string lineStr(stream.str() );
 
-	size_t numRemoteThreadsTotal = workerVec.size() * progArgs.getNumThreads();
-	liveResults.numRemoteThreadsLeft = numRemoteThreadsTotal;
+	// cut off or fill as requested
+	if( (lineStr.length() > lineLength) ||
+		(fillIfShorter && (lineStr.length() < lineLength) ) )
+		lineStr.resize(lineLength, ' ');
 
-	liveResults.percentRemoteCPU = 0;
+	// add to ncurses buffer
+	addstr(lineStr.c_str() );
 
-	for(Worker* worker : workerVec)
-	{
-		RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
-		liveResults.numRemoteThreadsLeft -= remoteWorker->getNumWorkersDone();
-		liveResults.percentRemoteCPU += remoteWorker->getCPUUtilLive();
-	}
+	// add newline only if string doesn't fill up the complete line
+	if(lineStr.length() < lineLength)
+		addch('\n');
 
-	liveResults.percentRemoteCPU /= workerVec.size();
-}
-
-/**
- * Update liveOps and percentDone of liveResults for current round of live stats.
- */
-void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
-{
-	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
-
-	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
-	(liveResults.liveOpsPerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
-
-	liveResults.lastLiveOps = liveResults.newLiveOps;
-
-	liveResults.liveOpsPerSecReadMix =
-		liveResults.newLiveOpsReadMix - liveResults.lastLiveOpsReadMix;
-	(liveResults.liveOpsPerSecReadMix *= 1000) /= progArgs.getLiveStatsSleepMS();
-
-	liveResults.lastLiveOpsReadMix = liveResults.newLiveOpsReadMix;
-
-	// if we have bytes in this phase, use them for percent done; otherwise use num entries
-	if(liveResults.numBytesPerWorker)
-	{
-		liveResults.percentDone =
-			(100 * liveResults.newLiveOps.numBytesDone) /
-			(liveResults.numBytesPerWorker * workerVec.size() );
-		liveResults.percentDoneReadMix =
-			(100 * liveResults.newLiveOpsReadMix.numBytesDone) /
-			(liveResults.numBytesPerWorker * workerVec.size() );
-	}
-	else
-	if(liveResults.numEntriesPerWorker)
-	{
-		liveResults.percentDone =
-			(100 * liveResults.newLiveOps.numEntriesDone) /
-			(liveResults.numEntriesPerWorker * workerVec.size() );
-		liveResults.percentDoneReadMix =
-			(100 * liveResults.newLiveOpsReadMix.numEntriesDone) /
-			(liveResults.numEntriesPerWorker * workerVec.size() );
-	}
-	else
-	{
-		liveResults.percentDone = 0; // no % available in phases like "sync" or "dropcaches"
-		liveResults.percentDoneReadMix = 0; // no % available in phases like "sync" or "dropcaches"
-	}
-
-	// calc latency average values
-	liveResults.liveLatency.divAllByNumValues();
+	// clear stream for next round
+	stream.str(std::string() );
 }
 
 /**
@@ -666,7 +600,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 	const bool useNetBench = progArgs.getUseNetBench();
 
 	// how many lines we have to show per-worker stats ("+2" for table header and total line)
-	size_t maxNumWorkerLines = liveResults.winHeight - (WHOLESCREEN_GLOBALINFO_NUMLINES + 2);
+	size_t maxNumWorkerLines = liveResults.winHeight - (FULLSCREEN_GLOBALINFO_NUMLINES + 2);
 
 	std::ostringstream stream;
 
@@ -866,6 +800,81 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 	}
 }
 
+#endif // NCURSES_SUPPORT
+
+/**
+ * In master mode, update number of remote threads left in liveResults and avg cpu; otherwise do
+ * nothing.
+ */
+void Statistics::updateLiveStatsRemoteInfo(LiveResults& liveResults)
+{
+	if(progArgs.getHostsVec().empty() )
+		return; // nothing to do if not in master mode
+
+	size_t numRemoteThreadsTotal = workerVec.size() * progArgs.getNumThreads();
+	liveResults.numRemoteThreadsLeft = numRemoteThreadsTotal;
+
+	liveResults.percentRemoteCPU = 0;
+
+	for(Worker* worker : workerVec)
+	{
+		RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
+		liveResults.numRemoteThreadsLeft -= remoteWorker->getNumWorkersDone();
+		liveResults.percentRemoteCPU += remoteWorker->getCPUUtilLive();
+	}
+
+	liveResults.percentRemoteCPU /= workerVec.size();
+}
+
+/**
+ * Update liveOps and percentDone of liveResults for current round of live stats.
+ */
+void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
+{
+	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
+
+	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
+	(liveResults.liveOpsPerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
+
+	liveResults.lastLiveOps = liveResults.newLiveOps;
+
+	liveResults.liveOpsPerSecReadMix =
+		liveResults.newLiveOpsReadMix - liveResults.lastLiveOpsReadMix;
+	(liveResults.liveOpsPerSecReadMix *= 1000) /= progArgs.getLiveStatsSleepMS();
+
+	liveResults.lastLiveOpsReadMix = liveResults.newLiveOpsReadMix;
+
+	// if we have bytes in this phase, use them for percent done; otherwise use num entries
+	if(liveResults.numBytesPerWorker)
+	{
+		liveResults.percentDone =
+			(100 * liveResults.newLiveOps.numBytesDone) /
+			(liveResults.numBytesPerWorker * workerVec.size() );
+		liveResults.percentDoneReadMix =
+			(100 * liveResults.newLiveOpsReadMix.numBytesDone) /
+			(liveResults.numBytesPerWorker * workerVec.size() );
+	}
+	else
+	if(liveResults.numEntriesPerWorker)
+	{
+		liveResults.percentDone =
+			(100 * liveResults.newLiveOps.numEntriesDone) /
+			(liveResults.numEntriesPerWorker * workerVec.size() );
+		liveResults.percentDoneReadMix =
+			(100 * liveResults.newLiveOpsReadMix.numEntriesDone) /
+			(liveResults.numEntriesPerWorker * workerVec.size() );
+	}
+	else
+	{
+		liveResults.percentDone = 0; // no % available in phases like "sync" or "dropcaches"
+		liveResults.percentDoneReadMix = 0; // no % available in phases like "sync" or "dropcaches"
+	}
+
+	// calc latency average values
+	liveResults.liveLatency.divAllByNumValues();
+}
+
+
 /**
  * Print live statistics on console until workers are done with phase.
  *
@@ -889,15 +898,17 @@ void Statistics::printLiveStats()
 		return;
 	}
 
-	if( (progArgs.getUseBriefLiveStats() ) ||
-		(progArgs.getHostsVec().size() == 1) ||
-		(progArgs.getHostsVec().empty() && (progArgs.getNumThreads() == 1) ) )
-	{
-		loopSingleLineLiveStats();
-		return;
-	}
+	#ifdef NCURSES_SUPPORT
+		if( (!progArgs.getUseBriefLiveStats() ) &&
+			( (progArgs.getHostsVec().size() > 1) ||
+			  (progArgs.getHostsVec().empty() && (progArgs.getNumThreads() > 1) ) ) )
+		{
+			loopFullScreenLiveStats();
+			return;
+		}
+	#endif // NCURSES_SUPPORT
 
-	loopFullScreenLiveStats();
+	loopSingleLineLiveStats();
 }
 
 /**

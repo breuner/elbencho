@@ -33,6 +33,7 @@ BACKTRACE_SUPPORT  ?= 1
 COREBIND_SUPPORT   ?= 1
 LIBAIO_SUPPORT     ?= 1
 LIBNUMA_SUPPORT    ?= 1
+NCURSES_SUPPORT    ?= 1
 SYNCFS_SUPPORT     ?= 1
 S3_SUPPORT         ?= 0
 SYSCALLH_SUPPORT   ?= 1
@@ -73,11 +74,10 @@ endif
 
 # Dynamic or static linking
 ifeq ($(BUILD_STATIC), 1)
-LDFLAGS            += -static -lncursesw
+LDFLAGS            += -static
 LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec -l brotlicommon \
 	-l idn2 -l unistring -l dl
 else # dynamic linking
-LDFLAGS += -lncurses
 LDFLAGS_S3_DYNAMIC += -l curl -l ssl -l crypto -l z -l dl
 endif
 
@@ -118,6 +118,18 @@ ifeq ($(HDFS_SUPPORT), 1)
 CXXFLAGS += -DHDFS_SUPPORT -I $(HADOOP_HOME)/include
 LDFLAGS  += -L $(HADOOP_HOME)/lib/native -l:libhdfs.a -L $(JAVA_HOME)/lib/server \
 	-L $(JAVA_HOME)/lib/amd64/server -l jvm
+endif
+
+# Support for ncurses
+ifeq ($(NCURSES_SUPPORT), 1)
+CXXFLAGS += -DNCURSES_SUPPORT
+
+  ifeq ($(BUILD_STATIC), 1)
+    LDFLAGS += -lncursesw
+  else # dynamic linking
+    LDFLAGS += -lncurses
+  endif
+
 endif
 
 # Support build in Cygwin environment
@@ -284,6 +296,9 @@ ifeq ($(HDFS_SUPPORT),1)
 else
 	$(info [OPT] HDFS support disabled)
 endif
+ifneq ($(NCURSES_SUPPORT),1)
+	$(info [OPT] ncurses disabled)
+endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
@@ -446,11 +461,13 @@ help:
 	@echo '                             $$HADDOP_HOME/include/hdfs.h and'
 	@echo '                             $$JAVA_HOME/lib/server/libjvm.so can be found.'
 	@echo '                             (Default: 0)'
+	@echo '   NCURSES_SUPPORT=0|1     - Link against ncurses for fullscreen live stats'
+	@echo '                             support. (Default: 1)'
+	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
+	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo '   USE_MIMALLOC=0|1        - Use Microsoft mimalloc library for memory'
 	@echo '                             allocation management. Recommended when using'
 	@echo '                             musl-libc. (Default: 0)'
-	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
-	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo
 	@echo 'Optional Compile/Link Arguments:'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'

@@ -48,8 +48,8 @@ class LiveResults
 		size_t numRemoteThreadsLeft; // only set in master mode
 		size_t percentRemoteCPU; // avg percent cpu util of service hosts (only set in master mode)
 
-		int winHeight; // current height of terminal window
-		int winWidth; // current width of terminal window
+		int winHeight; // current height of terminal window (set in fullscreen mode only)
+		int winWidth; // current width of terminal window (set in fullscreen mode only)
 
 		LiveOps lastLiveOps = {}; // live ops from last round for per-sec diff
 		LiveOps lastLiveOpsReadMix = {}; // live ops from last round for per-sec diff
@@ -117,11 +117,13 @@ class Statistics
 		void deleteSingleLineLiveStatsLine();
 		void loopSingleLineLiveStats();
 
+	#ifdef NCURSES_SUPPORT
 		void printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults);
 		void printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults);
 		void printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
 			bool fillIfShorter);
 		void loopFullScreenLiveStats();
+	#endif // NCURSES_SUPPORT
 
 		void loopNoConsoleLiveStats();
 

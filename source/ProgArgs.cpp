@@ -2847,6 +2847,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "mimalloc ";
 #endif
 
+#ifdef NCURSES_SUPPORT
+	includedStream << "ncurses ";
+#else
+	notIncludedStream << "ncurses ";
+#endif
+
 #ifdef S3_SUPPORT
 	includedStream << "s3 ";
 #else
