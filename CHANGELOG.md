@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.4 (work in progress)
+## v3.0.5 (Jan 05, 2024)
 
 ### New Features & Enhancements
 * Square brackets can now be used to define number lists and ranges in paths, host lists, S3 endpoints.
