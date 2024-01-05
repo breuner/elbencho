@@ -23,7 +23,7 @@ docker pull $IMAGE_NAME && \
 docker run --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_NAME \
     sh -c "\
     apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
-        cmake curl-dev curl-static openssl-libs-static ncurses-static \
+        c-ares-static cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static && \
     apk update && apk upgrade && \
