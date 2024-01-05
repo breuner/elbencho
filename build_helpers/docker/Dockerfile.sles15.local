@@ -3,7 +3,7 @@
 # Run docker build from elbencho repository root dir like this:
 # docker build -t elbencho-local -f build_helpers/docker/Dockerfile.sles15.local .
 
-FROM registry.suse.com/bci/bci-base:15.3 as builder
+FROM registry.suse.com/bci/bci-base:15.5 as builder
 
 COPY ./ /root/elbencho
 
@@ -13,7 +13,7 @@ RUN zypper update -y && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm
 
-FROM registry.suse.com/bci/bci-base:15.3
+FROM registry.suse.com/bci/bci-base:15.5
 
 COPY --from=builder /root/elbencho/packaging/RPMS/*/elbencho*.rpm /tmp/
 

@@ -385,6 +385,8 @@ void ProgArgs::defineAllowedArgs()
 			"file/bdev separately instead of sharing the same file descriptor among all threads.")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
 			"Disable live statistics on console.")
+/*nop*/	(ARG_NOPATHEXPANSION_LONG, bpo::bool_switch(&this->disablePathBracketsExpansion),
+			"Disable expansion of number lists and ranges in square brackets for given paths.")
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service instances. Thus, each service instance "
 			"will work on its own full dataset instead of a fraction of the data set.")
@@ -682,6 +684,7 @@ void ProgArgs::defineDefaults()
 	this->fadviseFlags = 0;
 	this->madviseFlags = 0;
 	this->runS3MultiDelObjNum = 0;
+	this->disablePathBracketsExpansion = false;
 }
 
 /**
@@ -1169,24 +1172,28 @@ void ProgArgs::parseAndCheckPaths()
 				benchPathStr += std::string(BENCHPATH_DELIMITER)[0];
 			}
 		}
-		else // no override given, use benchPathStr from master
+		else
+		{ // no override given, use benchPathStr from master
+
+			// (note: no TranslatorTk::splitAndExpandStr() here; paths from master are taken as-is.)
 			boost::split(benchPathsVec, benchPathStr, boost::is_any_of(BENCHPATH_DELIMITER),
 				boost::token_compress_on);
-
-		// delete empty string elements from pathsVec (they come from delimiter use at start/end)
-		for( ; ; )
-		{
-			StringVec::iterator iter = std::find(benchPathsVec.begin(), benchPathsVec.end(), "");
-			if(iter == benchPathsVec.end() )
-				break;
-
-			benchPathsVec.erase(iter);
 		}
+
+		// delete empty string elements from vec (they come from delimiter use at beginning or end)
+		TranslatorTk::eraseEmptyStringsFromVec(benchPathsVec);
 	}
 	else
 	{ // master or local: take paths from command line as vector
 		if(argsVariablesMap.count(ARG_BENCHPATHS_LONG) )
 			benchPathsVec = argsVariablesMap[ARG_BENCHPATHS_LONG].as<StringVec>();
+
+		// expand lists/ranges in square brackets
+		if(!disablePathBracketsExpansion)
+			TranslatorTk::expandSquareBrackets(benchPathsVec);
+
+		// delete empty string elements from vec (they come from delimiter use at beginning or end)
+		TranslatorTk::eraseEmptyStringsFromVec(benchPathsVec);
 
 		convertS3PathsToCustomTree();
 
@@ -1698,20 +1705,11 @@ void ProgArgs::parseHosts()
 
 		StringVec currentHostsVec;
 
-		boost::split(currentHostsVec, currentHostsStr, boost::is_any_of(HOSTLIST_DELIMITERS),
-				boost::token_compress_on);
+		// split by given delimiters and expand lists/ranges in square brackets
+		TranslatorTk::splitAndExpandStr(currentHostsStr, HOSTLIST_DELIMITERS, currentHostsVec);
 
 		// delete empty string elements from vec (they come from delimiter use at beginning or end)
-		for( ; ; )
-		{
-			StringVec::iterator iter = std::find(
-				currentHostsVec.begin(), currentHostsVec.end(), "");
-
-			if(iter == currentHostsVec.end() )
-				break;
-
-			currentHostsVec.erase(iter);
-		}
+		TranslatorTk::eraseEmptyStringsFromVec(currentHostsVec);
 
 		for(std::string& host : currentHostsVec)
 		{
@@ -1765,21 +1763,17 @@ void ProgArgs::parseNetBenchServersForService()
 	if(!useNetBench || netBenchServersStr.empty() || !numNetBenchServers)
 		return; // nothing to do
 
+	LOGGER(Log_DEBUG, __func__ << ": " <<
+		"netBenchServersStr: " << netBenchServersStr << std::endl);
+
 	StringVec tmpServersVec; // intermediate vec before host/port split
 	std::string tmpNetBenchServersLogStr; // list of servers just for log message
 
-	boost::split(tmpServersVec, netBenchServersStr, boost::is_any_of(HOSTLIST_DELIMITERS),
-			boost::token_compress_on);
+	// split by given delimiters and expand lists/ranges in square brackets
+	TranslatorTk::splitAndExpandStr(netBenchServersStr, HOSTLIST_DELIMITERS, tmpServersVec);
 
 	// delete empty string elements from vec (they come from delimiter use at beginning or end)
-	for( ; ; )
-	{
-		StringVec::iterator iter = std::find(tmpServersVec.begin(), tmpServersVec.end(), "");
-		if(iter == tmpServersVec.end() )
-			break;
-
-		tmpServersVec.erase(iter);
-	}
+	TranslatorTk::eraseEmptyStringsFromVec(tmpServersVec);
 
 	// fill actual netBenchServersVec from individual host names/IPs that might also come with port
 	for(std::string& server : tmpServersVec)
@@ -1850,18 +1844,11 @@ void ProgArgs::parseNumaZones()
 
 	StringVec zonesStrVec; // temporary for split()
 
-	boost::split(zonesStrVec, numaZonesStr, boost::is_any_of(ZONELIST_DELIMITERS),
-			boost::token_compress_on);
+	// split by given delimiters and expand lists/ranges in square brackets
+	TranslatorTk::splitAndExpandStr(numaZonesStr, ZONELIST_DELIMITERS, zonesStrVec);
 
 	// delete empty string elements from vec (they come from delimiter use at beginning or end)
-	for( ; ; )
-	{
-		StringVec::iterator iter = std::find(zonesStrVec.begin(), zonesStrVec.end(), "");
-		if(iter == zonesStrVec.end() )
-			break;
-
-		zonesStrVec.erase(iter);
-	}
+	TranslatorTk::eraseEmptyStringsFromVec(zonesStrVec);
 
 	if(zonesStrVec.empty() )
 		throw ProgException("NUMA zones defined, but parsing resulted in an empty list: " +
@@ -1871,6 +1858,9 @@ void ProgArgs::parseNumaZones()
 	numaZonesStr = "";
 	for(unsigned i=0; i < zonesStrVec.size(); i++)
 		numaZonesStr += (i ? "," : "") + zonesStrVec[i];
+
+	LOGGER(Log_DEBUG, __func__ << ": "
+		"zonesStrVec: " << TranslatorTk::stringVecToString(zonesStrVec, " ") << std::endl);
 
 	// convert from string vector to int vector
 	for(std::string& zoneStr : zonesStrVec)
@@ -1904,18 +1894,11 @@ void ProgArgs::parseCPUCores()
 
 	StringVec coresStrVec; // temporary for split()
 
-	boost::split(coresStrVec, cpuCoresStr, boost::is_any_of(ZONELIST_DELIMITERS),
-			boost::token_compress_on);
+	// split by given delimiters and expand lists/ranges in square brackets
+	TranslatorTk::splitAndExpandStr(cpuCoresStr, ZONELIST_DELIMITERS, coresStrVec);
 
 	// delete empty string elements from vec (they come from delimiter use at beginning or end)
-	for( ; ; )
-	{
-		StringVec::iterator iter = std::find(coresStrVec.begin(), coresStrVec.end(), "");
-		if(iter == coresStrVec.end() )
-			break;
-
-		coresStrVec.erase(iter);
-	}
+	TranslatorTk::eraseEmptyStringsFromVec(coresStrVec);
 
 	if(coresStrVec.empty() )
 		throw ProgException("CPU cores defined, but parsing resulted in an empty list: " +
@@ -1984,18 +1967,11 @@ void ProgArgs::parseGPUIDs()
 
 	StringVec gpuIDsStrVec; // temporary for split()
 
-	boost::split(gpuIDsStrVec, gpuIDsStr, boost::is_any_of(GPULIST_DELIMITERS),
-		boost::token_compress_on);
+	// split by given delimiters and expand lists/ranges in square brackets
+	TranslatorTk::splitAndExpandStr(gpuIDsStr, GPULIST_DELIMITERS, gpuIDsStrVec);
 
 	// delete empty string elements from vec (they come from delimiter use at beginning or end)
-	for( ; ; )
-	{
-		StringVec::iterator iter = std::find(gpuIDsStrVec.begin(), gpuIDsStrVec.end(), "");
-		if(iter == gpuIDsStrVec.end() )
-			break;
-
-		gpuIDsStrVec.erase(iter);
-	}
+	TranslatorTk::eraseEmptyStringsFromVec(gpuIDsStrVec);
 
 	if(gpuIDsStrVec.empty() )
 		throw ProgException("GPU IDs defined, but parsing resulted in an empty list: " +
@@ -2045,18 +2021,11 @@ void ProgArgs::parseS3Endpoints()
 	if(!s3EndpointsServiceOverrideStr.empty() && runAsService)
 		s3EndpointsStr = s3EndpointsServiceOverrideStr; // user specified override for service
 
-	boost::split(s3EndpointsVec, s3EndpointsStr, boost::is_any_of(S3ENDPOINTS_DELIMITERS),
-		boost::token_compress_on);
+	// split by given delimiters and expand lists/ranges in square brackets
+	TranslatorTk::splitAndExpandStr(s3EndpointsStr, S3ENDPOINTS_DELIMITERS, s3EndpointsVec);
 
 	// delete empty string elements from vec (they come from delimiter use at beginning or end)
-	for( ; ; )
-	{
-		StringVec::iterator iter = std::find(s3EndpointsVec.begin(), s3EndpointsVec.end(), "");
-		if(iter == s3EndpointsVec.end() )
-			break;
-
-		s3EndpointsVec.erase(iter);
-	}
+	TranslatorTk::eraseEmptyStringsFromVec(s3EndpointsVec);
 
 	if(s3EndpointsVec.empty() )
 		throw ProgException("S3 endpoints defined, but parsing resulted in an empty list: " +
@@ -2074,18 +2043,11 @@ void ProgArgs::parseNetDevs()
 	if(netDevsStr.empty() )
 		return; // nothing to do
 
-	boost::split(netDevsVec, netDevsStr, boost::is_any_of(NETDEV_DELIMITERS),
-		boost::token_compress_on);
+	// split by given delimiters and expand lists/ranges in square brackets
+	TranslatorTk::splitAndExpandStr(netDevsStr, NETDEV_DELIMITERS, netDevsVec);
 
 	// delete empty string elements from vec (they come from delimiter use at beginning or end)
-	for( ; ; )
-	{
-		StringVec::iterator iter = std::find(netDevsVec.begin(), netDevsVec.end(), "");
-		if(iter == netDevsVec.end() )
-			break;
-
-		netDevsVec.erase(iter);
-	}
+	TranslatorTk::eraseEmptyStringsFromVec(netDevsVec);
 
 	if(netDevsVec.empty() )
 		throw ProgException("Network devices for binding defined, but parsing resulted in "

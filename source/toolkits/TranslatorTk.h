@@ -14,6 +14,8 @@ class TranslatorTk
 	private:
 		TranslatorTk() {}
 
+		static void expandSquareBracketsStr(std::string rangeStr, StringVec& outStrVec);
+
 	public:
 		static std::string benchPhaseToPhaseName(BenchPhase benchPhase, const ProgArgs* progArgs);
 		static std::string benchPhaseToPhaseEntryType(BenchPhase benchPhase,
@@ -23,6 +25,13 @@ class TranslatorTk
 		static unsigned fadviseArgsStrToFlags(std::string fadviseArgsStr);
 		static unsigned madviseArgsStrToFlags(std::string madviseArgsStr);
 		static std::string intVectoHumanStr(const IntVec& intVec);
+		static bool expandSquareBrackets(StringVec& inoutStrVec);
+		static bool replaceCommasOutsideOfSquareBrackets(std::string& inoutStr,
+			std::string replacementStr);
+		static std::string eraseCommas(const std::string& str);
+		static void splitAndExpandStr(std::string str, std::string delimiters,
+			StringVec& outVec);
+		static void eraseEmptyStringsFromVec(StringVec& inoutVec);
 };
 
 

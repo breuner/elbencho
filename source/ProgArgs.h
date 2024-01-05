@@ -157,6 +157,7 @@ namespace bpt = boost::property_tree;
 #define ARG_MADVISE_LONG			"madv"
 #define ARG_FADVISE_LONG			"fadv"
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
+#define ARG_NOPATHEXPANSION_LONG	"nopathexp"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -414,6 +415,7 @@ class ProgArgs
 		unsigned madviseFlags; // flags for madvise() (ARG_MADVISE_FLAG_x)
 		std::string madviseFlagsOrigStr; // flags for madvise() (ARG_MADVISE_FLAG_x_NAME)
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
+		bool disablePathBracketsExpansion; // true to disable square brackets expansion for paths
 
 
 		void defineDefaults();

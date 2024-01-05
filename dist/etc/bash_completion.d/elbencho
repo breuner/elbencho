@@ -88,6 +88,7 @@ _elbencho_opts()
         --nodiocheck
         --nofdsharing
         --nolive
+        --nopathexp
         --nosvcshare
         --numservers
         --perthread
