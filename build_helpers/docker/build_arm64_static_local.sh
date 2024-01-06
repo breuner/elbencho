@@ -34,11 +34,13 @@ docker rm $CONTAINER_NAME
 docker run --platform linux/arm64 --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_NAME \
     sh -c "\
     apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
-        cmake curl-dev curl-static openssl-libs-static ncurses-static \
+        c-ares-static cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static && \
     apk update && apk upgrade && \
-    adduser -u $UID -D -H builduser && \
+    adduser -u $UID -D builduser && \
+    sudo -u builduser git config --global submodule.fetchJobs $NUM_JOBS && \
+    sudo -u builduser git config --global fetch.parallel $NUM_JOBS && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $NUM_JOBS \
         BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT \

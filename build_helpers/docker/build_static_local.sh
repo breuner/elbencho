@@ -27,7 +27,9 @@ docker run --name $CONTAINER_NAME --privileged -it -v $PWD:$PWD -w $PWD $IMAGE_N
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static && \
     apk update && apk upgrade && \
-    adduser -u $UID -D -H builduser && \
+    adduser -u $UID -D builduser && \
+    sudo -u builduser git config --global submodule.fetchJobs 0 && \
+    sudo -u builduser git config --global fetch.parallel 0 && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $(nproc) \
         BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT \
