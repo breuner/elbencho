@@ -426,9 +426,10 @@ deb: | prepare-buildroot
 	sed -i "s/__NAME__/$(EXE_NAME)/" $(PACKAGING_PATH)/BUILDROOT/debian/control
 	
 	cd $(PACKAGING_PATH)/BUILDROOT && \
-		EDITOR=/bin/true VISUAL=/bin/true debchange --create --package elbencho --urgency low \
-			--noquery --newversion "$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)" \
-			"Custom package build."
+	EDITOR=/bin/true VISUAL=/bin/true DEBEMAIL=elbencho@localhost.localdomain debchange --create \
+		--package elbencho --urgency low --noquery \
+		--newversion "$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)" \
+		"Custom package build."
 	
 	cd $(PACKAGING_PATH)/BUILDROOT && \
 		debuild -b -us -uc
