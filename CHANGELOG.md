@@ -5,13 +5,16 @@
 ### New Features & Enhancements
 * Square brackets can now be used to define number lists and ranges in paths, host lists, S3 endpoints.
     * Examples:
-        * 4 different files (myfile1, myfile2, ...): ` elbencho -w /data/myfile[1-4]`
+        * 4 different files (myfile1, myfile2, ...): `elbencho -w /data/myfile[1-4]`
         * Specify two different hosts (node001, node002): `elbencho --hosts node00[1,2]`
         * Specify 2x5=10 different S3 servers (192.168.1.1, 192.168.2.1, ...): `elbencho --s3endpoints http://192.168.[1,2].[1,3,5-7]`
 
 ### General Changes
 * Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.
 * Support building without fullscreen live stats to avoid ncurses dependency. ("make NCURSES_SUPPORT=0").
+
+### Contributors
+* Thanks to Eyal Rif and Oz Perry for helpful comments and suggestions.
 
 ## v3.0.3 (Nov 11, 2023)
 
