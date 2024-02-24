@@ -1,0 +1,66 @@
+# Full CUDA and elbencho deb install of latest github master on Ubuntu 22.04
+#
+# For cross-compile on Ubuntu x86_64 prepare multi-platform builder from repository root dir like this:
+# docker buildx create --use --platform=linux/arm64,linux/amd64 --name multi-platform-builder --config build_helpers/docker/buildkitd.toml
+# docker buildx inspect --bootstrap
+#
+# Run docker build from elbencho repository root dir like this:
+# docker buildx build --progress plain --push --platform linux/amd64,linux/arm64 -t breuner/elbencho:master-ubuntu-cuda-multiarch -f build_helpers/docker/Dockerfile.ubuntu-cuda-multiarch.local .
+
+
+FROM ubuntu:22.04 as builder
+
+COPY ./ /root/elbencho
+
+# Note: Cross-compile is mem intensive, so limit to one proc per GB RAM
+
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    RAM_GB=$(grep MemTotal /proc/meminfo | awk '{printf "%."d"f\n", $2 / 1024 / 1024}') && \
+    RAM_GB=$((RAM_GB > 1 ? RAM_GB : 1)) && \
+    NUM_JOBS=$(( $(nproc) > RAM_GB ? RAM_GB : $(nproc) )) && \
+    echo "Calculated NUM_JOBS: $NUM_JOBS (RAM_GB: $RAM_GB, nproc: $(nproc))" && \
+    DOCKER_BUILD_PLATFORM=$(uname -m) && \
+    CUDA_SOURCE=$(if [ "$DOCKER_BUILD_PLATFORM" = "aarch64" ]; then \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/sbsa/cuda-keyring_1.1-1_all.deb"; \
+        else \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb"; \
+        fi) && \
+    echo "[PLATFORM] CUDA_SOURCE: [$DOCKER_BUILD_PLATFORM] $CUDA_SOURCE" && \
+    cd /root && \
+    apt update && \
+    apt -y install wget && \
+    wget "$CUDA_SOURCE" && \
+    dpkg -i cuda-keyring_1.1-1_all.deb && \
+    apt update && \
+    apt -y upgrade && \
+    apt install -y build-essential cmake cuda-toolkit debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
+    cd /root/elbencho && \
+    make clean-all && \
+    make S3_SUPPORT=1 -j $NUM_JOBS && \
+    make deb
+
+FROM ubuntu:22.04
+
+COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
+
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    DOCKER_BUILD_PLATFORM=$(uname -m) && \
+    CUDA_SOURCE=$(if [ "$DOCKER_BUILD_PLATFORM" = "aarch64" ]; then \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/sbsa/cuda-keyring_1.1-1_all.deb"; \
+        else \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb"; \
+        fi) && \
+    echo "[PLATFORM] CUDA_SOURCE: [$DOCKER_BUILD_PLATFORM] $CUDA_SOURCE" && \
+    cd /root && \
+    apt update && \
+    apt -y install wget && \
+    wget "$CUDA_SOURCE" && \
+    dpkg -i cuda-keyring_1.1-1_all.deb && \
+    apt update && \
+    apt -y upgrade && \
+    apt install -y /tmp/elbencho*.deb cuda-toolkit && \
+    rm -f /tmp/elbencho*.deb && \
+    apt clean all && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]

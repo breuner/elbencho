@@ -1,4 +1,4 @@
-# Full elbencho deb install of latest github master on Ubuntu 20.04
+# Full elbencho deb install of latest github master on Ubuntu 22.04
 #
 # Run docker build from elbencho repository root dir like this:
 # docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2004.local .
