@@ -204,6 +204,10 @@ namespace bpt = boost::property_tree;
 #define ARG_MADVISE_FLAG_NOHUGEPAGE_NAME	"nohugepage"
 
 
+#define RAND_PREFIX_MARK_CHAR				'%' // name prefix char to replace with random value
+#define RAND_PREFIX_MARKS_SUBSTR			"%%%" // three times RAND_PREFIX_MARK_CHAR
+
+
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
 typedef std::vector<CuFileHandleData*> CuFileHandleDataPtrVec;
 
@@ -372,6 +376,7 @@ class ProgArgs
 		unsigned short s3LogLevel; // log level for AWS SDK
 		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
+		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
@@ -559,7 +564,8 @@ class ProgArgs
 		bool getUseS3TransferManager() const { return useS3TransferManager; }
 		unsigned short getS3LogLevel() const { return s3LogLevel; }
 		bool getNoDirectIOCheck() const { return noDirectIOCheck; }
-		std::string getS3ObjectPrefix() const { return s3ObjectPrefix; }
+		const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
+		bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
 		uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
 		bool getRunListObjPhase() const { return (runS3ListObjNum > 0); }
 		bool getRunListObjParallelPhase() const { return runS3ListObjParallel; }

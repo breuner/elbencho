@@ -475,7 +475,8 @@ void ProgArgs::defineAllowedArgs()
 			"Don't check for S3 multi-part uploads exceeding 10,000 parts.")
 /*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
-			"is a bucket.")
+			"is a bucket. (A sequence of 3 to 16 \"" RAND_PREFIX_MARKS_SUBSTR "\" chars will be "
+			"replaced by a random hex string of the same length.)")
 /*s3r*/	(ARG_S3RANDOBJ_LONG, bpo::bool_switch(&this->useS3RandObjSelect),
 			"Read at random offsets and randomly select a new object for each S3 block read. Only "
 			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
@@ -685,6 +686,7 @@ void ProgArgs::defineDefaults()
 	this->madviseFlags = 0;
 	this->runS3MultiDelObjNum = 0;
 	this->disablePathBracketsExpansion = false;
+	this->useS3ObjectPrefixRand = false;
 }
 
 /**
@@ -748,6 +750,7 @@ void ProgArgs::initImplicitValues()
 		blockVariancePercent = 0;
 	}
 
+	useS3ObjectPrefixRand = (s3ObjectPrefix.find(RAND_PREFIX_MARKS_SUBSTR) != std::string::npos);
 }
 
 /**
@@ -2958,6 +2961,9 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 		gpuIDsStr = gpuIDsServiceOverride;
 
 	parseGPUIDs();
+
+	// init implict vals
+	useS3ObjectPrefixRand = (s3ObjectPrefix.find(RAND_PREFIX_MARKS_SUBSTR) != std::string::npos);
 }
 
 /**

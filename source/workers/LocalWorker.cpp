@@ -50,6 +50,8 @@
 #define NETBENCH_CONNECT_TIMEOUT_SEC	20 // max time for servers to wait and clients to retry
 #define NETBENCH_RECEIVE_TIMEOUT_SEC	20 // max time to wait for incoming data on client & server
 #define NETBENCH_SHORT_POLL_TIMEOUT_SEC	2  // time to check for interrupts in longer poll wait loops
+#define HEX_ALPHABET					"0123456789ABCDEF"
+#define HEX_ALPHABET_LEN				(sizeof(HEX_ALPHABET) - 1)
 
 
 #ifdef S3_SUPPORT
@@ -3367,6 +3369,7 @@ void LocalWorker::s3ModeIterateObjects()
 		all workers use the dirs of worker rank 0 */
 	const bool useTransMan = progArgs->getUseS3TransferManager();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
@@ -3405,8 +3408,13 @@ void LocalWorker::s3ModeIterateObjects()
 					"dirIndex: " + std::to_string(dirIndex) + "; "
 					"fileIndex: " + std::to_string(fileIndex) );
 
+			if(objectPrefixRand)
+				objectPrefix = getS3RandObjectPrefix(
+					workerRank, dirIndex, fileIndex, progArgs->getS3ObjectPrefix() );
+
 			unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
 			std::string currentObjectPath = objectPrefix + currentPath.data();
+
 
 			rwOffsetGen->reset(); // reset for next file
 
@@ -3484,6 +3492,7 @@ void LocalWorker::s3ModeIterateObjectsRand()
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 
 	// init random generators for dir & file index selection
 
@@ -3533,6 +3542,10 @@ void LocalWorker::s3ModeIterateObjectsRand()
 				"workerRank: " + std::to_string(workerRank) + "; "
 				"dirIndex: " + std::to_string(dirIndex) + "; "
 				"fileIndex: " + std::to_string(fileIndex) );
+
+		if(objectPrefixRand)
+			objectPrefix = getS3RandObjectPrefix(
+				workerRank, dirIndex, fileIndex, progArgs->getS3ObjectPrefix() );
 
 		const unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
 		std::string currentObjectPath = objectPrefix + currentPath.data();
@@ -4535,6 +4548,7 @@ void LocalWorker::s3ModeListObjParallel()
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 	const bool doListObjVerify = progArgs->getDoListObjVerify();
 
 
@@ -4585,6 +4599,10 @@ void LocalWorker::s3ModeListObjParallel()
 					"workerRank: " + std::to_string(workerRank) + "; "
 					"dirIndex: " + std::to_string(dirIndex) + "; "
 					"fileIndex: " + std::to_string(fileIndex) );
+
+			if(objectPrefixRand)
+				objectPrefix = getS3RandObjectPrefix(
+					workerRank, dirIndex, fileIndex, progArgs->getS3ObjectPrefix() );
 
 			std::string currentObjectPath = objectPrefix + currentPath.data();
 
@@ -4711,7 +4729,7 @@ void LocalWorker::s3ModeVerifyListing(StringSet& expectedSet, StringList& receiv
 }
 
 /**
- * List objects and add multi-delete them in given buckets with user-defined limit for number of
+ * List objects and multi-delete them in given buckets with user-defined limit for number of
  * entries.
  *
  * @throw WorkerException on error.
@@ -4840,6 +4858,45 @@ bool LocalWorker::getS3ModeDoReverseSeqFallback()
 	return false;
 }
 
+/**
+ * In S3 mode, replace any sequence of at least 3 consecutive RAND_PREFIX_MARK_CHAR chars with a
+ * random uppercase hex string based on worker rank, dir index and file index. It's based on these
+ * so that we can calculate the same random values again later to find the files.
+ *
+ * Note: It's a good idea to check progArgs->getUseS3ObjectPrefixRand() to avoid calling this
+ * 		unnecessairly.
+ *
+ * @objectPrefix string in which to repace the consecutive occurences of RAND_PREFIX_MARK_CHAR.
+ * @return objectPrefix with replaced RAND_PREFIX_MARK_CHAR chars.
+ */
+std::string LocalWorker::getS3RandObjectPrefix(size_t workerRank, size_t dirIdx,
+	size_t fileIdx, const std::string& objectPrefix)
+{
+	size_t threeMarksPos = objectPrefix.find(RAND_PREFIX_MARKS_SUBSTR);
+
+	if(threeMarksPos == std::string::npos)
+		return objectPrefix; // not found, so nothing to replace here
+
+	std::string randObjectPrefix(objectPrefix); // the copy to replace chars
+
+	// we don't want any zero-based to turn result to all-zero (e.g. "-n 0" would always be 0)
+	workerRank++;
+	dirIdx++;
+	fileIdx++;
+
+	uint64_t randomNum = RandAlgoGoldenPrime(workerRank * dirIdx * fileIdx).next();
+
+	for(size_t i = threeMarksPos;
+		(i < objectPrefix.size() ) && (objectPrefix[i] == RAND_PREFIX_MARK_CHAR);
+		i++)
+	{
+		randObjectPrefix[i] = ( (char*)HEX_ALPHABET)[randomNum % HEX_ALPHABET_LEN];
+
+		randomNum /= HEX_ALPHABET_LEN;
+	}
+
+	return randObjectPrefix;
+}
 
 /**
  * Return appropriate file open flags for the current benchmark phase in dir mode.

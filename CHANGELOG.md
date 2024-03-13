@@ -1,5 +1,14 @@
 # Changelog of elbencho
 
+## v3.0.6 (work in progress)
+
+### New Features & Enancements
+* Added new multi-arch (ARM64 & x86_64) docker container with CUDA/GDS support.
+* If an S3 object prefix contains a sequence of three or more '%' chars, this sequence will now get replaced by a random hex string of the same length.
+
+### Contributors
+* Thanks to Phil Canman, Erez Binia and Ohad Shamir for helpful comments and suggestions.
+
 ## v3.0.5 (Jan 05, 2024)
 
 ### New Features & Enhancements

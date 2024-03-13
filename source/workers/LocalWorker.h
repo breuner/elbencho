@@ -220,6 +220,8 @@ class LocalWorker : public Worker
 			std::string bucketName, std::string listPrefix);
 		void s3ModeListAndMultiDeleteObjects();
 		bool getS3ModeDoReverseSeqFallback();
+		std::string getS3RandObjectPrefix(size_t workerRank, size_t dirIdx, size_t fileIdx,
+			const std::string& objectPrefix);
 
 		void hdfsDirModeIterateDirs();
 		void hdfsDirModeIterateFiles();

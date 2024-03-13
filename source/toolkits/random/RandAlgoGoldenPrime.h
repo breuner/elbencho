@@ -25,6 +25,11 @@ class RandAlgoGoldenPrime : public RandAlgoInterface
 			state = stateSeeder.next();
 		}
 
+		RandAlgoGoldenPrime(uint64_t seed)
+		{
+			state = seed;
+		}
+
 		virtual ~RandAlgoGoldenPrime() {}
 
 	private:
