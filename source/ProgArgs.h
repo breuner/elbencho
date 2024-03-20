@@ -124,6 +124,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3TRANSMAN_LONG			"s3transman"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
+#define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_DRYRUN_LONG				"dryrun"
@@ -374,6 +375,7 @@ class ProgArgs
 									via buffer possible, such as GPU copy or data verification) */
 		bool useS3TransferManager; // use AWS SDK TransferManager for object downloads
 		unsigned short s3LogLevel; // log level for AWS SDK
+		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
@@ -563,6 +565,7 @@ class ProgArgs
 		bool getUseS3FastRead() const { return useS3FastRead; }
 		bool getUseS3TransferManager() const { return useS3TransferManager; }
 		unsigned short getS3LogLevel() const { return s3LogLevel; }
+		std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
 		bool getNoDirectIOCheck() const { return noDirectIOCheck; }
 		const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
 		bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }

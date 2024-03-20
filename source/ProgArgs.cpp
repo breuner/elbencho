@@ -46,6 +46,9 @@
 #define CPUCORES_ALL_ARG			"all" // shortcut for user to select all cpu cores
 #define GPUIDS_ALL_ARG				"all" // shortcut for user to select all gpus
 
+#define AWS_SDK_LOGPREFIX_DEFAULT	"aws_sdk_"
+
+
 /**
  * Constructor.
  *
@@ -460,8 +463,12 @@ void ProgArgs::defineAllowedArgs()
 			"\"--" ARG_S3LISTOBJPARALLEL_LONG "\". This requires the dataset to be created with "
 			"the same values for \"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT "\".")
 /*s3l*/	(ARG_S3LOGLEVEL_LONG, bpo::value(&this->s3LogLevel),
-			"Log level of AWS S3 SDK. This will create a log file named \"aws_sdk_DATE.log\" in "
-			"the current working directory. (Default: 0=disabled; Max: 6)")
+			"Log level of AWS S3 SDK. See \"--" ARG_S3LOGFILEPREFIX_LONG "\" for filename. "
+			"(Default: 0=disabled; Max: 6)")
+/*s3l*/	(ARG_S3LOGFILEPREFIX_LONG, bpo::value(&this->s3LogfilePrefix),
+			"Path and filename prefix of AWS S3 SDK log file. \"DATE.log\" will get appended to "
+			"the given filename. "
+			"(Default: \"" AWS_SDK_LOGPREFIX_DEFAULT "\" in current working directory)")
 /*s3m*/	(ARG_S3MULTIDELETE_LONG, bpo::value(&this->runS3MultiDelObjNum),
 			"Delete multiple objects in a single DeleteObjects request. This loops on retrieving "
 			"a chunk of objects from a listing request and then deleting the retrieved set of "
@@ -651,6 +658,7 @@ void ProgArgs::defineDefaults()
 	this->useS3FastRead = false;
 	this->useS3TransferManager = false;
 	this->s3LogLevel = 0;
+	this->s3LogfilePrefix = AWS_SDK_LOGPREFIX_DEFAULT;
 	this->noDirectIOCheck = false;
 	this->runS3ListObjNum = 0;
 	this->runS3ListObjParallel = false;

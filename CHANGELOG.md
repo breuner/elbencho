@@ -5,9 +5,10 @@
 ### New Features & Enancements
 * Added new multi-arch (ARM64 & x86_64) docker container with CUDA/GDS support.
 * If an S3 object prefix contains a sequence of three or more '%' chars, this sequence will now get replaced by a random hex string of the same length.
+* New option to specify a custom path and prefix for AWS S3 SDK log file: "--s3logprefix".
 
 ### Contributors
-* Thanks to Phil Canman, Erez Binia and Ohad Shamir for helpful comments and suggestions.
+* Thanks to Phil Canman, Erez Binia, Ohad Shamir and Erez Horev for helpful comments and suggestions.
 
 ## v3.0.5 (Jan 05, 2024)
 

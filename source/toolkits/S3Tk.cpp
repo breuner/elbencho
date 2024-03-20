@@ -36,7 +36,8 @@ void S3Tk::initS3Global(const ProgArgs& progArgs)
 	if(progArgs.getS3LogLevel() > 0)
 		Aws::Utils::Logging::InitializeAWSLogging(
 			Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>("DebugLogging",
-				(Aws::Utils::Logging::LogLevel)progArgs.getS3LogLevel(), "aws_sdk_"));
+				(Aws::Utils::Logging::LogLevel)progArgs.getS3LogLevel(),
+				progArgs.getS3LogfilePrefix() ) );
 
 	s3SDKOptions = new Aws::SDKOptions;
 	Aws::InitAPI(*s3SDKOptions);
