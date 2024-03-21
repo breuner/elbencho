@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.6 (work in progress)
+## v3.0.7 (March 21, 2024)
 
 ### New Features & Enancements
 * Added new multi-arch (ARM64 & x86_64) docker container with CUDA/GDS support.
