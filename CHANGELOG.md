@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v3.0.8 (work in progress)
+
+### New Features & Enancements
+* Added options to read and stat files immediately after creation while they are still open. (See "--readinline" and "--statinline".)
+
 ## v3.0.7 (March 21, 2024)
 
 ### New Features & Enancements

@@ -419,6 +419,9 @@ void ProgArgs::defineAllowedArgs()
 			"benchmark path is a file or block device. (Default: Set to file size)")
 /*ra*/	(ARG_RANKOFFSET_LONG, bpo::value(&this->rankOffset),
 			"Rank offset for worker threads. (Default: 0)")
+/*re*/	(ARG_READINLINE_LONG, bpo::bool_switch(&this->doReadInline),
+			"When benchmark path is a directory, read files immediately after write while they are "
+			"still open.")
 /*re*/	(ARG_RECVBUFSIZE_LONG, bpo::value(&this->sockRecvBufSizeOrigStr),
 			"In netbench mode, this sets the receive buffer size of sockets in bytes. "
 			"(Supports base2 suffixes, e.g. \"2M\")")
@@ -518,6 +521,9 @@ void ProgArgs::defineAllowedArgs()
 			"(Default: 0, which means " FILESHAREBLOCKFACTOR_STR " x blocksize)")
 /*st*/	(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
 			"Run file stat benchmark phase.")
+/*re*/	(ARG_STATFILESINLINE_LONG, bpo::bool_switch(&this->doStatInline),
+			"When benchmark path is a diretory, stat files immediately after open in a write or "
+			"read phase.")
 /*st*/	(ARG_STARTTIME_LONG, bpo::value(&this->startTime),
 			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
 			"start of benchmarks on different hosts, assuming they use synchronized clocks. "
@@ -695,6 +701,8 @@ void ProgArgs::defineDefaults()
 	this->runS3MultiDelObjNum = 0;
 	this->disablePathBracketsExpansion = false;
 	this->useS3ObjectPrefixRand = false;
+	this->doReadInline = false;
+	this->doStatInline = false;
 }
 
 /**
@@ -955,6 +963,9 @@ void ProgArgs::checkArgs()
 
 	if(doDirectVerify && (ioDepth > 1) )
 		throw ProgException("Direct verification cannot be used together with --" ARG_IODEPTH_LONG);
+
+	if(doReadInline && (ioDepth > 1) )
+		throw ProgException("Inline read cannot be used together with --" ARG_IODEPTH_LONG);
 
 	if(!hostsVec.empty() )
 		return;
@@ -2931,6 +2942,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
 	madviseFlags = tree.get<unsigned>(ARG_MADVISE_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
+	doReadInline = tree.get<bool>(ARG_READINLINE_LONG);
+	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -3051,6 +3064,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_FADVISE_LONG, fadviseFlags);
 	outTree.put(ARG_MADVISE_LONG, madviseFlags);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
+	outTree.put(ARG_READINLINE_LONG, doReadInline);
+	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
 
 
 	// dynamically calculated values for service hosts...

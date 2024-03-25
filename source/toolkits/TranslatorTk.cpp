@@ -25,20 +25,44 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_DELETEDIRS: return PHASENAME_DELETEDIRS;
 		case BenchPhase_CREATEFILES:
 		{
+			std::string phaseName;
+
 			if(progArgs->getUseNetBench() )
-				return TRANSLATORTK_PHASENAME_NETBENCH;
+				phaseName = TRANSLATORTK_PHASENAME_NETBENCH;
 			else
 			if(progArgs->hasUserSetRWMixReadThreads() )
-				return TRANSLATORTK_PHASENAME_RWMIXTHR +
+				phaseName = TRANSLATORTK_PHASENAME_RWMIXTHR +
 					std::to_string(progArgs->getNumRWMixReadThreads() );
 			else
 			if(progArgs->hasUserSetRWMixPercent() )
-				return TRANSLATORTK_PHASENAME_RWMIXPCT +
+				phaseName = TRANSLATORTK_PHASENAME_RWMIXPCT +
 					std::to_string(progArgs->getRWMixPercent() );
 			else
-				return PHASENAME_CREATEFILES;
+				phaseName = PHASENAME_CREATEFILES;
+
+			if(progArgs->getBenchPathType() == BenchPathType_DIR)
+			{
+				if(progArgs->getDoStatInline() )
+					phaseName += "+s";
+
+				if(progArgs->getDoReadInline() )
+					phaseName += "+r";
+			}
+
+			return phaseName;
 		}
-		case BenchPhase_READFILES: return PHASENAME_READFILES;
+		case BenchPhase_READFILES:
+		{
+			std::string phaseName = PHASENAME_READFILES;
+
+			if(progArgs->getBenchPathType() == BenchPathType_DIR)
+			{
+				if(progArgs->getDoStatInline() )
+					phaseName += "+s";
+			}
+
+			return phaseName;
+		}
 		case BenchPhase_DELETEFILES: return PHASENAME_DELETEFILES;
 		case BenchPhase_SYNC: return PHASENAME_SYNC;
 		case BenchPhase_DROPCACHES: return PHASENAME_DROPCACHES;

@@ -52,6 +52,7 @@ namespace bpt = boost::property_tree;
 #define ARG_DELETEDIRS_SHORT		"D"
 #define ARG_READ_LONG				"read"
 #define ARG_READ_SHORT				"r"
+#define ARG_READINLINE_LONG			"readinline"
 #define ARG_STARTTIME_LONG			"start"
 #define ARG_RUNASSERVICE_LONG		"service"
 #define ARG_FOREGROUNDSERVICE_LONG	"foreground"
@@ -102,6 +103,7 @@ namespace bpt = boost::property_tree;
 #define ARG_SYNCPHASE_LONG			"sync"
 #define ARG_DROPCACHESPHASE_LONG	"dropcache"
 #define ARG_STATFILES_LONG			"stat"
+#define ARG_STATFILESINLINE_LONG	"statinline"
 #define ARG_CPUUTIL_LONG			"cpu"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_VERSION_LONG			"version"
@@ -423,6 +425,8 @@ class ProgArgs
 		std::string madviseFlagsOrigStr; // flags for madvise() (ARG_MADVISE_FLAG_x_NAME)
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
 		bool disablePathBracketsExpansion; // true to disable square brackets expansion for paths
+		bool doReadInline; // true to read immediately after creation while file still open
+		bool doStatInline; // true to stat immediately after creation while file still open
 
 
 		void defineDefaults();
@@ -604,6 +608,8 @@ class ProgArgs
 		unsigned getMadviseFlags() const { return madviseFlags; };
 		uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
 		bool getRunMultiDelObjPhase() const { return (runS3MultiDelObjNum > 0); }
+		bool getDoReadInline() const { return doReadInline; }
+		bool getDoStatInline() const { return doStatInline; }
 };
 
 

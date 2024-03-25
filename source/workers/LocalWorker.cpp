@@ -1001,6 +1001,7 @@ void LocalWorker::initPhaseFunctionPointers()
 	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
 	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
 	const bool doDirectVerify = progArgs->getDoDirectVerify();
+	const bool doReadInline = progArgs->getDoReadInline();
 	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
 	const RandAlgoType blockVarAlgo = RandAlgoSelectorTk::stringToEnum(
@@ -1074,7 +1075,7 @@ void LocalWorker::initPhaseFunctionPointers()
 
 		funcPostReadBlockChecker = &LocalWorker::noOpIntegrityCheck;
 
-		if(doDirectVerify)
+		if(doDirectVerify || doReadInline)
 		{
 			if(!useCuFileAPI)
 				funcPositionalWrite = &LocalWorker::pwriteAndReadWrapper;
@@ -1084,7 +1085,8 @@ void LocalWorker::initPhaseFunctionPointers()
 				funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 			}
 
-			funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
+			if(doDirectVerify)
+				funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
 		}
 
 		uint64_t rateLimitMiBps = isRWMixedReader ?
@@ -2633,6 +2635,7 @@ void LocalWorker::dirModeIterateFiles()
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 	const bool useMmap = progArgs->getUseMmap();
+	const bool doStatInline = progArgs->getDoStatInline();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2686,8 +2689,21 @@ void LocalWorker::dirModeIterateFiles()
 				{
 					((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
 
+					if(doStatInline)
+					{ // inline stat (i.e. stat immediately after file open)
+						struct stat statBuf;
+
+						int statRes = fstat(fd, &statBuf);
+
+						IF_UNLIKELY(statRes == -1)
+							throw WorkerException(std::string("Inline file stat failed. ") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"SysErr: " + strerror(errno) );
+					}
+
 					if(benchPhase == BenchPhase_CREATEFILES)
 					{
+
 						int64_t writeRes = ((*this).*funcRWBlockSized)();
 
 						IF_UNLIKELY(writeRes == -1)
@@ -2767,7 +2783,7 @@ void LocalWorker::dirModeIterateFiles()
 
 				int statRes = fstatat(pathFDs[pathFDsIndex], currentPath.data(), &statBuf, 0);
 
-				if(statRes == -1)
+				IF_UNLIKELY(statRes == -1)
 					throw WorkerException(std::string("File stat failed. ") +
 						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 						"SysErr: " + strerror(errno) );
@@ -2831,6 +2847,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 	const bool useMmap = progArgs->getUseMmap();
+	const bool doStatInline = progArgs->getDoStatInline();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2863,6 +2880,18 @@ void LocalWorker::dirModeIterateCustomFiles()
 			try
 			{
 				((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
+
+				if(doStatInline)
+				{ // inline stat (i.e. stat immediately after file open)
+					struct stat statBuf;
+
+					int statRes = fstat(fd, &statBuf);
+
+					IF_UNLIKELY(statRes == -1)
+						throw WorkerException(std::string("File stat failed. ") +
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+							"SysErr: " + strerror(errno) );
+				}
 
 				if(benchPhase == BenchPhase_CREATEFILES)
 				{
@@ -2945,7 +2974,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 			int statRes = fstatat(benchPathFD, currentPath, &statBuf, 0);
 
-			if(statRes == -1)
+			IF_UNLIKELY(statRes == -1)
 				throw WorkerException(std::string("File stat failed. ") +
 					"Path: " + benchPathStr + "/" + currentPath + "; "
 					"SysErr: " + strerror(errno) );
