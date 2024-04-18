@@ -5,6 +5,12 @@
 ### New Features & Enancements
 * Added options to read and stat files immediately after creation while they are still open. (See "--readinline" and "--statinline".)
 
+### General Changes
+* Timestamps in csv files now include milliseconds for higher precision.
+
+### Contributors
+Thanks to Casey Peel for code contributions.
+
 ## v3.0.7 (March 21, 2024)
 
 ### New Features & Enancements
