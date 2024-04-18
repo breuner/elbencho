@@ -1096,9 +1096,15 @@ void Statistics::printPhaseResultsTableHeader()
  */
 void Statistics::printISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec)
 {
-	time_t time = std::time(NULL);
+	auto now = std::chrono::system_clock::now();
+	time_t time = std::chrono::system_clock::to_time_t(now);
+	auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+		now.time_since_epoch()).count() % 1000;
+
 	std::stringstream dateStream;
-	dateStream << std::put_time(std::localtime(&time), "%FT%T%z");
+	dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+		<< std::setfill('0') << std::setw(3) << milliseconds
+		<< std::put_time(std::localtime(&time), "%z");
 
 	outLabelsVec.push_back("ISO date");
 	outResultsVec.push_back(dateStream.str() );
