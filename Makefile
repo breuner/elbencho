@@ -56,6 +56,18 @@ OBJECTS          := $(SOURCES:.cpp=.o)
 OBJECTS_CLEANUP  := $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean after C file rename
 DEPENDENCY_FILES := $(shell find $(SOURCE_PATH) -name '*.d')
 
+MAC_BUILD           ?= 0
+
+# Modifications to enable completion in IDEs
+ifeq ($(MAC_BUILD), 1)
+# Add homebrew include path for boost
+CXXFLAGS_COMMON += -I /opt/homebrew/include
+	# Path to libaio src, which cannot be compiled for mac, but this resolves the header files and source code
+	ifneq ($(MAC_LIBAIO), 0)
+	CXXFLAGS_COMMON += -I $(MAC_LIBAIO)
+	endif
+endif
+
 # Release & debug flags for compiler and linker
 ifeq ($(BUILD_DEBUG), 1)
 CXXFLAGS = $(CXXFLAGS_COMMON) $(CXXFLAGS_DEBUG) $(CXXFLAGS_EXTRA)
