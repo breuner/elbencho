@@ -419,8 +419,8 @@ void Statistics::loopFullScreenLiveStats()
 			SCREEN* initRes = newterm(getenv("TERM"), stdout, stdin); // init curses mode
 			if(!initRes)
 			{
-				std::cerr << "NOTE: ncurses terminal init for fullscreeen live statistics failed. " <<
-					"Falling back \"--" ARG_BRIEFLIVESTATS_LONG "\"." <<
+				std::cerr << "NOTE: ncurses terminal init for fullscreen live statistics failed. "
+					"Falling back to \"--" ARG_BRIEFLIVESTATS_LONG "\"." <<
 					std::endl;
 
 				loopSingleLineLiveStats();

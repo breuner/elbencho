@@ -396,6 +396,8 @@ void ProgArgs::defineAllowedArgs()
 /*nu*/	(ARG_NUMHOSTS_LONG, bpo::value(&this->numHosts),
 			"Number of hosts to use from given hosts list or hosts file. (Default: use all given "
 			"hosts)")
+/*ph*/	(ARG_PHASEDELAYTIME_LONG, bpo::value(&this->nextPhaseDelaySecs),
+			"Delay between different benchmark phases in seconds. (Default: 0)")
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
@@ -703,6 +705,7 @@ void ProgArgs::defineDefaults()
 	this->useS3ObjectPrefixRand = false;
 	this->doReadInline = false;
 	this->doStatInline = false;
+	this->nextPhaseDelaySecs = 0;
 }
 
 /**
@@ -1073,7 +1076,8 @@ void ProgArgs::checkPathDependentArgs()
 		if(!noDirectIOCheck && ( (blockSize % DIRECTIO_MINSIZE) != 0) )
 			throw ProgException("Block size for direct IO is not a multiple of required size. "
 				"(Note that a system's actual required size for direct IO might be even higher "
-				"depending on system page size and drive sector size.) "
+				"depending on system page size and drive sector size. "
+				"\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
 				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
 	}
 

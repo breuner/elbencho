@@ -161,6 +161,7 @@ namespace bpt = boost::property_tree;
 #define ARG_FADVISE_LONG			"fadv"
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
 #define ARG_NOPATHEXPANSION_LONG	"nopathexp"
+#define ARG_PHASEDELAYTIME_LONG		"phasedelay"
 
 
 #define ARGDEFAULT_SERVICEPORT		1611
@@ -385,7 +386,7 @@ class ProgArgs
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doReverseSeqOffsets; // backwards sequential read/write
-		bool doInfiniteIOLoop; // start I/O from the beginning when reaching the end
+		bool doInfiniteIOLoop; // let each thread loop on its phase work infinitely
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3RandObjSelect; // random object selection for each read
 		size_t numRWMixReadThreads; // number of rwmix read threads in file/bdev write phase
@@ -427,6 +428,7 @@ class ProgArgs
 		bool disablePathBracketsExpansion; // true to disable square brackets expansion for paths
 		bool doReadInline; // true to read immediately after creation while file still open
 		bool doStatInline; // true to stat immediately after creation while file still open
+		unsigned nextPhaseDelaySecs; // delay between bench phases in seconds
 
 
 		void defineDefaults();
@@ -610,6 +612,7 @@ class ProgArgs
 		bool getRunMultiDelObjPhase() const { return (runS3MultiDelObjNum > 0); }
 		bool getDoReadInline() const { return doReadInline; }
 		bool getDoStatInline() const { return doStatInline; }
+		unsigned getNextPhaseDelaySecs() const { return nextPhaseDelaySecs; }
 };
 
 

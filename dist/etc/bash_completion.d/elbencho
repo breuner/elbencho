@@ -92,6 +92,7 @@ _elbencho_opts()
         --nosvcshare
         --numservers
         --perthread
+        --phasedelay
         --port
         --preallocfile
         --quit
@@ -199,6 +200,8 @@ _elbencho()
         --netdevs)
         ;&
         --numservers)
+        ;&
+        --phasedelay)
         ;&
         --port)
         ;&

@@ -212,64 +212,57 @@ void Coordinator::runSyncAndDropCaches()
  */
 void Coordinator::runBenchmarks()
 {
+	struct BenchPhaseConfig
+	{
+	    BenchPhase benchPhase;
+	    bool runPhase;
+	};
+
+	// array of all existing bench phases
+	/* note: multiple phases can be selected for a single run, so make sure to have reasonable
+		ordering here (e.g. creates before deletes). */
+
+	std::array allBenchPhasesArray
+	{
+		BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },
+		BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
+		BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },
+		BenchPhaseConfig { BenchPhase_LISTOBJECTS, progArgs.getRunListObjPhase() },
+		BenchPhaseConfig { BenchPhase_LISTOBJPARALLEL, progArgs.getRunListObjParallelPhase() },
+		BenchPhaseConfig { BenchPhase_READFILES, progArgs.getRunReadPhase() },
+		BenchPhaseConfig { BenchPhase_MULTIDELOBJ, progArgs.getRunMultiDelObjPhase() },
+		BenchPhaseConfig { BenchPhase_DELETEFILES, progArgs.getRunDeleteFilesPhase() },
+		BenchPhaseConfig { BenchPhase_DELETEDIRS, progArgs.getRunDeleteDirsPhase() },
+	};
+
+	// vector of enabled bench phases
+
+	std::vector<BenchPhase> enabledBenchPhasesVec;
+
+	for(BenchPhaseConfig benchPhaseConfig : allBenchPhasesArray)
+	{
+		if(benchPhaseConfig.runPhase)
+			enabledBenchPhasesVec.push_back(benchPhaseConfig.benchPhase);
+	}
+
+
 	for(size_t iterationIndex = 0; iterationIndex < progArgs.getIterations(); iterationIndex++)
 	{	
 		statistics.printPhaseResultsTableHeader();
 
 		runSyncAndDropCaches();
 
-		if(progArgs.getRunCreateDirsPhase() )
+		for(unsigned benchPhaseIdx=0; benchPhaseIdx < enabledBenchPhasesVec.size(); benchPhaseIdx++)
 		{
-			runBenchmarkPhase(BenchPhase_CREATEDIRS);
-			runSyncAndDropCaches();
-		}
+			runBenchmarkPhase(enabledBenchPhasesVec[benchPhaseIdx] );
 
-		if(progArgs.getRunCreateFilesPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_CREATEFILES);
 			runSyncAndDropCaches();
-		}
 
-		if(progArgs.getRunStatFilesPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_STATFILES);
-			runSyncAndDropCaches();
-		}
-
-		if(progArgs.getRunListObjPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_LISTOBJECTS);
-			runSyncAndDropCaches();
-		}
-
-		if(progArgs.getRunListObjParallelPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_LISTOBJPARALLEL);
-			runSyncAndDropCaches();
-		}
-
-		if(progArgs.getRunReadPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_READFILES);
-			runSyncAndDropCaches();
-		}
-
-		if(progArgs.getRunMultiDelObjPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_MULTIDELOBJ);
-			runSyncAndDropCaches();
-		}
-
-		if(progArgs.getRunDeleteFilesPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_DELETEFILES);
-			runSyncAndDropCaches();
-		}
-
-		if(progArgs.getRunDeleteDirsPhase() )
-		{
-			runBenchmarkPhase(BenchPhase_DELETEDIRS);
-			runSyncAndDropCaches();
+			if( (benchPhaseIdx < (enabledBenchPhasesVec.size() - 1) ) &&
+				(progArgs.getNextPhaseDelaySecs() > 0) )
+			{ // user requested delay between phases
+				sleep(progArgs.getNextPhaseDelaySecs() );
+			}
 		}
 	}
 }
