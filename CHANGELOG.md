@@ -5,12 +5,13 @@
 ### New Features & Enancements
 * Added options to read and stat files immediately after creation while they are still open. (See "--readinline" and "--statinline".)
 * Added option to sleep between test phases. (See "--phasedelay".)
+* Added option to rotate hosts list for service instances between phases to avoid caching effects. (See "--rotatehosts".)
 
 ### General Changes
-* Timestamps in csv files now include milliseconds for higher precision.
+* Timestamps in csv files now include milliseconds for higher precisiomn.
 
 ### Contributors
-Thanks to Casey Peel for code contributions. Thanks to Andy Black for helpful comments and suggestions.
+Thanks to Casey Peel for code contributions. Thanks to Andy Black and Github user mhanafi1970 for helpful comments and suggestions.
 
 ## v3.0.7 (March 21, 2024)
 

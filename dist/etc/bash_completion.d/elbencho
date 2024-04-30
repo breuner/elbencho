@@ -105,6 +105,7 @@ _elbencho_opts()
         --recvbuf
         --resfile
         --respsize
+        --rotatehosts
         --rwmixpct
         --rwmixthr
         --s3endpoints
@@ -214,6 +215,8 @@ _elbencho()
         --recvbuf)
         ;&
         --respsize)
+        ;&
+        --rotatehosts)
         ;&
         --rwmixpct)
         ;&

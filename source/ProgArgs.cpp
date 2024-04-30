@@ -434,6 +434,8 @@ void ProgArgs::defineAllowedArgs()
 /*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
 			"Path to file for human-readable results, similar to console output. If the file "
 			"exists, new results will be appended.")
+/*ro*/	(ARG_ROTATEHOSTS_LONG, bpo::value(&this->rotateHostsNum),
+			"Number by which to rotate hosts between phases to avoid caching effects. (Default: 0)")
 /*rw*/	(ARG_RWMIXPERCENT_LONG, bpo::value(&this->rwMixPercent),
 			"Percentage of blocks that should be read in a write phase. (Default: 0; Max: 100)")
 /*rw*/	(ARG_RWMIXTHREADS_LONG, bpo::value(&this->numRWMixReadThreads),
@@ -706,6 +708,7 @@ void ProgArgs::defineDefaults()
 	this->doReadInline = false;
 	this->doStatInline = false;
 	this->nextPhaseDelaySecs = 0;
+	this->rotateHostsNum = 0;
 }
 
 /**
@@ -3352,4 +3355,21 @@ void ProgArgs::checkCSVFileCompatibility()
 			"Found commas: " + std::to_string(numCommas) + "; "
 			"Expected commas: " + std::to_string(CSVFILE_EXPECTED_COMMAS) + "; "
 			"File: " + csvFilePath);
+}
+
+/**
+ * Rotate hosts vector by user-defined number.
+ *
+ * This is a no-op if user did not specify rotation or if netbench mode is used.
+ *
+ * This is not thread-safe because it's intended to be called between test phases and with a
+ * correponsing restart of workers.
+ */
+void ProgArgs::rotateHosts()
+{
+	if( (hostsVec.size() < 2) || useNetBench)
+		return;
+
+	for(unsigned i = 0; i < rotateHostsNum; i++)
+		std::rotate(hostsVec.begin(), hostsVec.begin() + 1, hostsVec.end() );
 }

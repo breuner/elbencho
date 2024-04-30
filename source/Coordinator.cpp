@@ -254,17 +254,55 @@ void Coordinator::runBenchmarks()
 
 		for(unsigned benchPhaseIdx=0; benchPhaseIdx < enabledBenchPhasesVec.size(); benchPhaseIdx++)
 		{
+			// run actual test phase
 			runBenchmarkPhase(enabledBenchPhasesVec[benchPhaseIdx] );
 
+			// run special "sync" and "drop caches" phases
 			runSyncAndDropCaches();
 
-			if( (benchPhaseIdx < (enabledBenchPhasesVec.size() - 1) ) &&
-				(progArgs.getNextPhaseDelaySecs() > 0) )
-			{ // user requested delay between phases
-				sleep(progArgs.getNextPhaseDelaySecs() );
+			if(benchPhaseIdx < (enabledBenchPhasesVec.size() - 1) )
+			{
+				// delay between phases
+				if(progArgs.getNextPhaseDelaySecs() )
+					sleep(progArgs.getNextPhaseDelaySecs() );
+
+				// rotate hosts (which requires new prep phase for ranks)
+				rotateHosts();
 			}
 		}
 	}
+}
+
+/**
+ * Stop and restart all workers after inter-phase hosts rotation. This is necessary because we need
+ * to run the prep phase again to update the worker ranks.
+ *
+ * This is a no-op if the user didn't request hosts rotation.
+ */
+void Coordinator::rotateHosts()
+{
+	if(progArgs.getHostsVec().empty() ||
+		!progArgs.getRotateHostsNum() ||
+		progArgs.getUseNetBench() )
+		return;
+
+	workerManager.interruptAndNotifyWorkers();
+	workerManager.joinAllThreads();
+	workerManager.cleanupWorkersAfterPhaseDone();
+	workerManager.deleteThreads();
+
+	if(!LoggerBase::getErrHistory().empty() )
+	{
+		std::cerr << LoggerBase::getErrHistory();
+		LoggerBase::clearErrHistory();
+	}
+
+	progArgs.rotateHosts();
+
+	/* note: workerManager.prepareThreads() blocks signal interrupt signals for spawned threads
+		so we don't need to reset signal handlers here. */
+
+	workerManager.prepareThreads();
 }
 
 /**
