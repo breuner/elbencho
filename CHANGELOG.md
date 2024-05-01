@@ -9,6 +9,7 @@
 
 ### General Changes
 * Timestamps in csv files now include milliseconds for higher precisiomn.
+* Updated S3 to latest AWS SDK CPP v1.11.319.
 
 ### Contributors
 Thanks to Casey Peel for code contributions. Thanks to Andy Black and Github user mhanafi1970 for helpful comments and suggestions.
