@@ -108,6 +108,12 @@ _elbencho_opts()
         --rotatehosts
         --rwmixpct
         --rwmixthr
+        --s3aclget
+        --s3aclgrantee
+        --s3aclgrants
+        --s3aclgtype
+        --s3aclput
+        --s3aclverify
         --s3endpoints
         --s3fastget
         --s3key
@@ -223,6 +229,12 @@ _elbencho()
         --rwmixthr)
         ;&
         -s)
+        ;&
+        --s3aclgrantee)
+        ;&
+        --s3aclgrants)
+        ;&
+        --s3aclgtype)
         ;&
         --s3endpoints)
         ;&
