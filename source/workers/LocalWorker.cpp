@@ -4,6 +4,7 @@
 #include "LocalWorker.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/TranslatorTk.h"
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
 
@@ -33,10 +34,12 @@
 	#include <aws/s3/model/DeleteBucketRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
 	#include <aws/s3/model/DeleteObjectsRequest.h>
+	#include <aws/s3/model/GetObjectAclRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
 	#include <aws/s3/model/Object.h>
+	#include <aws/s3/model/PutObjectAclRequest.h>
 	#include <aws/s3/model/PutObjectRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
 	#include <aws/transfer/TransferManager.h>
@@ -212,6 +215,13 @@ void LocalWorker::run()
 						else
 							progArgs->getTreeFilePath().empty() ?
 								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+					} break;
+
+					case BenchPhase_PUTOBJACL:
+					case BenchPhase_GETOBJACL:
+					{
+						progArgs->getTreeFilePath().empty() ?
+							s3ModeIterateObjects() : s3ModeIterateCustomObjects();
 					} break;
 
 					case BenchPhase_LISTOBJECTS:
@@ -3470,6 +3480,12 @@ void LocalWorker::s3ModeIterateObjects()
 			if(benchPhase == BenchPhase_STATFILES)
 				s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
 
+			if(benchPhase == BenchPhase_PUTOBJACL)
+				s3ModePutObjectAcl(bucketVec[bucketIndex], currentObjectPath);
+
+			if(benchPhase == BenchPhase_GETOBJACL)
+				s3ModeGetObjectAcl(bucketVec[bucketIndex], currentObjectPath);
+
 			if(benchPhase == BenchPhase_DELETEFILES)
 				s3ModeDeleteObject(bucketVec[bucketIndex], currentObjectPath);
 
@@ -3659,6 +3675,12 @@ void LocalWorker::s3ModeIterateCustomObjects()
 
 		if(benchPhase == BenchPhase_STATFILES)
 			s3ModeStatObject(bucketName, currentPathElem.path);
+
+		if(benchPhase == BenchPhase_PUTOBJACL)
+			s3ModePutObjectAcl(bucketName, currentPathElem.path);
+
+		if(benchPhase == BenchPhase_GETOBJACL)
+			s3ModeGetObjectAcl(bucketName, currentPathElem.path);
 
 		if(benchPhase == BenchPhase_DELETEFILES)
 			s3ModeDeleteObject(bucketName, currentPathElem.path);
@@ -4867,6 +4889,127 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 
 		} while(isTruncated); // end of while numObjectsLeft loop
 	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Put ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModePutObjectAcl(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+    Aws::Vector<S3::Grant> grants;
+
+    TranslatorTk::getS3ObjectAclGrants(progArgs, grants);
+
+	if(grants.empty() )
+		throw WorkerException("Undefined/unknown S3 ACL permission type: "
+			"'" + progArgs->getS3AclGranteePermissions() + "'");
+
+    S3::AccessControlPolicy acp;
+    acp.SetGrants(grants);
+
+	S3::PutObjectAclRequest request;
+	request.WithBucket(bucketName)
+		.WithKey(objectName)
+		.SetAccessControlPolicy(acp);
+
+	S3::PutObjectAclOutcome outcome = s3Client->PutObjectAcl(request);
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Putting object ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Get ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+	S3::GetObjectAclRequest request;
+	request.WithBucket(bucketName)
+		.WithKey(objectName);
+
+	S3::GetObjectAclOutcome outcome = s3Client->GetObjectAcl(request);
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Getting object ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+	IF_UNLIKELY(progArgs->getDoS3AclVerify() )
+	{
+		std::vector<S3::Grant> verifyGrants;
+		TranslatorTk::getS3ObjectAclGrants(progArgs, verifyGrants);
+
+		const std::vector<S3::Grant>& outcomeGrants = outcome.GetResult().GetGrants();
+
+		// iterate over all grants that need to be verified
+		for(S3::Grant& verifyGrant : verifyGrants)
+		{
+			bool grantFound = false;
+
+			// iterate over all outcome grants to see if any grant matches current verifyGrant
+			for(const S3::Grant& outcomeGrant : outcomeGrants)
+			{
+				if( (outcomeGrant.GetGrantee().GetID() ==
+						verifyGrant.GetGrantee().GetID() ) ||
+					(outcomeGrant.GetGrantee().GetEmailAddress() ==
+						verifyGrant.GetGrantee().GetEmailAddress() ) ||
+					(outcomeGrant.GetGrantee().GetURI() ==
+						verifyGrant.GetGrantee().GetURI() ) )
+				{ // grantee matches => check if permission also matches
+					if(outcomeGrant.GetPermission() == verifyGrant.GetPermission() )
+					{ // permission matches
+						grantFound = true;
+						break;
+					}
+				}
+			}
+
+			if(!grantFound)
+				throw WorkerException(std::string("S3 ACL verification failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Grantee ID: " + verifyGrant.GetGrantee().GetID() + "; "
+					"Grantee Email: " + verifyGrant.GetGrantee().GetEmailAddress() + "; "
+					"Grantee URI: " + verifyGrant.GetGrantee().GetURI() + "; "
+					"Permission: " + TranslatorTk::s3AclPermissionToStr(
+						verifyGrant.GetPermission() ) );
+		}
+	} // end of verifcation
 
 #endif // S3_SUPPORT
 }

@@ -219,6 +219,8 @@ class LocalWorker : public Worker
 		void s3ModeVerifyListing(StringSet& expectedSet, StringList& receivedList,
 			std::string bucketName, std::string listPrefix);
 		void s3ModeListAndMultiDeleteObjects();
+		void s3ModePutObjectAcl(std::string bucketName, std::string objectName);
+		void s3ModeGetObjectAcl(std::string bucketName, std::string objectName);
 		bool getS3ModeDoReverseSeqFallback();
 		std::string getS3RandObjectPrefix(size_t workerRank, size_t dirIdx, size_t fileIdx,
 			const std::string& objectPrefix);

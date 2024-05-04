@@ -227,6 +227,8 @@ void Coordinator::runBenchmarks()
 		BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },
 		BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
 		BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },
+		BenchPhaseConfig { BenchPhase_PUTOBJACL, progArgs.getRunS3AclPut() },
+		BenchPhaseConfig { BenchPhase_GETOBJACL, progArgs.getRunS3AclGet() },
 		BenchPhaseConfig { BenchPhase_LISTOBJECTS, progArgs.getRunListObjPhase() },
 		BenchPhaseConfig { BenchPhase_LISTOBJPARALLEL, progArgs.getRunListObjParallelPhase() },
 		BenchPhaseConfig { BenchPhase_READFILES, progArgs.getRunReadPhase() },

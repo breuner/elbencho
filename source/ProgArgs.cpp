@@ -447,6 +447,24 @@ void ProgArgs::defineAllowedArgs()
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0; supports base2 suffixes, e.g. \"2M\")")
 #ifdef S3_SUPPORT
+/*s3a*/	(ARG_S3ACLGRANTEE_LONG, bpo::value(&this->s3AclGrantee),
+			"S3 object ACL grantee.")
+/*s3a*/	(ARG_S3ACLGRANTEETYPE_LONG, bpo::value(&this->s3AclGranteeType),
+			"S3 object ACL grantee type. Possible values: "
+			ARG_S3ACL_GRANTEE_TYPE_ID ", " ARG_S3ACL_GRANTEE_TYPE_EMAIL ", "
+			ARG_S3ACL_GRANTEE_TYPE_URI ", " ARG_S3ACL_GRANTEE_TYPE_GROUP)
+/*s3a*/	(ARG_S3ACLGRANTS_LONG, bpo::value(&this->s3AclGranteePermissions),
+			"S3 object ACL grantee permissions. Comma-separated list of these values: "
+			ARG_S3ACL_PERM_NONE_NAME ", " ARG_S3ACL_PERM_FULL_NAME ", "
+			ARG_S3ACL_PERM_FLAG_READ_NAME ", " ARG_S3ACL_PERM_FLAG_WRITE_NAME ", "
+			ARG_S3ACL_PERM_FLAG_READACP_NAME ", " ARG_S3ACL_PERM_FLAG_WRITEACP_NAME)
+/*s3a*/	(ARG_S3ACLGET_LONG, bpo::bool_switch(&this->runS3AclGet),
+			"Get S3 object ACLs.")
+/*s3a*/	(ARG_S3ACLPUT_LONG, bpo::bool_switch(&this->runS3AclPut),
+			"Put S3 object ACLs. This requires definition of grantee, grantee type and "
+			"permissions.")
+/*s3a*/	(ARG_S3ACLVERIFY_LONG, bpo::bool_switch(&this->doS3AclVerify),
+			"Verify S3 object ACLs based on given grantee, grantee type and permissions.")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -709,6 +727,9 @@ void ProgArgs::defineDefaults()
 	this->doStatInline = false;
 	this->nextPhaseDelaySecs = 0;
 	this->rotateHostsNum = 0;
+	this->runS3AclPut = false;
+	this->runS3AclGet = false;
+	this->doS3AclVerify = false;
 }
 
 /**
@@ -1012,6 +1033,9 @@ void ProgArgs::checkPathDependentArgs()
 
 	if(runS3ListObjNum && s3EndpointsVec.empty() )
 		throw ProgException("Object listing requires S3 endpoints definition.");
+
+	if( (runS3AclPut || runS3AclGet) && s3EndpointsVec.empty() )
+		throw ProgException("Putting/getting object ACLs requires S3 endpoints definition.");
 
 	if( (hasUserSetRWMixPercent() || hasUserSetRWMixReadThreads() ) &&
 		!s3EndpointsStr.empty() &&
@@ -2120,7 +2144,8 @@ void ProgArgs::loadCustomTreeFile()
 
 	// load file trees
 
-	if(runCreateFilesPhase || runStatFilesPhase || runReadPhase || runDeleteFilesPhase)
+	if(runCreateFilesPhase || runStatFilesPhase || runReadPhase || runDeleteFilesPhase ||
+		runS3AclPut || runS3AclGet)
 	{
 		// load tree of non-shared files (i.e. files that are equal to or smaller than blocksize)
 
@@ -2892,6 +2917,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doPreallocFile = tree.get<bool>(ARG_PREALLOCFILE_LONG);
 	doReadInline = tree.get<bool>(ARG_READINLINE_LONG);
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
+	doS3AclVerify = tree.get<bool>(ARG_S3ACLVERIFY_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
@@ -2923,6 +2949,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runDeleteFilesPhase = tree.get<bool>(ARG_DELETEFILES_LONG);
 	runDropCachesPhase = tree.get<bool>(ARG_DROPCACHESPHASE_LONG);
 	runReadPhase = tree.get<bool>(ARG_READ_LONG);
+	runS3AclGet = tree.get<bool>(ARG_S3ACLGET_LONG);
+	runS3AclPut = tree.get<bool>(ARG_S3ACLPUT_LONG);
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
@@ -2931,6 +2959,9 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	rwMixPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);
 	s3AccessKey = tree.get<std::string>(ARG_S3ACCESSKEY_LONG);
 	s3AccessSecret = tree.get<std::string>(ARG_S3ACCESSSECRET_LONG);
+	s3AclGrantee = tree.get<std::string>(ARG_S3ACLGRANTEE_LONG);
+	s3AclGranteePermissions = tree.get<std::string>(ARG_S3ACLGRANTS_LONG);
+	s3AclGranteeType = tree.get<std::string>(ARG_S3ACLGRANTEETYPE_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
@@ -3003,7 +3034,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
  */
 void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRank) const
 {
-	// note: alphabetical order by variable name ("benchLabel", "benchPathStr" etc)
+	// note: alphabetical order by ARG_... name
 
 	outTree.put(ARG_BLOCK_LONG, blockSize);
 	outTree.put(ARG_BLOCKVARIANCE_LONG, blockVariancePercent);
@@ -3057,6 +3088,12 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_RWMIXTHREADS_LONG, numRWMixReadThreads);
 	outTree.put(ARG_S3ACCESSKEY_LONG, s3AccessKey);
 	outTree.put(ARG_S3ACCESSSECRET_LONG, s3AccessSecret);
+	outTree.put(ARG_S3ACLGET_LONG, runS3AclGet);
+	outTree.put(ARG_S3ACLGRANTEE_LONG, s3AclGrantee);
+	outTree.put(ARG_S3ACLGRANTEETYPE_LONG, s3AclGranteeType);
+	outTree.put(ARG_S3ACLGRANTS_LONG, s3AclGranteePermissions);
+	outTree.put(ARG_S3ACLPUT_LONG, runS3AclPut);
+	outTree.put(ARG_S3ACLVERIFY_LONG, doS3AclVerify);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);

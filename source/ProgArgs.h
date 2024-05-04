@@ -130,6 +130,12 @@ namespace bpt = boost::property_tree;
 #define ARG_RWMIXTHREADS_LONG		"rwmixthr"
 #define ARG_S3ACCESSKEY_LONG		"s3key"
 #define ARG_S3ACCESSSECRET_LONG		"s3secret"
+#define ARG_S3ACLGET_LONG			"s3aclget"
+#define ARG_S3ACLGRANTEE_LONG		"s3aclgrantee"
+#define ARG_S3ACLGRANTEETYPE_LONG	"s3aclgtype"
+#define ARG_S3ACLGRANTS_LONG		"s3aclgrants"
+#define ARG_S3ACLPUT_LONG			"s3aclput"
+#define ARG_S3ACLVERIFY_LONG		"s3aclverify"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3LISTOBJ_LONG			"s3listobj"
@@ -207,6 +213,22 @@ namespace bpt = boost::property_tree;
 #define ARG_MADVISE_FLAG_HUGEPAGE_NAME		"hugepage"
 #define ARG_MADVISE_FLAG_NOHUGEPAGE			32
 #define ARG_MADVISE_FLAG_NOHUGEPAGE_NAME	"nohugepage"
+
+/* permission flags for S3 ACLs.
+	note: std::string::find() will be used with these, so make sure each name is unambiguous and not
+	a substring of another name. */
+#define ARG_S3ACL_PERM_NONE_NAME			"none"
+#define ARG_S3ACL_PERM_FULL_NAME			"full"
+#define ARG_S3ACL_PERM_FLAG_READ_NAME		"read"
+#define ARG_S3ACL_PERM_FLAG_WRITE_NAME		"write"
+#define ARG_S3ACL_PERM_FLAG_READACP_NAME	"racp"
+#define ARG_S3ACL_PERM_FLAG_WRITEACP_NAME	"wacp"
+
+// grantee type for S3 ACLs
+#define ARG_S3ACL_GRANTEE_TYPE_ID			"id"
+#define ARG_S3ACL_GRANTEE_TYPE_EMAIL		"email"
+#define ARG_S3ACL_GRANTEE_TYPE_URI			"uri"
+#define ARG_S3ACL_GRANTEE_TYPE_GROUP		"group"
 
 
 #define RAND_PREFIX_MARK_CHAR				'%' // name prefix char to replace with random value
@@ -298,6 +320,7 @@ class ProgArgs
 		bool doPreallocFile; // prealloc file space on creation via posix_fallocate()
 		bool doReadInline; // true to read immediately after creation while file still open
 		bool doReverseSeqOffsets; // backwards sequential read/write
+		bool doS3AclVerify; // verify that acl contains given grantee and permissions
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doStatInline; // true to stat immediately after creation while file still open
 		bool doTruncate; // truncate files to 0 size on open for writing
@@ -370,6 +393,8 @@ class ProgArgs
 		bool runDeleteFilesPhase; // delete files
 		bool runDropCachesPhase; // run "echo 3>drop_caches" phase to drop kernel page cache
 		bool runReadPhase; // read files
+		bool runS3AclGet; // retrieve object acl
+		bool runS3AclPut; // change object acl
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
@@ -379,6 +404,9 @@ class ProgArgs
 		unsigned rwMixPercent; // % of blocks that should be read (the rest will be written)
 		std::string s3AccessKey; // s3 access key
 		std::string s3AccessSecret; // s3 access secret
+		std::string s3AclGrantee; // s3 acl grantee
+		std::string s3AclGranteeType; // s3 acl grantee type
+		std::string s3AclGranteePermissions; // s3 acl grantee permission flags (ARG_S3_ACL_...)
 		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
@@ -510,6 +538,7 @@ class ProgArgs
         bool getDoReadInline() const { return doReadInline; }
         bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
         bool getDoStatInline() const { return doStatInline; }
+        bool getDoS3AclVerify() const { return doS3AclVerify; }
         bool getDoTruncate() const { return doTruncate; }
         bool getDoTruncToSize() const { return doTruncToSize; }
         bool getDoListObjVerify() const { return doS3ListObjVerify; }
@@ -572,12 +601,17 @@ class ProgArgs
         bool getRunListObjPhase() const { return (runS3ListObjNum > 0); }
         bool getRunMultiDelObjPhase() const { return (runS3MultiDelObjNum > 0); }
         bool getRunReadPhase() const { return runReadPhase; }
+        bool getRunS3AclPut() const { return runS3AclPut; }
+        bool getRunS3AclGet() const { return runS3AclGet; }
         bool getRunServiceInForeground() const { return runServiceInForeground; }
         bool getRunStatFilesPhase() const { return runStatFilesPhase; }
         bool getRunSyncPhase() const { return runSyncPhase; }
         unsigned getRWMixPercent() const { return rwMixPercent; }
         std::string getS3AccessKey() const { return s3AccessKey; }
         std::string getS3AccessSecret() const { return s3AccessSecret; }
+        std::string getS3AclGrantee() const { return s3AclGrantee; }
+        std::string getS3AclGranteeType() const { return s3AclGranteeType; }
+        std::string getS3AclGranteePermissions() const { return s3AclGranteePermissions; }
         std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
         std::string getS3EndpointsStr() const { return s3EndpointsStr; }
         const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }

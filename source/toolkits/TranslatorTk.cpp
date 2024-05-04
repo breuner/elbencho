@@ -67,6 +67,8 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_SYNC: return PHASENAME_SYNC;
 		case BenchPhase_DROPCACHES: return PHASENAME_DROPCACHES;
 		case BenchPhase_STATFILES: return PHASENAME_STATFILES;
+		case BenchPhase_PUTOBJACL: return PHASENAME_PUTOBJACL;
+		case BenchPhase_GETOBJACL: return PHASENAME_GETOBJACL;
 		case BenchPhase_LISTOBJECTS: return PHASENAME_LISTOBJECTS;
 		case BenchPhase_LISTOBJPARALLEL: return PHASENAME_LISTOBJPAR;
 		case BenchPhase_MULTIDELOBJ: return PHASENAME_MULTIDELOBJ;
@@ -103,6 +105,8 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool
 		case BenchPhase_SYNC:
 		case BenchPhase_DROPCACHES:
 		case BenchPhase_STATFILES:
+		case BenchPhase_PUTOBJACL:
+		case BenchPhase_GETOBJACL:
 		case BenchPhase_LISTOBJECTS:
 		case BenchPhase_LISTOBJPARALLEL:
 		case BenchPhase_MULTIDELOBJ:
@@ -572,3 +576,138 @@ void TranslatorTk::eraseEmptyStringsFromVec(StringVec& inoutVec)
 			} ),
 		inoutVec.end() );
 }
+
+#ifdef S3_SUPPORT
+
+/**
+ * Convert grantee and grants given in progArgs into grants for S3 request.
+ *
+ * @outGrants will be filled based on user-defined s3 object acl grantee and permission values in
+ * 		progArgs.
+ * @throws WorkerException on error (e.g. unknown/invalid user-defined values found).
+ */
+void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3::Grant>& outGrants)
+{
+	Aws::S3::Model::Grantee grantee;
+
+	// set grantee...
+
+	if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_EMAIL)
+	{
+		grantee.SetType(S3::Type::AmazonCustomerByEmail);
+		grantee.SetEmailAddress(progArgs->getS3AclGrantee());
+	}
+	else if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_ID)
+	{
+		grantee.SetType(S3::Type::CanonicalUser);
+		grantee.SetID(progArgs->getS3AclGrantee());
+	}
+	else if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_URI)
+	{
+		grantee.SetType(S3::Type::CanonicalUser);
+		grantee.SetURI(progArgs->getS3AclGrantee());
+	}
+	else if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_GROUP)
+	{
+		grantee.SetType(S3::Type::Group);
+		grantee.SetURI(progArgs->getS3AclGrantee());
+	}
+	else
+		throw WorkerException("Undefined/unknown S3 ACL grantee type: "
+				"'" + progArgs->getS3AclGranteeType() + "'");
+
+
+	// add grantee's permissions to outGrants...
+
+	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FULL_NAME) != std::string::npos)
+	{
+		S3::Grant grant;
+
+		grant.SetGrantee(grantee);
+		grant.SetPermission(S3::Permission::FULL_CONTROL);
+
+		outGrants.push_back(grant);
+
+		return;
+	}
+
+	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_NONE_NAME) != std::string::npos)
+	{
+		S3::Grant grant;
+
+		grant.SetGrantee(grantee);
+		grant.SetPermission(S3::Permission::NOT_SET);
+
+		outGrants.push_back(grant);
+
+		return;
+	}
+
+	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_READ_NAME) !=
+		std::string::npos)
+	{
+		S3::Grant grant;
+
+		grant.SetGrantee(grantee);
+		grant.SetPermission(S3::Permission::READ);
+
+		outGrants.push_back(grant);
+	}
+
+	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_WRITE_NAME) !=
+		std::string::npos)
+	{
+		S3::Grant grant;
+
+		grant.SetGrantee(grantee);
+		grant.SetPermission(S3::Permission::WRITE);
+
+		outGrants.push_back(grant);
+	}
+
+	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_READACP_NAME) !=
+		std::string::npos)
+	{
+		S3::Grant grant;
+
+		grant.SetGrantee(grantee);
+		grant.SetPermission(S3::Permission::READ_ACP);
+
+		outGrants.push_back(grant);
+	}
+
+	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_WRITEACP_NAME) !=
+		std::string::npos)
+	{
+		S3::Grant grant;
+
+		grant.SetGrantee(grantee);
+		grant.SetPermission(S3::Permission::WRITE_ACP);
+
+		outGrants.push_back(grant);
+	}
+}
+
+std::string TranslatorTk::s3AclPermissionToStr(const S3::Permission& s3Permission)
+{
+	switch(s3Permission)
+	{
+		case S3::Permission::NOT_SET:
+			return ARG_S3ACL_PERM_NONE_NAME;
+		case S3::Permission::FULL_CONTROL:
+			return ARG_S3ACL_PERM_FULL_NAME;
+		case S3::Permission::WRITE:
+			return ARG_S3ACL_PERM_FLAG_WRITE_NAME;
+		case S3::Permission::WRITE_ACP:
+			return ARG_S3ACL_PERM_FLAG_WRITEACP_NAME;
+		case S3::Permission::READ:
+			return ARG_S3ACL_PERM_FLAG_READ_NAME;
+		case S3::Permission::READ_ACP:
+			return ARG_S3ACL_PERM_FLAG_READACP_NAME;
+		default:
+			return "unknown";
+	}
+}
+
+
+#endif // S3_SUPPORT

@@ -37,6 +37,8 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_LISTOBJECTS	"LISTOBJ"
 #define PHASENAME_LISTOBJPAR	"LISTOBJ_P"
 #define PHASENAME_MULTIDELOBJ	"MULTIDEL"
+#define PHASENAME_PUTOBJACL		"PUTOBJACL"
+#define PHASENAME_GETOBJACL		"GETOBJACL"
 
 
 // human-readable entry type in current benchmark phase
@@ -108,6 +110,8 @@ enum BenchPhase
 	BenchPhase_LISTOBJECTS,
 	BenchPhase_LISTOBJPARALLEL,
 	BenchPhase_MULTIDELOBJ,
+	BenchPhase_PUTOBJACL,
+	BenchPhase_GETOBJACL,
 };
 
 

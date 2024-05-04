@@ -376,6 +376,8 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 
 				case BenchPhase_DELETEFILES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_PUTOBJACL:
+				case BenchPhase_GETOBJACL:
 				case BenchPhase_LISTOBJPARALLEL:
 				{
 					const size_t numDirs = progArgs.getNumDirs() ? progArgs.getNumDirs() : 1;
@@ -421,6 +423,8 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 
 				case BenchPhase_DELETEFILES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_PUTOBJACL:
+				case BenchPhase_GETOBJACL:
 				{
 					outNumEntriesPerWorker =
 						(numFilesNonShared + numFilesShared) / numDataSetThreads;

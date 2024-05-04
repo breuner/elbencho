@@ -6,6 +6,11 @@
 #include "Common.h"
 #include "ProgArgs.h"
 
+#ifdef S3_SUPPORT
+	#include <aws/s3/model/PutObjectAclRequest.h>
+#endif // S3_SUPPORT
+
+
 /**
  * A toolkit of static methods to translate from one thing to another.
  */
@@ -32,6 +37,13 @@ class TranslatorTk
 		static void splitAndExpandStr(std::string str, std::string delimiters,
 			StringVec& outVec);
 		static void eraseEmptyStringsFromVec(StringVec& inoutVec);
+
+#ifdef S3_SUPPORT
+		static void getS3ObjectAclGrants(const ProgArgs* progArgs,
+			Aws::Vector<S3::Grant>& outGrants);
+		static std::string s3AclPermissionToStr(const S3::Permission& s3Permission);
+#endif // S3_SUPPORT
+
 };
 
 
