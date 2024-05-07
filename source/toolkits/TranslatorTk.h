@@ -12,7 +12,7 @@
 
 
 /**
- * A toolkit of static methods to translate from one thing to another.
+ * A toolkit of static methods to translate from one data structure into another.
  */
 class TranslatorTk
 {

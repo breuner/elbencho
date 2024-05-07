@@ -4,6 +4,7 @@
 #include "LocalWorker.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/StringTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
@@ -55,8 +56,6 @@
 #define NETBENCH_CONNECT_TIMEOUT_SEC	20 // max time for servers to wait and clients to retry
 #define NETBENCH_RECEIVE_TIMEOUT_SEC	20 // max time to wait for incoming data on client & server
 #define NETBENCH_SHORT_POLL_TIMEOUT_SEC	2  // time to check for interrupts in longer poll wait loops
-#define HEX_ALPHABET					"0123456789ABCDEF"
-#define HEX_ALPHABET_LEN				(sizeof(HEX_ALPHABET) - 1)
 
 
 #ifdef S3_SUPPORT
