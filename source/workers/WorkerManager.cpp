@@ -349,6 +349,8 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 			{
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
+				case BenchPhase_PUTBUCKETACL:
+				case BenchPhase_GETBUCKETACL:
 				{
 					outNumEntriesPerWorker = progArgs.getNumDirs();
 					outNumBytesPerWorker = 0;

@@ -219,16 +219,19 @@ void Coordinator::runBenchmarks()
 	};
 
 	// array of all existing bench phases
-	/* note: multiple phases can be selected for a single run, so make sure to have reasonable
-		ordering here (e.g. creates before deletes). */
+	/* note: multiple phases can be selected for a single run and this array defines the order in
+		which they run, so make sure to have reasonable ordering here (e.g. creates before
+		deletes). */
 
 	std::array allBenchPhasesArray
 	{
 		BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },
 		BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
 		BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },
+		BenchPhaseConfig { BenchPhase_PUTBUCKETACL, progArgs.getRunS3BucketAclPut() },
 		BenchPhaseConfig { BenchPhase_PUTOBJACL, progArgs.getRunS3AclPut() },
 		BenchPhaseConfig { BenchPhase_GETOBJACL, progArgs.getRunS3AclGet() },
+		BenchPhaseConfig { BenchPhase_GETBUCKETACL, progArgs.getRunS3BucketAclGet() },
 		BenchPhaseConfig { BenchPhase_LISTOBJECTS, progArgs.getRunListObjPhase() },
 		BenchPhaseConfig { BenchPhase_LISTOBJPARALLEL, progArgs.getRunListObjParallelPhase() },
 		BenchPhaseConfig { BenchPhase_READFILES, progArgs.getRunReadPhase() },

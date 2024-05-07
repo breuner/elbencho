@@ -447,6 +447,8 @@ void ProgArgs::defineAllowedArgs()
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0; supports base2 suffixes, e.g. \"2M\")")
 #ifdef S3_SUPPORT
+/*s3a*/	(ARG_S3ACLGET_LONG, bpo::bool_switch(&this->runS3AclGet),
+			"Get S3 object ACLs.")
 /*s3a*/	(ARG_S3ACLGRANTEE_LONG, bpo::value(&this->s3AclGrantee),
 			"S3 object ACL grantee.")
 /*s3a*/	(ARG_S3ACLGRANTEETYPE_LONG, bpo::value(&this->s3AclGranteeType),
@@ -458,13 +460,18 @@ void ProgArgs::defineAllowedArgs()
 			ARG_S3ACL_PERM_NONE_NAME ", " ARG_S3ACL_PERM_FULL_NAME ", "
 			ARG_S3ACL_PERM_FLAG_READ_NAME ", " ARG_S3ACL_PERM_FLAG_WRITE_NAME ", "
 			ARG_S3ACL_PERM_FLAG_READACP_NAME ", " ARG_S3ACL_PERM_FLAG_WRITEACP_NAME)
-/*s3a*/	(ARG_S3ACLGET_LONG, bpo::bool_switch(&this->runS3AclGet),
-			"Get S3 object ACLs.")
 /*s3a*/	(ARG_S3ACLPUT_LONG, bpo::bool_switch(&this->runS3AclPut),
 			"Put S3 object ACLs. This requires definition of grantee, grantee type and "
 			"permissions.")
 /*s3a*/	(ARG_S3ACLVERIFY_LONG, bpo::bool_switch(&this->doS3AclVerify),
-			"Verify S3 object ACLs based on given grantee, grantee type and permissions.")
+			"Verify S3 object and bucket ACLs based on given grantee, grantee type and "
+			"permissions. This only effective in the corresponding get object or bucket ACL "
+			"phase.")
+/*s3b*/	(ARG_S3BUCKETACLGET_LONG, bpo::bool_switch(&this->runS3BucketAclGet),
+			"Get S3 bucket ACLs.")
+/*s3b*/	(ARG_S3BUCKETACLPUT_LONG, bpo::bool_switch(&this->runS3BucketAclPut),
+			"Put S3 bucket ACLs. This requires definition of grantee, grantee type and "
+			"permissions.")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -730,6 +737,8 @@ void ProgArgs::defineDefaults()
 	this->runS3AclPut = false;
 	this->runS3AclGet = false;
 	this->doS3AclVerify = false;
+	this->runS3BucketAclPut = false;
+	this->runS3BucketAclGet = false;
 }
 
 /**
@@ -1034,8 +1043,10 @@ void ProgArgs::checkPathDependentArgs()
 	if(runS3ListObjNum && s3EndpointsVec.empty() )
 		throw ProgException("Object listing requires S3 endpoints definition.");
 
-	if( (runS3AclPut || runS3AclGet) && s3EndpointsVec.empty() )
-		throw ProgException("Putting/getting object ACLs requires S3 endpoints definition.");
+	if( (runS3AclPut || runS3AclGet || runS3BucketAclPut || runS3BucketAclGet) &&
+		s3EndpointsVec.empty() )
+		throw ProgException("Putting/getting bucket or object ACLs requires S3 endpoints "
+			"definition.");
 
 	if( (hasUserSetRWMixPercent() || hasUserSetRWMixReadThreads() ) &&
 		!s3EndpointsStr.empty() &&
@@ -2145,7 +2156,7 @@ void ProgArgs::loadCustomTreeFile()
 	// load file trees
 
 	if(runCreateFilesPhase || runStatFilesPhase || runReadPhase || runDeleteFilesPhase ||
-		runS3AclPut || runS3AclGet)
+		runS3AclPut || runS3AclGet || runS3BucketAclPut || runS3BucketAclGet)
 	{
 		// load tree of non-shared files (i.e. files that are equal to or smaller than blocksize)
 
@@ -2951,6 +2962,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runReadPhase = tree.get<bool>(ARG_READ_LONG);
 	runS3AclGet = tree.get<bool>(ARG_S3ACLGET_LONG);
 	runS3AclPut = tree.get<bool>(ARG_S3ACLPUT_LONG);
+	runS3BucketAclGet = tree.get<bool>(ARG_S3BUCKETACLGET_LONG);
+	runS3BucketAclPut = tree.get<bool>(ARG_S3BUCKETACLPUT_LONG);
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
@@ -3094,6 +3107,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3ACLGRANTS_LONG, s3AclGranteePermissions);
 	outTree.put(ARG_S3ACLPUT_LONG, runS3AclPut);
 	outTree.put(ARG_S3ACLVERIFY_LONG, doS3AclVerify);
+	outTree.put(ARG_S3BUCKETACLGET_LONG, runS3BucketAclGet);
+	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);

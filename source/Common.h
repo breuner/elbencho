@@ -39,6 +39,8 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_MULTIDELOBJ	"MULTIDEL"
 #define PHASENAME_PUTOBJACL		"PUTOBJACL"
 #define PHASENAME_GETOBJACL		"GETOBJACL"
+#define PHASENAME_PUTBUCKETACL	"PUTBACL"
+#define PHASENAME_GETBUCKETACL	"GETBACL"
 
 
 // human-readable entry type in current benchmark phase
@@ -112,6 +114,8 @@ enum BenchPhase
 	BenchPhase_MULTIDELOBJ,
 	BenchPhase_PUTOBJACL,
 	BenchPhase_GETOBJACL,
+	BenchPhase_PUTBUCKETACL,
+	BenchPhase_GETBUCKETACL,
 };
 
 

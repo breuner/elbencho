@@ -2045,6 +2045,12 @@ void Statistics::printDryRunInfo()
 
 	if(progArgs.getRunS3AclGet() )
 		printDryRunPhaseInfo(BenchPhase_GETOBJACL);
+
+	if(progArgs.getRunS3BucketAclPut() )
+		printDryRunPhaseInfo(BenchPhase_PUTBUCKETACL);
+
+	if(progArgs.getRunS3BucketAclGet() )
+		printDryRunPhaseInfo(BenchPhase_GETBUCKETACL);
 }
 
 /**

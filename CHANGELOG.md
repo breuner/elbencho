@@ -6,7 +6,7 @@
 * Added options to read and stat files immediately after creation while they are still open. (See "--readinline" and "--statinline".)
 * Added option to sleep between test phases. (See "--phasedelay".)
 * Added option to rotate hosts list for service instances between phases to avoid caching effects. (See "--rotatehosts".)
-* Added support for S3 object ACL PUT/GET. (See "--s3aclput" and "--s3aclget".)
+* Added support for S3 object and bucket ACL PUT/GET. (See "--s3aclput", "--s3baclput".)
 
 ### General Changes
 * Timestamps in csv files now include milliseconds for higher precisiomn.

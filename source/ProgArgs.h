@@ -136,6 +136,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3ACLGRANTS_LONG		"s3aclgrants"
 #define ARG_S3ACLPUT_LONG			"s3aclput"
 #define ARG_S3ACLVERIFY_LONG		"s3aclverify"
+#define ARG_S3BUCKETACLGET_LONG		"s3baclget"
+#define ARG_S3BUCKETACLPUT_LONG		"s3baclput"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3LISTOBJ_LONG			"s3listobj"
@@ -395,6 +397,8 @@ class ProgArgs
 		bool runReadPhase; // read files
 		bool runS3AclGet; // retrieve object acl
 		bool runS3AclPut; // change object acl
+		bool runS3BucketAclGet; // retrieve bucket acl
+		bool runS3BucketAclPut; // change bucket acl
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
@@ -603,6 +607,8 @@ class ProgArgs
         bool getRunReadPhase() const { return runReadPhase; }
         bool getRunS3AclPut() const { return runS3AclPut; }
         bool getRunS3AclGet() const { return runS3AclGet; }
+        bool getRunS3BucketAclPut() const { return runS3BucketAclPut; }
+        bool getRunS3BucketAclGet() const { return runS3BucketAclGet; }
         bool getRunServiceInForeground() const { return runServiceInForeground; }
         bool getRunStatFilesPhase() const { return runStatFilesPhase; }
         bool getRunSyncPhase() const { return runSyncPhase; }

@@ -34,11 +34,13 @@
 	#include <aws/s3/model/DeleteBucketRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
 	#include <aws/s3/model/DeleteObjectsRequest.h>
+	#include <aws/s3/model/GetBucketAclRequest.h>
 	#include <aws/s3/model/GetObjectAclRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
 	#include <aws/s3/model/Object.h>
+	#include <aws/s3/model/PutBucketAclRequest.h>
 	#include <aws/s3/model/PutObjectAclRequest.h>
 	#include <aws/s3/model/PutObjectRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
@@ -215,6 +217,12 @@ void LocalWorker::run()
 						else
 							progArgs->getTreeFilePath().empty() ?
 								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+					} break;
+
+					case BenchPhase_PUTBUCKETACL:
+					case BenchPhase_GETBUCKETACL:
+					{
+						s3ModeIterateBuckets();
 					} break;
 
 					case BenchPhase_PUTOBJACL:
@@ -3299,7 +3307,6 @@ void LocalWorker::s3ModeIterateBuckets()
 
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	const size_t numBuckets = bucketVec.size();
-	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
 
 	workerGotPhaseWork = false; // not all workers might get work
@@ -3314,54 +3321,17 @@ void LocalWorker::s3ModeIterateBuckets()
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		// create buckets
 		if(benchPhase == BenchPhase_CREATEDIRS)
-		{
-			S3::CreateBucketRequest request;
-			request.SetBucket(bucketVec[bucketIndex] );
+			s3ModeCreateBucket(bucketVec[bucketIndex] );
 
-			S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+		if(benchPhase == BenchPhase_PUTBUCKETACL)
+			s3ModePutBucketAcl(bucketVec[bucketIndex] );
 
-			if(!createOutcome.IsSuccess() )
-			{
-				auto s3Error = createOutcome.GetError();
+		if(benchPhase == BenchPhase_GETBUCKETACL)
+			s3ModeGetBucketAcl(bucketVec[bucketIndex] );
 
-				// bucket already existing is not an error
-				if( (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
-					(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) )
-				{
-					throw WorkerException(std::string("Bucket creation failed. ") +
-						"Endpoint: " + s3EndpointStr + "; "
-						"Bucket: " + bucketVec[bucketIndex] + "; "
-						"Exception: " + s3Error.GetExceptionName() + "; " +
-						"Message: " + s3Error.GetMessage() );
-				}
-			}
-		}
-
-		// delete buckets
 		if(benchPhase == BenchPhase_DELETEDIRS)
-		{
-			S3::DeleteBucketRequest request;
-			request.SetBucket(bucketVec[bucketIndex] );
-
-			S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
-
-			if(!deleteOutcome.IsSuccess() )
-			{
-				auto s3Error = deleteOutcome.GetError();
-
-				if( (s3Error.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET) ||
-					!ignoreDelErrors)
-				{
-					throw WorkerException(std::string("Bucket deletion failed. ") +
-						"Bucket: " + bucketVec[bucketIndex] + "; "
-						"Exception: " + s3Error.GetExceptionName() + "; " +
-						"Message: " + s3Error.GetMessage() + "; " +
-						"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-				}
-			}
-		}
+			s3ModeDeleteBucket(bucketVec[bucketIndex] );
 
 		// calc entry operations latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3709,6 +3679,193 @@ void LocalWorker::s3ModeIterateCustomObjects()
 		numFilesDone++;
 
 	} // end of tree elements for-loop
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeCreateBucket(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+	S3::CreateBucketRequest request;
+	request.SetBucket(bucketName);
+
+	S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+
+	if(!createOutcome.IsSuccess() )
+	{
+		auto s3Error = createOutcome.GetError();
+
+		// bucket already existing is not an error
+		if( (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
+			(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) )
+		{
+			throw WorkerException(std::string("Bucket creation failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() );
+		}
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Delete given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDeleteBucket(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+
+	S3::DeleteBucketRequest request;
+	request.SetBucket(bucketName);
+
+	S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
+
+	if(!deleteOutcome.IsSuccess() )
+	{
+		auto s3Error = deleteOutcome.GetError();
+
+		if( (s3Error.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET) ||
+			!ignoreDelErrors)
+		{
+			throw WorkerException(std::string("Bucket deletion failed. ") +
+				"Bucket: " + bucketName + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		}
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Put ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModePutBucketAcl(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+    Aws::Vector<S3::Grant> grants;
+
+    TranslatorTk::getS3ObjectAclGrants(progArgs, grants);
+
+	if(grants.empty() )
+		throw WorkerException("Undefined/unknown S3 ACL permission type: "
+			"'" + progArgs->getS3AclGranteePermissions() + "'");
+
+    S3::AccessControlPolicy acp;
+    acp.SetGrants(grants);
+
+	S3::PutBucketAclRequest request;
+	request.WithBucket(bucketName)
+		.SetAccessControlPolicy(acp);
+
+	S3::PutBucketAclOutcome outcome = s3Client->PutBucketAcl(request);
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Putting bucket ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Get ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+	S3::GetBucketAclRequest request;
+	request.WithBucket(bucketName);
+
+	S3::GetBucketAclOutcome outcome = s3Client->GetBucketAcl(request);
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Getting bucket ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+	IF_UNLIKELY(progArgs->getDoS3AclVerify() )
+	{
+		std::vector<S3::Grant> verifyGrants;
+		TranslatorTk::getS3ObjectAclGrants(progArgs, verifyGrants);
+
+		const std::vector<S3::Grant>& outcomeGrants = outcome.GetResult().GetGrants();
+
+		// iterate over all grants that need to be verified
+		for(S3::Grant& verifyGrant : verifyGrants)
+		{
+			bool grantFound = false;
+
+			// iterate over all outcome grants to see if any grant matches current verifyGrant
+			for(const S3::Grant& outcomeGrant : outcomeGrants)
+			{
+				if( (outcomeGrant.GetGrantee().GetID() ==
+						verifyGrant.GetGrantee().GetID() ) ||
+					(outcomeGrant.GetGrantee().GetEmailAddress() ==
+						verifyGrant.GetGrantee().GetEmailAddress() ) ||
+					(outcomeGrant.GetGrantee().GetURI() ==
+						verifyGrant.GetGrantee().GetURI() ) )
+				{ // grantee matches => check if permission also matches
+					if(outcomeGrant.GetPermission() == verifyGrant.GetPermission() )
+					{ // permission matches
+						grantFound = true;
+						break;
+					}
+				}
+			}
+
+			if(!grantFound)
+				throw WorkerException(std::string("S3 ACL verification failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Grantee ID: " + verifyGrant.GetGrantee().GetID() + "; "
+					"Grantee Email: " + verifyGrant.GetGrantee().GetEmailAddress() + "; "
+					"Grantee URI: " + verifyGrant.GetGrantee().GetURI() + "; "
+					"Permission: " + TranslatorTk::s3AclPermissionToStr(
+						verifyGrant.GetPermission() ) );
+		}
+	} // end of verifcation
 
 #endif // S3_SUPPORT
 }

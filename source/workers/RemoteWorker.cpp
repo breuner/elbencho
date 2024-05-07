@@ -65,6 +65,8 @@ void RemoteWorker::run()
 				case BenchPhase_SYNC:
 				case BenchPhase_DROPCACHES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_PUTBUCKETACL:
+				case BenchPhase_GETBUCKETACL:
 				case BenchPhase_PUTOBJACL:
 				case BenchPhase_GETOBJACL:
 				case BenchPhase_LISTOBJECTS:
