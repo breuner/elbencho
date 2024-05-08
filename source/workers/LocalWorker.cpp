@@ -33,17 +33,27 @@
 	#include <aws/s3/model/CreateBucketRequest.h>
 	#include <aws/s3/model/CreateMultipartUploadRequest.h>
 	#include <aws/s3/model/DeleteBucketRequest.h>
+	#include <aws/s3/model/DeleteBucketTaggingRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
+    #include <aws/s3/model/DeleteObjectTaggingRequest.h>
 	#include <aws/s3/model/DeleteObjectsRequest.h>
 	#include <aws/s3/model/GetBucketAclRequest.h>
+	#include <aws/s3/model/GetBucketTaggingRequest.h>
 	#include <aws/s3/model/GetObjectAclRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
+    #include <aws/s3/model/GetObjectTaggingRequest.h>
+    #include <aws/s3/model/GetObjectLockConfigurationRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
+	#include <aws/s3/model/HeadBucketRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
 	#include <aws/s3/model/Object.h>
+    #include <aws/s3/model/ObjectLockRule.h>
 	#include <aws/s3/model/PutBucketAclRequest.h>
+	#include <aws/s3/model/PutBucketTaggingRequest.h>
 	#include <aws/s3/model/PutObjectAclRequest.h>
 	#include <aws/s3/model/PutObjectRequest.h>
+    #include <aws/s3/model/PutObjectTaggingRequest.h>
+    #include <aws/s3/model/PutObjectLockConfigurationRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
 	#include <aws/transfer/TransferManager.h>
 #endif
@@ -57,6 +67,14 @@
 #define NETBENCH_RECEIVE_TIMEOUT_SEC	20 // max time to wait for incoming data on client & server
 #define NETBENCH_SHORT_POLL_TIMEOUT_SEC	2  // time to check for interrupts in longer poll wait loops
 
+#define TAG_CHECKSUM_LEN        2
+
+#define TAG_KEY_MEDIUM_NAME     "medium"
+#define TAG_KEY_LONG_NAME       "long"
+#define TAG_VALUE_MEDIUM_LEN    100
+#define TAG_VALUE_LONG_LEN      256
+
+#define RETENTION_PERIOD_DAYS   1
 
 #ifdef S3_SUPPORT
 	S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
@@ -147,6 +165,7 @@ void LocalWorker::run()
 
 					case BenchPhase_CREATEDIRS:
 					case BenchPhase_DELETEDIRS:
+					case BenchPhase_STATDIRS:
 					{
 						if(progArgs->getBenchPathType() != BenchPathType_DIR)
 							throw WorkerException("Directory creation and deletion are not "
@@ -164,6 +183,13 @@ void LocalWorker::run()
 							s3ModeIterateBuckets();
 
 					} break;
+
+                    case BenchPhase_GET_S3_BUCKET_MD:
+                    case BenchPhase_PUT_S3_BUCKET_MD:
+                    case BenchPhase_DEL_S3_BUCKET_MD:
+                    {
+                        s3ModeIterateBuckets();
+                    } break;
 
 					case BenchPhase_CREATEFILES:
 					case BenchPhase_READFILES:
@@ -191,6 +217,13 @@ void LocalWorker::run()
 								fileModeIterateFilesRand();
 						}
 					} break;
+
+                    case BenchPhase_GET_S3_OBJECT_MD:
+                    case BenchPhase_PUT_S3_OBJECT_MD:
+                    case BenchPhase_DEL_S3_OBJECT_MD:
+                    {
+                        progArgs->getTreeFilePath().empty() ? s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+                    } break;
 
 					case BenchPhase_STATFILES:
 					{
@@ -3485,7 +3518,7 @@ void LocalWorker::s3ModeIterateBuckets()
 	const size_t numBuckets = bucketVec.size();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
 
-	workerGotPhaseWork = false; // not all workers might get work
+    workerGotPhaseWork = false; // not all workers might get work
 
 	for(unsigned bucketIndex = workerRank;
 		bucketIndex < numBuckets;
@@ -3494,20 +3527,48 @@ void LocalWorker::s3ModeIterateBuckets()
 		checkInterruptionRequest();
 
 		workerGotPhaseWork = true;
+        const auto& bucketName = bucketVec[bucketIndex];
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 		if(benchPhase == BenchPhase_CREATEDIRS)
-			s3ModeCreateBucket(bucketVec[bucketIndex] );
+			s3ModeCreateBucket(bucketName);
+
+        if(benchPhase == BenchPhase_PUT_S3_BUCKET_MD)
+        {
+            s3ModeCreateBucketTagging(bucketName);
+            s3ModePutObjectLockConfiguration(bucketName);
+        }
 
 		if(benchPhase == BenchPhase_PUTBUCKETACL)
-			s3ModePutBucketAcl(bucketVec[bucketIndex] );
+			s3ModePutBucketAcl(bucketName);
 
 		if(benchPhase == BenchPhase_GETBUCKETACL)
-			s3ModeGetBucketAcl(bucketVec[bucketIndex] );
+			s3ModeGetBucketAcl(bucketName);
 
+		if(benchPhase == BenchPhase_STATDIRS)
+            s3ModeHeadBucket(bucketName);
+
+        if(benchPhase == BenchPhase_GET_S3_BUCKET_MD)
+        {
+            if (progArgs->getDoS3BucketTagging())
+                s3ModeGetBucketTagging(bucketName);
+
+            if (progArgs->getDoS3ObjectLockConfiguration())
+                s3ModeGetObjectLockConfiguration(bucketName);
+        }
+
+        if(benchPhase == BenchPhase_DEL_S3_BUCKET_MD)
+        {
+            // Disable lock configuration
+            s3ModePutObjectLockConfiguration(bucketName, true);
+
+            s3ModeDeleteBucketTagging(bucketName);
+        }
+
+        // delete buckets
 		if(benchPhase == BenchPhase_DELETEDIRS)
-			s3ModeDeleteBucket(bucketVec[bucketIndex] );
+            s3ModeDeleteBucket(bucketName);
 
 		// calc entry operations latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3613,6 +3674,11 @@ void LocalWorker::s3ModeIterateObjects()
 					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
 
+            if (benchPhase == BenchPhase_PUT_S3_OBJECT_MD)
+            {
+                s3ModePutObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            }
+
 			if( (benchPhase == BenchPhase_READFILES) || isRWMixedReader)
 			{
 				if(useTransMan)
@@ -3624,13 +3690,19 @@ void LocalWorker::s3ModeIterateObjects()
 			}
 
 			if(benchPhase == BenchPhase_STATFILES)
-				s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
+                s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
+
+            if(benchPhase == BenchPhase_GET_S3_OBJECT_MD)
+                s3ModeGetObjectTags(bucketVec[bucketIndex], currentObjectPath);
 
 			if(benchPhase == BenchPhase_PUTOBJACL)
 				s3ModePutObjectAcl(bucketVec[bucketIndex], currentObjectPath);
 
 			if(benchPhase == BenchPhase_GETOBJACL)
 				s3ModeGetObjectAcl(bucketVec[bucketIndex], currentObjectPath);
+
+            if(benchPhase == BenchPhase_DEL_S3_OBJECT_MD)
+                s3ModeDeleteObjectTags(bucketVec[bucketIndex], currentObjectPath);
 
 			if(benchPhase == BenchPhase_DELETEFILES)
 				s3ModeDeleteObject(bucketVec[bucketIndex], currentObjectPath);
@@ -3751,7 +3823,6 @@ void LocalWorker::s3ModeIterateObjectsRand()
 #endif // S3_SUPPORT
 }
 
-
 /**
  * This is for s3 mode with custom tree. Iterate over all objects to create/read/remove them. Each
  * worker uses a subset of the files from the non-shared tree and parts of files from the shared
@@ -3860,6 +3931,51 @@ void LocalWorker::s3ModeIterateCustomObjects()
 }
 
 /**
+ * Throw an informative WorkerException if the outcome has an error
+ *
+ * @throw WorkerException on error.
+ */
+template <typename OutcomeType>
+inline void throwOnError(const OutcomeType& outcome, const std::string& operation,
+                         const std::string& bucketName)
+{
+    IF_UNLIKELY(!outcome.IsSuccess())
+    {
+        const auto& err = outcome.GetError();
+
+        std::stringstream errStr;
+        errStr << "Unable to " << operation << ": " << err.GetMessage() << std::endl
+               << "HTTP Error Code: " << static_cast<int>(err.GetResponseCode()) << "; "
+               << "Exception name: " << err.GetExceptionName() << "\n"
+               << "Bucket: " << bucketName << std::endl;
+        throw WorkerException(errStr.str());
+    }
+}
+
+/**
+ * Throw an informative WorkerException if the outcome has an error
+ *
+ * @throw WorkerException on error.
+ */
+template <typename OutcomeType>
+inline void throwOnError(const OutcomeType& outcome, const std::string& operation,
+                         const std::string& bucketName, const std::string& objectName)
+{
+    IF_UNLIKELY(!outcome.IsSuccess())
+    {
+        const auto& err = outcome.GetError();
+
+        std::stringstream errStr;
+        errStr << "Unable to " << operation << ": " << err.GetMessage() << std::endl
+               << "HTTP Error Code: " << static_cast<int>(err.GetResponseCode()) << "; "
+               << "Exception name: " << err.GetExceptionName() << "\n"
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl;
+        throw WorkerException(errStr.str());
+    }
+}
+
+/**
  * Create given S3 bucket.
  *
  * @throw WorkerException on error.
@@ -3867,33 +3983,144 @@ void LocalWorker::s3ModeIterateCustomObjects()
 void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 {
 #ifndef S3_SUPPORT
-	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
 
-	S3::CreateBucketRequest request;
-	request.SetBucket(bucketName);
+    OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
 
-	OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
+    const auto& createOutcome = s3Client->CreateBucket(S3::CreateBucketRequest().WithBucket(bucketName));
 
-	S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+    OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess());
 
-	OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess() );
-
-	if(!createOutcome.IsSuccess() )
+    if (!createOutcome.IsSuccess())
 	{
 		auto s3Error = createOutcome.GetError();
 
-		// bucket already existing is not an error
-		if( (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
-			(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) )
-		{
-			throw WorkerException(std::string("Bucket creation failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
-		}
-	}
+        // bucket already existing is not an error
+        if (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU &&
+            s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS)
+        {
+
+            std::stringstream errStr;
+            errStr << "Bucket creation failed: " << s3Error.GetMessage() << std::endl
+                   << "Bucket: " << bucketName << std::endl;
+
+            throw WorkerException(errStr.str());
+        }
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeHeadBucket(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("HeadBucket", bucketName, 0, 0);
+
+	const auto& outcome = s3Client->HeadBucket(S3::HeadBucketRequest().WithBucket(bucketName));
+
+    OPLOG_POST_OP("HeadBucket", bucketName, 0, 0, !outcome.IsSuccess());
+
+    throwOnError(outcome, "head bucket", bucketName);
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    const auto tagging = S3::Tagging().WithTagSet(
+        {
+            S3::Tag().WithKey(TAG_KEY_MEDIUM_NAME)
+                     .WithValue(StringTk::generateRandomS3TagValue(bucketName, TAG_VALUE_MEDIUM_LEN)),
+            S3::Tag().WithKey(TAG_KEY_LONG_NAME)
+                     .WithValue(StringTk::generateRandomS3TagValue(bucketName, TAG_VALUE_LONG_LEN)),
+        }
+    );
+
+    OPLOG_PRE_OP("PutBucketTagging", bucketName, 0, 0);
+
+    const auto& taggingOutcome = s3Client->PutBucketTagging(
+        S3::PutBucketTaggingRequest().WithBucket(bucketName).WithTagging(tagging)
+    );
+
+    OPLOG_POST_OP("PutBucketTagging", bucketName, 0, 0, !taggingOutcome.IsSuccess());
+
+    throwOnError(taggingOutcome, "put bucket tagging", bucketName);
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Get tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeGetBucketTagging(const std::string& bucketName)
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+{
+    OPLOG_PRE_OP("GetBucketTagging", bucketName, 0, 0);
+
+    const auto& outcome = s3Client->GetBucketTagging(S3::GetBucketTaggingRequest().WithBucket(bucketName));
+
+    OPLOG_POST_OP("GetBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
+
+    throwOnError(outcome, "get bucket tagging", bucketName);
+
+    if (!progArgs->getDoS3BucketTaggingVerify())
+        return;
+
+    for (const auto& tag : outcome.GetResult().GetTagSet())
+    {
+        if (!StringTk::verifyRandomS3TagValue(tag.GetValue(), bucketName))
+        {
+            std::stringstream errStr;
+            errStr << "Bucket tag value is corrupted (invalid checksum). "
+                   << "Bucket: " << bucketName << "; "
+                   << "Tag: " << tag.GetKey() << "=" << tag.GetValue() << std::endl;
+            throw WorkerException(errStr.str());
+        }
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Delete bucket tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDeleteBucketTagging(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+    OPLOG_PRE_OP("DeleteBucketTagging", bucketName, 0, 0);
+
+    const auto& outcome = s3Client->DeleteBucketTagging(
+        S3::DeleteBucketTaggingRequest().WithBucket(bucketName)
+    );
+
+    OPLOG_POST_OP("DeleteBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
+
+    throwOnError(outcome, "delete bucket tagging", bucketName);
 
 #endif // S3_SUPPORT
 }
@@ -3903,7 +4130,7 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
  *
  * @throw WorkerException on error.
  */
-void LocalWorker::s3ModeDeleteBucket(std::string bucketName)
+void LocalWorker::s3ModeDeleteBucket(const std::string& bucketName)
 {
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
@@ -4106,6 +4333,13 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
 
+    if (progArgs->getDoS3ObjectTagging())
+    {
+        request.SetTagging(
+                "elbencho_random_tag=" + StringTk::generateRandomS3TagValue(objectName, 30)
+        );
+    }
+
 	if(blockSize)
 		request.SetBody(s3MemStream);
 
@@ -4184,6 +4418,13 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
+
+    if (progArgs->getDoS3ObjectTagging())
+    {
+        createMultipartUploadRequest.SetTagging(
+                "elbencho_random_tag=" + StringTk::generateRandomS3TagValue(objectName, 30)
+        );
+    }
 
     if(doS3AclPutInline)
         TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
@@ -6315,4 +6556,166 @@ void LocalWorker::anyModeDropCaches()
 		throw WorkerException(std::string("Writing to cache drop command file failed. ") +
 			"Path: " + dropCachesPath + "; "
 			"SysErr: " + strerror(errno) );
+}
+
+void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
+
+    const auto& getTagOutcome = s3Client->GetObjectTagging(
+        S3::GetObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+    );
+
+    OPLOG_POST_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0, !getTagOutcome.IsSuccess());
+
+    throwOnError(getTagOutcome, "get tagging", bucketName, objectName);
+
+    // Continue only if we need to verify
+    if (!progArgs->getDoS3ObjectTaggingVerify())
+        return;
+
+    const auto& firstTag = getTagOutcome.GetResult().GetTagSet().front();
+
+    IF_UNLIKELY(!StringTk::verifyRandomS3TagValue(firstTag.GetValue(), objectName))
+    {
+        std::stringstream errStr;
+        errStr << "Random tag value is corrupted (invalid checksum). "
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl
+               << "Tag: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    const auto tag = S3::Tag()
+        .WithKey(TAG_KEY_MEDIUM_NAME)
+        .WithValue(StringTk::generateRandomS3TagValue(objectName, TAG_VALUE_MEDIUM_LEN));
+
+    OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
+
+    const auto& putTagOutcome = s3Client->PutObjectTagging(
+        S3::PutObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+            .WithTagging(S3::Tagging().AddTagSet(tag))
+    );
+
+    OPLOG_POST_OP("PutObjectTagging", bucketName + "/" + objectName,
+                  0, TAG_VALUE_MEDIUM_LEN, !putTagOutcome.IsSuccess());
+
+    throwOnError(putTagOutcome, "put tagging", bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
+void LocalWorker::s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+    OPLOG_PRE_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0);
+
+    const auto& delTagOutcome = s3Client->DeleteObjectTagging(
+        S3::DeleteObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+    );
+
+    OPLOG_POST_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0, !delTagOutcome.IsSuccess());
+
+    throwOnError(delTagOutcome, "delete tagging", bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetObjectLockConfiguration", bucketName, 0, 0);
+
+    const auto& getObjLockOutcome = s3Client->GetObjectLockConfiguration(
+        S3::GetObjectLockConfigurationRequest().WithBucket(bucketName)
+    );
+
+    OPLOG_POST_OP("GetObjectLockConfiguration", bucketName, 0, 0, !getObjLockOutcome.IsSuccess());
+
+    throwOnError(getObjLockOutcome, "get object lock configuration", bucketName);
+
+    // Continue only if we need to verify
+    if (!progArgs->getDoS3ObjectLockConfigurationVerify())
+        return;
+
+    const auto& objLockCfg = getObjLockOutcome.GetResult().GetObjectLockConfiguration();
+
+    IF_UNLIKELY(!objLockCfg.ObjectLockEnabledHasBeenSet())
+        throw WorkerException("Object lock has not been enabled for bucket: " + bucketName);
+
+    IF_UNLIKELY(!objLockCfg.RuleHasBeenSet())
+        throw WorkerException("Object lock rule has not been set for bucket: " + bucketName);
+
+    const auto& objRetentionRule = objLockCfg.GetRule();
+
+    IF_UNLIKELY(!objRetentionRule.DefaultRetentionHasBeenSet())
+        throw WorkerException("Object lock default retention has not been set for bucket: " + bucketName);
+
+    const auto& objDefaultRetention = objRetentionRule.GetDefaultRetention();
+
+    IF_UNLIKELY(!objDefaultRetention.DaysHasBeenSet())
+        throw WorkerException("Object lock retention days have not been set for bucket: " + bucketName);
+
+    const auto& retentionDays = objDefaultRetention.GetDays();
+
+    IF_UNLIKELY(retentionDays != RETENTION_PERIOD_DAYS)
+    {
+        std::stringstream errStr;
+        errStr << "Object lock default retention was set to '" << retentionDays << " days' in bucket '"
+               << bucketName << "', but the expected value was '" << RETENTION_PERIOD_DAYS << " days'";
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName, bool unset)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    S3::ObjectLockConfiguration objectLockCfg;
+
+    if (unset)
+        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::NOT_SET);
+    else
+    {
+        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::Enabled);
+        objectLockCfg.SetRule(
+            S3::ObjectLockRule().WithDefaultRetention(
+                S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::COMPLIANCE).WithDays(1)
+            )
+        );
+    }
+
+    OPLOG_PRE_OP("PutObjectLockConfiguration", bucketName, 0, 0);
+
+    const auto& putObjLockOutcome = s3Client->PutObjectLockConfiguration(
+        S3::PutObjectLockConfigurationRequest()
+            .WithBucket(bucketName)
+            .WithObjectLockConfiguration(objectLockCfg));
+
+    OPLOG_POST_OP("PutObjectLockConfiguration", bucketName, 0, 0, !putObjLockOutcome.IsSuccess());
+
+    throwOnError(putObjLockOutcome, "put object lock configuration", bucketName);
+#endif // S3_SUPPORT
 }

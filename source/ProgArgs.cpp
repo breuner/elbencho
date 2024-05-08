@@ -488,6 +488,12 @@ void ProgArgs::defineAllowedArgs()
 /*s3b*/	(ARG_S3BUCKETACLPUT_LONG, bpo::bool_switch(&this->runS3BucketAclPut),
 			"Put S3 bucket ACLs. This requires definition of grantee, grantee type and "
 			"permissions.")
+/*s3b*/	(ARG_S3_BUCKET_TAG, bpo::bool_switch(&this->doS3BucketTag),
+			"Activate bucket tagging operations during other benchmarking phases: "
+            "Adding of bucket tags in create bucket phase, "
+            "reading of tags in stat bucket phase and deletion of tags in delete bucket phase.")
+/*s3b*/	(ARG_S3_BUCKET_TAG_VERIFY, bpo::bool_switch(&this->doS3BucketTagVerify),
+            "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3_BUCKET_TAG "\")")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -534,6 +540,14 @@ void ProgArgs::defineAllowedArgs()
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
 			"is a bucket. (A sequence of 3 to 16 \"" RAND_PREFIX_MARKS_SUBSTR "\" chars will be "
 			"replaced by a random hex string of the same length.)")
+/*s3o*/	(ARG_S3_OBJECT_LOCK_CFG, bpo::bool_switch(&this->doS3ObjectLockCfg),
+            "Activate object lock configuration creation")
+/*s3o*/	(ARG_S3_OBJECT_LOCK_CFG_VERIFY, bpo::bool_switch(&this->doS3ObjectLockCfgVerify),
+            "Verify the correctness of object lock configurations")
+/*s3o*/	(ARG_S3_OBJECT_TAG, bpo::bool_switch(&this->doS3ObjectTag),
+            "Activate S3 object tagging")
+/*s3o*/	(ARG_S3_OBJECT_TAG_VERIFY, bpo::bool_switch(&this->doS3ObjectTagVerify),
+            "Verify the correctness of created S3 object tags")
 /*s3r*/	(ARG_S3RANDOBJ_LONG, bpo::bool_switch(&this->useS3RandObjSelect),
 			"Read at random offsets and randomly select a new object for each S3 block read. Only "
 			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
@@ -545,6 +559,8 @@ void ProgArgs::defineAllowedArgs()
 			"S3 access secret.")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
+/*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
+            "Do bucket Stats.")
 /*s3t*/	(ARG_S3TRANSMAN_LONG, bpo::bool_switch(&this->useS3TransferManager),
 			"Use AWS SDK TransferManager for object downloads. This enables iodepth greater than "
 			"1, but only supports simple sequential downloads. This is incompatible with "
@@ -747,6 +763,7 @@ void ProgArgs::defineDefaults()
 	this->fadviseFlags = 0;
 	this->madviseFlags = 0;
 	this->runS3MultiDelObjNum = 0;
+    this->runS3StatDirs = false;
 	this->disablePathBracketsExpansion = false;
 	this->useS3ObjectPrefixRand = false;
 	this->doReadInline = false;
@@ -759,6 +776,12 @@ void ProgArgs::defineDefaults()
     this->doS3AclPutInline = false;
 	this->runS3BucketAclPut = false;
 	this->runS3BucketAclGet = false;
+	this->doS3BucketTag = false;
+	this->doS3BucketTagVerify = false;
+    this->doS3ObjectTag = false;
+    this->doS3ObjectTagVerify = false;
+    this->doS3ObjectLockCfg = false;
+    this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
 }
 
@@ -2955,6 +2978,12 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3AclVerify = tree.get<bool>(ARG_S3ACLVERIFY_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
+    doS3BucketTag = tree.get<bool>(ARG_S3_BUCKET_TAG);
+    doS3BucketTagVerify = tree.get<bool>(ARG_S3_BUCKET_TAG_VERIFY);
+    doS3ObjectTag = tree.get<bool>(ARG_S3_OBJECT_TAG);
+    doS3ObjectTagVerify = tree.get<bool>(ARG_S3_OBJECT_TAG_VERIFY);
+    doS3ObjectLockCfg = tree.get<bool>(ARG_S3_OBJECT_LOCK_CFG);
+    doS3ObjectLockCfgVerify = tree.get<bool>(ARG_S3_OBJECT_LOCK_CFG_VERIFY);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
@@ -2993,6 +3022,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
+	runS3StatDirs = tree.get<bool>(ARG_S3STATDIRS_LONG);
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);
 	rwMixPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);
@@ -3146,6 +3176,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
+    outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
@@ -3154,7 +3185,13 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
-	outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
+    outTree.put(ARG_S3_BUCKET_TAG, doS3BucketTag);
+    outTree.put(ARG_S3_BUCKET_TAG_VERIFY, doS3BucketTagVerify);
+    outTree.put(ARG_S3_OBJECT_TAG, doS3ObjectTag);
+    outTree.put(ARG_S3_OBJECT_TAG_VERIFY, doS3ObjectTagVerify);
+    outTree.put(ARG_S3_OBJECT_LOCK_CFG, doS3ObjectLockCfg);
+    outTree.put(ARG_S3_OBJECT_LOCK_CFG_VERIFY, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);
 	outTree.put(ARG_TREERANDOMIZE_LONG, useCustomTreeRandomize);
