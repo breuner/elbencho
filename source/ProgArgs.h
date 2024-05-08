@@ -158,6 +158,15 @@ namespace bpt = boost::property_tree;
 #define ARG_S3REGION_LONG			"s3region"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3TRANSMAN_LONG			"s3transman"
+#define ARG_S3STATDIRS_LONG         "s3statdirs"
+
+#define ARG_S3_BUCKET_TAG                   "s3btag"
+#define ARG_S3_BUCKET_TAG_VERIFY            "s3btagverify"
+#define ARG_S3_OBJECT_TAG                   "s3otag"
+#define ARG_S3_OBJECT_TAG_VERIFY            "s3otagverify"
+#define ARG_S3_OBJECT_LOCK_CFG              "s3olockcfg"
+#define ARG_S3_OBJECT_LOCK_CFG_VERIFY       "s3olockcfgverify"
+
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -334,6 +343,12 @@ class ProgArgs
 		bool doS3AclVerify; // verify that acl contains given grantee and permissions
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doStatInline; // true to stat immediately after creation while file still open
+		bool doS3BucketTag; // add bucket tagging ops during different bucket operations
+		bool doS3BucketTagVerify; // do bucket tagging verification.
+        bool doS3ObjectTag; // add object tagging ops during different object operations
+        bool doS3ObjectTagVerify; // do bucket tagging verification.
+        bool doS3ObjectLockCfg; // do S3 object lock configuration
+        bool doS3ObjectLockCfgVerify; // do S3 object lock configuration verification
 		bool doTruncate; // truncate files to 0 size on open for writing
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
@@ -409,6 +424,7 @@ class ProgArgs
 		bool runS3AclPut; // change object acl
 		bool runS3BucketAclGet; // retrieve bucket acl
 		bool runS3BucketAclPut; // change bucket acl
+        bool runS3StatDirs; // retrieve bucket HEAD (and other bucket MD ops, goes well with doS3BucketTag)
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
@@ -550,6 +566,12 @@ class ProgArgs
         bool getDoReadInline() const { return doReadInline; }
         bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
         bool getDoStatInline() const { return doStatInline; }
+        bool getDoS3BucketTagging() const { return doS3BucketTag; }
+        bool getDoS3BucketTaggingVerify() const { return doS3BucketTagVerify; }
+        bool getDoS3ObjectTagging() const { return doS3ObjectTag; }
+        bool getDoS3ObjectTaggingVerify() const { return doS3ObjectTagVerify; }
+        bool getDoS3ObjectLockConfiguration() const { return doS3ObjectLockCfg; }
+        bool getDoS3ObjectLockConfigurationVerify() const { return doS3ObjectLockCfgVerify; }
         bool getDoS3AclPutInline() const { return doS3AclPutInline; }
         bool getDoS3AclVerify() const { return doS3AclVerify; }
         bool getDoTruncate() const { return doTruncate; }
@@ -619,6 +641,17 @@ class ProgArgs
         bool getRunS3AclGet() const { return runS3AclGet; }
         bool getRunS3BucketAclPut() const { return runS3BucketAclPut; }
         bool getRunS3BucketAclGet() const { return runS3BucketAclGet; }
+        bool getRunS3StatDirs() const { return runS3StatDirs; }
+
+        [[nodiscard]] bool s3BucketMetadataRequested() const noexcept { return doS3BucketTag || doS3ObjectLockCfg; }
+        [[nodiscard]] bool s3ObjectMetadataRequested() const noexcept { return doS3ObjectTag; }
+        [[nodiscard]] bool getRunS3GetObjectMetadata() const noexcept { return s3ObjectMetadataRequested(); }
+        [[nodiscard]] bool getRunS3PutObjectMetadata() const noexcept { return s3ObjectMetadataRequested() && runCreateFilesPhase; }
+        [[nodiscard]] bool getRunS3DelObjectMetadata() const noexcept { return s3ObjectMetadataRequested() && runDeleteFilesPhase; }
+        [[nodiscard]] bool getRunS3GetBucketMetadata() const noexcept { return s3BucketMetadataRequested(); }
+        [[nodiscard]] bool getRunS3PutBucketMetadata() const noexcept { return s3BucketMetadataRequested() && runCreateDirsPhase; }
+        [[nodiscard]] bool getRunS3DelBucketMetadata() const noexcept { return s3BucketMetadataRequested() && runDeleteDirsPhase; }
+
         bool getRunServiceInForeground() const { return runServiceInForeground; }
         bool getRunStatFilesPhase() const { return runStatFilesPhase; }
         bool getRunSyncPhase() const { return runSyncPhase; }

@@ -71,9 +71,16 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_PUTOBJACL: return PHASENAME_PUTOBJACL;
 		case BenchPhase_GETOBJACL: return PHASENAME_GETOBJACL;
 		case BenchPhase_GETBUCKETACL: return PHASENAME_GETBUCKETACL;
+		case BenchPhase_STATDIRS: return PHASENAME_STATDIRS;
 		case BenchPhase_LISTOBJECTS: return PHASENAME_LISTOBJECTS;
 		case BenchPhase_LISTOBJPARALLEL: return PHASENAME_LISTOBJPAR;
 		case BenchPhase_MULTIDELOBJ: return PHASENAME_MULTIDELOBJ;
+        case BenchPhase_GET_S3_OBJECT_MD: return PHASENAME_GET_S3_OBJECT_METADATA;
+        case BenchPhase_PUT_S3_OBJECT_MD: return PHASENAME_PUT_S3_OBJECT_METADATA;
+        case BenchPhase_DEL_S3_OBJECT_MD: return PHASENAME_DEL_S3_OBJECT_METADATA;
+        case BenchPhase_GET_S3_BUCKET_MD: return PHASENAME_GET_S3_BUCKET_METADATA;
+        case BenchPhase_PUT_S3_BUCKET_MD: return PHASENAME_PUT_S3_BUCKET_METADATA;
+        case BenchPhase_DEL_S3_BUCKET_MD: return PHASENAME_DEL_S3_BUCKET_METADATA;
 		default:
 		{ // should never happen
 			throw ProgException("Phase name requested for unknown/invalid phase type: " +
@@ -98,6 +105,9 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool
 	{
 		case BenchPhase_CREATEDIRS:
 		case BenchPhase_DELETEDIRS:
+        case BenchPhase_GET_S3_BUCKET_MD:
+        case BenchPhase_PUT_S3_BUCKET_MD:
+        case BenchPhase_DEL_S3_BUCKET_MD:
 		{
 			retVal = PHASEENTRYTYPE_DIRS;
 		} break;
@@ -111,9 +121,13 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool
 		case BenchPhase_PUTOBJACL:
 		case BenchPhase_GETOBJACL:
 		case BenchPhase_GETBUCKETACL:
+        case BenchPhase_STATDIRS:
 		case BenchPhase_LISTOBJECTS:
 		case BenchPhase_LISTOBJPARALLEL:
 		case BenchPhase_MULTIDELOBJ:
+        case BenchPhase_GET_S3_OBJECT_MD:
+        case BenchPhase_PUT_S3_OBJECT_MD:
+        case BenchPhase_DEL_S3_OBJECT_MD:
 		{
 			retVal = PHASEENTRYTYPE_FILES;
 		} break;

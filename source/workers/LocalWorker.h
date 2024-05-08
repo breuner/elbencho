@@ -206,7 +206,11 @@ class LocalWorker : public Worker
 		void s3ModeIterateObjectsRand();
 		void s3ModeIterateCustomObjects();
 		void s3ModeCreateBucket(std::string bucketName);
-		void s3ModeDeleteBucket(std::string bucketName);
+		void s3ModeHeadBucket(std::string bucketName);
+		void s3ModeCreateBucketTagging(const std::string& bucketName);
+		void s3ModeDeleteBucketTagging(const std::string& bucketName);
+		void s3ModeGetBucketTagging(const std::string& bucketName);
+		void s3ModeDeleteBucket(const std::string& bucketName);
 		void s3ModePutBucketAcl(std::string bucketName);
 		void s3ModeGetBucketAcl(std::string bucketName);
 		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
@@ -221,6 +225,11 @@ class LocalWorker : public Worker
 		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
 			const bool isRWMixedReader);
 		void s3ModeStatObject(std::string bucketName, std::string objectName);
+        void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModeGetObjectLockConfiguration(const std::string& bucketName);
+        void s3ModePutObjectLockConfiguration(const std::string& bucketName, bool unset = false);
 		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
 		void s3ModeListObjects();
 		void s3ModeListObjParallel();

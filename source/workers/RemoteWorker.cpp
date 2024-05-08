@@ -59,6 +59,7 @@ void RemoteWorker::run()
 				} break;
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
+                case BenchPhase_STATDIRS:
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				case BenchPhase_DELETEFILES:
@@ -72,6 +73,12 @@ void RemoteWorker::run()
 				case BenchPhase_LISTOBJECTS:
 				case BenchPhase_LISTOBJPARALLEL:
 				case BenchPhase_MULTIDELOBJ:
+                case BenchPhase_GET_S3_OBJECT_MD:
+                case BenchPhase_PUT_S3_OBJECT_MD:
+                case BenchPhase_DEL_S3_OBJECT_MD:
+                case BenchPhase_GET_S3_BUCKET_MD:
+                case BenchPhase_PUT_S3_BUCKET_MD:
+                case BenchPhase_DEL_S3_BUCKET_MD:
 				{
 					startBenchPhase();
 

@@ -119,6 +119,8 @@ _elbencho_opts()
         --s3aclverify
         --s3baclget
         --s3baclput
+        --s3btag
+        --s3btagverify
         --s3endpoints
         --s3fastget
         --s3key
@@ -127,10 +129,15 @@ _elbencho_opts()
         --s3listverify
         --s3log
         --s3objprefix
+        --s3olockcfg
+        --s3olockcfgverify
+        --s3otag
+        --s3otagverify
         --s3randobj
         --s3region
         --s3secret
         --s3transman
+        --s3statdirs
         --sendbuf
         --servers
         --serversfile
