@@ -202,6 +202,10 @@ class LocalWorker : public Worker
 		void s3ModeIterateObjectsRand();
 		void s3ModeIterateCustomObjects();
 		void s3ModeCreateBucket(std::string bucketName);
+		void s3ModeHeadBucket(std::string bucketName);
+		void s3ModeCreateBucketTagging(std::string bucketName);
+		void s3ModeDeleteBucketTagging(std::string bucketName);
+		void s3ModeGetBucketTagging(std::string bucketName);
 		void s3ModeDeleteBucket(std::string bucketName);
 		void s3ModePutBucketAcl(std::string bucketName);
 		void s3ModeGetBucketAcl(std::string bucketName);

@@ -71,6 +71,7 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_PUTOBJACL: return PHASENAME_PUTOBJACL;
 		case BenchPhase_GETOBJACL: return PHASENAME_GETOBJACL;
 		case BenchPhase_GETBUCKETACL: return PHASENAME_GETBUCKETACL;
+		case BenchPhase_STATDIRS: return PHASENAME_STATDIRS;
 		case BenchPhase_LISTOBJECTS: return PHASENAME_LISTOBJECTS;
 		case BenchPhase_LISTOBJPARALLEL: return PHASENAME_LISTOBJPAR;
 		case BenchPhase_MULTIDELOBJ: return PHASENAME_MULTIDELOBJ;
@@ -111,6 +112,7 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool
 		case BenchPhase_PUTOBJACL:
 		case BenchPhase_GETOBJACL:
 		case BenchPhase_GETBUCKETACL:
+        case BenchPhase_STATDIRS:
 		case BenchPhase_LISTOBJECTS:
 		case BenchPhase_LISTOBJPARALLEL:
 		case BenchPhase_MULTIDELOBJ:

@@ -59,6 +59,7 @@ void RemoteWorker::run()
 				} break;
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
+                case BenchPhase_STATDIRS:
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				case BenchPhase_DELETEFILES:

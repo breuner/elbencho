@@ -226,6 +226,7 @@ void Coordinator::runBenchmarks()
 	std::array allBenchPhasesArray
 	{
 		BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },
+		BenchPhaseConfig { BenchPhase_STATDIRS, progArgs.getRunS3StatDirs() },
 		BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
 		BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },
 		BenchPhaseConfig { BenchPhase_PUTBUCKETACL, progArgs.getRunS3BucketAclPut() },

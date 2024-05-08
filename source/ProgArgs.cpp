@@ -472,6 +472,12 @@ void ProgArgs::defineAllowedArgs()
 /*s3b*/	(ARG_S3BUCKETACLPUT_LONG, bpo::bool_switch(&this->runS3BucketAclPut),
 			"Put S3 bucket ACLs. This requires definition of grantee, grantee type and "
 			"permissions.")
+/*s3b*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
+			"Do bucket Stats.")
+/*s3b*/	(ARG_S3STATDIRSINLINE_LONG, bpo::bool_switch(&this->doS3BucketTaggingInline),
+			"PUT/GET/DELETE bucket tagging.")
+/*s3b*/	(ARG_S3STATDIRSINLINEVERIFY_LONG, bpo::bool_switch(&this->doS3BucketTaggingInlineVerify),
+            "do bucket tagging verification.")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -739,6 +745,8 @@ void ProgArgs::defineDefaults()
 	this->doS3AclVerify = false;
 	this->runS3BucketAclPut = false;
 	this->runS3BucketAclGet = false;
+	this->doS3BucketTaggingInline = false;
+	this->doS3BucketTaggingInlineVerify = false;
 }
 
 /**
@@ -2931,6 +2939,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3AclVerify = tree.get<bool>(ARG_S3ACLVERIFY_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
+    doS3BucketTaggingInline = tree.get<bool>(ARG_S3STATDIRSINLINE_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
@@ -2967,6 +2976,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
+	runS3StatDirs = tree.get<uint64_t>(ARG_S3STATDIRS_LONG);
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);
 	rwMixPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);

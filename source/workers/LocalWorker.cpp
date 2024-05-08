@@ -33,19 +33,24 @@
 	#include <aws/s3/model/CreateBucketRequest.h>
 	#include <aws/s3/model/CreateMultipartUploadRequest.h>
 	#include <aws/s3/model/DeleteBucketRequest.h>
+	#include <aws/s3/model/DeleteBucketTaggingRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
 	#include <aws/s3/model/DeleteObjectsRequest.h>
 	#include <aws/s3/model/GetBucketAclRequest.h>
+	#include <aws/s3/model/GetBucketTaggingRequest.h>
 	#include <aws/s3/model/GetObjectAclRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
+	#include <aws/s3/model/HeadBucketRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
 	#include <aws/s3/model/Object.h>
 	#include <aws/s3/model/PutBucketAclRequest.h>
+	#include <aws/s3/model/PutBucketTaggingRequest.h>
 	#include <aws/s3/model/PutObjectAclRequest.h>
 	#include <aws/s3/model/PutObjectRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
 	#include <aws/transfer/TransferManager.h>
+
 #endif
 
 #define PATH_BUF_LEN					64
@@ -57,6 +62,13 @@
 #define NETBENCH_RECEIVE_TIMEOUT_SEC	20 // max time to wait for incoming data on client & server
 #define NETBENCH_SHORT_POLL_TIMEOUT_SEC	2  // time to check for interrupts in longer poll wait loops
 
+#define TAG_CHECKSUM_LEN        2
+#define TAG_KEY_SHORT_NAME      "short"
+#define TAG_KEY_MEDIUM_NAME    "medium"
+#define TAG_KEY_LONG_NAME    "long"
+#define TAG_VALUE_SHORT     "0"
+#define TAG_VALUE_MEDIUM_LEN    100
+#define TAG_VALUE_LONG_LEN     256
 
 #ifdef S3_SUPPORT
 	S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
@@ -156,6 +168,7 @@ void LocalWorker::run()
 
 					case BenchPhase_CREATEDIRS:
 					case BenchPhase_DELETEDIRS:
+					case BenchPhase_STATDIRS:
 					{
 						if(progArgs->getBenchPathType() != BenchPathType_DIR)
 							throw WorkerException("Directory creation and deletion are not "
@@ -3307,8 +3320,9 @@ void LocalWorker::s3ModeIterateBuckets()
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	const size_t numBuckets = bucketVec.size();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+    const bool doS3BucketTaggingInline = progArgs->getDoS3BucketTaggingInline();
 
-	workerGotPhaseWork = false; // not all workers might get work
+    workerGotPhaseWork = false; // not all workers might get work
 
 	for(unsigned bucketIndex = workerRank;
 		bucketIndex < numBuckets;
@@ -3321,7 +3335,12 @@ void LocalWorker::s3ModeIterateBuckets()
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 		if(benchPhase == BenchPhase_CREATEDIRS)
+        {
 			s3ModeCreateBucket(bucketVec[bucketIndex] );
+
+            if(doS3BucketTaggingInline)
+			    s3ModeCreateBucketTagging(bucketVec[bucketIndex] );
+        }
 
 		if(benchPhase == BenchPhase_PUTBUCKETACL)
 			s3ModePutBucketAcl(bucketVec[bucketIndex] );
@@ -3329,8 +3348,22 @@ void LocalWorker::s3ModeIterateBuckets()
 		if(benchPhase == BenchPhase_GETBUCKETACL)
 			s3ModeGetBucketAcl(bucketVec[bucketIndex] );
 
+		if(benchPhase == BenchPhase_STATDIRS)
+        {
+            s3ModeHeadBucket(bucketVec[bucketIndex] );
+
+            if (doS3BucketTaggingInline)
+                s3ModeGetBucketTagging(bucketVec[bucketIndex]);
+        }
+
+        // delete buckets
 		if(benchPhase == BenchPhase_DELETEDIRS)
-			s3ModeDeleteBucket(bucketVec[bucketIndex] );
+        {
+            if (doS3BucketTaggingInline)
+                s3ModeDeleteBucketTagging(bucketVec[bucketIndex]);
+
+            s3ModeDeleteBucket(bucketVec[bucketIndex]);
+        }
 
 		// calc entry operations latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3690,29 +3723,198 @@ void LocalWorker::s3ModeIterateCustomObjects()
 void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 {
 #ifndef S3_SUPPORT
-	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
 
-	S3::CreateBucketRequest request;
+    S3::CreateBucketRequest request;
+    request.SetBucket(bucketName);
+
+    S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+
+    if (!createOutcome.IsSuccess()) {
+        auto s3Error = createOutcome.GetError();
+
+        // bucket already existing is not an error
+        if ((s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
+            (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS)) {
+            throw WorkerException(std::string("Bucket creation failed. ") +
+                                  "Endpoint: " + s3EndpointStr + "; "
+                                                                 "Bucket: " + bucketName + "; "
+                                                                                           "Exception: " +
+                                  s3Error.GetExceptionName() + "; " +
+                                  "Message: " + s3Error.GetMessage());
+        }
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeHeadBucket(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+	S3::HeadBucketRequest request;
 	request.SetBucket(bucketName);
 
-	S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+	S3::HeadBucketOutcome outcome = s3Client->HeadBucket(request);
 
-	if(!createOutcome.IsSuccess() )
+	if(!outcome.IsSuccess() )
 	{
-		auto s3Error = createOutcome.GetError();
+		auto s3Error = outcome.GetError();
 
-		// bucket already existing is not an error
-		if( (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
-			(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) )
-		{
-			throw WorkerException(std::string("Bucket creation failed. ") +
+        throw WorkerException(std::string("Bucket creation failed. ") +
 				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
 				"Exception: " + s3Error.GetExceptionName() + "; " +
 				"Message: " + s3Error.GetMessage() );
-		}
 	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeCreateBucketTagging(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    // tag buckets
+    {
+/*        TODO:
+          verify no tags exist after delete tags (how to return tagset from GetBucketTagging)
+*/
+        const bool doS3BucketTaggingInlineVerify = progArgs->getDoS3BucketTaggingInlineVerify();
+
+        S3::PutBucketTaggingRequest request;
+        S3::Tagging tagging;
+        S3::Tag tag;
+
+        std::vector<std::pair<std::string, std::string>> keyValuePairs = {
+                {TAG_KEY_SHORT_NAME, TAG_VALUE_SHORT},
+                {TAG_KEY_MEDIUM_NAME, StringTk::generateRandomS3TagValue(TAG_KEY_MEDIUM_NAME,
+                                                                         TAG_VALUE_MEDIUM_LEN,
+                                                                         TAG_CHECKSUM_LEN)},
+                {TAG_KEY_LONG_NAME, StringTk::generateRandomS3TagValue(TAG_KEY_LONG_NAME,
+                                                                       TAG_VALUE_LONG_LEN,
+                                                                       TAG_CHECKSUM_LEN)}
+        };
+
+        for (const auto& pair : keyValuePairs)
+        {
+            tag.WithKey(pair.first).SetValue(pair.second);
+            tagging.AddTagSet(tag);
+        }
+
+        request.SetBucket(bucketName);
+        request.SetTagging(tagging);
+
+        S3::PutBucketTaggingOutcome taggingOutcome = s3Client->PutBucketTagging(request);
+        if (!taggingOutcome.IsSuccess())
+        {
+            const auto &s3Error = taggingOutcome.GetError();
+
+            throw WorkerException(std::string("Bucket tagging failed. ") +
+                                  "Endpoint: " + s3EndpointStr + "; " +
+                                  "Bucket: " + bucketName + "; " +
+                                  "Exception: " + s3Error.GetExceptionName() + "; " +
+                                  "Message: " + s3Error.GetMessage());
+        }
+
+        IF_UNLIKELY(doS3BucketTaggingInlineVerify )
+            s3ModeGetBucketTagging(bucketName);
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeGetBucketTagging(std::string bucketName) {
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    {
+        // Get bucket tagging
+        const auto &bucket = bucketName;
+        const bool doS3BucketTaggingInlineVerify = progArgs->getDoS3BucketTaggingInlineVerify();
+
+        S3::GetBucketTaggingRequest requestGet;
+        requestGet.SetBucket(bucket);
+
+        S3::GetBucketTaggingOutcome outcome = s3Client->GetBucketTagging(requestGet);
+        if (!outcome.IsSuccess()) {
+            const auto &s3Error = outcome.GetError();
+
+            throw WorkerException(std::string("Get Bucket tagging failed. ") +
+                                  "Endpoint: " + s3EndpointStr + "; " +
+                                  "Bucket: " + bucket + "; " +
+                                  "Exception: " + s3Error.GetExceptionName() + "; " +
+                                  "Message: " + s3Error.GetMessage());
+        }
+        const auto &tags = outcome.GetResult().GetTagSet();
+
+        for (const auto &tagSet: tags) {
+            IF_UNLIKELY(doS3BucketTaggingInlineVerify )
+            {
+                bool tagVerifySuccess = StringTk::verifyRandomS3TagValue(
+                        tagSet.GetValue(),
+                        tagSet.GetValue(),
+                        TAG_CHECKSUM_LEN);
+
+                if (tagVerifySuccess)
+                {
+                    throw WorkerException(std::string("Bucket tagging verification failed. ") +
+                                          "Endpoint: " + s3EndpointStr + "; " +
+                                          "Bucket: " + bucket + "; " +
+                                          "Expected: " + "bla=1" + "; " +
+                                          "Got: " + tagSet.GetKey() + "=" + tagSet.GetValue());
+                }
+            }
+        }
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Delete bucket tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDeleteBucketTagging(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    // delete bucket tags
+    std::cout << "deleting tags from bucket: " << bucketName << std::endl; // TODO: remove
+    S3::DeleteBucketTaggingRequest request;
+    request.SetBucket(bucketName);
+
+    S3::GetBucketTaggingOutcome outcome = s3Client->DeleteBucketTagging(request);
+    if(!outcome.IsSuccess() )
+    {
+        const auto &s3Error = outcome.GetError();
+
+        throw WorkerException(std::string("Delete Bucket tagging failed. ") +
+                              "Endpoint: " + s3EndpointStr + "; " +
+                              "Bucket: " + bucketName + "; " +
+                              "Exception: " + s3Error.GetExceptionName() + "; " +
+                              "Message: " + s3Error.GetMessage() );
+    }
 
 #endif // S3_SUPPORT
 }

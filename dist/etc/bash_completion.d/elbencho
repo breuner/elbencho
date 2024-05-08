@@ -116,6 +116,8 @@ _elbencho_opts()
         --s3aclverify
         --s3baclget
         --s3baclput
+        --s3statdirs
+        --s3statdirsinline
         --s3endpoints
         --s3fastget
         --s3key
