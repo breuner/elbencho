@@ -87,10 +87,13 @@ typedef std::vector<uint64_t> UInt64Vec;
 	} while(0)
 
 
+// tell the compiler that a code path is likely/unlikely to optimize performance of "good" paths
 #ifdef BOOST_UNLIKELY
 	#define IF_UNLIKELY(condition)	if(BOOST_UNLIKELY(condition) )
+	#define IF_LIKELY(condition)	if(BOOST_LIKELY(!!(condition) ) )
 #else // fallback for older boost versions
 	#define IF_UNLIKELY(condition)	if(__builtin_expect(condition, 0) )
+	#define IF_LIKELY(condition)	if(__builtin_expect(!!(condition), 1) )
 #endif
 
 

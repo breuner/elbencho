@@ -1,6 +1,17 @@
 #ifdef S3_SUPPORT
 
+#include "ProgArgs.h"
 #include "S3UploadStore.h"
+#include "toolkits/OpsLogger.h"
+
+/**
+ * Initialize progArgs pointer for ops logging.
+ */
+void S3UploadStore::setProgArgs(const ProgArgs* progArgs)
+{
+    // note: no mutex needed here because each worker will set to same progArgs in prep phase
+    this->progArgs = progArgs;
+}
 
 /**
  * Return existing multipart uploadID (if it was previously created by another worker) or
@@ -9,7 +20,7 @@
  * @throw WorkerException on error, e.g. failed server communication.
  */
 std::string S3UploadStore::getMultipartUploadID(const std::string& bucketName,
-	const std::string& objectName, std::shared_ptr<Aws::S3::S3Client> s3Client)
+	const std::string& objectName, std::shared_ptr<Aws::S3::S3Client> s3Client, OpsLogger& opsLog)
 {
 	std::unique_lock<std::mutex> lock(mutex); // L O C K (scoped)
 
@@ -25,8 +36,13 @@ std::string S3UploadStore::getMultipartUploadID(const std::string& bucketName,
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
+    OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
+
 	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
 		createMultipartUploadRequest);
+
+    OPLOG_POST_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0,
+        !createMultipartUploadOutcome.IsSuccess() );
 
 	if(!createMultipartUploadOutcome.IsSuccess() )
 	{

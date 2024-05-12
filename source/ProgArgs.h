@@ -16,7 +16,10 @@
 namespace bpo = boost::program_options;
 namespace bpt = boost::property_tree;
 
-// command line args and config file options (sorted by "ARG_..." column)
+/* command line args and config file options (sorted by "ARG_..." column).
+	note: keep length of "_LONG" argument names without parameters within a max length of 16 chars
+		and "_LONG" arguments with parameters to a max of 12 chars, as the description column
+		in the help output otherwise gets too small. */
 #define ARG_ALTHTTPSERVER_LONG		"althttpsvc"
 #define ARG_BENCHLABEL_LONG			"label"
 #define ARG_BENCHPATHS_LONG			"path"
@@ -109,6 +112,8 @@ namespace bpt = boost::property_tree;
 #define ARG_NUMNETBENCHSERVERS_LONG	"numservers"
 #define ARG_NUMTHREADS_LONG			"threads"
 #define ARG_NUMTHREADS_SHORT 		"t"
+#define ARG_OPSLOGLOCKING_LONG		"opsloglock"
+#define ARG_OPSLOGPATH_LONG		 	"opslog"
 #define ARG_PHASEDELAYTIME_LONG		"phasedelay"
 #define ARG_PREALLOCFILE_LONG		"preallocfile"
 #define ARG_QUIT_LONG				"quit"
@@ -278,8 +283,6 @@ class ProgArgs
 		bpo::options_description argsHiddenDescription;
 		bpo::variables_map argsVariablesMap;
 
-		bool isCuFileDriverOpen{false}; // to ensure cuFileDriverOpen/-Close is only called once
-
 		int argc; // command line argument count (as in main(argc, argv) )
 		char** argv; // command line arg vector (as in main(argc, argv) )
 
@@ -298,6 +301,10 @@ class ProgArgs
 		BenchPathType benchPathType; /* for local runs auto-detected based on benchPathStr;
 										in master mode received from service hosts */
 
+		bool isCuFileDriverOpen{false}; // to ensure cuFileDriverOpen/-Close is only called once
+		CuFileHandleDataVec cuFileHandleDataVec; /* registered cuFile handles in file/bdev mode;
+							vec will also be filled (with unreg'ed handles) if cuFile API is not
+							selected to make things easier for localworkers */
 
         // config options in alphabetic order...
 
@@ -381,6 +388,7 @@ class ProgArgs
 		unsigned numNetBenchServers; // number of servers in service hosts list for netbench mode
 		size_t numRWMixReadThreads; // number of rwmix read threads in file/bdev write phase
 		size_t numThreads; // parallel I/O worker threads per instance
+		std::string opsLogPath; // path to operations log file (empty to disable)
 		bool quitServices; // send quit (via interrupt msg) to given hosts to exit service
 		uint64_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
 		std::string randomAmountOrigStr; // original randomAmount str from user with unit
@@ -446,9 +454,7 @@ class ProgArgs
 		bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
 		bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
 		bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
-		CuFileHandleDataVec cuFileHandleDataVec; /* registered cuFile handles in file/bdev mode;
-							vec will also be filled (with unreg'ed handles) if cuFile API is not
-							selected to make things easier for localworkers */
+		bool useCustomTreeRandomize; // randomize order of custom tree files
 		bool useDirectIO; // open files with O_DIRECT
 		bool useExtendedLiveCSV; // false for total/aggregate results only, true for per-worker
 		bool useGDSBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
@@ -456,11 +462,11 @@ class ProgArgs
 		bool useMmap; // use memory mapped IO
 		bool useNetBench; // run network benchmarking
 		bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
+		bool useOpsLogLocking; // use file locking to sync opsLogPath writes
 		bool useRandomAligned; // use block-aligned random offsets (when randomOffsets is used)
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRWMixPercent; // implicitly set in case of rwmixpct (even if ==0)
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
-		bool useCustomTreeRandomize; // randomize order of custom tree files
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		bool useS3RandObjSelect; // random object selection for each read
 		std::string s3Region; // s3 region
@@ -589,6 +595,7 @@ class ProgArgs
         size_t getNetBenchRespSize() const { return netBenchRespSize; }
         bool getNoDirectIOCheck() const { return noDirectIOCheck; }
 		bool getPrintCSVLabels() const { return !noCSVLabels; }
+		std::string getOpsLogPath() const { return opsLogPath; }
 		bool getQuitServices() const { return quitServices; }
         std::string getRandOffsetAlgo() const { return randOffsetAlgo; }
 		uint64_t getRandomAmount() const { return randomAmount; }
@@ -654,6 +661,7 @@ class ProgArgs
         bool getUseMmap() const { return useMmap; }
         bool getUseNetBench() const { return useNetBench; }
         bool getUseNoFDSharing() const { return useNoFDSharing; }
+        bool getUseOpsLogLocking() const { return useOpsLogLocking; }
         bool getUseRandomAligned() const { return useRandomAligned; }
         bool getUseRandomOffsets() const { return useRandomOffsets; }
         bool getUseS3FastRead() const { return useS3FastRead; }

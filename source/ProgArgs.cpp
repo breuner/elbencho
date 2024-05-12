@@ -396,6 +396,12 @@ void ProgArgs::defineAllowedArgs()
 /*nu*/	(ARG_NUMHOSTS_LONG, bpo::value(&this->numHosts),
 			"Number of hosts to use from given hosts list or hosts file. (Default: use all given "
 			"hosts)")
+/*op*/	(ARG_OPSLOGPATH_LONG, bpo::value(&this->opsLogPath),
+			"Absolute path to logfile for all I/O operations (open, read, ...). In service mode, "
+			"the service instances will log their operations locally to the given path. Log is in "
+			"JSON format. (Default: disabled)")
+/*op*/	(ARG_OPSLOGLOCKING_LONG, bpo::bool_switch(&this->useOpsLogLocking),
+			"Use file locking to synchronize appends to \"--" ARG_OPSLOGPATH_LONG "\".")
 /*ph*/	(ARG_PHASEDELAYTIME_LONG, bpo::value(&this->nextPhaseDelaySecs),
 			"Delay between different benchmark phases in seconds. (Default: 0)")
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
@@ -739,6 +745,7 @@ void ProgArgs::defineDefaults()
 	this->doS3AclVerify = false;
 	this->runS3BucketAclPut = false;
 	this->runS3BucketAclGet = false;
+	this->useOpsLogLocking = false;
 }
 
 /**
@@ -2952,6 +2959,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	numNetBenchServers = tree.get<unsigned>(ARG_NUMNETBENCHSERVERS_LONG);
 	numRWMixReadThreads = tree.get<size_t>(ARG_RWMIXTHREADS_LONG);
 	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
+	opsLogPath = tree.get<std::string>(ARG_OPSLOGPATH_LONG);
 	randOffsetAlgo = tree.get<std::string>(ARG_RANDSEEKALGO_LONG);
 	randomAmount = tree.get<uint64_t>(ARG_RANDOMAMOUNT_LONG);
 	runCreateDirsPhase = tree.get<bool>(ARG_CREATEDIRS_LONG);
@@ -2992,6 +3000,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useMmap = tree.get<bool>(ARG_MMAP_LONG);
 	useNetBench = tree.get<bool>(ARG_NETBENCH_LONG);
 	useNoFDSharing = tree.get<bool>(ARG_NOFDSHARING_LONG);
+	useOpsLogLocking = tree.get<bool>(ARG_OPSLOGLOCKING_LONG);
 	useRandomAligned = tree.get<bool>(ARG_RANDOMALIGN_LONG);
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
@@ -3087,6 +3096,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_NUMTHREADS_LONG, numThreads);
 	outTree.put(ARG_NOFDSHARING_LONG, useNoFDSharing);
 	outTree.put(ARG_NODIRECTIOCHECK_LONG, noDirectIOCheck);
+	outTree.put(ARG_OPSLOGLOCKING_LONG, useOpsLogLocking);
+	outTree.put(ARG_OPSLOGPATH_LONG, opsLogPath);
 	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
 	outTree.put(ARG_RANDOMALIGN_LONG, useRandomAligned);
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);

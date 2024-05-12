@@ -7,6 +7,7 @@
 * Added option to sleep between test phases. (See "--phasedelay".)
 * Added option to rotate hosts list for service instances between phases to avoid caching effects. (See "--rotatehosts".)
 * Added support for S3 object and bucket ACL PUT/GET. (See "--s3aclput", "--s3baclput".)
+* Added new ops log to log all IO operations (open, read, ...). (See "--opslog").
 
 ### General Changes
 * Timestamps in csv files now include milliseconds for higher precisiomn.

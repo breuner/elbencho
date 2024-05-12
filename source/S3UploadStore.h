@@ -20,6 +20,9 @@
 
 namespace S3 = Aws::S3::Model;
 
+class OpsLogger; // forward declaration to avoid cyclic include
+class ProgArgs; // forward declaration to avoid cyclic include
+
 
 /**
  * Keys of S3UploadStore
@@ -73,12 +76,16 @@ typedef S3UploadMap::const_iterator S3UploadMapConstIter;
  * Stores state of S3 multipart uploads that are shared by multiple workers, so that we can track
  * progress to know when to send the upload completion request (or which partial multipart uploads
  * to cancel in case of interruption).
+ *
+ * ProgArgs pointer needs to be initialized in woker run() prep phase for ops logging.
  */
 class S3UploadStore
 {
 	public:
+        void setProgArgs(const ProgArgs* progArgs);
 		std::string getMultipartUploadID(const std::string& bucketName,
-			const std::string& objectName, std::shared_ptr<Aws::S3::S3Client> s3Client);
+			const std::string& objectName, std::shared_ptr<Aws::S3::S3Client> s3Client,
+			OpsLogger& opsLog);
 		std::unique_ptr<Aws::Vector<S3::CompletedPart>> addCompletedPart(
 			const std::string& bucketName, const std::string& objectName,
 			uint64_t numProgressBytes, uint64_t objectTotalSize,
@@ -87,6 +94,7 @@ class S3UploadStore
 			std::string& outUploadID);
 
 	private:
+		const ProgArgs* progArgs{NULL};
 		std::mutex mutex; // to synchronize map and map values access
 		std::map<S3UploadKey, S3UploadElem> map; // key: <bucket>/<objectkey>; value: S3UploadElem
 

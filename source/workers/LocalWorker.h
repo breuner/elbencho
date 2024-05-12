@@ -12,6 +12,7 @@
 #include "CuFileHandleData.h"
 #include "OffsetGenerator.h"
 #include "toolkits/net/BasicSocket.h"
+#include "toolkits/OpsLogger.h"
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
 #include "Worker.h"
@@ -154,9 +155,12 @@ class LocalWorker : public Worker
 		static SocketVec serverSocketVec; // singleton netbench server sockets for all local threads
 		BasicSocket* clientSocket{NULL}; // netbench socket for client
 
+		OpsLogger opsLog; // logger for IO operations
+
 
 		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
 
+		void preparePhase();
 		void finishPhase();
 
 		void initS3Client();

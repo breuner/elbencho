@@ -91,6 +91,8 @@ _elbencho_opts()
         --nopathexp
         --nosvcshare
         --numservers
+        --opslog
+        --opsloglock
         --perthread
         --phasedelay
         --port
@@ -286,6 +288,8 @@ _elbencho()
         --hostsfile)
         ;&
         --livecsv)
+        ;&
+        --opslog)
         ;&
         --resfile)
         ;&

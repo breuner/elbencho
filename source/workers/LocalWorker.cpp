@@ -83,7 +83,7 @@ SocketVec LocalWorker::serverSocketVec; // singleton netbench sockets vec for al
 
 
 LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank) :
-	Worker(workersSharedData, workerRank)
+	Worker(workersSharedData, workerRank), opsLog(workersSharedData->progArgs, workerRank)
 {
 	nullifyPhaseFunctionPointers();
 
@@ -114,16 +114,7 @@ void LocalWorker::run()
 		buuids::uuid currentBenchID = buuids::nil_uuid();
 
 		// preparation phase
-		applyNumaAndCoreBinding();
-		initThreadFDVec();
-		initThreadCuFileHandleDataVec();
-		initThreadMmapVec();
-		allocIOBuffer();
-		allocGPUIOBuffer();
-		prepareCustomTreePathStores();
-		initS3Client();
-		initHDFS();
-		initNetBench();
+		preparePhase();
 
 		// signal coordinator that our preparations phase is done
 		phaseFinished = true; // before incNumWorkersDone(), as Coordinator can reset after done inc
@@ -322,6 +313,32 @@ void LocalWorker::run()
 	}
 
 	incNumWorkersDoneWithError();
+}
+
+/**
+ * Run all the preparations in the run() method that are needed before we can announce readiness
+ * for an actual benchmark run.
+ */
+void LocalWorker::preparePhase()
+{
+    applyNumaAndCoreBinding();
+
+    opsLog.openLogFile();
+
+    s3SharedUploadStore.setProgArgs(progArgs);
+
+    initThreadFDVec();
+    initThreadCuFileHandleDataVec();
+    initThreadMmapVec();
+
+    allocIOBuffer();
+    allocGPUIOBuffer();
+
+    prepareCustomTreePathStores();
+
+    initS3Client();
+    initHDFS();
+    initNetBench();
 }
 
 /**
@@ -744,7 +761,11 @@ void LocalWorker::initThreadFDVec()
 		if(progArgs->getRunCreateFilesPhase() )
 			openFlags |= O_CREAT;
 
-		fd = open(path.c_str(), openFlags, MKFILE_MODE);
+	    OPLOG_PRE_OP("open", path.c_str(), 0, 0);
+
+        fd = open(path.c_str(), openFlags, MKFILE_MODE);
+
+	    OPLOG_POST_OP("open", path.c_str(), 0, 0, fd == -1);
 
 		if(fd == -1)
 			throw WorkerException("Unable to open benchmark path: " + path + "; "
@@ -762,7 +783,11 @@ void LocalWorker::uninitThreadFDVec()
 {
 	for(int fd : fileHandles.threadFDVec)
 	{
-		int closeRes = close(fd);
+        OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+        int closeRes = close(fd);
+
+        OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 		if(closeRes == -1)
 			ERRLOGGER(Log_NORMAL, "Error on file close. "
@@ -1434,6 +1459,8 @@ void LocalWorker::cleanup()
 	uninitThreadMmapVec();
 	uninitThreadCuFileHandleDataVec();
 	uninitThreadFDVec();
+
+	opsLog.closeLogFile();
 }
 
 /**
@@ -2233,7 +2260,13 @@ ssize_t LocalWorker::preadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes
 {
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
-	return pread(fd, buf, nbytes, offset);
+	OPLOG_PRE_OP("pread", std::to_string(fd), offset, nbytes);
+
+	ssize_t preadRes = pread(fd, buf, nbytes, offset);
+
+	OPLOG_POST_OP("pread", std::to_string(fd), offset, nbytes, preadRes == -1);
+
+	return preadRes;
 }
 
 /**
@@ -2243,22 +2276,39 @@ ssize_t LocalWorker::pwriteWrapper(size_t fileHandleIdx, void* buf, size_t nbyte
 {
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
-	return pwrite(fd, buf, nbytes, offset);
+	OPLOG_PRE_OP("pwrite", std::to_string(fd), offset, nbytes);
+
+	ssize_t pwriteRes = pwrite(fd, buf, nbytes, offset);
+
+	OPLOG_POST_OP("pwrite", std::to_string(fd), offset, nbytes, pwriteRes <= 0);
+
+	return pwriteRes;
 }
 
 /**
  * Wrapper for positional sync write followed by an immediate read of the same block.
  */
-ssize_t LocalWorker::pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+	off_t offset)
 {
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
+	OPLOG_PRE_OP("pwrite", std::to_string(fd), offset, nbytes);
+
 	ssize_t pwriteRes = pwrite(fd, buf, nbytes, offset);
+
+	OPLOG_POST_OP("pwrite", std::to_string(fd), offset, nbytes, pwriteRes <= 0);
 
 	IF_UNLIKELY(pwriteRes <= 0)
 		return pwriteRes;
 
-	return pread(fd, buf, pwriteRes, offset);
+	OPLOG_PRE_OP("pread", std::to_string(fd), offset, nbytes);
+
+	ssize_t preadRes = pread(fd, buf, pwriteRes, offset);
+
+	OPLOG_POST_OP("pread", std::to_string(fd), offset, nbytes, preadRes == -1);
+
+	return preadRes;
 }
 
 /**
@@ -2276,11 +2326,27 @@ ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
+	ssize_t ioRes;
+
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
-		return pwrite(fd, buf, nbytes, offset);
+	{
+		OPLOG_PRE_OP("pwrite", std::to_string(fd), offset, nbytes);
+
+		ioRes = pwrite(fd, buf, nbytes, offset);
+
+		OPLOG_POST_OP("pwrite", std::to_string(fd), offset, nbytes, ioRes <= 0);
+	}
 	else
-		return pread(fd, buf, nbytes, offset);
+	{
+		OPLOG_PRE_OP("pread", std::to_string(fd), offset, nbytes);
+
+		ioRes = pread(fd, buf, nbytes, offset);
+
+		OPLOG_POST_OP("pread", std::to_string(fd), offset, nbytes, ioRes == -1);
+	}
+
+	return ioRes;
 }
 
 /**
@@ -2295,8 +2361,14 @@ ssize_t LocalWorker::cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t n
 	throw WorkerException("cuFileReadWrapper called, but this executable was built without cuFile "
 		"API support");
 #else
-	return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 		gpuIOBufVec[0], nbytes, offset, 0);
+
+	OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, ioRes == -1);
+
+	return ioRes;
 #endif
 }
 
@@ -2312,29 +2384,46 @@ ssize_t LocalWorker::cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t 
 	throw WorkerException("cuFileWriteWrapper called, but this executable was built without cuFile "
 		"API support");
 #else
-	return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 		gpuIOBufVec[0], nbytes, offset, 0);
+
+	OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
+
+	return ioRes;
 #endif
 }
 
 /**
  * Wrapper for positional sync cuFile write followed by an immediate cuFile read of the same block.
  */
-ssize_t LocalWorker::cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+	off_t offset)
 {
 #ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileWriteAndReadWrapper called, but this executable was built without "
 		"cuFile API support");
 #else
+	OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
 	ssize_t writeRes =
 		cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
 
+	OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, writeRes <= 0);
+
 	IF_UNLIKELY(writeRes <= 0)
 		return writeRes;
 
-	return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t readRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 		gpuIOBufVec[0], writeRes, offset, 0);
+
+	OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, readRes == -1);
+
+	return readRes;
 #endif
 }
 
@@ -2355,13 +2444,29 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
 		work for this because aio would not inc counter directly on submission.) */
 
+	ssize_t ioRes;
+
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
-		return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	{
+		OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
+		ioRes = cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
+
+		OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
+	}
 	else
-		return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	{
+		OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+
+		ioRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
+
+		OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, ioRes == -1);
+}
+
+	return ioRes;
 #endif
 }
 
@@ -2373,7 +2478,13 @@ ssize_t LocalWorker::hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nby
 #ifndef HDFS_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
 #else
-	return hdfsPread(hdfsFSHandle, hdfsFileHandle, offset, buf, nbytes);
+	OPLOG_PRE_OP("hdfsPread", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = hdfsPread(hdfsFSHandle, hdfsFileHandle, offset, buf, nbytes);
+
+	OPLOG_POST_OP("hdfsPread", std::to_string(fileHandleIdx), offset, nbytes, ioRes != -1);
+
+	return ioRes;
 #endif // HDFS_SUPPORT
 }
 
@@ -2387,7 +2498,13 @@ ssize_t LocalWorker::hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nb
 #ifndef HDFS_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
 #else
-	return hdfsWrite(hdfsFSHandle, hdfsFileHandle, buf, nbytes);
+	OPLOG_PRE_OP("hdfsWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = hdfsWrite(hdfsFSHandle, hdfsFileHandle, buf, nbytes);
+
+	OPLOG_POST_OP("hdfsWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
+
+	return ioRes;
 #endif // HDFS_SUPPORT
 }
 
@@ -2446,7 +2563,12 @@ void LocalWorker::dirModeIterateDirs()
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) );
 
-			int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+		    OPLOG_PRE_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+            int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+
+		    OPLOG_POST_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+		        mkdirRes == -1);
 
 			if( (mkdirRes == -1) && (errno != EEXIST) )
 				throw WorkerException(std::string("Rank directory creation failed. ") +
@@ -2475,7 +2597,12 @@ void LocalWorker::dirModeIterateDirs()
 
 		if(benchPhase == BenchPhase_CREATEDIRS)
 		{ // create dir
-			int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+            OPLOG_PRE_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+            int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+
+            OPLOG_POST_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+                mkdirRes == -1);
 
 			if( (mkdirRes == -1) && (errno != EEXIST) )
 				throw WorkerException(std::string("Directory creation failed. ") +
@@ -2485,7 +2612,12 @@ void LocalWorker::dirModeIterateDirs()
 
 		if(benchPhase == BenchPhase_DELETEDIRS)
 		{ // remove dir
-			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+		    OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+		    int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+
+            OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+                rmdirRes == -1);
 
 			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
@@ -2521,7 +2653,12 @@ void LocalWorker::dirModeIterateDirs()
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) );
 
+            OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
 			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+
+            OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+                rmdirRes == -1);
 
 			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
@@ -2594,7 +2731,12 @@ void LocalWorker::dirModeIterateCustomDirs()
 
 		if(benchPhase == BenchPhase_DELETEDIRS)
 		{ // remove dir
-			int rmdirRes = unlinkat(benchPathFD, currentPathElem.path.c_str(), AT_REMOVEDIR);
+            OPLOG_PRE_OP("unlinkat", benchPathStr + "/" + currentPathElem.path, 0, 0);
+
+		    int rmdirRes = unlinkat(benchPathFD, currentPathElem.path.c_str(), AT_REMOVEDIR);
+
+            OPLOG_POST_OP("unlinkat", benchPathStr + "/" + currentPathElem.path, 0, 0,
+                rmdirRes == -1);
 
 			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
@@ -2710,7 +2852,13 @@ void LocalWorker::dirModeIterateFiles()
 					{ // inline stat (i.e. stat immediately after file open)
 						struct stat statBuf;
 
-						int statRes = fstat(fd, &statBuf);
+					    OPLOG_PRE_OP("fstat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0,
+					        0);
+
+                        int statRes = fstat(fd, &statBuf);
+
+					    OPLOG_POST_OP("fstat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0,
+					        0, statRes == -1);
 
 						IF_UNLIKELY(statRes == -1)
 							throw WorkerException(std::string("Inline file stat failed. ") +
@@ -2766,7 +2914,12 @@ void LocalWorker::dirModeIterateFiles()
 
 					((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
-					close(fd);
+					OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+					int closeRes = close(fd);
+
+					OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
+
 					throw;
 				}
 
@@ -2785,7 +2938,11 @@ void LocalWorker::dirModeIterateFiles()
 
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
 
+                OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
 				int closeRes = close(fd);
+
+                OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 				IF_UNLIKELY(closeRes == -1)
 					throw WorkerException(std::string("File close failed. ") +
@@ -2808,7 +2965,12 @@ void LocalWorker::dirModeIterateFiles()
 
 			if(benchPhase == BenchPhase_DELETEFILES)
 			{
-				int unlinkRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), 0);
+                OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+                int unlinkRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), 0);
+
+	            OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+	                unlinkRes == -1);
 
 				if( (unlinkRes == -1) && (!progArgs->getIgnoreDelErrors() || (errno != ENOENT) ) )
 					throw WorkerException(std::string("File delete failed. ") +
@@ -2957,8 +3119,13 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
-				close(fd);
-				throw;
+                OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+                int closeRes = close(fd);
+
+                OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
+
+                throw;
 			}
 
 			// release memory mapping
@@ -2976,7 +3143,11 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 			((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
 
-			int closeRes = close(fd);
+            OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+            int closeRes = close(fd);
+
+            OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 			IF_UNLIKELY(closeRes == -1)
 				throw WorkerException(std::string("File close failed. ") +
@@ -2999,7 +3170,11 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 		if(benchPhase == BenchPhase_DELETEFILES)
 		{
-			int unlinkRes = unlinkat(benchPathFD, currentPath, 0);
+            OPLOG_PRE_OP("unlinkat", benchPathStr + "/" + currentPath, 0, 0);
+
+            int unlinkRes = unlinkat(benchPathFD, currentPath, 0);
+
+            OPLOG_POST_OP("unlinkat", benchPathStr + "/" + currentPath, 0, 0, unlinkRes == -1);
 
 			if( (unlinkRes == -1) && (!ignoreDelErrors || (errno != ENOENT) ) )
 				throw WorkerException(std::string("File delete failed. ") +
@@ -3696,7 +3871,11 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 	S3::CreateBucketRequest request;
 	request.SetBucket(bucketName);
 
+	OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
+
 	S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+
+	OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess() );
 
 	if(!createOutcome.IsSuccess() )
 	{
@@ -3733,7 +3912,11 @@ void LocalWorker::s3ModeDeleteBucket(std::string bucketName)
 	S3::DeleteBucketRequest request;
 	request.SetBucket(bucketName);
 
+	OPLOG_PRE_OP("S3DeleteBucket", bucketName, 0, 0);
+
 	S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
+
+	OPLOG_POST_OP("S3DeleteBucket", bucketName, 0, 0, !deleteOutcome.IsSuccess() );
 
 	if(!deleteOutcome.IsSuccess() )
 	{
@@ -3779,7 +3962,11 @@ void LocalWorker::s3ModePutBucketAcl(std::string bucketName)
 	request.WithBucket(bucketName)
 		.SetAccessControlPolicy(acp);
 
+	OPLOG_PRE_OP("S3PutBucketAcl", bucketName, 0, 0);
+
 	S3::PutBucketAclOutcome outcome = s3Client->PutBucketAcl(request);
+
+	OPLOG_POST_OP("S3PutBucketAcl", bucketName, 0, 0, !outcome.IsSuccess() );
 
 	IF_UNLIKELY(!outcome.IsSuccess() )
 	{
@@ -3810,7 +3997,11 @@ void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
 	S3::GetBucketAclRequest request;
 	request.WithBucket(bucketName);
 
+	OPLOG_PRE_OP("S3GetBucketAcl", bucketName, 0, 0);
+
 	S3::GetBucketAclOutcome outcome = s3Client->GetBucketAcl(request);
+
+	OPLOG_POST_OP("S3GetBucketAcl", bucketName, 0, 0, !outcome.IsSuccess() );
 
 	IF_UNLIKELY(!outcome.IsSuccess() )
 	{
@@ -3919,7 +4110,12 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 		{ return !isInterruptionRequested.load(); } );
 
+	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
+
 	S3::PutObjectOutcome outcome = s3Client->PutObject(request);
+
+	OPLOG_POST_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize,
+		!outcome.IsSuccess() );
 
 	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
@@ -3974,8 +4170,13 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
+	OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
+
 	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
 		createMultipartUploadRequest);
+
+	OPLOG_POST_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0,
+		!createMultipartUploadOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() )
 	{
@@ -4032,6 +4233,8 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
 
+		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize);
+
 		/* start part upload (note: "callable" returns a future to the op so that it can be executed
 			in parallel to other requests) */
 		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
@@ -4042,6 +4245,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		// wait for part upload to finish
 		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
+
+		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize,
+			!uploadPartOutcome.IsSuccess() );
 
 		checkInterruptionRequest( // (placed here to avoid outcome check on interruption)
 			[&] { s3AbortMultipartUpload(bucketName, objectName, uploadID); } );
@@ -4105,8 +4311,13 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		.WithUploadId(uploadID)
 		.WithMultipartUpload(completedMultipartUpload);
 
-	auto completionOutcome = s3Client->CompleteMultipartUpload(
-			completionRequest);
+	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
+		completedMultipartUpload.GetParts().size() );
+
+	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
+
+	OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
+        completedMultipartUpload.GetParts().size(), !completionOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!completionOutcome.IsSuccess() )
 	{
@@ -4141,7 +4352,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 	// S T E P 1: retrieve multipart upload ID from server
 
 	Aws::String uploadID = s3SharedUploadStore.getMultipartUploadID(
-		bucketName, objectName, s3Client);
+		bucketName, objectName, s3Client, opsLog);
 
 	std::unique_ptr<Aws::Vector<S3::CompletedPart>> allCompletedParts; // need sort before send
 
@@ -4184,6 +4395,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
 
+		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
+
 		/* start part upload (note: "callable" returns a future to the op so that it can be executed
 			in parallel to other requests) */
 		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
@@ -4194,6 +4407,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		// wait for part upload to finish
 		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
+
+		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
+			!uploadPartOutcome.IsSuccess() );
 
 		checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption; abort
 			message will be sent during s3SharedUploadStore cleanup) */
@@ -4272,8 +4488,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		.WithUploadId(uploadID)
 		.WithMultipartUpload(completedMultipartUpload);
 
-	auto completionOutcome = s3Client->CompleteMultipartUpload(
-			completionRequest);
+	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize);
+
+	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
+
+	OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize,
+		!completionOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!completionOutcome.IsSuccess() )
 	{
@@ -4311,7 +4531,12 @@ bool LocalWorker::s3AbortMultipartUpload(std::string bucketName, std::string obj
 	abortMultipartUploadRequest.SetKey(objectName);
 	abortMultipartUploadRequest.SetUploadId(uploadID);
 
+	OPLOG_PRE_OP("S3AbortMultipartUpload", bucketName + "/" + objectName, 0, 0);
+
 	auto abortOutcome = s3Client->AbortMultipartUpload(abortMultipartUploadRequest);
+
+	OPLOG_POST_OP("S3AbortMultipartUpload", bucketName + "/" + objectName, 0, 0,
+		!abortOutcome.IsSuccess() );
 
 	return abortOutcome.IsSuccess();
 
@@ -4425,7 +4650,12 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
 
+		OPLOG_PRE_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize);
+
 		S3::GetObjectOutcome outcome = s3Client->GetObject(request);
+
+		OPLOG_POST_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize,
+		    !outcome.IsSuccess() );
 
 		checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
@@ -4530,12 +4760,20 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+    OPLOG_PRE_OP("S3TransManDownload", bucketName + "/" + objectName, fileOffset, downloadBytes);
+
 	transferHandle = transferManager->DownloadFile(
 		bucketName, objectName, fileOffset, downloadBytes, [&]()
 		{ return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary); },
 		Aws::Transfer::DownloadConfiguration(), "/dev/null");
 
 	transferHandle->WaitUntilFinished();
+
+    OPLOG_POST_OP("S3TransManDownload", bucketName + "/" + objectName, fileOffset, downloadBytes,
+        transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED);
+
+    // calc io operation latency
+
 
 	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
@@ -4598,7 +4836,11 @@ void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectNam
 	request.WithBucket(bucketName)
 		.WithKey(objectName);
 
+	OPLOG_PRE_OP("S3HeadObject", bucketName + "/" + objectName, 0, 0);
+
 	S3::HeadObjectOutcome outcome = s3Client->HeadObject(request);
+
+    OPLOG_POST_OP("S3HeadObject", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
 	IF_UNLIKELY(!outcome.IsSuccess() )
 	{
@@ -4633,7 +4875,11 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 	request.WithBucket(bucketName)
 		.WithKey(objectName);
 
+	OPLOG_PRE_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0);
+
 	S3::DeleteObjectOutcome outcome = s3Client->DeleteObject(request);
+
+    OPLOG_POST_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
 	IF_UNLIKELY(!outcome.IsSuccess() &&
 		(!ignoreDelErrors ||
@@ -4695,7 +4941,13 @@ void LocalWorker::s3ModeListObjects()
 			if(!nextContinuationToken.empty() )
 				request.SetContinuationToken(nextContinuationToken);
 
+			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+				request.GetMaxKeys() );
+
 			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
+
+            OPLOG_POST_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+                outcome.GetResult().GetKeyCount(), !outcome.IsSuccess() );
 
 			IF_UNLIKELY(!outcome.IsSuccess() )
 			{
@@ -4831,7 +5083,13 @@ void LocalWorker::s3ModeListObjParallel()
 			if(!nextContinuationToken.empty() )
 				request.SetContinuationToken(nextContinuationToken);
 
+			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + currentListPrefix, 0,
+				request.GetMaxKeys() );
+
 			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
+
+			OPLOG_POST_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + currentListPrefix, 0,
+			    outcome.GetResult().GetKeyCount(), !outcome.IsSuccess() );
 
 			IF_UNLIKELY(!outcome.IsSuccess() )
 			{
@@ -4981,7 +5239,13 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 			if(!nextContinuationToken.empty() )
 				listRequest.SetContinuationToken(nextContinuationToken);
 
+			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+				numObjectsPerRequest);
+
 			S3::ListObjectsV2Outcome listOutcome = s3Client->ListObjectsV2(listRequest);
+
+            OPLOG_POST_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+                listOutcome.GetResult().GetKeyCount(), !listOutcome.IsSuccess() );
 
 			IF_UNLIKELY(!listOutcome.IsSuccess() )
 			{
@@ -5076,7 +5340,11 @@ void LocalWorker::s3ModePutObjectAcl(std::string bucketName, std::string objectN
 		.WithKey(objectName)
 		.SetAccessControlPolicy(acp);
 
+	OPLOG_PRE_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0);
+
 	S3::PutObjectAclOutcome outcome = s3Client->PutObjectAcl(request);
+
+    OPLOG_POST_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
 	IF_UNLIKELY(!outcome.IsSuccess() )
 	{
@@ -5109,7 +5377,11 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 	request.WithBucket(bucketName)
 		.WithKey(objectName);
 
+	OPLOG_PRE_OP("S3GetObjectAcl", bucketName + "/" + objectName, 0, 0);
+
 	S3::GetObjectAclOutcome outcome = s3Client->GetObjectAcl(request);
+
+    OPLOG_POST_OP("S3GetObjectAcl", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
 	IF_UNLIKELY(!outcome.IsSuccess() )
 	{
@@ -5270,7 +5542,11 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 	const bool useMmap = progArgs->getUseMmap();
 	const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
 
+    OPLOG_PRE_OP("openat", currentPath, 0, 0);
+
 	int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
+
+    OPLOG_POST_OP("openat", currentPath, 0, 0, fd == -1);
 
 	IF_UNLIKELY(fd == -1)
 		throw WorkerException(std::string("File open failed. ") +
@@ -5329,7 +5605,11 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 			fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 		}
 
-		int closeRes = close(fd);
+        OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+        int closeRes = close(fd);
+
+        OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 		if(closeRes == -1)
 			ERRLOGGER(Log_NORMAL, "File close failed. " <<
