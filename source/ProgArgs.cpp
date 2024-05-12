@@ -474,10 +474,12 @@ void ProgArgs::defineAllowedArgs()
 			"permissions.")
 /*s3b*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
 			"Do bucket Stats.")
-/*s3b*/	(ARG_S3STATDIRSINLINE_LONG, bpo::bool_switch(&this->doS3BucketTaggingInline),
-			"PUT/GET/DELETE bucket tagging.")
-/*s3b*/	(ARG_S3STATDIRSINLINEVERIFY_LONG, bpo::bool_switch(&this->doS3BucketTaggingInlineVerify),
-            "do bucket tagging verification.")
+/*s3b*/	(ARG_S3TAGINLINE_LONG, bpo::bool_switch(&this->doS3TagInline),
+			"Activate inline tagging in other benchmarking phases: "
+            "Adding of bucket tags in create bucket phase, "
+            "reading of tags in stat bucket phase and deletion of tags in delete bucket phase.")
+/*s3b*/	(ARG_S3TAGINLINEVERIFY_LONG, bpo::bool_switch(&this->doS3TagInlineVerify),
+            "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3TAGINLINE_LONG "\")")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -745,8 +747,8 @@ void ProgArgs::defineDefaults()
 	this->doS3AclVerify = false;
 	this->runS3BucketAclPut = false;
 	this->runS3BucketAclGet = false;
-	this->doS3BucketTaggingInline = false;
-	this->doS3BucketTaggingInlineVerify = false;
+	this->doS3TagInline = false;
+	this->doS3TagInlineVerify = false;
 }
 
 /**
@@ -2939,7 +2941,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3AclVerify = tree.get<bool>(ARG_S3ACLVERIFY_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
-    doS3BucketTaggingInline = tree.get<bool>(ARG_S3STATDIRSINLINE_LONG);
+    doS3TagInline = tree.get<bool>(ARG_S3TAGINLINE_LONG);
+    doS3TagInlineVerify = tree.get<bool>(ARG_S3TAGINLINEVERIFY_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);

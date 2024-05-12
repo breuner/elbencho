@@ -153,8 +153,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3TRANSMAN_LONG			"s3transman"
 #define ARG_S3STATDIRS_LONG          "s3statdirs"
-#define ARG_S3STATDIRSINLINE_LONG    "s3statdirsinline"
-#define ARG_S3STATDIRSINLINEVERIFY_LONG     "s3statdirsinlineverify"
+#define ARG_S3TAGINLINE_LONG        "s3taginline"
+#define ARG_S3TAGINLINEVERIFY_LONG      "s3taginlineverify"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -328,8 +328,8 @@ class ProgArgs
 		bool doS3AclVerify; // verify that acl contains given grantee and permissions
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doStatInline; // true to stat immediately after creation while file still open
-		bool doS3BucketTaggingInline; // add bucket tagging ops during bucket different operations
-		bool doS3BucketTaggingInlineVerify; // do bucket tagging verification.
+		bool doS3TagInline; // add bucket tagging ops during bucket different operations
+		bool doS3TagInlineVerify; // do bucket tagging verification.
 		bool doTruncate; // truncate files to 0 size on open for writing
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
@@ -404,7 +404,7 @@ class ProgArgs
 		bool runS3AclPut; // change object acl
 		bool runS3BucketAclGet; // retrieve bucket acl
 		bool runS3BucketAclPut; // change bucket acl
-        bool runS3StatDirs; // retrieve bucket HEAD (and other bucket MD ops, goes well with doS3BucketTaggingInline)
+        bool runS3StatDirs; // retrieve bucket HEAD (and other bucket MD ops, goes well with doS3TagInline)
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
@@ -548,8 +548,8 @@ class ProgArgs
         bool getDoReadInline() const { return doReadInline; }
         bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
         bool getDoStatInline() const { return doStatInline; }
-        bool getDoS3BucketTaggingInline() const { return doS3BucketTaggingInline; }
-        bool getDoS3BucketTaggingInlineVerify() const { return doS3BucketTaggingInlineVerify; }
+        bool getDoS3TagInline() const { return doS3TagInline; }
+        bool getDoS3TagInlineVerify() const { return doS3TagInlineVerify; }
         bool getDoS3AclVerify() const { return doS3AclVerify; }
         bool getDoTruncate() const { return doTruncate; }
         bool getDoTruncToSize() const { return doTruncToSize; }

@@ -3320,7 +3320,7 @@ void LocalWorker::s3ModeIterateBuckets()
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	const size_t numBuckets = bucketVec.size();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
-    const bool doS3BucketTaggingInline = progArgs->getDoS3BucketTaggingInline();
+    const bool doS3TagInline = progArgs->getDoS3TagInline();
 
     workerGotPhaseWork = false; // not all workers might get work
 
@@ -3338,7 +3338,7 @@ void LocalWorker::s3ModeIterateBuckets()
         {
 			s3ModeCreateBucket(bucketVec[bucketIndex] );
 
-            if(doS3BucketTaggingInline)
+            if(doS3TagInline)
 			    s3ModeCreateBucketTagging(bucketVec[bucketIndex] );
         }
 
@@ -3352,14 +3352,14 @@ void LocalWorker::s3ModeIterateBuckets()
         {
             s3ModeHeadBucket(bucketVec[bucketIndex] );
 
-            if (doS3BucketTaggingInline)
+            if (doS3TagInline)
                 s3ModeGetBucketTagging(bucketVec[bucketIndex]);
         }
 
         // delete buckets
 		if(benchPhase == BenchPhase_DELETEDIRS)
         {
-            if (doS3BucketTaggingInline)
+            if (doS3TagInline)
                 s3ModeDeleteBucketTagging(bucketVec[bucketIndex]);
 
             s3ModeDeleteBucket(bucketVec[bucketIndex]);
@@ -3793,7 +3793,7 @@ void LocalWorker::s3ModeCreateBucketTagging(std::string bucketName)
 /*        TODO:
           verify no tags exist after delete tags (how to return tagset from GetBucketTagging)
 */
-        const bool doS3BucketTaggingInlineVerify = progArgs->getDoS3BucketTaggingInlineVerify();
+        const bool doS3TagInlineVerify = progArgs->getDoS3TagInlineVerify();
 
         S3::PutBucketTaggingRequest request;
         S3::Tagging tagging;
@@ -3830,7 +3830,7 @@ void LocalWorker::s3ModeCreateBucketTagging(std::string bucketName)
                                   "Message: " + s3Error.GetMessage());
         }
 
-        IF_UNLIKELY(doS3BucketTaggingInlineVerify )
+        IF_UNLIKELY(doS3TagInlineVerify)
             s3ModeGetBucketTagging(bucketName);
     }
 
@@ -3849,7 +3849,7 @@ void LocalWorker::s3ModeGetBucketTagging(std::string bucketName) {
     {
         // Get bucket tagging
         const auto &bucket = bucketName;
-        const bool doS3BucketTaggingInlineVerify = progArgs->getDoS3BucketTaggingInlineVerify();
+        const bool doS3TagInlineVerify = progArgs->getDoS3TagInlineVerify();
 
         S3::GetBucketTaggingRequest requestGet;
         requestGet.SetBucket(bucket);
@@ -3867,7 +3867,7 @@ void LocalWorker::s3ModeGetBucketTagging(std::string bucketName) {
         const auto &tags = outcome.GetResult().GetTagSet();
 
         for (const auto &tagSet: tags) {
-            IF_UNLIKELY(doS3BucketTaggingInlineVerify )
+            IF_UNLIKELY(doS3TagInlineVerify)
             {
                 bool tagVerifySuccess = StringTk::verifyRandomS3TagValue(
                         tagSet.GetValue(),
