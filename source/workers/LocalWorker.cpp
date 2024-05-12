@@ -325,7 +325,9 @@ void LocalWorker::preparePhase()
 
     opsLog.openLogFile();
 
+#ifdef S3_SUPPORT
     s3SharedUploadStore.setProgArgs(progArgs);
+#endif // S3_SUPPORT
 
     initThreadFDVec();
     initThreadCuFileHandleDataVec();
