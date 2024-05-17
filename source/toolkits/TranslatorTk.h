@@ -7,7 +7,10 @@
 #include "ProgArgs.h"
 
 #ifdef S3_SUPPORT
-	#include <aws/s3/model/PutObjectAclRequest.h>
+    #include <aws/s3/model/PutObjectAclRequest.h>
+    #include <aws/s3/model/PutBucketAclRequest.h>
+	#include <aws/s3/model/PutObjectRequest.h>
+    #include <aws/s3/model/ObjectCannedACL.h>
 #endif // S3_SUPPORT
 
 
@@ -39,8 +42,13 @@ class TranslatorTk
 		static void eraseEmptyStringsFromVec(StringVec& inoutVec);
 
 #ifdef S3_SUPPORT
+        template <typename S3CANNEDACLTYPE, typename S3REQUEST>
+        static void applyS3PutAclRequestGrants(const ProgArgs* progArgs, S3REQUEST& outRequest);
 		static void getS3ObjectAclGrants(const ProgArgs* progArgs,
 			Aws::Vector<S3::Grant>& outGrants);
+        template <typename S3REQUEST>
+		static void applyS3PutObjectAclGrants(const ProgArgs* progArgs, S3REQUEST& outRequest);
+        static std::string s3CannedACLFromStr(const std::string& cannedAclStr);
 		static std::string s3AclPermissionToStr(const S3::Permission& s3Permission);
 #endif // S3_SUPPORT
 

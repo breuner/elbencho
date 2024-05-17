@@ -115,6 +115,7 @@ _elbencho_opts()
         --s3aclgrants
         --s3aclgtype
         --s3aclput
+        --s3aclputinl
         --s3aclverify
         --s3baclget
         --s3baclput

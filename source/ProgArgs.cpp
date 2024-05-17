@@ -169,8 +169,12 @@ void ProgArgs::defineAllowedArgs()
 			"Use alternative implementation of HTTP service (for testing).")
 #endif // ALTHTTPSVC_SUPPORT
 /*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
-			"Number of bytes to read/write in a single operation. (Default: 1M; "
-			"supports base2 suffixes, e.g. \"2M\")")
+			"Number of bytes to read/write in a single operation. "
+#ifdef S3_SUPPORT
+			"For S3, this defines the multipart upload size and the ranged read size. Multipart "
+			"uploads will automatically be used if object size is larger than this block size. "
+#endif // S3_SUPPORT
+			"(Default: 1M; supports base2 suffixes, e.g. \"2M\")")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
@@ -456,7 +460,9 @@ void ProgArgs::defineAllowedArgs()
 /*s3a*/	(ARG_S3ACLGET_LONG, bpo::bool_switch(&this->runS3AclGet),
 			"Get S3 object ACLs.")
 /*s3a*/	(ARG_S3ACLGRANTEE_LONG, bpo::value(&this->s3AclGrantee),
-			"S3 object ACL grantee.")
+			"S3 object ACL grantee. This can be used to special values to set a canned ACL, in "
+			"which case the grantee type and permissions arguments be ignored: private, "
+			"public-read, public-read-write, authenticated-read")
 /*s3a*/	(ARG_S3ACLGRANTEETYPE_LONG, bpo::value(&this->s3AclGranteeType),
 			"S3 object ACL grantee type. Possible values: "
 			ARG_S3ACL_GRANTEE_TYPE_ID ", " ARG_S3ACL_GRANTEE_TYPE_EMAIL ", "
@@ -469,6 +475,10 @@ void ProgArgs::defineAllowedArgs()
 /*s3a*/	(ARG_S3ACLPUT_LONG, bpo::bool_switch(&this->runS3AclPut),
 			"Put S3 object ACLs. This requires definition of grantee, grantee type and "
 			"permissions.")
+/*s3a*/ (ARG_S3ACLPUTINLINE_LONG, bpo::bool_switch(&this->doS3AclPutInline),
+            "Set S3 object ACL inlined in object upload. This requires definition of grantee and "
+            "permissions. Grantee type is specified as part of the grantee name: "
+            "\"emailAddress=example@myorg.org\" or \"id=123\" or \"uri=...\".")
 /*s3a*/	(ARG_S3ACLVERIFY_LONG, bpo::bool_switch(&this->doS3AclVerify),
 			"Verify S3 object and bucket ACLs based on given grantee, grantee type and "
 			"permissions. This only effective in the corresponding get object or bucket ACL "
@@ -743,6 +753,7 @@ void ProgArgs::defineDefaults()
 	this->runS3AclPut = false;
 	this->runS3AclGet = false;
 	this->doS3AclVerify = false;
+    this->doS3AclPutInline = false;
 	this->runS3BucketAclPut = false;
 	this->runS3BucketAclGet = false;
 	this->useOpsLogLocking = false;
@@ -2643,7 +2654,9 @@ void ProgArgs::printHelpS3()
 		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
 			"Object size. (Default: 0)")
 		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
-			"Number of bytes to read/write in a single operation. (Default: 1M)")
+            "The part size for uploads and the ranged read size for downloads. Multipart upload "
+            "will automatically be used if object size is larger than part size. "
+			"(Default: 1M)")
     ;
 
     std::cout << argsS3BasicDescription << std::endl;
@@ -2935,6 +2948,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doPreallocFile = tree.get<bool>(ARG_PREALLOCFILE_LONG);
 	doReadInline = tree.get<bool>(ARG_READINLINE_LONG);
 	doReverseSeqOffsets = tree.get<bool>(ARG_REVERSESEQOFFSETS_LONG);
+    doS3AclPutInline = tree.get<bool>(ARG_S3ACLPUTINLINE_LONG);
 	doS3AclVerify = tree.get<bool>(ARG_S3ACLVERIFY_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
@@ -3117,6 +3131,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3ACLGRANTEETYPE_LONG, s3AclGranteeType);
 	outTree.put(ARG_S3ACLGRANTS_LONG, s3AclGranteePermissions);
 	outTree.put(ARG_S3ACLPUT_LONG, runS3AclPut);
+    outTree.put(ARG_S3ACLPUTINLINE_LONG, doS3AclPutInline);
 	outTree.put(ARG_S3ACLVERIFY_LONG, doS3AclVerify);
 	outTree.put(ARG_S3BUCKETACLGET_LONG, runS3BucketAclGet);
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);

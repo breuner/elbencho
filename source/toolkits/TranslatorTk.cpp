@@ -583,6 +583,54 @@ void TranslatorTk::eraseEmptyStringsFromVec(StringVec& inoutVec)
 
 #ifdef S3_SUPPORT
 
+
+/**
+ * Apply ACL grantee and grants given in progArgs to S3 upload request. Grantee can also be the
+ * special name of a canned ACL.
+ *
+ * NOTE: See definitions below this function to teach the linker about new template arguments.
+ *
+ * @outRequest the s3 object upload request (PutObjectAcl or PutBucketAcl) to which to apply the
+ *      user-defined s3 object acl grantee and permission values in progArgs.
+ * @throws WorkerException on error (e.g. unknown/invalid user-defined values found).
+ */
+template <typename S3CANNEDACLTYPE, typename S3REQUEST>
+void TranslatorTk::applyS3PutAclRequestGrants(const ProgArgs* progArgs, S3REQUEST& outRequest)
+{
+    const std::string granteeStr = progArgs->getS3AclGrantee();
+    const std::string permissionsStr = progArgs->getS3AclGranteePermissions();
+
+    S3CANNEDACLTYPE cannedAcl =
+        (S3CANNEDACLTYPE)S3::ObjectCannedACLMapper::GetObjectCannedACLForName(granteeStr);
+
+    if( ( (S3::ObjectCannedACL)cannedAcl) != S3::ObjectCannedACL::NOT_SET)
+    { // found canned ACL as special grantee
+        outRequest.SetACL(cannedAcl);
+        return;
+    }
+
+    Aws::Vector<S3::Grant> grants;
+
+    TranslatorTk::getS3ObjectAclGrants(progArgs, grants);
+
+    if(grants.empty() )
+        throw WorkerException("Undefined/unknown S3 ACL permission type: "
+            "'" + progArgs->getS3AclGranteePermissions() + "'");
+
+    S3::AccessControlPolicy acp;
+    acp.SetGrants(grants);
+
+    outRequest.SetAccessControlPolicy(acp);
+}
+
+// teach the linker which template instantiation we need so that definition can be in cpp file
+template void TranslatorTk::applyS3PutAclRequestGrants
+    <S3::ObjectCannedACL, S3::PutObjectAclRequest>(
+    const ProgArgs* progArgs, S3::PutObjectAclRequest& outRequest);
+template void TranslatorTk::applyS3PutAclRequestGrants
+    <S3::BucketCannedACL, S3::PutBucketAclRequest>(
+    const ProgArgs* progArgs, S3::PutBucketAclRequest& outRequest);
+
 /**
  * Convert grantee and grants given in progArgs into grants for S3 request.
  *
@@ -592,29 +640,32 @@ void TranslatorTk::eraseEmptyStringsFromVec(StringVec& inoutVec)
  */
 void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3::Grant>& outGrants)
 {
-	Aws::S3::Model::Grantee grantee;
+    const std::string granteeStr = progArgs->getS3AclGrantee();
+    const std::string permissionsStr = progArgs->getS3AclGranteePermissions();
 
 	// set grantee...
+
+    S3::Grantee grantee;
 
 	if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_EMAIL)
 	{
 		grantee.SetType(S3::Type::AmazonCustomerByEmail);
-		grantee.SetEmailAddress(progArgs->getS3AclGrantee());
+		grantee.SetEmailAddress(granteeStr);
 	}
 	else if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_ID)
 	{
 		grantee.SetType(S3::Type::CanonicalUser);
-		grantee.SetID(progArgs->getS3AclGrantee());
+		grantee.SetID(granteeStr);
 	}
 	else if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_URI)
 	{
 		grantee.SetType(S3::Type::CanonicalUser);
-		grantee.SetURI(progArgs->getS3AclGrantee());
+		grantee.SetURI(granteeStr);
 	}
 	else if(progArgs->getS3AclGranteeType() == ARG_S3ACL_GRANTEE_TYPE_GROUP)
 	{
 		grantee.SetType(S3::Type::Group);
-		grantee.SetURI(progArgs->getS3AclGrantee());
+		grantee.SetURI(granteeStr);
 	}
 	else
 		throw WorkerException("Undefined/unknown S3 ACL grantee type: "
@@ -623,7 +674,7 @@ void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3
 
 	// add grantee's permissions to outGrants...
 
-	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FULL_NAME) != std::string::npos)
+	if(permissionsStr.find(ARG_S3ACL_PERM_FULL_NAME) != std::string::npos)
 	{
 		S3::Grant grant;
 
@@ -635,7 +686,7 @@ void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3
 		return;
 	}
 
-	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_NONE_NAME) != std::string::npos)
+	if(permissionsStr.find(ARG_S3ACL_PERM_NONE_NAME) != std::string::npos)
 	{
 		S3::Grant grant;
 
@@ -647,7 +698,7 @@ void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3
 		return;
 	}
 
-	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_READ_NAME) !=
+	if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_READ_NAME) !=
 		std::string::npos)
 	{
 		S3::Grant grant;
@@ -658,7 +709,7 @@ void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3
 		outGrants.push_back(grant);
 	}
 
-	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_WRITE_NAME) !=
+	if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_WRITE_NAME) !=
 		std::string::npos)
 	{
 		S3::Grant grant;
@@ -669,7 +720,7 @@ void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3
 		outGrants.push_back(grant);
 	}
 
-	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_READACP_NAME) !=
+	if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_READACP_NAME) !=
 		std::string::npos)
 	{
 		S3::Grant grant;
@@ -680,7 +731,7 @@ void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3
 		outGrants.push_back(grant);
 	}
 
-	if(progArgs->getS3AclGranteePermissions().find(ARG_S3ACL_PERM_FLAG_WRITEACP_NAME) !=
+	if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_WRITEACP_NAME) !=
 		std::string::npos)
 	{
 		S3::Grant grant;
@@ -691,6 +742,79 @@ void TranslatorTk::getS3ObjectAclGrants(const ProgArgs* progArgs, Aws::Vector<S3
 		outGrants.push_back(grant);
 	}
 }
+
+/**
+ * Apply ACL grantee and grants given in progArgs to S3 upload request. Grantee can also be the
+ * special name of a canned ACL.
+ *
+ * NOTE: See definitions below this function to teach the linker about new template arguments.
+ *
+ * @outRequest the s3 object upload request (PutObjectRequest or CreateMultipartUploadRequest) to
+ *      which to apply the user-defined s3 object acl grantee and permission values in progArgs.
+ * @throws WorkerException on error (e.g. unknown/invalid user-defined values found).
+ */
+template <typename S3REQUEST>
+void TranslatorTk::applyS3PutObjectAclGrants(const ProgArgs* progArgs, S3REQUEST& outRequest)
+{
+    const std::string granteeStr = progArgs->getS3AclGrantee();
+    const std::string permissionsStr = progArgs->getS3AclGranteePermissions();
+
+    // check if grantee matches a canned acl...
+
+    S3::ObjectCannedACL cannedAcl = S3::ObjectCannedACLMapper::GetObjectCannedACLForName(
+        granteeStr);
+
+    if(cannedAcl!= S3::ObjectCannedACL::NOT_SET)
+    { // found canned ACL as special grantee
+        outRequest.SetACL(cannedAcl);
+        return;
+    }
+
+    // add permissions for given grantee...
+
+    if(permissionsStr.find(ARG_S3ACL_PERM_FULL_NAME) != std::string::npos)
+    {
+        outRequest.SetGrantFullControl(granteeStr);
+
+        return;
+    }
+
+    if(permissionsStr.find(ARG_S3ACL_PERM_NONE_NAME) != std::string::npos)
+    {
+        // nothing to do
+        return;
+    }
+
+    if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_READ_NAME) !=
+        std::string::npos)
+    {
+        outRequest.SetGrantRead(granteeStr);
+    }
+
+    if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_WRITE_NAME) !=
+        std::string::npos)
+    {
+        throw WorkerException("Setting a write grant is not supported for inline S3 ACLs.");
+    }
+
+    if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_READACP_NAME) !=
+        std::string::npos)
+    {
+        outRequest.SetGrantReadACP(granteeStr);
+    }
+
+    if(permissionsStr.find(ARG_S3ACL_PERM_FLAG_WRITEACP_NAME) !=
+        std::string::npos)
+    {
+        outRequest.SetGrantWriteACP(granteeStr);
+    }
+}
+
+// teach the linker which template instantiation we need so that definition can be in cpp file
+template void TranslatorTk::applyS3PutObjectAclGrants<S3::PutObjectRequest>(
+    const ProgArgs* progArgs, S3::PutObjectRequest& outRequest);
+template void TranslatorTk::applyS3PutObjectAclGrants<S3::CreateMultipartUploadRequest>(
+    const ProgArgs* progArgs, S3::CreateMultipartUploadRequest& outRequest);
 
 std::string TranslatorTk::s3AclPermissionToStr(const S3::Permission& s3Permission)
 {

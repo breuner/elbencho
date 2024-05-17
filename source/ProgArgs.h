@@ -140,6 +140,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3ACLGRANTEETYPE_LONG	"s3aclgtype"
 #define ARG_S3ACLGRANTS_LONG		"s3aclgrants"
 #define ARG_S3ACLPUT_LONG			"s3aclput"
+#define ARG_S3ACLPUTINLINE_LONG     "s3aclputinl"
 #define ARG_S3ACLVERIFY_LONG		"s3aclverify"
 #define ARG_S3BUCKETACLGET_LONG		"s3baclget"
 #define ARG_S3BUCKETACLPUT_LONG		"s3baclput"
@@ -329,6 +330,7 @@ class ProgArgs
 		bool doPreallocFile; // prealloc file space on creation via posix_fallocate()
 		bool doReadInline; // true to read immediately after creation while file still open
 		bool doReverseSeqOffsets; // backwards sequential read/write
+        bool doS3AclPutInline; // set object acl during PutObject
 		bool doS3AclVerify; // verify that acl contains given grantee and permissions
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doStatInline; // true to stat immediately after creation while file still open
@@ -548,6 +550,7 @@ class ProgArgs
         bool getDoReadInline() const { return doReadInline; }
         bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
         bool getDoStatInline() const { return doStatInline; }
+        bool getDoS3AclPutInline() const { return doS3AclPutInline; }
         bool getDoS3AclVerify() const { return doS3AclVerify; }
         bool getDoTruncate() const { return doTruncate; }
         bool getDoTruncToSize() const { return doTruncToSize; }

@@ -77,7 +77,8 @@ typedef S3UploadMap::const_iterator S3UploadMapConstIter;
  * progress to know when to send the upload completion request (or which partial multipart uploads
  * to cancel in case of interruption).
  *
- * ProgArgs pointer needs to be initialized in woker run() prep phase for ops logging.
+ * ProgArgs pointer needs to be initialized in woker run() prep phase before using this for any
+ * S3 request.
  */
 class S3UploadStore
 {

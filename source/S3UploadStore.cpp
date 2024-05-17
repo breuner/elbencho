@@ -3,9 +3,10 @@
 #include "ProgArgs.h"
 #include "S3UploadStore.h"
 #include "toolkits/OpsLogger.h"
+#include "toolkits/TranslatorTk.h"
 
 /**
- * Initialize progArgs pointer for ops logging.
+ * Initialize progArgs pointer. This has to be done before doing an S3 request.
  */
 void S3UploadStore::setProgArgs(const ProgArgs* progArgs)
 {
@@ -30,11 +31,16 @@ std::string S3UploadStore::getMultipartUploadID(const std::string& bucketName,
 	if(iter != map.end() )
 		return iter->second.uploadID;
 
-	// no uploadID for this object yet, so get one from S3 server
+	// no uploadID for this object yet, so get one from S3 server...
+
+    const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 
 	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
+
+    if(doS3AclPutInline)
+        TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
 
     OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
 

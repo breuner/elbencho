@@ -120,6 +120,8 @@ int FileTk::mkdiratBottomUp(int dirFD, const char* path, mode_t mode)
 /**
  * Call posix_fadvise() with all advices given in flags on the whole file range.
  *
+ * NOTE: See definitions below this function to teach the linker about new template arguments.
+ *
  * @fd file descriptor.
  * @progArgsFadvsiseFlags combination of ARG_FADVISE_FLAG_...
  * @path only used for error messages.
@@ -203,6 +205,8 @@ template void FileTk::fadvise<WorkerException>(int fd, unsigned progArgsFadviseF
 
 /**
  * Call posix_fadvise() with all advices given in flags on the whole file range.
+ *
+ * NOTE: See definitions below this function to teach the linker about new template arguments.
  *
  * @length as in man mmap().
  * @protect  as in man mmap().

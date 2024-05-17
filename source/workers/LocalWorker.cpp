@@ -3949,20 +3949,10 @@ void LocalWorker::s3ModePutBucketAcl(std::string bucketName)
 	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
 #else
 
-    Aws::Vector<S3::Grant> grants;
-
-    TranslatorTk::getS3ObjectAclGrants(progArgs, grants);
-
-	if(grants.empty() )
-		throw WorkerException("Undefined/unknown S3 ACL permission type: "
-			"'" + progArgs->getS3AclGranteePermissions() + "'");
-
-    S3::AccessControlPolicy acp;
-    acp.SetGrants(grants);
-
 	S3::PutBucketAclRequest request;
-	request.WithBucket(bucketName)
-		.SetAccessControlPolicy(acp);
+	request.WithBucket(bucketName);
+
+    TranslatorTk::applyS3PutAclRequestGrants<S3::BucketCannedACL>(progArgs, request);
 
 	OPLOG_PRE_OP("S3PutBucketAcl", bucketName, 0, 0);
 
@@ -3996,6 +3986,8 @@ void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
 	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
 #else
 
+	bool doS3AclVerify = progArgs->getDoS3AclVerify();
+
 	S3::GetBucketAclRequest request;
 	request.WithBucket(bucketName);
 
@@ -4017,8 +4009,18 @@ void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
 			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
-	IF_UNLIKELY(progArgs->getDoS3AclVerify() )
+	IF_UNLIKELY(doS3AclVerify)
 	{
+        // check canned ACL as special grantee...
+
+        S3::BucketCannedACL cannedAcl = S3::BucketCannedACLMapper::GetBucketCannedACLForName(
+            progArgs->getS3AclGrantee() );
+
+        if(cannedAcl != S3::BucketCannedACL::NOT_SET)
+            throw WorkerException("Verification of canned ACLs is not supported.");
+
+        // check list of grants...
+
 		std::vector<S3::Grant> verifyGrants;
 		TranslatorTk::getS3ObjectAclGrants(progArgs, verifyGrants);
 
@@ -4077,6 +4079,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 
 	std::shared_ptr<Aws::IOStream> s3MemStream;
 	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
@@ -4104,6 +4107,9 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	if(blockSize)
 		request.SetBody(s3MemStream);
+
+	if(doS3AclPutInline)
+	    TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
 
 	request.SetDataSentEventHandler(
 		[&](const Aws::Http::HttpRequest* request, long long numBytes)
@@ -4166,13 +4172,18 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+    const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+
 	// S T E P 1: retrieve multipart upload ID from server
 
 	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
-	OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
+    if(doS3AclPutInline)
+        TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
+
+    OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
 
 	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
 		createMultipartUploadRequest);
@@ -5326,21 +5337,11 @@ void LocalWorker::s3ModePutObjectAcl(std::string bucketName, std::string objectN
 	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
 #else
 
-    Aws::Vector<S3::Grant> grants;
-
-    TranslatorTk::getS3ObjectAclGrants(progArgs, grants);
-
-	if(grants.empty() )
-		throw WorkerException("Undefined/unknown S3 ACL permission type: "
-			"'" + progArgs->getS3AclGranteePermissions() + "'");
-
-    S3::AccessControlPolicy acp;
-    acp.SetGrants(grants);
-
 	S3::PutObjectAclRequest request;
 	request.WithBucket(bucketName)
-		.WithKey(objectName)
-		.SetAccessControlPolicy(acp);
+		.WithKey(objectName);
+
+    TranslatorTk::applyS3PutAclRequestGrants<S3::ObjectCannedACL>(progArgs, request);
 
 	OPLOG_PRE_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0);
 
@@ -5375,6 +5376,8 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
 #else
 
+    bool doS3AclVerify = progArgs->getDoS3AclVerify();
+
 	S3::GetObjectAclRequest request;
 	request.WithBucket(bucketName)
 		.WithKey(objectName);
@@ -5398,8 +5401,18 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
-	IF_UNLIKELY(progArgs->getDoS3AclVerify() )
+	IF_UNLIKELY(doS3AclVerify)
 	{
+        // check canned ACL as special grantee...
+
+	    S3::ObjectCannedACL cannedAcl = S3::ObjectCannedACLMapper::GetObjectCannedACLForName(
+	        progArgs->getS3AclGrantee() );
+
+	    if(cannedAcl != S3::ObjectCannedACL::NOT_SET)
+	        throw WorkerException("Verification of canned ACLs is not supported.");
+
+	    // check list of grants...
+
 		std::vector<S3::Grant> verifyGrants;
 		TranslatorTk::getS3ObjectAclGrants(progArgs, verifyGrants);
 
