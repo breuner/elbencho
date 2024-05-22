@@ -496,6 +496,8 @@ void ProgArgs::defineAllowedArgs()
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
 			"GPU data transfer.")
+/*s3f*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
+			"Ignore any S3 upload/download errors. Useful for stress-testing.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
 			"S3 access key.")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
@@ -708,6 +710,7 @@ void ProgArgs::defineDefaults()
 	this->treeRoundUpSizeOrigStr = "0";
 	this->useS3FastRead = false;
 	this->useS3TransferManager = false;
+	this->ignoreS3Errors = false;
 	this->s3LogLevel = 0;
 	this->s3LogfilePrefix = AWS_SDK_LOGPREFIX_DEFAULT;
 	this->noDirectIOCheck = false;
@@ -2960,6 +2963,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	gpuIDsStr = tree.get<std::string>(ARG_GPUIDS_LONG);
 	ignore0USecErrors = tree.get<bool>(ARG_IGNORE0USECERR_LONG);
 	ignoreDelErrors = tree.get<bool>(ARG_IGNOREDELERR_LONG);
+	ignoreS3Errors = tree.get<bool>(ARG_S3IGNOREERRORS_LONG);
 	integrityCheckSalt = tree.get<uint64_t>(ARG_INTEGRITYCHECK_LONG);
 	ioDepth = tree.get<size_t>(ARG_IODEPTH_LONG);
 	limitReadBps = tree.get<uint64_t>(ARG_LIMITREAD_LONG);
@@ -3137,6 +3141,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
+	outTree.put(ARG_S3IGNOREERRORS_LONG, ignoreS3Errors);
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);

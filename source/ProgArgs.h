@@ -146,6 +146,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETACLPUT_LONG		"s3baclput"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
+#define ARG_S3IGNOREERRORS_LONG	"s3ignoreerrors"
 #define ARG_S3LISTOBJ_LONG			"s3listobj"
 #define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
@@ -351,6 +352,7 @@ class ProgArgs
 		std::string hostsStr; // list of service hosts, element format is hostname[:port]
 		bool ignore0USecErrors; // ignore worker completion in less than 1 millisecond
 		bool ignoreDelErrors; // ignore ENOENT errors on file/dir deletion
+		bool ignoreS3Errors; // ignore S3 get/put errors, useful for stress-testing
 		bool ignoreS3PartNum; // don't check for >10K parts in multi-part uploads
 		size_t ioDepth; // depth of io queue per thread for libaio
 		uint64_t integrityCheckSalt; // salt to add to data integrity checksum (0 disables check)
@@ -568,6 +570,7 @@ class ProgArgs
 		const StringVec& getHostsVec() const { return hostsVec; }
         bool getIgnore0USecErrors() const { return ignore0USecErrors; }
         bool getIgnoreDelErrors() const { return ignoreDelErrors; }
+        bool getIgnoreS3Errors() const { return ignoreS3Errors; }
         bool getIgnoreS3PartNum() const { return ignoreS3PartNum; }
         uint64_t getIntegrityCheckSalt() const { return integrityCheckSalt; }
         size_t getIODepth() const { return ioDepth; }
