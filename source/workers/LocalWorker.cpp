@@ -4080,6 +4080,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
 	std::shared_ptr<Aws::IOStream> s3MemStream;
 	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
@@ -4131,13 +4132,15 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	{
 		auto s3Error = outcome.GetError();
 
-		throw WorkerException(std::string("Object upload failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		if (!ignoreS3Errors) {
+			throw WorkerException(std::string("Object upload failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		}
 	}
 
 	if(blockSize)
@@ -4616,6 +4619,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 #else
 
 	const bool useS3FastRead = progArgs->getUseS3FastRead();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
 	// download one block-sized chunk in each loop pass
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
@@ -4676,14 +4680,16 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		{
 			auto s3Error = outcome.GetError();
 
-			throw WorkerException(std::string("Object download failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Range: " + objectRange + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() + "; " +
-				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+			if (!ignoreS3Errors) {
+				throw WorkerException(std::string("Object download failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Range: " + objectRange + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+			}
 		}
 
 		IF_UNLIKELY( (size_t)outcome.GetResult().GetContentLength() < blockSize)
@@ -4746,6 +4752,7 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 	const uint64_t fileOffset = rwOffsetGen->getNextOffset(); // offset within object to download
 	const uint64_t downloadBytes = rwOffsetGen->getNumBytesLeftToSubmit();
 	const size_t ioDepth = progArgs->getIODepth();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 	auto threadExecutor = std::make_unique<Aws::Utils::Threading::PooledThreadExecutor>(ioDepth);
 	uint64_t numBytesDownloaded = 0;
 	std::shared_ptr<Aws::Transfer::TransferHandle> transferHandle;
@@ -4792,12 +4799,14 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 	IF_UNLIKELY(transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED)
 	{
-		throw WorkerException(std::string("Object download failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Requested size: " + std::to_string(downloadBytes) + "; "
-			"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+		if (!ignoreS3Errors) {
+			throw WorkerException(std::string("Object download failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Requested size: " + std::to_string(downloadBytes) + "; "
+				"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+		}
 	}
 
 	IF_UNLIKELY(transferHandle->GetBytesTransferred() != downloadBytes)
