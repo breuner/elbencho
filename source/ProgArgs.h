@@ -146,7 +146,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETACLPUT_LONG		"s3baclput"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
-#define ARG_S3IGNOREERRORS_LONG	"s3ignoreerrors"
+#define ARG_S3IGNOREERRORS_LONG		"s3ignoreerrors"
 #define ARG_S3LISTOBJ_LONG			"s3listobj"
 #define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"

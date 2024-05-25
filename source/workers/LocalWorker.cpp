@@ -4132,7 +4132,8 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	{
 		auto s3Error = outcome.GetError();
 
-		if (!ignoreS3Errors) {
+		if (!ignoreS3Errors)
+		{
 			throw WorkerException(std::string("Object upload failed. ") +
 				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
@@ -4175,7 +4176,8 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-    const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
 	// S T E P 1: retrieve multipart upload ID from server
 
@@ -4198,12 +4200,15 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	{
 		auto s3Error = createMultipartUploadOutcome.GetError();
 
-		throw WorkerException(std::string("Multipart upload creation failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		if (!ignoreS3Errors)
+		{
+			throw WorkerException(std::string("Multipart upload creation failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		}
 	}
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
@@ -4274,13 +4279,16 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 			auto s3Error = uploadPartOutcome.GetError();
 
-			throw WorkerException(std::string("Multipart part upload failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Part: " + std::to_string(currentPartNum) + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
+			if (!ignoreS3Errors)
+			{
+				throw WorkerException(std::string("Multipart part upload failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Part: " + std::to_string(currentPartNum) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() );
+			}
 		}
 
 		// mark part as completed
@@ -4680,7 +4688,8 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		{
 			auto s3Error = outcome.GetError();
 
-			if (!ignoreS3Errors) {
+			if (!ignoreS3Errors)
+			{
 				throw WorkerException(std::string("Object download failed. ") +
 					"Endpoint: " + s3EndpointStr + "; "
 					"Bucket: " + bucketName + "; "
@@ -4799,7 +4808,8 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 	IF_UNLIKELY(transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED)
 	{
-		if (!ignoreS3Errors) {
+		if (!ignoreS3Errors)
+		{
 			throw WorkerException(std::string("Object download failed. ") +
 				"Endpoint: " + s3EndpointStr + "; "
 				"Bucket: " + bucketName + "; "
