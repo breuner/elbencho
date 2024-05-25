@@ -496,7 +496,7 @@ void ProgArgs::defineAllowedArgs()
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
 			"GPU data transfer.")
-/*s3f*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
+/*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
 			"S3 access key.")
