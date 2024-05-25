@@ -2,7 +2,7 @@
 
 ## v3.0.8 (work in progress)
 
-### New Features & Enancements
+### New Features & Enhancements
 * Added options to read and stat files immediately after creation while they are still open. (See "--readinline" and "--statinline".)
 * Added option to sleep between test phases. (See "--phasedelay".)
 * Added option to rotate hosts list for service instances between phases to avoid caching effects. (See "--rotatehosts".)
@@ -10,7 +10,7 @@
 * Added new ops log to log all IO operations (open, read, ...). (See "--opslog").
 
 ### General Changes
-* Timestamps in csv files now include milliseconds for higher precisiomn.
+* Timestamps in csv files now include milliseconds for higher precision.
 * Updated S3 to latest AWS SDK CPP v1.11.319.
 
 ### Contributors
@@ -18,7 +18,7 @@ Thanks to Casey Peel for code contributions. Thanks to Andy Black and Github use
 
 ## v3.0.7 (March 21, 2024)
 
-### New Features & Enancements
+### New Features & Enhancements
 * Added new multi-arch (ARM64 & x86_64) docker container with CUDA/GDS support.
 * If an S3 object prefix contains a sequence of three or more '%' chars, this sequence will now get replaced by a random hex string of the same length.
 * New option to specify a custom path and prefix for AWS S3 SDK log file: "--s3logprefix".
