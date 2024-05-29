@@ -4071,10 +4071,10 @@ void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
  * @throw WorkerException on error.
  */
 void LocalWorker::s3ModeGetBucketTagging(const std::string& bucketName)
+{
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
-{
     OPLOG_PRE_OP("GetBucketTagging", bucketName, 0, 0);
 
     const auto& outcome = s3Client->GetBucketTagging(S3::GetBucketTaggingRequest().WithBucket(bucketName));
