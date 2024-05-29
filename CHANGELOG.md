@@ -8,13 +8,14 @@
 * Added option to rotate hosts list for service instances between phases to avoid caching effects. (See "--rotatehosts".)
 * Added support for S3 object and bucket ACL PUT/GET. (See "--s3aclput", "--s3aclputinl", "--s3baclput".)
 * Added new ops log to log all IO operations (open, read, ...). (See "--opslog").
+* Added new ops for S3 bucket and object tagging and object locking. (See "--s3btag", "--s3otag", "--s3olockcfg"). [STILL WORK-IN-PROGRESS]
 
 ### General Changes
 * Timestamps in csv files now include milliseconds for higher precision.
 * Updated S3 to latest AWS SDK CPP v1.11.319.
 
 ### Contributors
-Thanks to Casey Peel for code contributions. Thanks to Andy Black and Github user mhanafi1970 for helpful comments and suggestions.
+Thanks to Casey Peel, Michael Shustin, Erez Horev and Github user russki for code contributions. Thanks to Andy Black and Github user mhanafi1970 for helpful comments and suggestions.
 
 ## v3.0.7 (March 21, 2024)
 
