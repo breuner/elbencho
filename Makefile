@@ -75,8 +75,9 @@ endif
 # Dynamic or static linking
 ifeq ($(BUILD_STATIC), 1)
 LDFLAGS            += -static
+# NOTE: Alpine v3.20+ requires additional "-l cares -l zstd"
 LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec -l brotlicommon \
-	-l idn2 -l unistring -l cares -l psl -l zstd -l dl
+	-l idn2 -l unistring -l psl -l dl
 else # dynamic linking
 LDFLAGS_S3_DYNAMIC += -l curl -l ssl -l crypto -l z -l dl
 endif
@@ -312,12 +313,14 @@ endif
 
 clean-externals:
 ifdef BUILD_VERBOSE
+	rm -f $(EXTERNAL_PATH)/alpine-chroot-install
 	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server 
 	rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	rm -rf $(EXTERNAL_PATH)/mimalloc
 else
 	@echo "[DELETE] EXTERNALS"
+	@rm -f $(EXTERNAL_PATH)/alpine-chroot-install
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
 	@rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install

@@ -13,6 +13,7 @@
 ### General Changes
 * Timestamps in csv files now include milliseconds for higher precision.
 * Updated S3 to latest AWS SDK CPP v1.11.319.
+* Added new script in `build_helpers/chroot` to build static executable via Alpine chroot.
 
 ### Contributors
 Thanks to Casey Peel, Michael Shustin, Erez Horev and Github user russki for code contributions. Thanks to Andy Black and Github user mhanafi1970 for helpful comments and suggestions.
