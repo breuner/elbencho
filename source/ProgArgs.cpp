@@ -4,6 +4,7 @@
 #include <iostream>
 #include <iterator>
 #include <libgen.h>
+#include <openssl/sha.h>
 #include <string>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -593,6 +594,9 @@ void ProgArgs::defineAllowedArgs()
 			"(Hint: Try 'date +%s' to get seconds since the epoch.)")
 /*sv*/	(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
 			"Show elapsed time to completion of each service instance ordered by slowest thread.")
+/*sv*/  (ARG_SVCPASSWORDFILE_LONG, bpo::value(&this->svcPasswordFile),
+            "Path to a text file containing a single line of text as shared secret between service "
+            "instances and master. This is to prevent unauthorized requests to service instances.")
 /*sv*/	(ARG_SVCUPDATEINTERVAL_LONG, bpo::value(&this->svcUpdateIntervalMS),
 			"Update retrieval interval for service hosts in milliseconds. (Default: 500)")
 /*sy*/	(ARG_SYNCPHASE_LONG, bpo::bool_switch(&this->runSyncPhase),
@@ -847,6 +851,8 @@ void ProgArgs::initImplicitValues()
 	}
 
 	useS3ObjectPrefixRand = (s3ObjectPrefix.find(RAND_PREFIX_MARKS_SUBSTR) != std::string::npos);
+
+	loadServicePasswordFile(); // sets svcPasswordHash
 }
 
 /**
@@ -2246,6 +2252,43 @@ void ProgArgs::loadCustomTreeFile()
 			customTree.filesNonShared.sortByFileSize();
 		}
 	}
+}
+
+/**
+ * Load svcPasswordFile and set svcPasswordHash. svcPasswordHash will be left empty if no password
+ * file is given.
+ *
+ * @throw ProgException on error, e.g. file open failed or file empty.
+ */
+void ProgArgs::loadServicePasswordFile()
+{
+    if(svcPasswordFile.empty() )
+        return; // nothing to do
+
+    std::string lineStr;
+
+    std::ifstream fileStream(svcPasswordFile);
+    if(!fileStream)
+        throw ProgException("Opening service password file failed: " + svcPasswordFile);
+
+    // read first line
+    std::getline(fileStream, lineStr);
+
+    if(lineStr.empty() )
+        throw ProgException("First line in service password file is empty: " + svcPasswordFile);
+
+    unsigned char messageDigestBuf[SHA_DIGEST_LENGTH];
+
+    SHA1( (const unsigned char*)lineStr.c_str(), lineStr.length(), messageDigestBuf);
+
+    std::stringstream hexStream;
+
+    hexStream << std::hex;
+
+    for(unsigned i=0; i < SHA_DIGEST_LENGTH; i++)
+        hexStream << std::setw(2) << std::setfill('0') << (unsigned)messageDigestBuf[i];
+
+    svcPasswordHash = hexStream.str();
 }
 
 /**

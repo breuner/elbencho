@@ -295,8 +295,9 @@ void RemoteWorker::prepareRemoteFile()
 	try
 	{
 		std::string requestPath = HTTPCLIENTPATH_PREPAREFILE "?"
-			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION
-			"&" XFER_PREP_FILENAME "=" SERVICE_UPLOAD_TREEFILE;
+			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION "&"
+			XFER_PREP_FILENAME "=" SERVICE_UPLOAD_TREEFILE "&"
+            XFER_PREP_AUTHORIZATION "=" + progArgs->getSvcPasswordHash();
 
 		auto response = httpClient.request("POST", requestPath, treeFileStream);
 
@@ -340,7 +341,8 @@ void RemoteWorker::preparePhase()
 	try
 	{
 		std::string requestPath = HTTPCLIENTPATH_PREPAREPHASE "?"
-			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION;
+			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION "&"
+			XFER_PREP_AUTHORIZATION "=" + progArgs->getSvcPasswordHash();
 
 		auto response = httpClient.request("POST", requestPath, treeStream);
 

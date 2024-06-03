@@ -103,7 +103,9 @@ void HTTPServiceSWS::startServer()
 			"Port: " + std::to_string(progArgs.getServicePort() ) );
 	}
 
-	std::cout << "Elbencho service now listening. Port: " << serverPortFutureValue << std::endl;
+	std::cout << "Elbencho service now listening. " <<
+	    (progArgs.getSvcPasswordHash().empty() ? "" : "Protected by shared secret. ") <<
+	    "Port: " << serverPortFutureValue << std::endl;
 
 	serverThread.join();
 
@@ -230,6 +232,16 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 					"Service version: " HTTP_PROTOCOLVERSION "; "
 					"Received master version: " + masterProtoVer);
 
+            // check authorization hash
+
+            iter = query_fields.find(XFER_PREP_AUTHORIZATION);
+            if(iter == query_fields.end() )
+                throw ProgException("Missing parameter: " XFER_PREP_AUTHORIZATION);
+
+            std::string masterAuthHash = iter->second;
+            if(masterAuthHash != progArgs.getSvcPasswordHash() )
+                throw ProgException("Invalid authorization code.");
+
 			// get and prepare filename
 
 			iter = query_fields.find(XFER_PREP_FILENAME);
@@ -304,6 +316,8 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 		Logger(Log_VERBOSE) << "HTTP: " << request->path << "?" <<
 			request->query_string << std::endl;
 
+		bool resetWorkersOnError = true;
+
 		try
 		{
 			// check protocol version for compatibility
@@ -316,9 +330,27 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 			std::string masterProtoVer = iter->second;
 			if(masterProtoVer != HTTP_PROTOCOLVERSION)
+			{
+			    resetWorkersOnError = false;
+
 				throw ProgException("Protocol version mismatch. "
 					"Service version: " HTTP_PROTOCOLVERSION "; "
 					"Received master version: " + masterProtoVer);
+			}
+
+			// check authorization hash
+
+            iter = query_fields.find(XFER_PREP_AUTHORIZATION);
+            if(iter == query_fields.end() )
+                throw ProgException("Missing parameter: " XFER_PREP_AUTHORIZATION);
+
+            std::string masterAuthHash = iter->second;
+            if(masterAuthHash != progArgs.getSvcPasswordHash() )
+            {
+                resetWorkersOnError = false;
+
+                throw ProgException("Invalid authorization code.");
+            }
 
 			// print prep phase to log
 
@@ -375,11 +407,14 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 				corresponding RemoteWorker on master terminates on prep error reply, so we need to
 				clean up and release everything here before replying. */
 
-			workerManager.interruptAndNotifyWorkers();
-			workerManager.joinAllThreads();
-			workerManager.cleanupWorkersAfterPhaseDone();
+		    if(resetWorkersOnError)
+		    {
+                workerManager.interruptAndNotifyWorkers();
+                workerManager.joinAllThreads();
+                workerManager.cleanupWorkersAfterPhaseDone();
 
-			progArgs.resetBenchPath();
+                progArgs.resetBenchPath();
+		    }
 
 			std::stringstream stream;
 

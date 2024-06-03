@@ -7,7 +7,8 @@
 * Added option to sleep between test phases. (See "--phasedelay".)
 * Added option to rotate hosts list for service instances between phases to avoid caching effects. (See "--rotatehosts".)
 * Added support for S3 object and bucket ACL PUT/GET. (See "--s3aclput", "--s3aclputinl", "--s3baclput".)
-* Added new ops log to log all IO operations (open, read, ...). (See "--opslog").
+* Added new ops log to log all IO operations (open, read, ...). (See "--opslog".)
+* Added support for shared secret to protect services from unauthorized requests. (See "--svcpwfile".)
 * Added new ops for S3 bucket and object tagging and object locking. (See "--s3btag", "--s3otag", "--s3olockcfg"). [STILL WORK-IN-PROGRESS]
 
 ### General Changes

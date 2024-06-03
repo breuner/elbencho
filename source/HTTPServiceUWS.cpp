@@ -45,7 +45,9 @@ void HTTPServiceUWS::startServer()
 			if(listenSocket)
 			{
 				globalListenSocket = listenSocket;
-				std::cout << "Elbencho alternative service now listening. Port: " << listenPort
+				std::cout << "Elbencho alternative service now listening. " <<
+			        (progArgs.getSvcPasswordHash().empty() ? "" : "Protected by shared secret. ") <<
+				    "Port: " << listenPort
 					<< std::endl;
 			}
 			else
@@ -171,6 +173,13 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 					"Service version: " HTTP_PROTOCOLVERSION "; "
 					"Received master version: " + std::string(masterProtoVer) );
 
+            // check authorization hash
+
+            std::string_view masterAuthHash = req->getQuery(XFER_PREP_AUTHORIZATION);
+
+            if(masterAuthHash != progArgs.getSvcPasswordHash() )
+                throw ProgException("Invalid authorization code.");
+
 			// get and prepare filename
 
 			std::string_view clientFilenameVal = req->getQuery(XFER_PREP_FILENAME);
@@ -286,6 +295,8 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 	{
 		logReqAndError(res, std::string(req->getUrl() ), std::string(req->getQuery() ) );
 
+		bool resetWorkersOnError = true;
+
 		try
 		{
 			// check protocol version for compatibility
@@ -295,9 +306,24 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 				throw ProgException("Missing parameter: " XFER_PREP_PROTCOLVERSION);
 
 			if(masterProtoVer != HTTP_PROTOCOLVERSION)
+            {
+                resetWorkersOnError = false;
+
 				throw ProgException(std::string("Protocol version mismatch. ") +
 					"Service version: " HTTP_PROTOCOLVERSION "; "
 					"Received master version: " + std::string(masterProtoVer) );
+            }
+
+			// check authorization hash
+
+			std::string_view masterAuthHash = req->getQuery(XFER_PREP_AUTHORIZATION);
+
+            if(masterAuthHash != progArgs.getSvcPasswordHash() )
+            {
+                resetWorkersOnError = false;
+
+                throw ProgException("Invalid authorization code.");
+            }
 
 			// print prep phase to log
 
@@ -403,11 +429,14 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 				corresponding RemoteWorker on master terminates on prep error reply, so we need to
 				clean up and release everything here before replying. */
 
-			workerManager.interruptAndNotifyWorkers();
-			workerManager.joinAllThreads();
-			workerManager.cleanupWorkersAfterPhaseDone();
+		    if(resetWorkersOnError)
+		    {
+                workerManager.interruptAndNotifyWorkers();
+                workerManager.joinAllThreads();
+                workerManager.cleanupWorkersAfterPhaseDone();
 
-			progArgs.resetBenchPath();
+                progArgs.resetBenchPath();
+		    }
 
 			std::stringstream stream;
 

@@ -51,13 +51,13 @@ Building elbencho requires a C++17 compatible compiler, such as gcc version 7.x 
 ### Dependencies for Debian/Ubuntu
 
 ```bash
-sudo apt install build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian
+sudo apt install build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian libssl-dev
 ```
 
 ### Dependencies for RHEL/CentOS 
 
 ```bash
-sudo yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel rpm-build
+sudo yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel openssl-devel rpm-build
 ```
 
 #### On RHEL / CentOS 7.x: Prepare Environment with newer gcc Version
@@ -142,13 +142,13 @@ Enabling S3 Object Storage support will automatically download a AWS SDK git rep
 ##### S3 Dependencies for RHEL/CentOS 8.0 or newer
 
 ```bash
-sudo yum install cmake libarchive libcurl-devel openssl-devel libuuid-devel zlib zlib-devel
+sudo yum install cmake libarchive libcurl-devel libuuid-devel zlib zlib-devel
 ```
 
 ##### S3 Dependencies for Ubuntu 20.04 or newer
 
 ```bash
-sudo apt install cmake libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev
+sudo apt install cmake libcurl4-openssl-dev uuid-dev zlib1g-dev
 ```
 
 ##### Build elbencho with S3 Support

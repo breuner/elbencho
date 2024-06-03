@@ -177,6 +177,7 @@ namespace bpt = boost::property_tree;
 #define ARG_STARTTIME_LONG			"start"
 #define ARG_STATFILES_LONG			"stat"
 #define ARG_STATFILESINLINE_LONG	"statinline"
+#define ARG_SVCPASSWORDFILE_LONG    "svcpwfile"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_SYNCPHASE_LONG			"sync"
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
@@ -448,13 +449,6 @@ class ProgArgs
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
 		std::string serversStr; // prepended to hostsStr in netbench mode
-		size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
-		int sockRecvBufSize; // custom netbench socket recv buf size (0 means no change)
-		int sockSendBufSize; // custom netbench socket send buf size (0 means no change)
-		std::string sockRecvBufSizeOrigStr; // original sockRecvBufSize str from user with unit
-		std::string sockSendBufSizeOrigStr; // original sockSendBufSize str from user with unit
-		time_t startTime; /* UTC start time to coordinate multiple benchmarks, in seconds since the
-							epoch. 0 means immediate start. */
 		bool showAllElapsed; // print elapsed time of each I/O worker thread
 		bool showCPUUtilization; // show cpu utilization in phase stats results
 		bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
@@ -462,6 +456,15 @@ class ProgArgs
 		bool showLatencyHistogram; // show latency histogram
 		bool showLatencyPercentiles; // show latency percentiles
 		bool showServicesElapsed; // print elapsed time of each service by slowest thread
+        int sockRecvBufSize; // custom netbench socket recv buf size (0 means no change)
+        int sockSendBufSize; // custom netbench socket send buf size (0 means no change)
+        std::string sockRecvBufSizeOrigStr; // original sockRecvBufSize str from user with unit
+        std::string sockSendBufSizeOrigStr; // original sockSendBufSize str from user with unit
+        time_t startTime; /* UTC start time to coordinate multiple benchmarks, in seconds since the
+                            epoch. 0 means immediate start. */
+        std::string svcPasswordFile; // protect against unauthorized service commands
+        std::string svcPasswordHash; // implicitly set if svcPasswordFile is given, empty otherwise
+        size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
 		std::string treeFilePath; // path to file containing custom tree (list of dirs and files)
 		uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
 			(useful for directIO with its alignment reqs on some file systems. 0 disables this.) */
@@ -516,6 +519,7 @@ class ProgArgs
 		void parseS3Endpoints();
 		void parseNetDevs();
 		void loadCustomTreeFile();
+		void loadServicePasswordFile();
 		void splitCustomTreeForSharedS3Upload();
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
@@ -667,9 +671,14 @@ class ProgArgs
         std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
         std::string getS3EndpointsStr() const { return s3EndpointsStr; }
         const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
+        uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
+        unsigned short getS3LogLevel() const { return s3LogLevel; }
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
+        uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
         std::string getS3Region() const { return s3Region; }
+        unsigned short getServicePort() const { return servicePort; }
+        unsigned short getS3SignPolicy() const { return s3SignPolicy; }
         bool getShowAllElapsed() const { return showAllElapsed; }
         bool getShowCPUUtilization() const { return showCPUUtilization; }
         bool getShowDirStats() const { return showDirStats; }
@@ -679,13 +688,10 @@ class ProgArgs
         bool getShowServicesElapsed() const { return showServicesElapsed; }
         int getSockRecvBufSize() const { return sockRecvBufSize; }
         int getSockSendBufSize() const { return sockSendBufSize; }
-        unsigned short getServicePort() const { return servicePort; }
-        uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
-        unsigned short getS3LogLevel() const { return s3LogLevel; }
-        uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
-        unsigned short getS3SignPolicy() const { return s3SignPolicy; }
 		time_t getStartTime() const { return startTime; }
         size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
+        std::string getSvcPasswordFile() const { return svcPasswordFile; }
+        std::string getSvcPasswordHash() const { return svcPasswordHash; }
         bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
         bool getUseBriefLiveStats() const { return useBriefLiveStats; }
         bool getUseBriefLiveStatsNewLine() const { return useBriefLiveStatsNewLine; }

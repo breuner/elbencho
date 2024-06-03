@@ -5,7 +5,7 @@ FROM ubuntu:18.04 as builder
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \
     apt -y upgrade && \
-    apt install -y build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian && \
+    apt install -y build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev libssl-dev lintian && \
     cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
     make -j "$(nproc)" && \

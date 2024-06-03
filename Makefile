@@ -46,8 +46,8 @@ CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOS
 CXXFLAGS_RELEASE  = -O3 -Wuninitialized
 CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON    = -rdynamic -pthread -lrt -lstdc++fs $(LDFLAGS_NUMA) $(LDFLAGS_AIO) \
-	$(LDFLAGS_BOOST)
+LDFLAGS_COMMON    = -rdynamic -pthread -l crypto -l rt -l ssl -l stdc++fs $(LDFLAGS_NUMA) \
+	$(LDFLAGS_AIO) $(LDFLAGS_BOOST)
 LDFLAGS_RELASE    = -O3
 LDFLAGS_DEBUG     = -O0
 
@@ -76,10 +76,12 @@ endif
 ifeq ($(BUILD_STATIC), 1)
 LDFLAGS            += -static
 # NOTE: Alpine v3.20+ requires additional "-l cares -l zstd"
+# NOTE: "-l ssl -l crypto" intetionally appear again here although they are in LDFLAGS_COMMON. This
+#       is because the link order matters for static libs.
 LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec -l brotlicommon \
 	-l idn2 -l unistring -l psl -l dl
 else # dynamic linking
-LDFLAGS_S3_DYNAMIC += -l curl -l ssl -l crypto -l z -l dl
+LDFLAGS_S3_DYNAMIC += -l curl -l z -l dl
 endif
 
 # Compiler and linker flags for S3 support

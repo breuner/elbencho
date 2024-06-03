@@ -172,6 +172,7 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define XFER_PREP_ERRORHISTORY					"ErrorHistory"
 #define XFER_PREP_NUMBENCHPATHS					"NumBenchPaths"
 #define XFER_PREP_FILENAME						"FileName"
+#define XFER_PREP_AUTHORIZATION                 "PwHash"
 
 #define XFER_STATS_BENCHID 						"BenchID"
 #define XFER_STATS_BENCHPHASENAME 				"PhaseName"
