@@ -205,6 +205,9 @@ class LocalWorker : public Worker
 		void s3ModeIterateObjects();
 		void s3ModeIterateObjectsRand();
 		void s3ModeIterateCustomObjects();
+		template <typename OUTCOMETYPE>
+		void s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
+		    const std::string& bucketName, const std::string& objectName="");
 		void s3ModeCreateBucket(std::string bucketName);
 		void s3ModeHeadBucket(std::string bucketName);
 		void s3ModeCreateBucketTagging(const std::string& bucketName);
@@ -225,11 +228,6 @@ class LocalWorker : public Worker
 		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
 			const bool isRWMixedReader);
 		void s3ModeStatObject(std::string bucketName, std::string objectName);
-        void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
-        void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
-        void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);
-        void s3ModeGetObjectLockConfiguration(const std::string& bucketName);
-        void s3ModePutObjectLockConfiguration(const std::string& bucketName, bool unset = false);
 		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
 		void s3ModeListObjects();
 		void s3ModeListObjParallel();
@@ -238,6 +236,11 @@ class LocalWorker : public Worker
 		void s3ModeListAndMultiDeleteObjects();
 		void s3ModePutObjectAcl(std::string bucketName, std::string objectName);
 		void s3ModeGetObjectAcl(std::string bucketName, std::string objectName);
+        void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModeGetObjectLockConfiguration(const std::string& bucketName);
+        void s3ModePutObjectLockConfiguration(const std::string& bucketName, bool unset = false);
 		bool getS3ModeDoReverseSeqFallback();
 		std::string getS3RandObjectPrefix(size_t workerRank, size_t dirIdx, size_t fileIdx,
 			const std::string& objectPrefix);

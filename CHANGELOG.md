@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.8 (work in progress)
+## v3.0.9 (June 04, 2024)
 
 ### New Features & Enhancements
 * Added options to read and stat files immediately after creation while they are still open. (See "--readinline" and "--statinline".)
@@ -17,7 +17,7 @@
 * Added new script in `build_helpers/chroot` to build static executable via Alpine chroot.
 
 ### Contributors
-Thanks to Casey Peel, Michael Shustin, Erez Horev and Github user russki for code contributions. Thanks to Andy Black and Github user mhanafi1970 for helpful comments and suggestions.
+Thanks to Casey Peel, Michael Shustin, Erez Horev and Github user russki for code contributions. Thanks to Andy Black, Jean-Baptiste Denis and Github user mhanafi1970 for helpful comments and suggestions.
 
 ## v3.0.7 (March 21, 2024)
 

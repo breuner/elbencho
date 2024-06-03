@@ -1125,7 +1125,7 @@ void Statistics::printPhaseResultsTableHeaderToStream(std::ostream& outStream)
 		% "LAST DONE"
 		<< std::endl;
 	outStream << boost::format(phaseResultsFormatStr)
-		% "===================="
+		% "==========="
 		% "================"
 		% ""
 		% "=========="

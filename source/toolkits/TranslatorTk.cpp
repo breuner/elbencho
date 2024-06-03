@@ -75,12 +75,12 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 		case BenchPhase_LISTOBJECTS: return PHASENAME_LISTOBJECTS;
 		case BenchPhase_LISTOBJPARALLEL: return PHASENAME_LISTOBJPAR;
 		case BenchPhase_MULTIDELOBJ: return PHASENAME_MULTIDELOBJ;
-        case BenchPhase_GET_S3_OBJECT_MD: return PHASENAME_GET_S3_OBJECT_METADATA;
-        case BenchPhase_PUT_S3_OBJECT_MD: return PHASENAME_PUT_S3_OBJECT_METADATA;
-        case BenchPhase_DEL_S3_OBJECT_MD: return PHASENAME_DEL_S3_OBJECT_METADATA;
-        case BenchPhase_GET_S3_BUCKET_MD: return PHASENAME_GET_S3_BUCKET_METADATA;
-        case BenchPhase_PUT_S3_BUCKET_MD: return PHASENAME_PUT_S3_BUCKET_METADATA;
-        case BenchPhase_DEL_S3_BUCKET_MD: return PHASENAME_DEL_S3_BUCKET_METADATA;
+        case BenchPhase_GET_S3_OBJECT_MD: return PHASENAME_GETOBJECTMETADATA;
+        case BenchPhase_PUT_S3_OBJECT_MD: return PHASENAME_PUTOBJECTMETADATA;
+        case BenchPhase_DEL_S3_OBJECT_MD: return PHASENAME_DELOBJECTMETADATA;
+        case BenchPhase_GET_S3_BUCKET_MD: return PHASENAME_GETBUCKETMETADATA;
+        case BenchPhase_PUT_S3_BUCKET_MD: return PHASENAME_PUTBUCKETMETADATA;
+        case BenchPhase_DEL_S3_BUCKET_MD: return PHASENAME_DELBUCKETMETADATA;
 		default:
 		{ // should never happen
 			throw ProgException("Phase name requested for unknown/invalid phase type: " +

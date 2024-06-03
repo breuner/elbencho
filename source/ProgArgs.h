@@ -16,7 +16,7 @@
 namespace bpo = boost::program_options;
 namespace bpt = boost::property_tree;
 
-/* command line args and config file options (sorted by "ARG_..." column).
+/* command line args and config file options (sorted alphabetically by "ARG_..." column).
 	note: keep length of "_LONG" argument names without parameters within a max length of 16 chars
 		and "_LONG" arguments with parameters to a max of 12 chars, as the description column
 		in the help output otherwise gets too small. */
@@ -144,6 +144,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3ACLVERIFY_LONG		"s3aclverify"
 #define ARG_S3BUCKETACLGET_LONG		"s3baclget"
 #define ARG_S3BUCKETACLPUT_LONG		"s3baclput"
+#define ARG_S3BUCKETTAG_LONG        "s3btag"
+#define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3IGNOREERRORS_LONG		"s3ignoreerrors"
@@ -155,19 +157,15 @@ namespace bpt = boost::property_tree;
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
+#define ARG_S3OBJLOCKCFG_LONG       "s3olockcfg"
+#define ARG_S3OBJLOCKCFGVERIFY_LONG "s3olockcfgverify"
+#define ARG_S3OBJTAG_LONG           "s3otag"
+#define ARG_S3OBJTAGVERIFY_LONG     "s3otagverify"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
 #define ARG_S3REGION_LONG			"s3region"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
-#define ARG_S3TRANSMAN_LONG			"s3transman"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
-
-#define ARG_S3_BUCKET_TAG                   "s3btag"
-#define ARG_S3_BUCKET_TAG_VERIFY            "s3btagverify"
-#define ARG_S3_OBJECT_TAG                   "s3otag"
-#define ARG_S3_OBJECT_TAG_VERIFY            "s3otagverify"
-#define ARG_S3_OBJECT_LOCK_CFG              "s3olockcfg"
-#define ARG_S3_OBJECT_LOCK_CFG_VERIFY       "s3olockcfgverify"
-
+#define ARG_S3TRANSMAN_LONG			"s3transman"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -547,6 +545,18 @@ class ProgArgs
 		const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
 		BenchPathType getBenchPathType() const { return benchPathType; }
 
+        bool getS3BucketMetadataRequested() const { return doS3BucketTag || doS3ObjectLockCfg; }
+        bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
+        bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
+        bool getRunS3PutObjectMetadata() const
+            { return getS3ObjectMetadataRequested() && runCreateFilesPhase; }
+        bool getRunS3DelObjectMetadata() const
+            { return getS3ObjectMetadataRequested() && runDeleteFilesPhase; }
+        bool getRunS3GetBucketMetadata() const { return getS3BucketMetadataRequested(); }
+        bool getRunS3PutBucketMetadata() const
+            { return getS3BucketMetadataRequested() && runCreateDirsPhase; }
+        bool getRunS3DelBucketMetadata() const
+            { return getS3BucketMetadataRequested() && runDeleteDirsPhase; }
 
 		// getters for config options in alphabetic order...
 
@@ -649,16 +659,6 @@ class ProgArgs
         bool getRunS3BucketAclPut() const { return runS3BucketAclPut; }
         bool getRunS3BucketAclGet() const { return runS3BucketAclGet; }
         bool getRunS3StatDirs() const { return runS3StatDirs; }
-
-        [[nodiscard]] bool s3BucketMetadataRequested() const noexcept { return doS3BucketTag || doS3ObjectLockCfg; }
-        [[nodiscard]] bool s3ObjectMetadataRequested() const noexcept { return doS3ObjectTag; }
-        [[nodiscard]] bool getRunS3GetObjectMetadata() const noexcept { return s3ObjectMetadataRequested(); }
-        [[nodiscard]] bool getRunS3PutObjectMetadata() const noexcept { return s3ObjectMetadataRequested() && runCreateFilesPhase; }
-        [[nodiscard]] bool getRunS3DelObjectMetadata() const noexcept { return s3ObjectMetadataRequested() && runDeleteFilesPhase; }
-        [[nodiscard]] bool getRunS3GetBucketMetadata() const noexcept { return s3BucketMetadataRequested(); }
-        [[nodiscard]] bool getRunS3PutBucketMetadata() const noexcept { return s3BucketMetadataRequested() && runCreateDirsPhase; }
-        [[nodiscard]] bool getRunS3DelBucketMetadata() const noexcept { return s3BucketMetadataRequested() && runDeleteDirsPhase; }
-
         bool getRunServiceInForeground() const { return runServiceInForeground; }
         bool getRunStatFilesPhase() const { return runStatFilesPhase; }
         bool getRunSyncPhase() const { return runSyncPhase; }

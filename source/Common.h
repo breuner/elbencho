@@ -43,13 +43,13 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_PUTBUCKETACL	"PUTBACL"
 #define PHASENAME_GETBUCKETACL	"GETBACL"
 
-// S3-only phases
-#define PHASENAME_GET_S3_OBJECT_METADATA  "GET_S3_OBJECT_META"
-#define PHASENAME_PUT_S3_OBJECT_METADATA  "PUT_S3_OBJECT_META"
-#define PHASENAME_DEL_S3_OBJECT_METADATA  "DEL_S3_OBJECT_META"
-#define PHASENAME_GET_S3_BUCKET_METADATA  "GET_S3_BUCKET_META"
-#define PHASENAME_PUT_S3_BUCKET_METADATA  "PUT_S3_BUCKET_META"
-#define PHASENAME_DEL_S3_BUCKET_METADATA  "DEL_S3_BUCKET_META"
+// special S3 metadata phases for multiple metadata operation types
+#define PHASENAME_GETOBJECTMETADATA     "GETOBJMD"
+#define PHASENAME_PUTOBJECTMETADATA     "PUTOBJMD"
+#define PHASENAME_DELOBJECTMETADATA     "DELOBJMD"
+#define PHASENAME_GETBUCKETMETADATA     "GETBUCKETMD"
+#define PHASENAME_PUTBUCKETMETADATA     "PUTBUCKETMD"
+#define PHASENAME_DELBUCKETMETADATA     "DELBUCKETMD"
 
 
 // human-readable entry type in current benchmark phase
@@ -62,7 +62,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.0.4"
+#define HTTP_PROTOCOLVERSION	"3.0.9"
 
 /**
  * Default access mode bits for new files.

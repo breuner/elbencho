@@ -3931,48 +3931,38 @@ void LocalWorker::s3ModeIterateCustomObjects()
 }
 
 /**
- * Throw an informative WorkerException if the outcome has an error
+ * Throw an informative WorkerException if the s3 request outcome has the error flag set.
  *
+ * @outcome s3 request outcome.
+ * @failMessage human-friendly error message, e.g. "Object upload failed."
+ * @objectName name of object to which this error applies, can be empty.
  * @throw WorkerException on error.
  */
-template <typename OutcomeType>
-inline void throwOnError(const OutcomeType& outcome, const std::string& operation,
-                         const std::string& bucketName)
+template <typename OUTCOMETYPE>
+void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
+    const std::string& bucketName, const std::string& objectName)
 {
-    IF_UNLIKELY(!outcome.IsSuccess())
-    {
-        const auto& err = outcome.GetError();
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
 
-        std::stringstream errStr;
-        errStr << "Unable to " << operation << ": " << err.GetMessage() << std::endl
-               << "HTTP Error Code: " << static_cast<int>(err.GetResponseCode()) << "; "
-               << "Exception name: " << err.GetExceptionName() << "\n"
-               << "Bucket: " << bucketName << std::endl;
-        throw WorkerException(errStr.str());
-    }
-}
+    IF_LIKELY(outcome.IsSuccess() )
+        return;
 
-/**
- * Throw an informative WorkerException if the outcome has an error
- *
- * @throw WorkerException on error.
- */
-template <typename OutcomeType>
-inline void throwOnError(const OutcomeType& outcome, const std::string& operation,
-                         const std::string& bucketName, const std::string& objectName)
-{
-    IF_UNLIKELY(!outcome.IsSuccess())
-    {
-        const auto& err = outcome.GetError();
+    const auto& s3Error = outcome.GetError();
 
-        std::stringstream errStr;
-        errStr << "Unable to " << operation << ": " << err.GetMessage() << std::endl
-               << "HTTP Error Code: " << static_cast<int>(err.GetResponseCode()) << "; "
-               << "Exception name: " << err.GetExceptionName() << "\n"
-               << "Bucket: " << bucketName << "; "
-               << "Key: " << objectName << std::endl;
-        throw WorkerException(errStr.str());
-    }
+    std::stringstream errStr;
+        errStr << failMessage << " " <<
+        "Endpoint: " << s3EndpointStr << "; " <<
+        "Bucket: " << bucketName << "; " <<
+        (objectName.empty() ? std::string("") : ("Object: " + objectName + "; ") ) <<
+        "Exception: " << s3Error.GetExceptionName() << "; " <<
+        "Message: " << s3Error.GetMessage() << "; " <<
+        "HTTP Error Code: " << (int)s3Error.GetResponseCode();
+
+    throw WorkerException(errStr.str() );
+
+#endif // S3_SUPPORT
 }
 
 /**
@@ -4028,7 +4018,7 @@ void LocalWorker::s3ModeHeadBucket(std::string bucketName)
 
     OPLOG_POST_OP("HeadBucket", bucketName, 0, 0, !outcome.IsSuccess());
 
-    throwOnError(outcome, "head bucket", bucketName);
+    s3ModeThrowOnError(outcome, "Head bucket request failed.", bucketName);
 
 #endif // S3_SUPPORT
 }
@@ -4060,7 +4050,7 @@ void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
 
     OPLOG_POST_OP("PutBucketTagging", bucketName, 0, 0, !taggingOutcome.IsSuccess());
 
-    throwOnError(taggingOutcome, "put bucket tagging", bucketName);
+    s3ModeThrowOnError(taggingOutcome, "Put bucket tagging failed.", bucketName);
 
 #endif // S3_SUPPORT
 }
@@ -4081,7 +4071,7 @@ void LocalWorker::s3ModeGetBucketTagging(const std::string& bucketName)
 
     OPLOG_POST_OP("GetBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
 
-    throwOnError(outcome, "get bucket tagging", bucketName);
+    s3ModeThrowOnError(outcome, "Get bucket tagging failed.", bucketName);
 
     if (!progArgs->getDoS3BucketTaggingVerify())
         return;
@@ -4120,7 +4110,7 @@ void LocalWorker::s3ModeDeleteBucketTagging(const std::string& bucketName)
 
     OPLOG_POST_OP("DeleteBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
 
-    throwOnError(outcome, "delete bucket tagging", bucketName);
+    s3ModeThrowOnError(outcome, "Delete bucket tagging failed.", bucketName);
 
 #endif // S3_SUPPORT
 }
@@ -5717,6 +5707,170 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 #endif // S3_SUPPORT
 }
 
+
+void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
+
+    const auto& getTagOutcome = s3Client->GetObjectTagging(
+        S3::GetObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+    );
+
+    OPLOG_POST_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0, !getTagOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getTagOutcome, "Get object tagging failed.", bucketName, objectName);
+
+    // Continue only if we need to verify
+    if (!progArgs->getDoS3ObjectTaggingVerify())
+        return;
+
+    const auto& firstTag = getTagOutcome.GetResult().GetTagSet().front();
+
+    IF_UNLIKELY(!StringTk::verifyRandomS3TagValue(firstTag.GetValue(), objectName))
+    {
+        std::stringstream errStr;
+        errStr << "Random tag value is corrupted (invalid checksum). "
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl
+               << "Tag: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    const auto tag = S3::Tag()
+        .WithKey(TAG_KEY_MEDIUM_NAME)
+        .WithValue(StringTk::generateRandomS3TagValue(objectName, TAG_VALUE_MEDIUM_LEN));
+
+    OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
+
+    const auto& putTagOutcome = s3Client->PutObjectTagging(
+        S3::PutObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+            .WithTagging(S3::Tagging().AddTagSet(tag))
+    );
+
+    OPLOG_POST_OP("PutObjectTagging", bucketName + "/" + objectName,
+                  0, TAG_VALUE_MEDIUM_LEN, !putTagOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putTagOutcome, "Put object tagging failed.", bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+    OPLOG_PRE_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0);
+
+    const auto& delTagOutcome = s3Client->DeleteObjectTagging(
+        S3::DeleteObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+    );
+
+    OPLOG_POST_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0, !delTagOutcome.IsSuccess());
+
+    s3ModeThrowOnError(delTagOutcome, "Delete object tagging failed.", bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetObjectLockConfiguration", bucketName, 0, 0);
+
+    const auto& getObjLockOutcome = s3Client->GetObjectLockConfiguration(
+        S3::GetObjectLockConfigurationRequest().WithBucket(bucketName)
+    );
+
+    OPLOG_POST_OP("GetObjectLockConfiguration", bucketName, 0, 0, !getObjLockOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getObjLockOutcome, "Get object lock configuration failed.", bucketName);
+
+    // Continue only if we need to verify
+    if (!progArgs->getDoS3ObjectLockConfigurationVerify())
+        return;
+
+    const auto& objLockCfg = getObjLockOutcome.GetResult().GetObjectLockConfiguration();
+
+    IF_UNLIKELY(!objLockCfg.ObjectLockEnabledHasBeenSet())
+        throw WorkerException("Object lock has not been enabled for bucket: " + bucketName);
+
+    IF_UNLIKELY(!objLockCfg.RuleHasBeenSet())
+        throw WorkerException("Object lock rule has not been set for bucket: " + bucketName);
+
+    const auto& objRetentionRule = objLockCfg.GetRule();
+
+    IF_UNLIKELY(!objRetentionRule.DefaultRetentionHasBeenSet())
+        throw WorkerException("Object lock default retention has not been set for bucket: " + bucketName);
+
+    const auto& objDefaultRetention = objRetentionRule.GetDefaultRetention();
+
+    IF_UNLIKELY(!objDefaultRetention.DaysHasBeenSet())
+        throw WorkerException("Object lock retention days have not been set for bucket: " + bucketName);
+
+    const auto& retentionDays = objDefaultRetention.GetDays();
+
+    IF_UNLIKELY(retentionDays != RETENTION_PERIOD_DAYS)
+    {
+        std::stringstream errStr;
+        errStr << "Object lock default retention was set to '" << retentionDays << " days' in bucket '"
+               << bucketName << "', but the expected value was '" << RETENTION_PERIOD_DAYS << " days'";
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName, bool unset)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    S3::ObjectLockConfiguration objectLockCfg;
+
+    if (unset)
+        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::NOT_SET);
+    else
+    {
+        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::Enabled);
+        objectLockCfg.SetRule(
+            S3::ObjectLockRule().WithDefaultRetention(
+                S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::COMPLIANCE).WithDays(1)
+            )
+        );
+    }
+
+    OPLOG_PRE_OP("PutObjectLockConfiguration", bucketName, 0, 0);
+
+    const auto& putObjLockOutcome = s3Client->PutObjectLockConfiguration(
+        S3::PutObjectLockConfigurationRequest()
+            .WithBucket(bucketName)
+            .WithObjectLockConfiguration(objectLockCfg));
+
+    OPLOG_POST_OP("PutObjectLockConfiguration", bucketName, 0, 0, !putObjLockOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putObjLockOutcome, "Put object lock configuration failed.", bucketName);
+#endif // S3_SUPPORT
+}
+
 /**
  * In S3 mode, decide if we do fallback to reverse upload. This would be the case if this is a write
  * phase and user selected random offsets.
@@ -6556,166 +6710,4 @@ void LocalWorker::anyModeDropCaches()
 		throw WorkerException(std::string("Writing to cache drop command file failed. ") +
 			"Path: " + dropCachesPath + "; "
 			"SysErr: " + strerror(errno) );
-}
-
-void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName)
-{
-#ifndef S3_SUPPORT
-    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
-#else
-    OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
-
-    const auto& getTagOutcome = s3Client->GetObjectTagging(
-        S3::GetObjectTaggingRequest()
-            .WithBucket(bucketName)
-            .WithKey(objectName)
-    );
-
-    OPLOG_POST_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0, !getTagOutcome.IsSuccess());
-
-    throwOnError(getTagOutcome, "get tagging", bucketName, objectName);
-
-    // Continue only if we need to verify
-    if (!progArgs->getDoS3ObjectTaggingVerify())
-        return;
-
-    const auto& firstTag = getTagOutcome.GetResult().GetTagSet().front();
-
-    IF_UNLIKELY(!StringTk::verifyRandomS3TagValue(firstTag.GetValue(), objectName))
-    {
-        std::stringstream errStr;
-        errStr << "Random tag value is corrupted (invalid checksum). "
-               << "Bucket: " << bucketName << "; "
-               << "Key: " << objectName << std::endl
-               << "Tag: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
-        throw WorkerException(errStr.str());
-    }
-#endif // S3_SUPPORT
-}
-
-void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName)
-{
-#ifndef S3_SUPPORT
-    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
-#else
-    const auto tag = S3::Tag()
-        .WithKey(TAG_KEY_MEDIUM_NAME)
-        .WithValue(StringTk::generateRandomS3TagValue(objectName, TAG_VALUE_MEDIUM_LEN));
-
-    OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
-
-    const auto& putTagOutcome = s3Client->PutObjectTagging(
-        S3::PutObjectTaggingRequest()
-            .WithBucket(bucketName)
-            .WithKey(objectName)
-            .WithTagging(S3::Tagging().AddTagSet(tag))
-    );
-
-    OPLOG_POST_OP("PutObjectTagging", bucketName + "/" + objectName,
-                  0, TAG_VALUE_MEDIUM_LEN, !putTagOutcome.IsSuccess());
-
-    throwOnError(putTagOutcome, "put tagging", bucketName, objectName);
-
-#endif // S3_SUPPORT
-}
-void LocalWorker::s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName)
-{
-#ifndef S3_SUPPORT
-    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
-#else
-
-    OPLOG_PRE_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0);
-
-    const auto& delTagOutcome = s3Client->DeleteObjectTagging(
-        S3::DeleteObjectTaggingRequest()
-            .WithBucket(bucketName)
-            .WithKey(objectName)
-    );
-
-    OPLOG_POST_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0, !delTagOutcome.IsSuccess());
-
-    throwOnError(delTagOutcome, "delete tagging", bucketName, objectName);
-
-#endif // S3_SUPPORT
-}
-
-void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName)
-{
-#ifndef S3_SUPPORT
-    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
-#else
-    OPLOG_PRE_OP("GetObjectLockConfiguration", bucketName, 0, 0);
-
-    const auto& getObjLockOutcome = s3Client->GetObjectLockConfiguration(
-        S3::GetObjectLockConfigurationRequest().WithBucket(bucketName)
-    );
-
-    OPLOG_POST_OP("GetObjectLockConfiguration", bucketName, 0, 0, !getObjLockOutcome.IsSuccess());
-
-    throwOnError(getObjLockOutcome, "get object lock configuration", bucketName);
-
-    // Continue only if we need to verify
-    if (!progArgs->getDoS3ObjectLockConfigurationVerify())
-        return;
-
-    const auto& objLockCfg = getObjLockOutcome.GetResult().GetObjectLockConfiguration();
-
-    IF_UNLIKELY(!objLockCfg.ObjectLockEnabledHasBeenSet())
-        throw WorkerException("Object lock has not been enabled for bucket: " + bucketName);
-
-    IF_UNLIKELY(!objLockCfg.RuleHasBeenSet())
-        throw WorkerException("Object lock rule has not been set for bucket: " + bucketName);
-
-    const auto& objRetentionRule = objLockCfg.GetRule();
-
-    IF_UNLIKELY(!objRetentionRule.DefaultRetentionHasBeenSet())
-        throw WorkerException("Object lock default retention has not been set for bucket: " + bucketName);
-
-    const auto& objDefaultRetention = objRetentionRule.GetDefaultRetention();
-
-    IF_UNLIKELY(!objDefaultRetention.DaysHasBeenSet())
-        throw WorkerException("Object lock retention days have not been set for bucket: " + bucketName);
-
-    const auto& retentionDays = objDefaultRetention.GetDays();
-
-    IF_UNLIKELY(retentionDays != RETENTION_PERIOD_DAYS)
-    {
-        std::stringstream errStr;
-        errStr << "Object lock default retention was set to '" << retentionDays << " days' in bucket '"
-               << bucketName << "', but the expected value was '" << RETENTION_PERIOD_DAYS << " days'";
-        throw WorkerException(errStr.str());
-    }
-#endif // S3_SUPPORT
-}
-
-void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName, bool unset)
-{
-#ifndef S3_SUPPORT
-    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
-#else
-    S3::ObjectLockConfiguration objectLockCfg;
-
-    if (unset)
-        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::NOT_SET);
-    else
-    {
-        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::Enabled);
-        objectLockCfg.SetRule(
-            S3::ObjectLockRule().WithDefaultRetention(
-                S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::COMPLIANCE).WithDays(1)
-            )
-        );
-    }
-
-    OPLOG_PRE_OP("PutObjectLockConfiguration", bucketName, 0, 0);
-
-    const auto& putObjLockOutcome = s3Client->PutObjectLockConfiguration(
-        S3::PutObjectLockConfigurationRequest()
-            .WithBucket(bucketName)
-            .WithObjectLockConfiguration(objectLockCfg));
-
-    OPLOG_POST_OP("PutObjectLockConfiguration", bucketName, 0, 0, !putObjLockOutcome.IsSuccess());
-
-    throwOnError(putObjLockOutcome, "put object lock configuration", bucketName);
-#endif // S3_SUPPORT
 }

@@ -489,12 +489,12 @@ void ProgArgs::defineAllowedArgs()
 /*s3b*/	(ARG_S3BUCKETACLPUT_LONG, bpo::bool_switch(&this->runS3BucketAclPut),
 			"Put S3 bucket ACLs. This requires definition of grantee, grantee type and "
 			"permissions.")
-/*s3b*/	(ARG_S3_BUCKET_TAG, bpo::bool_switch(&this->doS3BucketTag),
+/*s3b*/	(ARG_S3BUCKETTAG_LONG, bpo::bool_switch(&this->doS3BucketTag),
 			"Activate bucket tagging operations during other benchmarking phases: "
             "Adding of bucket tags in create bucket phase, "
             "reading of tags in stat bucket phase and deletion of tags in delete bucket phase.")
-/*s3b*/	(ARG_S3_BUCKET_TAG_VERIFY, bpo::bool_switch(&this->doS3BucketTagVerify),
-            "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3_BUCKET_TAG "\")")
+/*s3b*/	(ARG_S3BUCKETTAGVERIFY_LONG, bpo::bool_switch(&this->doS3BucketTagVerify),
+            "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3BUCKETTAG_LONG "\")")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -541,13 +541,13 @@ void ProgArgs::defineAllowedArgs()
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
 			"is a bucket. (A sequence of 3 to 16 \"" RAND_PREFIX_MARKS_SUBSTR "\" chars will be "
 			"replaced by a random hex string of the same length.)")
-/*s3o*/	(ARG_S3_OBJECT_LOCK_CFG, bpo::bool_switch(&this->doS3ObjectLockCfg),
+/*s3o*/	(ARG_S3OBJLOCKCFG_LONG, bpo::bool_switch(&this->doS3ObjectLockCfg),
             "Activate object lock configuration creation")
-/*s3o*/	(ARG_S3_OBJECT_LOCK_CFG_VERIFY, bpo::bool_switch(&this->doS3ObjectLockCfgVerify),
+/*s3o*/	(ARG_S3OBJLOCKCFGVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectLockCfgVerify),
             "Verify the correctness of object lock configurations")
-/*s3o*/	(ARG_S3_OBJECT_TAG, bpo::bool_switch(&this->doS3ObjectTag),
+/*s3o*/	(ARG_S3OBJTAG_LONG, bpo::bool_switch(&this->doS3ObjectTag),
             "Activate S3 object tagging")
-/*s3o*/	(ARG_S3_OBJECT_TAG_VERIFY, bpo::bool_switch(&this->doS3ObjectTagVerify),
+/*s3o*/	(ARG_S3OBJTAGVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectTagVerify),
             "Verify the correctness of created S3 object tags")
 /*s3r*/	(ARG_S3RANDOBJ_LONG, bpo::bool_switch(&this->useS3RandObjSelect),
 			"Read at random offsets and randomly select a new object for each S3 block read. Only "
@@ -3021,12 +3021,12 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doS3AclVerify = tree.get<bool>(ARG_S3ACLVERIFY_LONG);
 	doS3ListObjVerify = tree.get<bool>(ARG_S3LISTOBJVERIFY_LONG);
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
-    doS3BucketTag = tree.get<bool>(ARG_S3_BUCKET_TAG);
-    doS3BucketTagVerify = tree.get<bool>(ARG_S3_BUCKET_TAG_VERIFY);
-    doS3ObjectTag = tree.get<bool>(ARG_S3_OBJECT_TAG);
-    doS3ObjectTagVerify = tree.get<bool>(ARG_S3_OBJECT_TAG_VERIFY);
-    doS3ObjectLockCfg = tree.get<bool>(ARG_S3_OBJECT_LOCK_CFG);
-    doS3ObjectLockCfgVerify = tree.get<bool>(ARG_S3_OBJECT_LOCK_CFG_VERIFY);
+    doS3BucketTag = tree.get<bool>(ARG_S3BUCKETTAG_LONG);
+    doS3BucketTagVerify = tree.get<bool>(ARG_S3BUCKETTAGVERIFY_LONG);
+    doS3ObjectTag = tree.get<bool>(ARG_S3OBJTAG_LONG);
+    doS3ObjectTagVerify = tree.get<bool>(ARG_S3OBJTAGVERIFY_LONG);
+    doS3ObjectLockCfg = tree.get<bool>(ARG_S3OBJLOCKCFG_LONG);
+    doS3ObjectLockCfgVerify = tree.get<bool>(ARG_S3OBJLOCKCFGVERIFY_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
@@ -3228,12 +3228,12 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
-    outTree.put(ARG_S3_BUCKET_TAG, doS3BucketTag);
-    outTree.put(ARG_S3_BUCKET_TAG_VERIFY, doS3BucketTagVerify);
-    outTree.put(ARG_S3_OBJECT_TAG, doS3ObjectTag);
-    outTree.put(ARG_S3_OBJECT_TAG_VERIFY, doS3ObjectTagVerify);
-    outTree.put(ARG_S3_OBJECT_LOCK_CFG, doS3ObjectLockCfg);
-    outTree.put(ARG_S3_OBJECT_LOCK_CFG_VERIFY, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_S3BUCKETTAG_LONG, doS3BucketTag);
+    outTree.put(ARG_S3BUCKETTAGVERIFY_LONG, doS3BucketTagVerify);
+    outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
+    outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
+    outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
+    outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
     outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);
