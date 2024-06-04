@@ -490,11 +490,13 @@ void ProgArgs::defineAllowedArgs()
 			"Put S3 bucket ACLs. This requires definition of grantee, grantee type and "
 			"permissions.")
 /*s3b*/	(ARG_S3BUCKETTAG_LONG, bpo::bool_switch(&this->doS3BucketTag),
-			"Activate bucket tagging operations during other benchmarking phases: "
-            "Adding of bucket tags in create bucket phase, "
-            "reading of tags in stat bucket phase and deletion of tags in delete bucket phase.")
+			"Activate bucket tagging operations")
 /*s3b*/	(ARG_S3BUCKETTAGVERIFY_LONG, bpo::bool_switch(&this->doS3BucketTagVerify),
             "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3BUCKETTAG_LONG "\")")
+/*s3b*/	(ARG_S3BUCKETVER_LONG, bpo::bool_switch(&this->doS3BucketVersioning),
+            "Activate bucket versioning operations ")
+/*s3b*/	(ARG_S3BUCKETVER_VERIFY_LONG, bpo::bool_switch(&this->doS3BucketVersioningVerify),
+            "Verify the correctness of S3 bucket versioning settings (requires \"--" ARG_S3BUCKETVER_LONG "\")")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -782,6 +784,8 @@ void ProgArgs::defineDefaults()
 	this->runS3BucketAclGet = false;
 	this->doS3BucketTag = false;
 	this->doS3BucketTagVerify = false;
+    this->doS3BucketVersioning = false;
+    this->doS3BucketVersioningVerify = false;
     this->doS3ObjectTag = false;
     this->doS3ObjectTagVerify = false;
     this->doS3ObjectLockCfg = false;
@@ -3023,6 +3027,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doStatInline = tree.get<bool>(ARG_STATFILESINLINE_LONG);
     doS3BucketTag = tree.get<bool>(ARG_S3BUCKETTAG_LONG);
     doS3BucketTagVerify = tree.get<bool>(ARG_S3BUCKETTAGVERIFY_LONG);
+    doS3BucketVersioning = tree.get<bool>(ARG_S3BUCKETVER_LONG);
+    doS3BucketVersioningVerify = tree.get<bool>(ARG_S3BUCKETVER_VERIFY_LONG);
     doS3ObjectTag = tree.get<bool>(ARG_S3OBJTAG_LONG);
     doS3ObjectTagVerify = tree.get<bool>(ARG_S3OBJTAGVERIFY_LONG);
     doS3ObjectLockCfg = tree.get<bool>(ARG_S3OBJLOCKCFG_LONG);
@@ -3230,6 +3236,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
     outTree.put(ARG_S3BUCKETTAG_LONG, doS3BucketTag);
     outTree.put(ARG_S3BUCKETTAGVERIFY_LONG, doS3BucketTagVerify);
+    outTree.put(ARG_S3BUCKETVER_LONG, doS3BucketVersioning);
+    outTree.put(ARG_S3BUCKETVER_VERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);

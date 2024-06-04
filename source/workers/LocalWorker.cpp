@@ -43,6 +43,7 @@
 	#include <aws/s3/model/GetObjectRequest.h>
     #include <aws/s3/model/GetObjectTaggingRequest.h>
     #include <aws/s3/model/GetObjectLockConfigurationRequest.h>
+    #include <aws/s3/model/GetBucketVersioningRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
 	#include <aws/s3/model/HeadBucketRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
@@ -54,6 +55,7 @@
 	#include <aws/s3/model/PutObjectRequest.h>
     #include <aws/s3/model/PutObjectTaggingRequest.h>
     #include <aws/s3/model/PutObjectLockConfigurationRequest.h>
+    #include <aws/s3/model/PutBucketVersioningRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
 	#include <aws/transfer/TransferManager.h>
 #endif
@@ -3536,8 +3538,14 @@ void LocalWorker::s3ModeIterateBuckets()
 
         if(benchPhase == BenchPhase_PUT_S3_BUCKET_MD)
         {
-            s3ModeCreateBucketTagging(bucketName);
-            s3ModePutObjectLockConfiguration(bucketName);
+            if (progArgs->getDoS3BucketTagging())
+                s3ModeCreateBucketTagging(bucketName);
+
+            if (progArgs->getDoS3ObjectLockConfiguration())
+                s3ModePutObjectLockConfiguration(bucketName);
+
+            if (progArgs->getDoS3BucketVersioning())
+                s3ModePutBucketVersioning(bucketName, false);
         }
 
 		if(benchPhase == BenchPhase_PUTBUCKETACL)
@@ -3556,14 +3564,22 @@ void LocalWorker::s3ModeIterateBuckets()
 
             if (progArgs->getDoS3ObjectLockConfiguration())
                 s3ModeGetObjectLockConfiguration(bucketName);
+
+            if (progArgs->getDoS3BucketVersioning())
+                s3ModeGetBucketVersioning(bucketName);
         }
 
         if(benchPhase == BenchPhase_DEL_S3_BUCKET_MD)
         {
-            // Disable lock configuration
-            s3ModePutObjectLockConfiguration(bucketName, true);
+            if (progArgs->getDoS3BucketVersioning())
+                s3ModePutBucketVersioning(bucketName, true);
 
-            s3ModeDeleteBucketTagging(bucketName);
+            // Disable lock configuration
+            if (progArgs->getDoS3ObjectLockConfiguration())
+                s3ModePutObjectLockConfiguration(bucketName, true);
+
+            if (progArgs->getDoS3BucketTagging())
+                s3ModeDeleteBucketTagging(bucketName);
         }
 
         // delete buckets
@@ -3676,7 +3692,8 @@ void LocalWorker::s3ModeIterateObjects()
 
             if (benchPhase == BenchPhase_PUT_S3_OBJECT_MD)
             {
-                s3ModePutObjectTags(bucketVec[bucketIndex], currentObjectPath);
+                if (progArgs->getDoS3ObjectTagging())
+                    s3ModePutObjectTags(bucketVec[bucketIndex], currentObjectPath);
             }
 
 			if( (benchPhase == BenchPhase_READFILES) || isRWMixedReader)
@@ -3693,7 +3710,10 @@ void LocalWorker::s3ModeIterateObjects()
                 s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
 
             if(benchPhase == BenchPhase_GET_S3_OBJECT_MD)
-                s3ModeGetObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            {
+                if (progArgs->getDoS3ObjectTagging())
+                    s3ModeGetObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            }
 
 			if(benchPhase == BenchPhase_PUTOBJACL)
 				s3ModePutObjectAcl(bucketVec[bucketIndex], currentObjectPath);
@@ -3702,7 +3722,10 @@ void LocalWorker::s3ModeIterateObjects()
 				s3ModeGetObjectAcl(bucketVec[bucketIndex], currentObjectPath);
 
             if(benchPhase == BenchPhase_DEL_S3_OBJECT_MD)
-                s3ModeDeleteObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            {
+                if (progArgs->getDoS3ObjectTagging())
+                    s3ModeDeleteObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            }
 
 			if(benchPhase == BenchPhase_DELETEFILES)
 				s3ModeDeleteObject(bucketVec[bucketIndex], currentObjectPath);
@@ -4281,6 +4304,65 @@ void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
 #endif // S3_SUPPORT
 }
 
+void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetBucketVersioning", bucketName, 0, 0);
+
+    const auto& bucketVersioningOutcome = s3Client->GetBucketVersioning(
+            S3::GetBucketVersioningRequest().WithBucket(bucketName)
+    );
+
+    OPLOG_POST_OP("GetBucketVersioning", bucketName, 0, 0, !bucketVersioningOutcome.IsSuccess());
+
+    s3ModeThrowOnError(bucketVersioningOutcome, "Get bucket versioning failed.", bucketName);
+
+    const auto& bucketVersioningStatus = bucketVersioningOutcome.GetResult().GetStatus();
+
+    if (!progArgs->getDoS3BucketVersioningVerify())
+        return;
+
+    const auto statusNameMapper = Aws::S3::Model::BucketVersioningStatusMapper::GetNameForBucketVersioningStatus;
+    const auto& expectedStatus = S3::BucketVersioningStatus::Suspended;
+
+    IF_UNLIKELY(bucketVersioningStatus != expectedStatus)
+    {
+        std::stringstream errStr;
+        errStr << "Bucket versioning is set to '" << statusNameMapper(bucketVersioningStatus)
+               << "' but the expected value was '" << statusNameMapper(expectedStatus) << "'." << std::endl
+               << "Bucket: " << bucketName << ';';
+        throw WorkerException(errStr.str());
+    }
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutBucketVersioning(const std::string& bucketName, bool enable)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    S3::VersioningConfiguration versioningConfiguration;
+
+    versioningConfiguration.SetStatus(enable ? S3::BucketVersioningStatus::Enabled
+                                             : S3::BucketVersioningStatus::Suspended);
+
+    OPLOG_PRE_OP("PutBucketVersioning", bucketName, 0, 0);
+
+    const auto& putBucketVersioningOutcome = s3Client->PutBucketVersioning(
+            S3::PutBucketVersioningRequest()
+                    .WithBucket(bucketName)
+                    .WithVersioningConfiguration(versioningConfiguration)
+    );
+
+    OPLOG_POST_OP("PutBucketVersioning", bucketName, 0, 0, !putBucketVersioningOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putBucketVersioningOutcome, "Put bucket versioning failed.", bucketName);
+#endif // S3_SUPPORT
+}
+
 /**
  * Singlepart upload of an S3 object to an existing bucket. This assumes that progArgs fileSize
  * is not larger than blockSize. Or in other words: This can only upload objects consisting of a
@@ -4322,13 +4404,6 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	request.WithBucket(bucketName)
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
-
-    if (progArgs->getDoS3ObjectTagging())
-    {
-        request.SetTagging(
-                "elbencho_random_tag=" + StringTk::generateRandomS3TagValue(objectName, 30)
-        );
-    }
 
 	if(blockSize)
 		request.SetBody(s3MemStream);
@@ -4408,13 +4483,6 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
-
-    if (progArgs->getDoS3ObjectTagging())
-    {
-        createMultipartUploadRequest.SetTagging(
-                "elbencho_random_tag=" + StringTk::generateRandomS3TagValue(objectName, 30)
-        );
-    }
 
     if(doS3AclPutInline)
         TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);

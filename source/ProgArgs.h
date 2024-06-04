@@ -146,6 +146,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETACLPUT_LONG		"s3baclput"
 #define ARG_S3BUCKETTAG_LONG        "s3btag"
 #define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
+#define ARG_S3BUCKETVER_LONG        "s3bversion"
+#define ARG_S3BUCKETVER_VERIFY_LONG "s3bversionverify"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3IGNOREERRORS_LONG		"s3ignoreerrors"
@@ -343,6 +345,8 @@ class ProgArgs
 		bool doS3AclVerify; // verify that acl contains given grantee and permissions
 		bool doS3ListObjVerify; // verify object listing (requires "-n" / "-N")
 		bool doStatInline; // true to stat immediately after creation while file still open
+        bool doS3BucketVersioning;  // allow to toggle bucket versioning
+        bool doS3BucketVersioningVerify;  // verify that the correct versioning status was set
 		bool doS3BucketTag; // add bucket tagging ops during different bucket operations
 		bool doS3BucketTagVerify; // do bucket tagging verification.
         bool doS3ObjectTag; // add object tagging ops during different object operations
@@ -545,7 +549,9 @@ class ProgArgs
 		const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
 		BenchPathType getBenchPathType() const { return benchPathType; }
 
-        bool getS3BucketMetadataRequested() const { return doS3BucketTag || doS3ObjectLockCfg; }
+        bool getS3BucketMetadataRequested() const {
+            return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning;
+        }
         bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
         bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
         bool getRunS3PutObjectMetadata() const
@@ -582,6 +588,8 @@ class ProgArgs
         bool getDoReadInline() const { return doReadInline; }
         bool getDoReverseSeqOffsets() const { return doReverseSeqOffsets; }
         bool getDoStatInline() const { return doStatInline; }
+        bool getDoS3BucketVersioning() const { return doS3BucketVersioning; }
+        bool getDoS3BucketVersioningVerify() const { return doS3BucketVersioningVerify; }
         bool getDoS3BucketTagging() const { return doS3BucketTag; }
         bool getDoS3BucketTaggingVerify() const { return doS3BucketTagVerify; }
         bool getDoS3ObjectTagging() const { return doS3ObjectTag; }
