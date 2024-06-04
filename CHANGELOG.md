@@ -1,5 +1,7 @@
 # Changelog of elbencho
 
+## v3.0.10 (work in progress)
+
 ## v3.0.9 (June 04, 2024)
 
 ### New Features & Enhancements
