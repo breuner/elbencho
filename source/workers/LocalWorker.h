@@ -216,6 +216,8 @@ class LocalWorker : public Worker
 		void s3ModeDeleteBucket(const std::string& bucketName);
 		void s3ModePutBucketAcl(std::string bucketName);
 		void s3ModeGetBucketAcl(std::string bucketName);
+        void s3ModeGetBucketVersioning(const std::string& bucketName);
+        void s3ModePutBucketVersioning(const std::string& bucketName, bool enable = true);
 		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,

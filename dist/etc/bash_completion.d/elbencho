@@ -121,6 +121,8 @@ _elbencho_opts()
         --s3baclput
         --s3btag
         --s3btagverify
+        --s3bversion
+        --s3bversionverify
         --s3endpoints
         --s3fastget
         --s3key
