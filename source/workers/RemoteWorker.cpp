@@ -59,14 +59,26 @@ void RemoteWorker::run()
 				} break;
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
+                case BenchPhase_STATDIRS:
 				case BenchPhase_CREATEFILES:
 				case BenchPhase_READFILES:
 				case BenchPhase_DELETEFILES:
 				case BenchPhase_SYNC:
 				case BenchPhase_DROPCACHES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_PUTBUCKETACL:
+				case BenchPhase_GETBUCKETACL:
+				case BenchPhase_PUTOBJACL:
+				case BenchPhase_GETOBJACL:
 				case BenchPhase_LISTOBJECTS:
 				case BenchPhase_LISTOBJPARALLEL:
+				case BenchPhase_MULTIDELOBJ:
+                case BenchPhase_GET_S3_OBJECT_MD:
+                case BenchPhase_PUT_S3_OBJECT_MD:
+                case BenchPhase_DEL_S3_OBJECT_MD:
+                case BenchPhase_GET_S3_BUCKET_MD:
+                case BenchPhase_PUT_S3_BUCKET_MD:
+                case BenchPhase_DEL_S3_BUCKET_MD:
 				{
 					startBenchPhase();
 
@@ -198,26 +210,34 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 				"numWorkersDoneWithError: " + host + "; "
 				"numThreads: " + host + "; ");
 
+		workerGotPhaseWork = resultTree.get<bool>(XFER_STATS_TRIGGERSTONEWALL);
+
 		atomicLiveOps.numEntriesDone = resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE);
 		atomicLiveOps.numBytesDone = resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 		atomicLiveOps.numIOPSDone = resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 
 		cpuUtil.stoneWall = resultTree.get<unsigned>(XFER_STATS_CPUUTIL_STONEWALL);
 		cpuUtil.lastDone = resultTree.get<unsigned>(XFER_STATS_CPUUTIL);
-		cpuUtil.live = 0;
+		cpuUtil.live = 0; // this service is done, so no more cpu util
 
 		elapsedUSecVec.resize(0);
 		elapsedUSecVec.reserve(progArgs->getNumThreads() );
 
-		for(bpt::ptree::value_type& elapsedUSecItem :
-			resultTree.get_child(XFER_STATS_ELAPSEDUSECLIST) )
-			elapsedUSecVec.push_back(elapsedUSecItem.second.get_value<uint64_t>() );
+		if(resultTree.count(XFER_STATS_ELAPSEDUSECLIST) )
+		{
+			for(bpt::ptree::value_type& elapsedUSecItem :
+				resultTree.get_child(XFER_STATS_ELAPSEDUSECLIST) )
+				elapsedUSecVec.push_back(elapsedUSecItem.second.get_value<uint64_t>() );
+		}
 
 		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
+		liveLatency.setToZero(); // this service is done, so no more latency
+
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
+			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ||
+				progArgs->getUseNetBench() ) )
 		{
 			atomicLiveOpsReadMix.numEntriesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
@@ -230,6 +250,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 				resultTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
 			entriesLatHistoReadMix.setFromPropertyTree(
 				resultTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
+
+			// (note: liveLatency is nulled via .setToZero() above)
 		}
 
 		phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
@@ -273,8 +295,9 @@ void RemoteWorker::prepareRemoteFile()
 	try
 	{
 		std::string requestPath = HTTPCLIENTPATH_PREPAREFILE "?"
-			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION
-			"&" XFER_PREP_FILENAME "=" SERVICE_UPLOAD_TREEFILE;
+			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION "&"
+			XFER_PREP_FILENAME "=" SERVICE_UPLOAD_TREEFILE "&"
+            XFER_PREP_AUTHORIZATION "=" + progArgs->getSvcPasswordHash();
 
 		auto response = httpClient.request("POST", requestPath, treeFileStream);
 
@@ -318,7 +341,8 @@ void RemoteWorker::preparePhase()
 	try
 	{
 		std::string requestPath = HTTPCLIENTPATH_PREPAREPHASE "?"
-			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION;
+			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION "&"
+			XFER_PREP_AUTHORIZATION "=" + progArgs->getSvcPasswordHash();
 
 		auto response = httpClient.request("POST", requestPath, treeStream);
 
@@ -448,8 +472,19 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			atomicLiveOps.numIOPSDone = statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
+			liveLatency.numAvgIOLatValues =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS);
+			liveLatency.avgIOLatMicroSecsSum =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS);
+
+			liveLatency.numAvgEntriesLatValues =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES);
+			liveLatency.avgEntriesLatMicroSecsSum =
+				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES);
+
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ) )
+				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ||
+					progArgs->getUseNetBench() ) )
 			{
 				atomicLiveOpsReadMix.numEntriesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
@@ -457,6 +492,16 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 					statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE_RWMIXREAD);
 				atomicLiveOpsReadMix.numIOPSDone =
 					statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
+
+				liveLatency.numAvgIOLatReadMixValues =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD);
+				liveLatency.avgIOLatReadMixMicroSecsSum =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD);
+
+				liveLatency.numAvgEntriesLatReadMixValues =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD);
+				liveLatency.avgEntriesLatReadMixMicrosSecsSum =
+					statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD);
 			}
 
 			IF_UNLIKELY(numWorkersDoneWithError)
@@ -465,8 +510,11 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				throw WorkerRemoteException(frameHostErrorMsg(errorMsg) );
 			}
 
-			if(numWorkersDone && !stoneWallTriggered)
-			{
+			bool svcHasTriggeredStonewall = statusTree.get<bool>(XFER_STATS_TRIGGERSTONEWALL);
+
+			if(numWorkersDone && svcHasTriggeredStonewall && workerGotPhaseWork &&
+				!stoneWallTriggered)
+			{ // stonewall triggered
 				for(Worker* worker : *workersSharedData->workerVec)
 					worker->createStoneWallStats();
 			}

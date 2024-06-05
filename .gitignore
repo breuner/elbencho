@@ -19,6 +19,9 @@
 .project
 .settings
 
+# IntelliJ
+.idea
+
 # Misc
 excluded/
 todo.txt

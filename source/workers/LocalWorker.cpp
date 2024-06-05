@@ -1,5 +1,11 @@
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
 #include "LocalWorker.h"
+#include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/StringTk.h"
+#include "toolkits/TranslatorTk.h"
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
 
@@ -27,12 +33,29 @@
 	#include <aws/s3/model/CreateBucketRequest.h>
 	#include <aws/s3/model/CreateMultipartUploadRequest.h>
 	#include <aws/s3/model/DeleteBucketRequest.h>
+	#include <aws/s3/model/DeleteBucketTaggingRequest.h>
 	#include <aws/s3/model/DeleteObjectRequest.h>
+    #include <aws/s3/model/DeleteObjectTaggingRequest.h>
+	#include <aws/s3/model/DeleteObjectsRequest.h>
+	#include <aws/s3/model/GetBucketAclRequest.h>
+	#include <aws/s3/model/GetBucketTaggingRequest.h>
+	#include <aws/s3/model/GetObjectAclRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
+    #include <aws/s3/model/GetObjectTaggingRequest.h>
+    #include <aws/s3/model/GetObjectLockConfigurationRequest.h>
+    #include <aws/s3/model/GetBucketVersioningRequest.h>
 	#include <aws/s3/model/HeadObjectRequest.h>
+	#include <aws/s3/model/HeadBucketRequest.h>
 	#include <aws/s3/model/ListObjectsV2Request.h>
 	#include <aws/s3/model/Object.h>
+    #include <aws/s3/model/ObjectLockRule.h>
+	#include <aws/s3/model/PutBucketAclRequest.h>
+	#include <aws/s3/model/PutBucketTaggingRequest.h>
+	#include <aws/s3/model/PutObjectAclRequest.h>
 	#include <aws/s3/model/PutObjectRequest.h>
+    #include <aws/s3/model/PutObjectTaggingRequest.h>
+    #include <aws/s3/model/PutObjectLockConfigurationRequest.h>
+    #include <aws/s3/model/PutBucketVersioningRequest.h>
 	#include <aws/s3/model/UploadPartRequest.h>
 	#include <aws/transfer/TransferManager.h>
 #endif
@@ -41,18 +64,25 @@
 #define MKDIR_MODE						0777
 #define INTERRUPTION_CHECK_INTERVAL		128
 #define AIO_MAX_WAIT_SEC				5
-#define AIO_MAX_EVENTS					4 // max number of events to retrieve in io_getevents()
+#define AIO_MAX_EVENTS					4  // max number of events to retrieve in io_getevents()
+#define NETBENCH_CONNECT_TIMEOUT_SEC	20 // max time for servers to wait and clients to retry
+#define NETBENCH_RECEIVE_TIMEOUT_SEC	20 // max time to wait for incoming data on client & server
+#define NETBENCH_SHORT_POLL_TIMEOUT_SEC	2  // time to check for interrupts in longer poll wait loops
 
+#define TAG_CHECKSUM_LEN        2
+
+#define TAG_KEY_MEDIUM_NAME     "medium"
+#define TAG_KEY_LONG_NAME       "long"
+#define TAG_VALUE_MEDIUM_LEN    100
+#define TAG_VALUE_LONG_LEN      256
+
+#define RETENTION_PERIOD_DAYS   1
 
 #ifdef S3_SUPPORT
 	S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
-#endif
 
-#ifdef S3_SUPPORT
 	namespace S3 = Aws::S3::Model;
-#endif
 
-#ifdef S3_SUPPORT
 	/**
 	 * Aws::IOStream derived in-memory stream implementation for S3 object upload/download. The
 	 * actual in-memory part comes from the streambuf that gets provided to the constructor.
@@ -68,8 +98,12 @@
 	};
 #endif // S3_SUPPORT
 
+
+SocketVec LocalWorker::serverSocketVec; // singleton netbench sockets vec for all local threads
+
+
 LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank) :
-	Worker(workersSharedData, workerRank)
+	Worker(workersSharedData, workerRank), opsLog(workersSharedData->progArgs, workerRank)
 {
 	nullifyPhaseFunctionPointers();
 
@@ -100,13 +134,7 @@ void LocalWorker::run()
 		buuids::uuid currentBenchID = buuids::nil_uuid();
 
 		// preparation phase
-		applyNumaAndCoreBinding();
-		initThreadFDVec();
-		initThreadCuFileHandleDataVec();
-		allocIOBuffer();
-		allocGPUIOBuffer();
-		prepareCustomTreePathStores();
-		initS3Client();
+		preparePhase();
 
 		// signal coordinator that our preparations phase is done
 		phaseFinished = true; // before incNumWorkersDone(), as Coordinator can reset after done inc
@@ -139,11 +167,15 @@ void LocalWorker::run()
 
 					case BenchPhase_CREATEDIRS:
 					case BenchPhase_DELETEDIRS:
+					case BenchPhase_STATDIRS:
 					{
 						if(progArgs->getBenchPathType() != BenchPathType_DIR)
 							throw WorkerException("Directory creation and deletion are not "
 								"available in file and block device mode.");
 
+						if(progArgs->getUseHDFS() )
+							hdfsDirModeIterateDirs();
+						else
 						if(progArgs->getS3EndpointsVec().empty() )
 						{
 							progArgs->getTreeFilePath().empty() ?
@@ -154,11 +186,24 @@ void LocalWorker::run()
 
 					} break;
 
+                    case BenchPhase_GET_S3_BUCKET_MD:
+                    case BenchPhase_PUT_S3_BUCKET_MD:
+                    case BenchPhase_DEL_S3_BUCKET_MD:
+                    {
+                        s3ModeIterateBuckets();
+                    } break;
+
 					case BenchPhase_CREATEFILES:
 					case BenchPhase_READFILES:
 					{
 						if(progArgs->getBenchPathType() == BenchPathType_DIR)
 						{
+							if(progArgs->getUseNetBench() )
+								netbenchDoTransfer();
+							else
+							if(progArgs->getUseHDFS() )
+								hdfsDirModeIterateFiles();
+							else
 							if(progArgs->getS3EndpointsVec().empty() )
 								progArgs->getTreeFilePath().empty() ?
 									dirModeIterateFiles() : dirModeIterateCustomFiles();
@@ -175,18 +220,41 @@ void LocalWorker::run()
 						}
 					} break;
 
+                    case BenchPhase_GET_S3_OBJECT_MD:
+                    case BenchPhase_PUT_S3_OBJECT_MD:
+                    case BenchPhase_DEL_S3_OBJECT_MD:
+                    {
+                        progArgs->getTreeFilePath().empty() ? s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+                    } break;
+
 					case BenchPhase_STATFILES:
 					{
 						if(progArgs->getBenchPathType() != BenchPathType_DIR)
 							throw WorkerException("File stat operation not available in file and "
 								"block device mode.");
 
+						if(progArgs->getUseHDFS() )
+							hdfsDirModeIterateFiles();
+						else
 						if(progArgs->getS3EndpointsVec().empty() )
 							progArgs->getTreeFilePath().empty() ?
 								dirModeIterateFiles() : dirModeIterateCustomFiles();
 						else
 							progArgs->getTreeFilePath().empty() ?
 								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+					} break;
+
+					case BenchPhase_PUTBUCKETACL:
+					case BenchPhase_GETBUCKETACL:
+					{
+						s3ModeIterateBuckets();
+					} break;
+
+					case BenchPhase_PUTOBJACL:
+					case BenchPhase_GETOBJACL:
+					{
+						progArgs->getTreeFilePath().empty() ?
+							s3ModeIterateObjects() : s3ModeIterateCustomObjects();
 					} break;
 
 					case BenchPhase_LISTOBJECTS:
@@ -203,10 +271,18 @@ void LocalWorker::run()
 						s3ModeListObjParallel();
 					} break;
 
+					case BenchPhase_MULTIDELOBJ:
+					{
+						s3ModeListAndMultiDeleteObjects();
+					} break;
+
 					case BenchPhase_DELETEFILES:
 					{
 						if(progArgs->getBenchPathType() == BenchPathType_DIR)
 						{
+							if(progArgs->getUseHDFS() )
+								hdfsDirModeIterateFiles();
+							else
 							if(progArgs->getS3EndpointsVec().empty() )
 								progArgs->getTreeFilePath().empty() ?
 									dirModeIterateFiles() : dirModeIterateCustomFiles();
@@ -240,7 +316,7 @@ void LocalWorker::run()
 
 				checkInterruptionRequest(); // for infinite loop workers with no work
 
-			} while(doInfiniteIOLoop); // end of infinite loop
+			} while(doInfiniteIOLoop && workerGotPhaseWork); // end of infinite loop
 
 			// let coordinator know that we are done
 			finishPhase();
@@ -275,6 +351,34 @@ void LocalWorker::run()
 }
 
 /**
+ * Run all the preparations in the run() method that are needed before we can announce readiness
+ * for an actual benchmark run.
+ */
+void LocalWorker::preparePhase()
+{
+    applyNumaAndCoreBinding();
+
+    opsLog.openLogFile();
+
+#ifdef S3_SUPPORT
+    s3SharedUploadStore.setProgArgs(progArgs);
+#endif // S3_SUPPORT
+
+    initThreadFDVec();
+    initThreadCuFileHandleDataVec();
+    initThreadMmapVec();
+
+    allocIOBuffer();
+    allocGPUIOBuffer();
+
+    prepareCustomTreePathStores();
+
+    initS3Client();
+    initHDFS();
+    initNetBench();
+}
+
+/**
  * Update finish time values, then signal coordinator that we're done.
  *
  * Nothing should run after this, because coordinator will assume that it can reset things after
@@ -282,15 +386,20 @@ void LocalWorker::run()
  */
 void LocalWorker::finishPhase()
 {
-	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+	if(!workerGotPhaseWork)
+		elapsedUSecVec.resize(0);
+	else
+	{
+		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-	std::chrono::microseconds elapsedDurationUSec =
-		std::chrono::duration_cast<std::chrono::microseconds>
-		(now - workersSharedData->phaseStartT);
-	uint64_t finishElapsedUSec = elapsedDurationUSec.count();
+		std::chrono::microseconds elapsedDurationUSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(now - workersSharedData->phaseStartT);
+		uint64_t finishElapsedUSec = elapsedDurationUSec.count();
 
-	elapsedUSecVec.resize(1);
-	elapsedUSecVec[0] = finishElapsedUSec;
+		elapsedUSecVec.resize(1);
+		elapsedUSecVec[0] = finishElapsedUSec;
+	}
 
 	phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
 
@@ -359,6 +468,297 @@ void LocalWorker::uninitS3Client()
 #endif // S3_SUPPORT
 }
 
+void LocalWorker::initHDFS()
+{
+#ifdef HDFS_SUPPORT
+
+	if(!progArgs->getUseHDFS() )
+		return; // nothing to do
+
+	hdfsFSHandle = hdfsConnect("default", 0);
+	if(!hdfsFSHandle)
+		throw WorkerException("Unable to connect to HDFS using \"default\" config.");
+
+#endif // HDFS_SUPPORT
+}
+
+void LocalWorker::uninitHDFS()
+{
+#ifdef HDFS_SUPPORT
+
+	if(!progArgs->getUseHDFS() )
+		return; // nothing to do
+
+	if(!hdfsFSHandle)
+		return; // nothing to do
+
+	hdfsDisconnect(hdfsFSHandle);
+
+	hdfsFSHandle = NULL;
+
+#endif // HDFS_SUPPORT
+}
+
+/**
+ * Wrapper to initialize network benchmark mode servers and clients.
+ */
+void LocalWorker::initNetBench()
+{
+	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+		return; // nothing to do
+
+	const size_t hostIndex =
+		progArgs->getRankOffset() / progArgs->getNumThreads(); // zero-based
+	const bool hostIsServer = (hostIndex < progArgs->getNumNetBenchServers() );
+
+	if(hostIsServer)
+		initNetBenchServer();
+	else
+		initNetBenchClient();
+}
+
+/**
+ * Initialize network benchmark mode server. First thread of a server will open service port +1000
+ * to accept conns from clients. First worker of a server accepts connections for all worker
+ * threads.
+ */
+void LocalWorker::initNetBenchServer()
+{
+	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+		return; // nothing to do
+
+	const unsigned listenTimeoutMS = NETBENCH_CONNECT_TIMEOUT_SEC * 1000;
+	const unsigned short listenPort = progArgs->getServicePort() + 1000;
+
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+
+	const size_t hostIndex =
+		progArgs->getRankOffset() / progArgs->getNumThreads(); // zero-based
+	const bool hostIsServer = (hostIndex < progArgs->getNumNetBenchServers() );
+	const size_t numClients = (progArgs->getNumDataSetThreads() / progArgs->getNumThreads() ) -
+		progArgs->getNumNetBenchServers();
+
+	if(hostIsServer && (localWorkerRank != 0) )
+		return; // nothing to do. (only first worker of server accepts all client conns)
+
+	const unsigned numConnsTotal = (numClients * progArgs->getNumThreads() );
+
+	unsigned numConnsToWaitFor = (numConnsTotal / progArgs->getNumNetBenchServers() );
+
+	if( (numConnsTotal % progArgs->getNumNetBenchServers() ) &&
+		(hostIndex < (numConnsTotal % progArgs->getNumNetBenchServers() ) ) )
+		numConnsToWaitFor += 1;
+
+	// prepare listen socket
+
+	BasicSocket listenSock(AF_INET, SOCK_STREAM);
+
+	// (note: buf size has to be set before listen() to be applied to new accepted sockets)
+	if(progArgs->getSockRecvBufSize() )
+	{
+		LOGGER(Log_VERBOSE, "Changing sock recv buf size. Old value: " <<
+			listenSock.getSoRcvBuf() << std::endl);
+
+		listenSock.setSoRcvBuf(progArgs->getSockRecvBufSize() );
+	}
+
+	if(progArgs->getSockSendBufSize() )
+	{
+		LOGGER(Log_VERBOSE, "Changing sock send buf size. Old value: " <<
+			listenSock.getSoSndBuf() << std::endl);
+
+		listenSock.setSoSndBuf(progArgs->getSockSendBufSize() );
+	}
+
+	listenSock.setSoReuseAddr(true);
+	listenSock.bind(listenPort);
+
+	listenSock.listen();
+
+	// wait for incoming connections
+
+	LOGGER(Log_VERBOSE, "netbench init: "
+		"Listening for client connections at: " << listenPort << std::endl);
+
+	while(serverSocketVec.size() < numConnsToWaitFor)
+	{
+		bool haveIncomingConn = listenSock.waitForIncomingData(listenTimeoutMS);
+		if(!haveIncomingConn) // timeout
+			throw WorkerException("Timed out waiting for client connections. "
+				"Received connections: " + std::to_string(serverSocketVec.size() ) + "; "
+				"Expected connections: " + std::to_string(numConnsToWaitFor) + "; "
+				"Timeout in ms: " + std::to_string(listenTimeoutMS) );
+
+		struct sockaddr_in peer;
+		socklen_t peerStructSize = sizeof(peer);
+		BasicSocket* newSocket = (BasicSocket*)listenSock.accept(
+			(struct sockaddr*)&peer, &peerStructSize);
+
+		LOGGER(Log_VERBOSE, "netbench init: "
+			"Accepted new connection from: " << newSocket->getPeername() << "; "
+			"Connected: " << (serverSocketVec.size() + 1) << " / " << numConnsToWaitFor <<
+			std::endl);
+
+		newSocket->setSoKeepAlive(true);
+		newSocket->setTcpNoDelay(true);
+
+		serverSocketVec.push_back(newSocket);
+	}
+}
+
+/**
+ * Initialize network benchmark client mode. Each client worker opens one connection. Client threads
+ * connect round-robin to the different servers, so that a single client with multiple threads can
+ * talk to multiple servers.
+ */
+void LocalWorker::initNetBenchClient()
+{
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+
+	// prepare socket
+
+	clientSocket = new BasicSocket(AF_INET, SOCK_STREAM);
+
+	clientSocket->setSoKeepAlive(true);
+	clientSocket->setTcpNoDelay(true);
+
+	if(progArgs->getSockRecvBufSize() )
+	{
+		LOGGER(Log_VERBOSE, "Changing sock recv buf size. Old value: " <<
+			clientSocket->getSoRcvBuf() << std::endl);
+
+		clientSocket->setSoRcvBuf(progArgs->getSockRecvBufSize() );
+	}
+
+	if(progArgs->getSockSendBufSize() )
+	{
+		LOGGER(Log_VERBOSE, "Changing sock send buf size. Old value: " <<
+			clientSocket->getSoSndBuf() << std::endl);
+
+		clientSocket->setSoSndBuf(progArgs->getSockSendBufSize() );
+	}
+
+	if(!progArgs->getNetDevsVec().empty() )
+	{ // round-robin binding of sockets to user-given network devices
+		unsigned netDevIdx = (localWorkerRank % progArgs->getNetDevsVec().size() );
+		clientSocket->setSoBindToDevice(progArgs->getNetDevsVec()[netDevIdx].c_str() );
+	}
+
+	/* note: clientWorkerRank and serverOffset have to remain in sync with the number of
+		 connections that each server expects. */
+
+	/* clients connect round-robin to different servers
+		(next client continues where the previous client stopped) */
+
+	const NetBenchServerAddrVec& serversVec = progArgs->getNetBenchServers();
+	const size_t clientWorkerRank = workerRank -
+		(serversVec.size() * progArgs->getNumThreads() );
+	const size_t serversOffset = clientWorkerRank % serversVec.size();
+	const NetBenchServerAddr& serverAddr = serversVec[serversOffset];
+
+	// start time for connection retry timeout
+	std::chrono::steady_clock::time_point connectStartT = std::chrono::steady_clock::now();
+
+	// connection attempt(s)
+	for( ; ; )
+	{
+		try
+		{
+			LOGGER(Log_DEBUG, "netbench init: "
+				"Connecting to: " << serverAddr.host.c_str() << ":" <<
+				serverAddr.port << "; " <<
+				"WorkerRank: " << workerRank << std::endl);
+
+			clientSocket->connect(serverAddr.host.c_str(), serverAddr.port);
+
+			LOGGER(Log_VERBOSE, "netbench init: "
+				"Established connection to: " << clientSocket->getPeername() << "; " <<
+				"WorkerRank: " << workerRank << std::endl);
+
+			break; // connection successful if no exception thrown
+		}
+		catch(SocketConnectException& e)
+		{ // server might just not be ready yet, thus retry if not timed out yet
+
+			// calculate elapsed time to check retry timeout
+			std::chrono::steady_clock::time_point connectEndT =
+				std::chrono::steady_clock::now();
+			std::chrono::seconds connectElapsedSecs =
+				std::chrono::duration_cast<std::chrono::seconds>
+				(connectEndT - connectStartT);
+
+			if(connectElapsedSecs.count() > NETBENCH_CONNECT_TIMEOUT_SEC)
+				throw;
+
+			// wait 500ms before the next retry to avoid flooding
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		}
+
+	} // end of connection retry loop
+}
+
+/**
+ * Cleanup client sockets from netbench mode. Server sockets are shared across all threads and
+ * thus get cleaned up in uninitNetBenchAfterPhaseDone().
+ */
+void LocalWorker::uninitNetBench()
+{
+	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+		return; // nothing to do
+
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const size_t hostIndex =
+		progArgs->getRankOffset() / progArgs->getNumThreads(); // zero-based
+	const bool hostIsServer = (hostIndex < progArgs->getNumNetBenchServers() );
+
+	if(hostIsServer && (localWorkerRank != 0) )
+		return; // nothing to do. (only first worker of server closes all client conns)
+
+	if(hostIsServer)
+	{
+		/* this cleanup happens in uninitNetBenchAfterPhaseDone() because some workers might still
+		 	 be running at this point. */
+	}
+
+	if(!hostIsServer && (clientSocket != NULL) )
+	{ // this is a client => just one socket to disconnect
+		try { clientSocket->shutdown(); } catch(...) {}
+		delete(clientSocket);
+		clientSocket = NULL;
+	}
+}
+
+/**
+ * Late cleanup for shared server sockets. Client sockets get cleaned up in uninitNetBench() because
+ * they are not shared across all workers.
+ */
+void LocalWorker::uninitNetBenchAfterPhaseDone()
+{
+	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+		return; // nothing to do
+
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const size_t hostIndex =
+		progArgs->getRankOffset() / progArgs->getNumThreads(); // zero-based
+	const bool hostIsServer = (hostIndex < progArgs->getNumNetBenchServers() );
+
+	if(hostIsServer && (localWorkerRank != 0) )
+		return; // nothing to do. (only first worker of server closes all client conns)
+
+	if(hostIsServer)
+	{
+		for(Socket* sock : serverSocketVec)
+		{
+			try { sock->shutdown(); } catch(...) {}
+			delete(sock); // destructor contains close()
+		}
+
+		serverSocketVec.clear();
+		serverSocketVec.shrink_to_fit();
+	}
+
+}
+
 /**
  * If progArgs::useNoFDSharing is set, initialize threadFDVec with separate open files in file/bdev
  * mode. Otherwise do nothing.
@@ -398,7 +798,11 @@ void LocalWorker::initThreadFDVec()
 		if(progArgs->getRunCreateFilesPhase() )
 			openFlags |= O_CREAT;
 
-		fd = open(path.c_str(), openFlags, MKFILE_MODE);
+	    OPLOG_PRE_OP("open", path.c_str(), 0, 0);
+
+        fd = open(path.c_str(), openFlags, MKFILE_MODE);
+
+	    OPLOG_POST_OP("open", path.c_str(), 0, 0, fd == -1);
 
 		if(fd == -1)
 			throw WorkerException("Unable to open benchmark path: " + path + "; "
@@ -416,7 +820,11 @@ void LocalWorker::uninitThreadFDVec()
 {
 	for(int fd : fileHandles.threadFDVec)
 	{
-		int closeRes = close(fd);
+        OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+        int closeRes = close(fd);
+
+        OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 		if(closeRes == -1)
 			ERRLOGGER(Log_NORMAL, "Error on file close. "
@@ -451,7 +859,7 @@ void LocalWorker::initThreadCuFileHandleDataVec()
 	}
 }
 
-/*
+/**
  * Deregsiter threadCuFileHandleVec entries.
  */
 void LocalWorker::uninitThreadCuFileHandleDataVec()
@@ -461,6 +869,57 @@ void LocalWorker::uninitThreadCuFileHandleDataVec()
 
 	fileHandles.threadCuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
 }
+
+/**
+ * Init fileHandles.mmapVec from progArgs->getBenchPathFDs() if this is a random phase with files
+ * as bench paths. Otherwise the init will happen later in initPhaseFileHandleVecs().
+ */
+void LocalWorker::initThreadMmapVec()
+{
+	if(!progArgs->getUseMmap() )
+		return; // nothing to do
+
+	if(progArgs->getBenchPathType() == BenchPathType_DIR)
+		return; // init will happen in initPhaseFileHandleVecs()
+
+	if(!progArgs->getUseRandomOffsets() )
+		return; // init will happen in initPhaseFileHandleVecs()
+
+	fileHandles.mmapVec = progArgs->getMmapVec();
+}
+
+/**
+ * Unmap fileHandles.mmapVec entries after a run of possibly multiple phases.
+ */
+void LocalWorker::uninitThreadMmapVec()
+{
+	if( (progArgs->getBenchPathType() != BenchPathType_DIR) &&
+		progArgs->getUseRandomOffsets() )
+	{ // random file/bdev mode: we copied mappings from progArgs, so don't unmap here
+		fileHandles.mmapVec.resize(0);
+
+		return;
+	}
+
+	// if we got here then we're not in random file/bdev mode, so we did our own mapping in worker
+
+	for(char*& mmapPtr : fileHandles.mmapVec)
+	{
+		if(mmapPtr == MAP_FAILED)
+			continue;
+
+		int unmapRes = munmap(mmapPtr, progArgs->getFileSize() );
+
+		if(unmapRes == -1)
+			ERRLOGGER(Log_NORMAL, "File memory unmap failed. "
+				"SysErr: " << strerror(errno) << std::endl);
+
+		mmapPtr = (char*)MAP_FAILED;
+	}
+
+	fileHandles.mmapVec.resize(0);
+}
+
 
 /**
  * Init thread-local phase values.
@@ -510,6 +969,8 @@ void LocalWorker::initPhaseFileHandleVecs()
 		fileHandles.cuFileHandleDataVec.resize(1);
 
 		fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
+
+		fileHandles.mmapVec.resize(1, (char*)MAP_FAILED);
 	}
 	else
 	if(!progArgs->getUseRandomOffsets() )
@@ -524,6 +985,9 @@ void LocalWorker::initPhaseFileHandleVecs()
 		fileHandles.fdVecPtr = &fileHandles.fdVec;
 
 		fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
+
+		fileHandles.mmapVec.resize(1, (char*)MAP_FAILED); /* fileModeIterateFilesSeq() will do the
+			mmap() dynamically when this thread switches to a new file */
 	}
 	else
 	{
@@ -537,6 +1001,8 @@ void LocalWorker::initPhaseFileHandleVecs()
 
 		for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
 			fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
+
+		// note: nothing for fileHandles.mmapVec here; init was done in initThreadMmapVec
 	}
 }
 
@@ -607,11 +1073,14 @@ void LocalWorker::nullifyPhaseFunctionPointers()
 void LocalWorker::initPhaseFunctionPointers()
 {
 	const size_t ioDepth = progArgs->getIODepth();
+	const bool useHDFS = progArgs->getUseHDFS();
+	const bool useMmap = progArgs->getUseMmap();
 	const bool useCuFileAPI = progArgs->getUseCuFile();
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
 	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
 	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
 	const bool doDirectVerify = progArgs->getDoDirectVerify();
+	const bool doReadInline = progArgs->getDoReadInline();
 	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
 	const RandAlgoType blockVarAlgo = RandAlgoSelectorTk::stringToEnum(
@@ -627,11 +1096,27 @@ void LocalWorker::initPhaseFunctionPointers()
 	// independent of whether current phase is read or write...
 	// (these need to be set above the phase-dependent settings because those can override
 
-	funcPositionalWrite = useCuFileAPI ?
-		&LocalWorker::cuFileWriteWrapper : &LocalWorker::pwriteWrapper;
+	if(useHDFS)
+		funcPositionalWrite = &LocalWorker::hdfsWriteWrapper;
+	else
+	if(useMmap)
+		funcPositionalWrite = &LocalWorker::mmapWriteWrapper;
+	else
+	if(useCuFileAPI)
+		funcPositionalWrite = &LocalWorker::cuFileWriteWrapper;
+	else
+		funcPositionalWrite = &LocalWorker::pwriteWrapper;
 
-	funcPositionalRead = useCuFileAPI ?
-		&LocalWorker::cuFileReadWrapper : &LocalWorker::preadWrapper;
+	if(useHDFS)
+		funcPositionalRead = &LocalWorker::hdfsReadWrapper;
+	else
+	if(useMmap)
+		funcPositionalRead = &LocalWorker::mmapReadWrapper;
+	else
+	if(useCuFileAPI)
+		funcPositionalRead = &LocalWorker::cuFileReadWrapper;
+	else
+		funcPositionalRead = &LocalWorker::preadWrapper;
 
 
 	// phase-dependent settings...
@@ -650,11 +1135,14 @@ void LocalWorker::initPhaseFunctionPointers()
 			&LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
 		funcPostReadCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
 
-		if(useCuFileAPI && integrityCheckEnabled)
+		if(areGPUsGiven && integrityCheckEnabled)
 			funcPreWriteCudaMemcpy = &LocalWorker::cudaMemcpyHostToGPU;
 
 		if(integrityCheckEnabled)
 			funcPreWriteBlockModifier = &LocalWorker::preWriteIntegrityCheckFillBuf;
+		else
+		if(blockVariancePercent && areGPUsGiven)
+			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillCuda;
 		else
 		if(blockVariancePercent && (blockVarAlgo == RandAlgo_GOLDENRATIOPRIME) )
 			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillFast;
@@ -666,7 +1154,7 @@ void LocalWorker::initPhaseFunctionPointers()
 
 		funcPostReadBlockChecker = &LocalWorker::noOpIntegrityCheck;
 
-		if(doDirectVerify)
+		if(doDirectVerify || doReadInline)
 		{
 			if(!useCuFileAPI)
 				funcPositionalWrite = &LocalWorker::pwriteAndReadWrapper;
@@ -676,7 +1164,8 @@ void LocalWorker::initPhaseFunctionPointers()
 				funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 			}
 
-			funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
+			if(doDirectVerify)
+				funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
 		}
 
 		uint64_t rateLimitMiBps = isRWMixedReader ?
@@ -782,13 +1271,13 @@ void LocalWorker::allocGPUIOBuffer()
 		return; // nothing to do here
 
 	if(progArgs->getGPUIDsVec().empty() )
-	{
-		// gpu bufs won't be accessed, but vec elems might be passed e.g. to noOpCudaMemcpy
+	{ // gpu bufs won't be accessed, but gpuIOBufVec elems might be passed e.g. to noOpCudaMemcpy
 		gpuIOBufVec.resize(progArgs->getIODepth(), NULL);
 		return;
 	}
 
 #ifndef CUDA_SUPPORT
+
 	throw WorkerException("GPU given, but this executable was built without CUDA support.");
 
 #else // CUDA_SUPPORT
@@ -808,6 +1297,17 @@ void LocalWorker::allocGPUIOBuffer()
 		throw WorkerException("Setting CUDA device failed. "
 			"GPU ID: " + std::to_string(gpuID) + "; "
 			"CUDA Error: " + cudaGetErrorString(setDevRes) );
+
+	curandStatus_t createGenRes = curandCreateGenerator(&gpuRandGen, CURAND_RNG_PSEUDO_DEFAULT);
+	if(createGenRes != CURAND_STATUS_SUCCESS)
+		throw WorkerException("Initialization of GPU/CUDA random number generator failed. "
+			"curand error code: " + std::to_string(createGenRes) );
+
+	curandStatus_t seedRes = curandSetPseudoRandomGeneratorSeed(gpuRandGen,
+		( (uint64_t)std::random_device()() << 32) | (uint32_t)std::random_device()() );
+	if(seedRes != CURAND_STATUS_SUCCESS)
+		throw WorkerException("Seeding GPU/CUDA random number generator failed. "
+			"curand error code: " + std::to_string(seedRes) );
 
 	// alloc number of GPU IO buffers matching iodepth
 	for(size_t i=0; i < progArgs->getIODepth(); i++)
@@ -883,13 +1383,17 @@ void LocalWorker::prepareCustomTreePathStores()
 	if(progArgs->getTreeFilePath().empty() )
 		return; // nothing to do here
 
-	bool throwOnSmallerThanBlockSize = progArgs->getUseRandomOffsets();
+	const bool throwOnSmallerThanBlockSize = !progArgs->getNoDirectIOCheck() &&
+		progArgs->getUseDirectIO() && progArgs->getUseRandomOffsets();
+
+	const size_t numThreads = progArgs->getNumThreads();
+	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+
+	progArgs->getCustomTreeDirs().getWorkerSublistNonShared(workerRank,
+		numDataSetThreads, false, customTreeDirs);
 
 	progArgs->getCustomTreeFilesNonShared().getWorkerSublistNonShared(workerRank,
-		progArgs->getNumDataSetThreads(), throwOnSmallerThanBlockSize, customTreeFiles);
-
-	size_t numThreads = progArgs->getNumThreads();
-	size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+		numDataSetThreads, throwOnSmallerThanBlockSize, customTreeFiles);
 
 	if(progArgs->getRunAsService() && !progArgs->getS3EndpointsStr().empty() &&
 		progArgs->getRunCreateFilesPhase() && (numDataSetThreads != numThreads) )
@@ -929,6 +1433,8 @@ void LocalWorker::cleanup()
 	// delete rwOffsetGen (unique ptr) to eliminate any references to progArgs data etc.
 	rwOffsetGen.reset();
 
+	uninitNetBench();
+	uninitHDFS();
 	uninitS3Client();
 
 	// reset custom tree mode path store
@@ -975,14 +1481,40 @@ void LocalWorker::cleanup()
 					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl);
 		}
 	}
+
+	if(gpuRandGen)
+	{
+		curandDestroyGenerator(gpuRandGen);
+		gpuRandGen = NULL;
+	}
 #endif
 
 	// free host memory buffers
 	for(char* ioBuf : ioBufVec)
 		SAFE_FREE(ioBuf);
 
+	uninitThreadMmapVec();
 	uninitThreadCuFileHandleDataVec();
 	uninitThreadFDVec();
+
+	opsLog.closeLogFile();
+}
+
+/**
+ * Late cleanup after all workers are done with the current phase. This gets called by the
+ * WorkerManager for all threads, so it's non-parallel (in contrast to LocalWorker::cleanup() ) and
+ * thus should only be used for cleanup that can't be done while some workers are still running,
+ * e.g. cleanup of shared data structures for all workers.
+ *
+ * Note: This can be called more than once after the same phase, e.g. in service mode if user
+ * sends phase interrupt request more than once.
+ *
+ * Note: This is called after each phase, so don't free anything here that might be used for
+ * multiple phases, e.g. in standalone mode.
+ */
+void LocalWorker::cleanupAfterPhaseDone()
+{
+	uninitNetBenchAfterPhaseDone();
 }
 
 /**
@@ -1009,10 +1541,11 @@ int64_t LocalWorker::rwBlockSized()
 		bool isRWMixRead = false;
 		ssize_t rwRes;
 
+		((*this).*funcRWRateLimiter)(blockSize);
+
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcRWRateLimiter)(blockSize);
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
 		if(benchPhase == BenchPhase_READFILES)
@@ -1054,7 +1587,7 @@ int64_t LocalWorker::rwBlockSized()
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -1145,10 +1678,12 @@ int64_t LocalWorker::aioBlockSized()
 		iocbVec[ioVecIdx].data = (void*)ioVecIdx; /* the vec index of this request; ioctl.data
 						is caller's private data returned after io_getevents as ioEvents[].data */
 
+		((*this).*funcRWRateLimiter)(blockSize);
+
 		ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-		((*this).*funcRWRateLimiter)(blockSize);
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset); // fill
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize,
+			currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
 		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[ioVecIdx] );
@@ -1231,7 +1766,8 @@ int64_t LocalWorker::aioBlockSized()
 			((*this).*funcPostReadCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
 				ioEvents[eventIdx].obj->u.c.nbytes);
 			((*this).*funcPostReadBlockChecker)( (char*)ioEvents[eventIdx].obj->u.c.buf,
-				ioEvents[eventIdx].obj->u.c.nbytes, ioEvents[eventIdx].obj->u.c.offset); // verify
+				gpuIOBufVec[ioVecIdx], ioEvents[eventIdx].obj->u.c.nbytes,
+				ioEvents[eventIdx].obj->u.c.offset);
 
 			// calc io operation latency
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -1276,10 +1812,12 @@ int64_t LocalWorker::aioBlockSized()
 				currentOffset);
 			ioEvents[eventIdx].obj->data = (void*)ioVecIdx; // caller's private data
 
+			((*this).*funcRWRateLimiter)(blockSize);
+
 			ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-			((*this).*funcRWRateLimiter)(blockSize);
-			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], blockSize, currentOffset);
+			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
+				blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
 			int submitRes = io_submit(
@@ -1311,7 +1849,8 @@ int64_t LocalWorker::aioBlockSized()
 /**
  * Noop for the case when no integrity check selected by user.
  */
-void LocalWorker::noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::noOpIntegrityCheck(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	return; // noop
 }
@@ -1322,7 +1861,8 @@ void LocalWorker::noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset)
  * @bufLen buf len to fill with checksums
  * @fileOffset file offset for buf
  */
-void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::preWriteIntegrityCheckFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	const size_t checkSumLen = sizeof(uint64_t);
 	const uint64_t checkSumSalt = progArgs->getIntegrityCheckSalt();
@@ -1351,7 +1891,7 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
 		off_t checkSumArrayStartIdx = currentOffset - checkSumStartOffset;
 		size_t checkSumCopyLen = std::min(numBytesLeft, checkSumLen - checkSumArrayStartIdx);
 
-		memcpy(&buf[numBytesDone], &checkSumArray[checkSumArrayStartIdx], checkSumCopyLen);
+		memcpy(&hostIOBuf[numBytesDone], &checkSumArray[checkSumArrayStartIdx], checkSumCopyLen);
 
 		numBytesDone += checkSumCopyLen;
 		numBytesLeft -= checkSumCopyLen;
@@ -1366,7 +1906,8 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t 
  * @fileOffset file offset for buf
  * @throw WorkerException if verification fails.
  */
-void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::postReadIntegrityCheckVerifyBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	IF_UNLIKELY(!bufLen)
 		return;
@@ -1378,10 +1919,10 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 			"Size: " + std::to_string(bufLen) );
 
 	// fill verifyBuf with the correct data
-	preWriteIntegrityCheckFillBuf(verifyBuf, bufLen, fileOffset);
+	preWriteIntegrityCheckFillBuf(verifyBuf, gpuIOBuf, bufLen, fileOffset);
 
 	// compare correct data to actual data
-	int compareRes = memcmp(buf, verifyBuf, bufLen);
+	int compareRes = memcmp(hostIOBuf, verifyBuf, bufLen);
 
 	if(!compareRes)
 	{ // buffers are equal, so all good
@@ -1392,13 +1933,13 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 	// verification failed, find exact mismatch offset
 	for(size_t i=0; i < bufLen; i++)
 	{
-		if(verifyBuf[i] == buf[i])
+		if(verifyBuf[i] == hostIOBuf[i])
 			continue;
 
 		// we found the exact offset for mismatch
 
 		unsigned expectedVal = (unsigned char)verifyBuf[i];
-		unsigned actualVal = (unsigned char)buf[i];
+		unsigned actualVal = (unsigned char)hostIOBuf[i];
 
 		free(verifyBuf);
 
@@ -1410,7 +1951,7 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_
 }
 
 /**
- * Fill buffer with given value. In contrast to memset() this can full 64bit values to at least
+ * Fill buffer with given value. In contrast to memset() this can fill 64bit values to at least
  * make simple dedupe less likely among all the different non-variable block remainders.
  */
 void LocalWorker::bufFill(char* buf, uint64_t fillValue, size_t bufLen)
@@ -1437,7 +1978,8 @@ void LocalWorker::bufFill(char* buf, uint64_t fillValue, size_t bufLen)
  * Refill some percentage of the buffer with random data. The percentage to refill is defined via
  * progArgs::blockVariancePercent.
  */
-void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
@@ -1449,14 +1991,14 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
 	const uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
 	const size_t constFillRemainderLen = bufLen - varFillLen;
 
-	randBlockVarAlgo->fillBuf(buf, varFillLen);
+	randBlockVarAlgo->fillBuf(hostIOBuf, varFillLen);
 
 	if(!constFillRemainderLen)
 		return;
 
 	// fill remainder of buffer with same 64bit value
 	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
-	bufFill(&buf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
+	bufFill(&hostIOBuf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**
@@ -1468,7 +2010,8 @@ void LocalWorker::preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffs
  * "-w -t 1 -b 128k --iodepth 128 --blockvarpct 100 --rand --direct" when the function in the
  * RandAlgo object is called (which is quite mysterious).
  */
-void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset)
+void LocalWorker::preWriteBufRandRefillFast(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
 {
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
@@ -1490,12 +2033,12 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 	for(uint64_t i=0; i < (varFillLen / sizeof(uint64_t) ); i++)
 	{
-		uint64_t* uint64Buf = (uint64_t*)buf;
+		uint64_t* uint64Buf = (uint64_t*)hostIOBuf;
 		state *= RANDALGO_GOLDEN_RATIO_PRIME;
 		state >>= 3;
 		*uint64Buf = state;
 
-		buf += sizeof(uint64_t);
+		hostIOBuf += sizeof(uint64_t);
 		numBytesDone += sizeof(uint64_t);
 	}
 
@@ -1507,8 +2050,8 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 		const size_t memcpySize = varFillLen - numBytesDone;
 
-		memcpy(buf, &randUint64, memcpySize);
-		buf += memcpySize;
+		memcpy(hostIOBuf, &randUint64, memcpySize);
+		hostIOBuf += memcpySize;
 	}
 
 	if(!constFillRemainderLen)
@@ -1516,8 +2059,56 @@ void LocalWorker::preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t file
 
 	// fill remainder of buffer with same 64bit value
 	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
-	bufFill(buf, randBlockVarAlgo->next(), constFillRemainderLen);
+	bufFill(hostIOBuf, randBlockVarAlgo->next(), constFillRemainderLen);
 }
+
+/**
+ * Refill some percentage of the GPU buffer with random data. The percentage to refill is defined
+ * via progArgs::blockVariancePercent.
+ */
+void LocalWorker::preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset)
+{
+#ifndef CUDA_SUPPORT
+
+	throw WorkerException("preWriteBufRandRefillCuda called, but this executable was built without "
+		"CUDA support.");
+
+#else // CUDA_SUPPORT
+
+	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
+	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
+		return; // this is a read in rwmix mode, so no need for refill in this round
+
+	// refill buffer with random data
+
+	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+	uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
+
+	if(varFillLen % sizeof(int) ) // curandGenerate can only fill full 32bit values
+		varFillLen -= (varFillLen % sizeof(int) );
+
+	const size_t constFillRemainderLen = bufLen - varFillLen;
+
+	curandStatus_t randGenRes = curandGenerate(gpuRandGen, (unsigned int*)gpuIOBuf,
+		varFillLen / sizeof(int) );
+
+	IF_UNLIKELY(randGenRes != CURAND_STATUS_SUCCESS)
+		throw WorkerException("Random number generation via GPU/CUDA failed. "
+			"curand error code: " + std::to_string(randGenRes) );
+
+	if(!constFillRemainderLen)
+		return;
+
+	/* fill remainder of host buffer with same 64bit value and copy over to gpu (in lack of a good
+		way of filling a buffer with a 64bit value directly on the gpu) */
+	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
+	bufFill(&hostIOBuf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
+	cudaMemcpyHostToGPU(&hostIOBuf[varFillLen], &gpuIOBuf[varFillLen], constFillRemainderLen);
+
+#endif // CUDA_SUPPORT
+}
+
 
 /**
  * Simple wrapper for io_prep_pwrite().
@@ -1595,7 +2186,7 @@ void LocalWorker::noOpRateLimiter(size_t rwSize)
 }
 
 /**
- * Rate limiter before reads in case rate limit was selected by user.
+ * Rate limiter before writes/reads in case rate limit was selected by user.
  */
 void LocalWorker::preRWRateLimiter(size_t rwSize)
 {
@@ -1706,7 +2297,13 @@ ssize_t LocalWorker::preadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes
 {
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
-	return pread(fd, buf, nbytes, offset);
+	OPLOG_PRE_OP("pread", std::to_string(fd), offset, nbytes);
+
+	ssize_t preadRes = pread(fd, buf, nbytes, offset);
+
+	OPLOG_POST_OP("pread", std::to_string(fd), offset, nbytes, preadRes == -1);
+
+	return preadRes;
 }
 
 /**
@@ -1716,22 +2313,39 @@ ssize_t LocalWorker::pwriteWrapper(size_t fileHandleIdx, void* buf, size_t nbyte
 {
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
-	return pwrite(fd, buf, nbytes, offset);
+	OPLOG_PRE_OP("pwrite", std::to_string(fd), offset, nbytes);
+
+	ssize_t pwriteRes = pwrite(fd, buf, nbytes, offset);
+
+	OPLOG_POST_OP("pwrite", std::to_string(fd), offset, nbytes, pwriteRes <= 0);
+
+	return pwriteRes;
 }
 
 /**
  * Wrapper for positional sync write followed by an immediate read of the same block.
  */
-ssize_t LocalWorker::pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+	off_t offset)
 {
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
+	OPLOG_PRE_OP("pwrite", std::to_string(fd), offset, nbytes);
+
 	ssize_t pwriteRes = pwrite(fd, buf, nbytes, offset);
+
+	OPLOG_POST_OP("pwrite", std::to_string(fd), offset, nbytes, pwriteRes <= 0);
 
 	IF_UNLIKELY(pwriteRes <= 0)
 		return pwriteRes;
 
-	return pread(fd, buf, pwriteRes, offset);
+	OPLOG_PRE_OP("pread", std::to_string(fd), offset, nbytes);
+
+	ssize_t preadRes = pread(fd, buf, pwriteRes, offset);
+
+	OPLOG_POST_OP("pread", std::to_string(fd), offset, nbytes, preadRes == -1);
+
+	return preadRes;
 }
 
 /**
@@ -1749,11 +2363,27 @@ ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 
 	const int fd = (*fileHandles.fdVecPtr)[fileHandleIdx];
 
+	ssize_t ioRes;
+
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
-		return pwrite(fd, buf, nbytes, offset);
+	{
+		OPLOG_PRE_OP("pwrite", std::to_string(fd), offset, nbytes);
+
+		ioRes = pwrite(fd, buf, nbytes, offset);
+
+		OPLOG_POST_OP("pwrite", std::to_string(fd), offset, nbytes, ioRes <= 0);
+	}
 	else
-		return pread(fd, buf, nbytes, offset);
+	{
+		OPLOG_PRE_OP("pread", std::to_string(fd), offset, nbytes);
+
+		ioRes = pread(fd, buf, nbytes, offset);
+
+		OPLOG_POST_OP("pread", std::to_string(fd), offset, nbytes, ioRes == -1);
+	}
+
+	return ioRes;
 }
 
 /**
@@ -1768,8 +2398,14 @@ ssize_t LocalWorker::cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t n
 	throw WorkerException("cuFileReadWrapper called, but this executable was built without cuFile "
 		"API support");
 #else
-	return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 		gpuIOBufVec[0], nbytes, offset, 0);
+
+	OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, ioRes == -1);
+
+	return ioRes;
 #endif
 }
 
@@ -1785,29 +2421,46 @@ ssize_t LocalWorker::cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t 
 	throw WorkerException("cuFileWriteWrapper called, but this executable was built without cuFile "
 		"API support");
 #else
-	return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 		gpuIOBufVec[0], nbytes, offset, 0);
+
+	OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
+
+	return ioRes;
 #endif
 }
 
 /**
  * Wrapper for positional sync cuFile write followed by an immediate cuFile read of the same block.
  */
-ssize_t LocalWorker::cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+	off_t offset)
 {
 #ifndef CUFILE_SUPPORT
 	throw WorkerException("cuFileWriteAndReadWrapper called, but this executable was built without "
 		"cuFile API support");
 #else
+	OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
 	ssize_t writeRes =
 		cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
 
+	OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, writeRes <= 0);
+
 	IF_UNLIKELY(writeRes <= 0)
 		return writeRes;
 
-	return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t readRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 		gpuIOBufVec[0], writeRes, offset, 0);
+
+	OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, readRes == -1);
+
+	return readRes;
 #endif
 }
 
@@ -1828,14 +2481,88 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
 		work for this because aio would not inc counter directly on submission.) */
 
+	ssize_t ioRes;
+
 	// note: workerRank is used to have skew between different worker threads
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
-		return cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	{
+		OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
+		ioRes = cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
+
+		OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
+	}
 	else
-		return cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
+	{
+		OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+
+		ioRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
 			gpuIOBufVec[0], nbytes, offset, 0);
+
+		OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, ioRes == -1);
+}
+
+	return ioRes;
 #endif
+}
+
+/**
+ * Wrapper for positional sync read for HDFS.
+ */
+ssize_t LocalWorker::hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
+	OPLOG_PRE_OP("hdfsPread", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = hdfsPread(hdfsFSHandle, hdfsFileHandle, offset, buf, nbytes);
+
+	OPLOG_POST_OP("hdfsPread", std::to_string(fileHandleIdx), offset, nbytes, ioRes != -1);
+
+	return ioRes;
+#endif // HDFS_SUPPORT
+}
+
+/**
+ * Wrapper for positional sync write for HDFS.
+ *
+ * HDFS does not support seeking for writes, so offset is ignored.
+ */
+ssize_t LocalWorker::hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
+	OPLOG_PRE_OP("hdfsWrite", std::to_string(fileHandleIdx), offset, nbytes);
+
+	ssize_t ioRes = hdfsWrite(hdfsFSHandle, hdfsFileHandle, buf, nbytes);
+
+	OPLOG_POST_OP("hdfsWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
+
+	return ioRes;
+#endif // HDFS_SUPPORT
+}
+
+/**
+ * Wrapper for positional sync read via mmap.
+ */
+ssize_t LocalWorker::mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+	memcpy(buf, &(fileHandles.mmapVec[fileHandleIdx][offset]), nbytes);
+
+	return nbytes;
+}
+
+/**
+ * Wrapper for positional sync write via mmap.
+ */
+ssize_t LocalWorker::mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+	memcpy(&(fileHandles.mmapVec[fileHandleIdx][offset]), buf, nbytes);
+
+	return nbytes;
 }
 
 /**
@@ -1873,7 +2600,12 @@ void LocalWorker::dirModeIterateDirs()
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) );
 
-			int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+		    OPLOG_PRE_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+            int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+
+		    OPLOG_POST_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+		        mkdirRes == -1);
 
 			if( (mkdirRes == -1) && (errno != EEXIST) )
 				throw WorkerException(std::string("Rank directory creation failed. ") +
@@ -1902,7 +2634,12 @@ void LocalWorker::dirModeIterateDirs()
 
 		if(benchPhase == BenchPhase_CREATEDIRS)
 		{ // create dir
-			int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+            OPLOG_PRE_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+            int mkdirRes = mkdirat(pathFDs[pathFDsIndex], currentPath.data(), MKDIR_MODE);
+
+            OPLOG_POST_OP("mkdirat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+                mkdirRes == -1);
 
 			if( (mkdirRes == -1) && (errno != EEXIST) )
 				throw WorkerException(std::string("Directory creation failed. ") +
@@ -1912,7 +2649,12 @@ void LocalWorker::dirModeIterateDirs()
 
 		if(benchPhase == BenchPhase_DELETEDIRS)
 		{ // remove dir
-			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+		    OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+		    int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+
+            OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+                rmdirRes == -1);
 
 			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
@@ -1948,7 +2690,12 @@ void LocalWorker::dirModeIterateDirs()
 					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
 					"workerRank: " + std::to_string(workerRank) );
 
+            OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
 			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+
+            OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+                rmdirRes == -1);
 
 			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
@@ -1960,8 +2707,11 @@ void LocalWorker::dirModeIterateDirs()
 }
 
 /**
- * In directory mode with custom tree, iterate over all directories to create or remove them.
- * All workers create/remove all dirs.
+ * In directory mode with custom tree, for creation we iterate over a fair share per worker and
+ * and create parents as needed (because there is no communication between workers that
+ * guarantees that all parents have been created). For deletion, first worker of each instance
+ * iterates over all dirs remove them (because we have no way to guarantee otherwise that all
+ * subdirs under a certain dir have been deleted).
  *
  * Note: With a custom tree, multiple benchmark paths are not supported (because otherwise we
  * 	can't ensure in file creation phase that the matching parent dir has been created for the
@@ -1974,13 +2724,23 @@ void LocalWorker::dirModeIterateCustomDirs()
 	const int benchPathFD = progArgs->getBenchPathFDs()[0];
 	const std::string benchPathStr = progArgs->getBenchPaths()[0];
 	const bool ignoreDelErrors = true; // in custom tree mode, all workers mk/del all dirs
-	const PathList& customTreePaths = progArgs->getCustomTreeDirs().getPaths();
+	const PathList& customTreePaths = (benchPhase == BenchPhase_DELETEDIRS) ?
+		progArgs->getCustomTreeDirs().getPaths() : customTreeDirs.getPaths();
 	const bool reverseOrder = (benchPhase == BenchPhase_DELETEDIRS);
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool thisWorkerDoesDelDirs = progArgs->getIsServicePathShared() ?
+		(workerRank == 0) : (localWorkerRank == 0);
 
 	IF_UNLIKELY(customTreePaths.empty() )
 		return; // nothing to do here
 
-	/* note on reverse: dirs are ordered by path length, so that parents dirs come before their
+	if( (benchPhase == BenchPhase_DELETEDIRS) && !thisWorkerDoesDelDirs)
+	{ // only first worker iterates over all dirs for delete, others do nothing
+		workerGotPhaseWork = false;
+		return;
+	}
+
+	/* note on reverse: dirs are ordered by path length, so that parent dirs come before their
 		subdirs. for tree removal, we need to remove subdirs first, hence the reverse order */
 
 	PathList::const_iterator forwardIter = customTreePaths.cbegin();
@@ -1997,7 +2757,8 @@ void LocalWorker::dirModeIterateCustomDirs()
 
 		if(benchPhase == BenchPhase_CREATEDIRS)
 		{ // create dir
-			int mkdirRes = mkdirat(benchPathFD, currentPathElem.path.c_str(), MKDIR_MODE);
+			int mkdirRes = FileTk::mkdiratBottomUp(
+				benchPathFD, currentPathElem.path.c_str(), MKDIR_MODE);
 
 			if( (mkdirRes == -1) && (errno != EEXIST) )
 				throw WorkerException(std::string("Directory creation failed. ") +
@@ -2007,7 +2768,12 @@ void LocalWorker::dirModeIterateCustomDirs()
 
 		if(benchPhase == BenchPhase_DELETEDIRS)
 		{ // remove dir
-			int rmdirRes = unlinkat(benchPathFD, currentPathElem.path.c_str(), AT_REMOVEDIR);
+            OPLOG_PRE_OP("unlinkat", benchPathStr + "/" + currentPathElem.path, 0, 0);
+
+		    int rmdirRes = unlinkat(benchPathFD, currentPathElem.path.c_str(), AT_REMOVEDIR);
+
+            OPLOG_POST_OP("unlinkat", benchPathStr + "/" + currentPathElem.path, 0, 0,
+                rmdirRes == -1);
 
 			if( (rmdirRes == -1) && ( (errno != ENOENT) || !ignoreDelErrors) )
 				throw WorkerException(std::string("Directory deletion failed. ") +
@@ -2044,7 +2810,7 @@ void LocalWorker::dirModeIterateCustomDirs()
 /**
  * This is for directory mode. Iterate over all files to create/read/remove them.
  * By default, this uses a unique dir per worker and fills up each dir before moving on to the next.
- * If dir sharing is enabled, all workers will use dirs or rank 0.
+ * If dir sharing is enabled, all workers will use dirs of rank 0.
  *
  * @throw WorkerException on error.
  */
@@ -2064,6 +2830,8 @@ void LocalWorker::dirModeIterateFiles()
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+	const bool useMmap = progArgs->getUseMmap();
+	const bool doStatInline = progArgs->getDoStatInline();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2117,8 +2885,27 @@ void LocalWorker::dirModeIterateFiles()
 				{
 					((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
 
+					if(doStatInline)
+					{ // inline stat (i.e. stat immediately after file open)
+						struct stat statBuf;
+
+					    OPLOG_PRE_OP("fstat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0,
+					        0);
+
+                        int statRes = fstat(fd, &statBuf);
+
+					    OPLOG_POST_OP("fstat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0,
+					        0, statRes == -1);
+
+						IF_UNLIKELY(statRes == -1)
+							throw WorkerException(std::string("Inline file stat failed. ") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"SysErr: " + strerror(errno) );
+					}
+
 					if(benchPhase == BenchPhase_CREATEFILES)
 					{
+
 						int64_t writeRes = ((*this).*funcRWBlockSized)();
 
 						IF_UNLIKELY(writeRes == -1)
@@ -2154,16 +2941,45 @@ void LocalWorker::dirModeIterateFiles()
 					}
 				}
 				catch(...)
-				{ // ensure that we don't leak an open file fd
+				{
+					// release memory mapping
+					if(useMmap && (fileHandles.mmapVec[0] != MAP_FAILED) )
+					{
+						munmap(fileHandles.mmapVec[0], fileSize);
+						fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+					}
+
 					((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
-					close(fd);
+					OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+					int closeRes = close(fd);
+
+					OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
+
 					throw;
+				}
+
+				// release memory mapping
+				if(useMmap)
+				{
+					int unmapRes = munmap(fileHandles.mmapVec[0], fileSize);
+
+					IF_UNLIKELY(unmapRes == -1)
+						ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
+							"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+							"SysErr: " << strerror(errno) << std::endl);
+
+					fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 				}
 
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
 
+                OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
 				int closeRes = close(fd);
+
+                OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 				IF_UNLIKELY(closeRes == -1)
 					throw WorkerException(std::string("File close failed. ") +
@@ -2178,7 +2994,7 @@ void LocalWorker::dirModeIterateFiles()
 
 				int statRes = fstatat(pathFDs[pathFDsIndex], currentPath.data(), &statBuf, 0);
 
-				if(statRes == -1)
+				IF_UNLIKELY(statRes == -1)
 					throw WorkerException(std::string("File stat failed. ") +
 						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 						"SysErr: " + strerror(errno) );
@@ -2186,7 +3002,12 @@ void LocalWorker::dirModeIterateFiles()
 
 			if(benchPhase == BenchPhase_DELETEFILES)
 			{
-				int unlinkRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), 0);
+                OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
+
+                int unlinkRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), 0);
+
+	            OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
+	                unlinkRes == -1);
 
 				if( (unlinkRes == -1) && (!progArgs->getIgnoreDelErrors() || (errno != ENOENT) ) )
 					throw WorkerException(std::string("File delete failed. ") +
@@ -2241,6 +3062,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+	const bool useMmap = progArgs->getUseMmap();
+	const bool doStatInline = progArgs->getDoStatInline();
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -2273,6 +3096,18 @@ void LocalWorker::dirModeIterateCustomFiles()
 			try
 			{
 				((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
+
+				if(doStatInline)
+				{ // inline stat (i.e. stat immediately after file open)
+					struct stat statBuf;
+
+					int statRes = fstat(fd, &statBuf);
+
+					IF_UNLIKELY(statRes == -1)
+						throw WorkerException(std::string("File stat failed. ") +
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+							"SysErr: " + strerror(errno) );
+				}
 
 				if(benchPhase == BenchPhase_CREATEFILES)
 				{
@@ -2311,16 +3146,45 @@ void LocalWorker::dirModeIterateCustomFiles()
 				}
 			}
 			catch(...)
-			{ // ensure that we don't leak an open file fd
+			{
+				// release memory mapping
+				if(useMmap && (fileHandles.mmapVec[0] != MAP_FAILED) )
+				{
+					munmap(fileHandles.mmapVec[0], currentPathElem.totalLen);
+					fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+				}
+
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
-				close(fd);
-				throw;
+                OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+                int closeRes = close(fd);
+
+                OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
+
+                throw;
+			}
+
+			// release memory mapping
+			if(useMmap)
+			{
+				int unmapRes = munmap(fileHandles.mmapVec[0], currentPathElem.totalLen);
+
+				IF_UNLIKELY(unmapRes == -1)
+					ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
+							"Path: " + benchPathStr + "/" + currentPath + "; "
+						"SysErr: " << strerror(errno) << std::endl);
+
+				fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 			}
 
 			((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
 
-			int closeRes = close(fd);
+            OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+            int closeRes = close(fd);
+
+            OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 			IF_UNLIKELY(closeRes == -1)
 				throw WorkerException(std::string("File close failed. ") +
@@ -2335,7 +3199,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 			int statRes = fstatat(benchPathFD, currentPath, &statBuf, 0);
 
-			if(statRes == -1)
+			IF_UNLIKELY(statRes == -1)
 				throw WorkerException(std::string("File stat failed. ") +
 					"Path: " + benchPathStr + "/" + currentPath + "; "
 					"SysErr: " + strerror(errno) );
@@ -2343,7 +3207,11 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 		if(benchPhase == BenchPhase_DELETEFILES)
 		{
-			int unlinkRes = unlinkat(benchPathFD, currentPath, 0);
+            OPLOG_PRE_OP("unlinkat", benchPathStr + "/" + currentPath, 0, 0);
+
+            int unlinkRes = unlinkat(benchPathFD, currentPath, 0);
+
+            OPLOG_POST_OP("unlinkat", benchPathStr + "/" + currentPath, 0, 0, unlinkRes == -1);
 
 			if( (unlinkRes == -1) && (!ignoreDelErrors || (errno != ENOENT) ) )
 				throw WorkerException(std::string("File delete failed. ") +
@@ -2442,6 +3310,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 	const uint64_t fileSize = progArgs->getFileSize();
 	const size_t blockSize = progArgs->getBlockSize();
 	const size_t numThreads = progArgs->getNumDataSetThreads();
+	const bool useMmap = progArgs->getUseMmap();
 
 	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 		( (fileSize % blockSize) ? 1 : 0);
@@ -2490,53 +3359,95 @@ void LocalWorker::fileModeIterateFilesSeq()
 		// prep offset generator for current file range
 		rwOffsetGen->reset(currentIOLen, currentIOStart);
 
-		// write/read our range of this file
+		FileTk::fadvise<WorkerException>(fileHandles.fdVec[0], progArgs->getFadviseFlags(),
+			progArgs->getBenchPaths()[currentFileIndex].c_str() );
 
-		if(benchPhase == BenchPhase_CREATEFILES)
+		// prep memory mapping
+		if(useMmap)
 		{
-			ssize_t writeRes = ((*this).*funcRWBlockSized)();
+			int protectionMode = (benchPhase == BenchPhase_READFILES) ?
+				PROT_READ : (PROT_WRITE | PROT_READ);
 
-			IF_UNLIKELY(writeRes == -1)
-				throw WorkerException(std::string("File write failed. ") +
-					( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
-						"Can be caused by directIO misalignment. " : "") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"SysErr: " + strerror(errno) );
-
-			IF_UNLIKELY( (size_t)writeRes != currentIOLen)
-				throw WorkerException(std::string("Unexpected short file write. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"Bytes written: " + std::to_string(writeRes) + "; "
-					"Expected written: " + std::to_string(currentIOLen) );
+			fileHandles.mmapVec[0] = (char*)FileTk::mmapAndMadvise<WorkerException>(
+				fileSize, protectionMode, MAP_SHARED, fileHandles.fdVec[0],
+				progArgs->getMadviseFlags(), progArgs->getBenchPaths()[currentFileIndex].c_str() );
 		}
 
-		if(benchPhase == BenchPhase_READFILES)
+		// (try-block for munmap on error)
+		try
 		{
-			ssize_t readRes = ((*this).*funcRWBlockSized)();
+			// write/read our range of this file
 
-			IF_UNLIKELY(readRes == -1)
-				throw WorkerException(std::string("File read failed. ") +
-					( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
-						"Can be caused by directIO misalignment. " : "") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"SysErr: " + strerror(errno) );
+			if(benchPhase == BenchPhase_CREATEFILES)
+			{
+				ssize_t writeRes = ((*this).*funcRWBlockSized)();
 
-			IF_UNLIKELY( (size_t)readRes != currentIOLen)
-				throw WorkerException(std::string("Unexpected short file read. ") +
-					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
-					"Bytes read: " + std::to_string(readRes) + "; "
-					"Expected read: " + std::to_string(currentIOLen) );
+				IF_UNLIKELY(writeRes == -1)
+					throw WorkerException(std::string("File write failed. ") +
+						( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+							"Can be caused by directIO misalignment. " : "") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"SysErr: " + strerror(errno) );
+
+				IF_UNLIKELY( (size_t)writeRes != currentIOLen)
+					throw WorkerException(std::string("Unexpected short file write. ") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"Bytes written: " + std::to_string(writeRes) + "; "
+						"Expected written: " + std::to_string(currentIOLen) );
+			}
+
+			if(benchPhase == BenchPhase_READFILES)
+			{
+				ssize_t readRes = ((*this).*funcRWBlockSized)();
+
+				IF_UNLIKELY(readRes == -1)
+					throw WorkerException(std::string("File read failed. ") +
+						( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+							"Can be caused by directIO misalignment. " : "") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"SysErr: " + strerror(errno) );
+
+				IF_UNLIKELY( (size_t)readRes != currentIOLen)
+					throw WorkerException(std::string("Unexpected short file read. ") +
+						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+						"Bytes read: " + std::to_string(readRes) + "; "
+						"Expected read: " + std::to_string(currentIOLen) );
+			}
+
+			// calc completed number of blocks to inc for next loop pass
+			const uint64_t numBlocksDone = (currentIOLen / blockSize) +
+				( (currentIOLen % blockSize) ? 1 : 0);
+
+			LOGGER_DEBUG_BUILD("  w" << workerRank << " f" << currentFileIndex <<
+				" b" << currentBlockInFile << " " <<
+				currentIOStart << " - " << (currentIOStart+currentIOLen) << std::endl);
+
+			currentBlockIdx += numBlocksDone;
+		}
+		catch(...)
+		{
+			// release memory mapping
+			if(useMmap)
+			{
+				munmap(fileHandles.mmapVec[0], fileSize);
+				fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+			}
+
+			throw;
 		}
 
-		// calc completed number of blocks to inc for next loop pass
-		const uint64_t numBlocksDone = (currentIOLen / blockSize) +
-			( (currentIOLen % blockSize) ? 1 : 0);
+		// release memory mapping
+		if(useMmap)
+		{
+			int unmapRes = munmap(fileHandles.mmapVec[0], fileSize);
 
-		LOGGER_DEBUG_BUILD("  w" << workerRank << " f" << currentFileIndex <<
-			" b" << currentBlockInFile << " " <<
-			currentIOStart << " - " << (currentIOStart+currentIOLen) << std::endl);
+			IF_UNLIKELY(unmapRes == -1)
+				ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
+					"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
+					"SysErr: " << strerror(errno) << std::endl);
 
-		currentBlockIdx += numBlocksDone;
+			fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+		}
 
 	} // end of global blocks while-loop
 }
@@ -2607,9 +3518,9 @@ void LocalWorker::s3ModeIterateBuckets()
 
 	const StringVec& bucketVec = progArgs->getBenchPaths();
 	const size_t numBuckets = bucketVec.size();
-	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
 
+    workerGotPhaseWork = false; // not all workers might get work
 
 	for(unsigned bucketIndex = workerRank;
 		bucketIndex < numBuckets;
@@ -2617,55 +3528,63 @@ void LocalWorker::s3ModeIterateBuckets()
 	{
 		checkInterruptionRequest();
 
+		workerGotPhaseWork = true;
+        const auto& bucketName = bucketVec[bucketIndex];
+
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		// create buckets
 		if(benchPhase == BenchPhase_CREATEDIRS)
-		{
-			S3::CreateBucketRequest request;
-			request.SetBucket(bucketVec[bucketIndex] );
+			s3ModeCreateBucket(bucketName);
 
-			S3::CreateBucketOutcome createOutcome = s3Client->CreateBucket(request);
+        if(benchPhase == BenchPhase_PUT_S3_BUCKET_MD)
+        {
+            if (progArgs->getDoS3BucketTagging())
+                s3ModeCreateBucketTagging(bucketName);
 
-			if(!createOutcome.IsSuccess() )
-			{
-				auto s3Error = createOutcome.GetError();
+            if (progArgs->getDoS3ObjectLockConfiguration())
+                s3ModePutObjectLockConfiguration(bucketName);
 
-				// bucket already existing is not an error
-				if( (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) &&
-					(s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) )
-				{
-					throw WorkerException(std::string("Bucket creation failed. ") +
-						"Endpoint: " + s3EndpointStr + "; "
-						"Bucket: " + bucketVec[bucketIndex] + "; "
-						"Exception: " + s3Error.GetExceptionName() + "; " +
-						"Message: " + s3Error.GetMessage() );
-				}
-			}
-		}
+            if (progArgs->getDoS3BucketVersioning())
+                s3ModePutBucketVersioning(bucketName, false);
+        }
 
-		// delete buckets
+		if(benchPhase == BenchPhase_PUTBUCKETACL)
+			s3ModePutBucketAcl(bucketName);
+
+		if(benchPhase == BenchPhase_GETBUCKETACL)
+			s3ModeGetBucketAcl(bucketName);
+
+		if(benchPhase == BenchPhase_STATDIRS)
+            s3ModeHeadBucket(bucketName);
+
+        if(benchPhase == BenchPhase_GET_S3_BUCKET_MD)
+        {
+            if (progArgs->getDoS3BucketTagging())
+                s3ModeGetBucketTagging(bucketName);
+
+            if (progArgs->getDoS3ObjectLockConfiguration())
+                s3ModeGetObjectLockConfiguration(bucketName);
+
+            if (progArgs->getDoS3BucketVersioning())
+                s3ModeGetBucketVersioning(bucketName);
+        }
+
+        if(benchPhase == BenchPhase_DEL_S3_BUCKET_MD)
+        {
+            if (progArgs->getDoS3BucketVersioning())
+                s3ModePutBucketVersioning(bucketName, true);
+
+            // Disable lock configuration
+            if (progArgs->getDoS3ObjectLockConfiguration())
+                s3ModePutObjectLockConfiguration(bucketName, true);
+
+            if (progArgs->getDoS3BucketTagging())
+                s3ModeDeleteBucketTagging(bucketName);
+        }
+
+        // delete buckets
 		if(benchPhase == BenchPhase_DELETEDIRS)
-		{
-			S3::DeleteBucketRequest request;
-			request.SetBucket(bucketVec[bucketIndex] );
-
-			S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
-
-			if(!deleteOutcome.IsSuccess() )
-			{
-				auto s3Error = deleteOutcome.GetError();
-
-				if( (s3Error.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET) ||
-					!ignoreDelErrors)
-				{
-					throw WorkerException(std::string("Bucket deletion failed. ") +
-						"Bucket: " + bucketVec[bucketIndex] + "; "
-						"Exception: " + s3Error.GetExceptionName() + "; " +
-						"Message: " + s3Error.GetMessage() );
-				}
-			}
-		}
+            s3ModeDeleteBucket(bucketName);
 
 		// calc entry operations latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -2685,7 +3604,7 @@ void LocalWorker::s3ModeIterateBuckets()
  * This is for s3 mode. Iterate over all objects to create/read/remove them.
  * By default, this uses a unique "dir" (i.e. prefix with slashes inside a bucket) per worker and
  * fills up each dir before moving on to the next. If dir sharing is enabled, all workers will use
- * dirs or rank 0.
+ * dirs of rank 0.
  *
  * @throw WorkerException on error.
  */
@@ -2712,6 +3631,7 @@ void LocalWorker::s3ModeIterateObjects()
 		all workers use the dirs of worker rank 0 */
 	const bool useTransMan = progArgs->getUseS3TransferManager();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
@@ -2750,8 +3670,13 @@ void LocalWorker::s3ModeIterateObjects()
 					"dirIndex: " + std::to_string(dirIndex) + "; "
 					"fileIndex: " + std::to_string(fileIndex) );
 
+			if(objectPrefixRand)
+				objectPrefix = getS3RandObjectPrefix(
+					workerRank, dirIndex, fileIndex, progArgs->getS3ObjectPrefix() );
+
 			unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
 			std::string currentObjectPath = objectPrefix + currentPath.data();
+
 
 			rwOffsetGen->reset(); // reset for next file
 
@@ -2765,6 +3690,12 @@ void LocalWorker::s3ModeIterateObjects()
 					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
 
+            if (benchPhase == BenchPhase_PUT_S3_OBJECT_MD)
+            {
+                if (progArgs->getDoS3ObjectTagging())
+                    s3ModePutObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            }
+
 			if( (benchPhase == BenchPhase_READFILES) || isRWMixedReader)
 			{
 				if(useTransMan)
@@ -2776,7 +3707,25 @@ void LocalWorker::s3ModeIterateObjects()
 			}
 
 			if(benchPhase == BenchPhase_STATFILES)
-				s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
+                s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
+
+            if(benchPhase == BenchPhase_GET_S3_OBJECT_MD)
+            {
+                if (progArgs->getDoS3ObjectTagging())
+                    s3ModeGetObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            }
+
+			if(benchPhase == BenchPhase_PUTOBJACL)
+				s3ModePutObjectAcl(bucketVec[bucketIndex], currentObjectPath);
+
+			if(benchPhase == BenchPhase_GETOBJACL)
+				s3ModeGetObjectAcl(bucketVec[bucketIndex], currentObjectPath);
+
+            if(benchPhase == BenchPhase_DEL_S3_OBJECT_MD)
+            {
+                if (progArgs->getDoS3ObjectTagging())
+                    s3ModeDeleteObjectTags(bucketVec[bucketIndex], currentObjectPath);
+            }
 
 			if(benchPhase == BenchPhase_DELETEFILES)
 				s3ModeDeleteObject(bucketVec[bucketIndex], currentObjectPath);
@@ -2829,6 +3778,7 @@ void LocalWorker::s3ModeIterateObjectsRand()
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 
 	// init random generators for dir & file index selection
 
@@ -2879,6 +3829,10 @@ void LocalWorker::s3ModeIterateObjectsRand()
 				"dirIndex: " + std::to_string(dirIndex) + "; "
 				"fileIndex: " + std::to_string(fileIndex) );
 
+		if(objectPrefixRand)
+			objectPrefix = getS3RandObjectPrefix(
+				workerRank, dirIndex, fileIndex, progArgs->getS3ObjectPrefix() );
+
 		const unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
 		std::string currentObjectPath = objectPrefix + currentPath.data();
 
@@ -2891,7 +3845,6 @@ void LocalWorker::s3ModeIterateObjectsRand()
 
 #endif // S3_SUPPORT
 }
-
 
 /**
  * This is for s3 mode with custom tree. Iterate over all objects to create/read/remove them. Each
@@ -2963,6 +3916,12 @@ void LocalWorker::s3ModeIterateCustomObjects()
 		if(benchPhase == BenchPhase_STATFILES)
 			s3ModeStatObject(bucketName, currentPathElem.path);
 
+		if(benchPhase == BenchPhase_PUTOBJACL)
+			s3ModePutObjectAcl(bucketName, currentPathElem.path);
+
+		if(benchPhase == BenchPhase_GETOBJACL)
+			s3ModeGetObjectAcl(bucketName, currentPathElem.path);
+
 		if(benchPhase == BenchPhase_DELETEFILES)
 			s3ModeDeleteObject(bucketName, currentPathElem.path);
 
@@ -2995,6 +3954,416 @@ void LocalWorker::s3ModeIterateCustomObjects()
 }
 
 /**
+ * Throw an informative WorkerException if the s3 request outcome has the error flag set.
+ *
+ * @outcome s3 request outcome.
+ * @failMessage human-friendly error message, e.g. "Object upload failed."
+ * @objectName name of object to which this error applies, can be empty.
+ * @throw WorkerException on error.
+ */
+template <typename OUTCOMETYPE>
+void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
+    const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+    IF_LIKELY(outcome.IsSuccess() )
+        return;
+
+    const auto& s3Error = outcome.GetError();
+
+    std::stringstream errStr;
+        errStr << failMessage << " " <<
+        "Endpoint: " << s3EndpointStr << "; " <<
+        "Bucket: " << bucketName << "; " <<
+        (objectName.empty() ? std::string("") : ("Object: " + objectName + "; ") ) <<
+        "Exception: " << s3Error.GetExceptionName() << "; " <<
+        "Message: " << s3Error.GetMessage() << "; " <<
+        "HTTP Error Code: " << (int)s3Error.GetResponseCode();
+
+    throw WorkerException(errStr.str() );
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeCreateBucket(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+    OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
+
+    const auto& createOutcome = s3Client->CreateBucket(S3::CreateBucketRequest().WithBucket(bucketName));
+
+    OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess());
+
+    if (!createOutcome.IsSuccess())
+	{
+		auto s3Error = createOutcome.GetError();
+
+        // bucket already existing is not an error
+        if (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU &&
+            s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS)
+        {
+
+            std::stringstream errStr;
+            errStr << "Bucket creation failed: " << s3Error.GetMessage() << std::endl
+                   << "Bucket: " << bucketName << std::endl;
+
+            throw WorkerException(errStr.str());
+        }
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeHeadBucket(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("HeadBucket", bucketName, 0, 0);
+
+	const auto& outcome = s3Client->HeadBucket(S3::HeadBucketRequest().WithBucket(bucketName));
+
+    OPLOG_POST_OP("HeadBucket", bucketName, 0, 0, !outcome.IsSuccess());
+
+    s3ModeThrowOnError(outcome, "Head bucket request failed.", bucketName);
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Create tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    const auto tagging = S3::Tagging().WithTagSet(
+        {
+            S3::Tag().WithKey(TAG_KEY_MEDIUM_NAME)
+                     .WithValue(StringTk::generateRandomS3TagValue(bucketName, TAG_VALUE_MEDIUM_LEN)),
+            S3::Tag().WithKey(TAG_KEY_LONG_NAME)
+                     .WithValue(StringTk::generateRandomS3TagValue(bucketName, TAG_VALUE_LONG_LEN)),
+        }
+    );
+
+    OPLOG_PRE_OP("PutBucketTagging", bucketName, 0, 0);
+
+    const auto& taggingOutcome = s3Client->PutBucketTagging(
+        S3::PutBucketTaggingRequest().WithBucket(bucketName).WithTagging(tagging)
+    );
+
+    OPLOG_POST_OP("PutBucketTagging", bucketName, 0, 0, !taggingOutcome.IsSuccess());
+
+    s3ModeThrowOnError(taggingOutcome, "Put bucket tagging failed.", bucketName);
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Get tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeGetBucketTagging(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetBucketTagging", bucketName, 0, 0);
+
+    const auto& outcome = s3Client->GetBucketTagging(S3::GetBucketTaggingRequest().WithBucket(bucketName));
+
+    OPLOG_POST_OP("GetBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
+
+    s3ModeThrowOnError(outcome, "Get bucket tagging failed.", bucketName);
+
+    if (!progArgs->getDoS3BucketTaggingVerify())
+        return;
+
+    for (const auto& tag : outcome.GetResult().GetTagSet())
+    {
+        if (!StringTk::verifyRandomS3TagValue(tag.GetValue(), bucketName))
+        {
+            std::stringstream errStr;
+            errStr << "Bucket tag value is corrupted (invalid checksum). "
+                   << "Bucket: " << bucketName << "; "
+                   << "Tag: " << tag.GetKey() << "=" << tag.GetValue() << std::endl;
+            throw WorkerException(errStr.str());
+        }
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Delete bucket tags for given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDeleteBucketTagging(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+    OPLOG_PRE_OP("DeleteBucketTagging", bucketName, 0, 0);
+
+    const auto& outcome = s3Client->DeleteBucketTagging(
+        S3::DeleteBucketTaggingRequest().WithBucket(bucketName)
+    );
+
+    OPLOG_POST_OP("DeleteBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
+
+    s3ModeThrowOnError(outcome, "Delete bucket tagging failed.", bucketName);
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Delete given S3 bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDeleteBucket(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+
+	S3::DeleteBucketRequest request;
+	request.SetBucket(bucketName);
+
+	OPLOG_PRE_OP("S3DeleteBucket", bucketName, 0, 0);
+
+	S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
+
+	OPLOG_POST_OP("S3DeleteBucket", bucketName, 0, 0, !deleteOutcome.IsSuccess() );
+
+	if(!deleteOutcome.IsSuccess() )
+	{
+		auto s3Error = deleteOutcome.GetError();
+
+		if( (s3Error.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET) ||
+			!ignoreDelErrors)
+		{
+			throw WorkerException(std::string("Bucket deletion failed. ") +
+				"Bucket: " + bucketName + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		}
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Put ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModePutBucketAcl(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+	S3::PutBucketAclRequest request;
+	request.WithBucket(bucketName);
+
+    TranslatorTk::applyS3PutAclRequestGrants<S3::BucketCannedACL>(progArgs, request);
+
+	OPLOG_PRE_OP("S3PutBucketAcl", bucketName, 0, 0);
+
+	S3::PutBucketAclOutcome outcome = s3Client->PutBucketAcl(request);
+
+	OPLOG_POST_OP("S3PutBucketAcl", bucketName, 0, 0, !outcome.IsSuccess() );
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Putting bucket ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Get ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+	bool doS3AclVerify = progArgs->getDoS3AclVerify();
+
+	S3::GetBucketAclRequest request;
+	request.WithBucket(bucketName);
+
+	OPLOG_PRE_OP("S3GetBucketAcl", bucketName, 0, 0);
+
+	S3::GetBucketAclOutcome outcome = s3Client->GetBucketAcl(request);
+
+	OPLOG_POST_OP("S3GetBucketAcl", bucketName, 0, 0, !outcome.IsSuccess() );
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Getting bucket ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+	IF_UNLIKELY(doS3AclVerify)
+	{
+        // check canned ACL as special grantee...
+
+        S3::BucketCannedACL cannedAcl = S3::BucketCannedACLMapper::GetBucketCannedACLForName(
+            progArgs->getS3AclGrantee() );
+
+        if(cannedAcl != S3::BucketCannedACL::NOT_SET)
+            throw WorkerException("Verification of canned ACLs is not supported.");
+
+        // check list of grants...
+
+		std::vector<S3::Grant> verifyGrants;
+		TranslatorTk::getS3ObjectAclGrants(progArgs, verifyGrants);
+
+		const std::vector<S3::Grant>& outcomeGrants = outcome.GetResult().GetGrants();
+
+		// iterate over all grants that need to be verified
+		for(S3::Grant& verifyGrant : verifyGrants)
+		{
+			bool grantFound = false;
+
+			// iterate over all outcome grants to see if any grant matches current verifyGrant
+			for(const S3::Grant& outcomeGrant : outcomeGrants)
+			{
+				if( (outcomeGrant.GetGrantee().GetID() ==
+						verifyGrant.GetGrantee().GetID() ) ||
+					(outcomeGrant.GetGrantee().GetEmailAddress() ==
+						verifyGrant.GetGrantee().GetEmailAddress() ) ||
+					(outcomeGrant.GetGrantee().GetURI() ==
+						verifyGrant.GetGrantee().GetURI() ) )
+				{ // grantee matches => check if permission also matches
+					if(outcomeGrant.GetPermission() == verifyGrant.GetPermission() )
+					{ // permission matches
+						grantFound = true;
+						break;
+					}
+				}
+			}
+
+			if(!grantFound)
+				throw WorkerException(std::string("S3 ACL verification failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Grantee ID: " + verifyGrant.GetGrantee().GetID() + "; "
+					"Grantee Email: " + verifyGrant.GetGrantee().GetEmailAddress() + "; "
+					"Grantee URI: " + verifyGrant.GetGrantee().GetURI() + "; "
+					"Permission: " + TranslatorTk::s3AclPermissionToStr(
+						verifyGrant.GetPermission() ) );
+		}
+	} // end of verifcation
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetBucketVersioning", bucketName, 0, 0);
+
+    const auto& bucketVersioningOutcome = s3Client->GetBucketVersioning(
+            S3::GetBucketVersioningRequest().WithBucket(bucketName)
+    );
+
+    OPLOG_POST_OP("GetBucketVersioning", bucketName, 0, 0, !bucketVersioningOutcome.IsSuccess());
+
+    s3ModeThrowOnError(bucketVersioningOutcome, "Get bucket versioning failed.", bucketName);
+
+    const auto& bucketVersioningStatus = bucketVersioningOutcome.GetResult().GetStatus();
+
+    if (!progArgs->getDoS3BucketVersioningVerify())
+        return;
+
+    const auto statusNameMapper = Aws::S3::Model::BucketVersioningStatusMapper::GetNameForBucketVersioningStatus;
+    const auto& expectedStatus = S3::BucketVersioningStatus::Suspended;
+
+    IF_UNLIKELY(bucketVersioningStatus != expectedStatus)
+    {
+        std::stringstream errStr;
+        errStr << "Bucket versioning is set to '" << statusNameMapper(bucketVersioningStatus)
+               << "' but the expected value was '" << statusNameMapper(expectedStatus) << "'." << std::endl
+               << "Bucket: " << bucketName << ';';
+        throw WorkerException(errStr.str());
+    }
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutBucketVersioning(const std::string& bucketName, bool enable)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    S3::VersioningConfiguration versioningConfiguration;
+
+    versioningConfiguration.SetStatus(enable ? S3::BucketVersioningStatus::Enabled
+                                             : S3::BucketVersioningStatus::Suspended);
+
+    OPLOG_PRE_OP("PutBucketVersioning", bucketName, 0, 0);
+
+    const auto& putBucketVersioningOutcome = s3Client->PutBucketVersioning(
+            S3::PutBucketVersioningRequest()
+                    .WithBucket(bucketName)
+                    .WithVersioningConfiguration(versioningConfiguration)
+    );
+
+    OPLOG_POST_OP("PutBucketVersioning", bucketName, 0, 0, !putBucketVersioningOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putBucketVersioningOutcome, "Put bucket versioning failed.", bucketName);
+#endif // S3_SUPPORT
+}
+
+/**
  * Singlepart upload of an S3 object to an existing bucket. This assumes that progArgs fileSize
  * is not larger than blockSize. Or in other words: This can only upload objects consisting of a
  * single block.
@@ -3009,20 +4378,25 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
 	std::shared_ptr<Aws::IOStream> s3MemStream;
 	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
 		(unsigned char*) (blockSize ? ioBufVec[0] : NULL), blockSize);
 
 	if(blockSize)
+	{
 		s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+
+		((*this).*funcRWRateLimiter)(blockSize);
+	}
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 	if(blockSize)
 	{
-		((*this).*funcRWRateLimiter)(blockSize);
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 	}
 
@@ -3034,6 +4408,9 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	if(blockSize)
 		request.SetBody(s3MemStream);
 
+	if(doS3AclPutInline)
+	    TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
+
 	request.SetDataSentEventHandler(
 		[&](const Aws::Http::HttpRequest* request, long long numBytes)
 		{ atomicLiveOps.numBytesDone += numBytes; } );
@@ -3041,7 +4418,12 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 		{ return !isInterruptionRequested.load(); } );
 
+	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
+
 	S3::PutObjectOutcome outcome = s3Client->PutObject(request);
+
+	OPLOG_POST_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize,
+		!outcome.IsSuccess() );
 
 	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
@@ -3049,18 +4431,22 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	{
 		auto s3Error = outcome.GetError();
 
-		throw WorkerException(std::string("Object upload failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+		if (!ignoreS3Errors)
+		{
+			throw WorkerException(std::string("Object upload failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		}
 	}
 
 	if(blockSize)
 	{
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 	}
 
 	// calc io operation latency
@@ -3089,24 +4475,39 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+
 	// S T E P 1: retrieve multipart upload ID from server
 
 	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
+    if(doS3AclPutInline)
+        TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
+
+    OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
+
 	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
 		createMultipartUploadRequest);
+
+	OPLOG_POST_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0,
+		!createMultipartUploadOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() )
 	{
 		auto s3Error = createMultipartUploadOutcome.GetError();
 
-		throw WorkerException(std::string("Multipart upload creation failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+		if (!ignoreS3Errors)
+		{
+			throw WorkerException(std::string("Multipart upload creation failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+		}
 	}
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
@@ -3128,10 +4529,11 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			(unsigned char*) ioBufVec[0], blockSize);
 		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
 
+		((*this).*funcRWRateLimiter)(blockSize);
+
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcRWRateLimiter)(blockSize);
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
 		// prepare part upload
@@ -3151,6 +4553,8 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
 
+		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize);
+
 		/* start part upload (note: "callable" returns a future to the op so that it can be executed
 			in parallel to other requests) */
 		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
@@ -3162,6 +4566,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		// wait for part upload to finish
 		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
 
+		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize,
+			!uploadPartOutcome.IsSuccess() );
+
 		checkInterruptionRequest( // (placed here to avoid outcome check on interruption)
 			[&] { s3AbortMultipartUpload(bucketName, objectName, uploadID); } );
 
@@ -3171,13 +4578,16 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 			auto s3Error = uploadPartOutcome.GetError();
 
-			throw WorkerException(std::string("Multipart part upload failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Part: " + std::to_string(currentPartNum) + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
+			if (!ignoreS3Errors)
+			{
+				throw WorkerException(std::string("Multipart part upload failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Part: " + std::to_string(currentPartNum) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() );
+			}
 		}
 
 		// mark part as completed
@@ -3190,7 +4600,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		completedMultipartUpload.AddParts(completedPart);
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3224,8 +4634,13 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		.WithUploadId(uploadID)
 		.WithMultipartUpload(completedMultipartUpload);
 
-	auto completionOutcome = s3Client->CompleteMultipartUpload(
-			completionRequest);
+	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
+		completedMultipartUpload.GetParts().size() );
+
+	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
+
+	OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
+        completedMultipartUpload.GetParts().size(), !completionOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!completionOutcome.IsSuccess() )
 	{
@@ -3260,7 +4675,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 	// S T E P 1: retrieve multipart upload ID from server
 
 	Aws::String uploadID = s3SharedUploadStore.getMultipartUploadID(
-		bucketName, objectName, s3Client);
+		bucketName, objectName, s3Client, opsLog);
 
 	std::unique_ptr<Aws::Vector<S3::CompletedPart>> allCompletedParts; // need sort before send
 
@@ -3279,10 +4694,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			(unsigned char*) ioBufVec[0], blockSize);
 		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
 
+		((*this).*funcRWRateLimiter)(blockSize);
+
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcRWRateLimiter)(blockSize);
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 
 		// prepare part upload
@@ -3302,6 +4718,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
 
+		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
+
 		/* start part upload (note: "callable" returns a future to the op so that it can be executed
 			in parallel to other requests) */
 		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
@@ -3312,6 +4730,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		// wait for part upload to finish
 		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
+
+		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
+			!uploadPartOutcome.IsSuccess() );
 
 		checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption; abort
 			message will be sent during s3SharedUploadStore cleanup) */
@@ -3330,7 +4751,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 				"UploadID: " + uploadID + "; "
 				"Rank: " + std::to_string(workerRank) + "; "
 				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
+				"Message: " + s3Error.GetMessage() + "; " +
+				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 		}
 
 		// mark part as completed
@@ -3344,7 +4766,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			bucketName, objectName, blockSize, objectTotalSize, completedPart);
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3389,8 +4811,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		.WithUploadId(uploadID)
 		.WithMultipartUpload(completedMultipartUpload);
 
-	auto completionOutcome = s3Client->CompleteMultipartUpload(
-			completionRequest);
+	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize);
+
+	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
+
+	OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize,
+		!completionOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!completionOutcome.IsSuccess() )
 	{
@@ -3428,7 +4854,12 @@ bool LocalWorker::s3AbortMultipartUpload(std::string bucketName, std::string obj
 	abortMultipartUploadRequest.SetKey(objectName);
 	abortMultipartUploadRequest.SetUploadId(uploadID);
 
+	OPLOG_PRE_OP("S3AbortMultipartUpload", bucketName + "/" + objectName, 0, 0);
+
 	auto abortOutcome = s3Client->AbortMultipartUpload(abortMultipartUploadRequest);
+
+	OPLOG_POST_OP("S3AbortMultipartUpload", bucketName + "/" + objectName, 0, 0,
+		!abortOutcome.IsSuccess() );
 
 	return abortOutcome.IsSuccess();
 
@@ -3495,6 +4926,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 #else
 
 	const bool useS3FastRead = progArgs->getUseS3FastRead();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
 	// download one block-sized chunk in each loop pass
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
@@ -3509,10 +4941,11 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[0];
 		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf( (unsigned char*)ioBuf, blockSize);
 
+		((*this).*funcRWRateLimiter)(blockSize);
+
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcRWRateLimiter)(blockSize);
-		((*this).*funcPreWriteBlockModifier)(ioBuf, blockSize, currentOffset); // fill buffer
+		((*this).*funcPreWriteBlockModifier)(ioBuf, gpuIOBuf, blockSize, currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
 
 		S3::GetObjectRequest request;
@@ -3541,7 +4974,12 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
 
+		OPLOG_PRE_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize);
+
 		S3::GetObjectOutcome outcome = s3Client->GetObject(request);
+
+		OPLOG_POST_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize,
+		    !outcome.IsSuccess() );
 
 		checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
@@ -3549,13 +4987,17 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		{
 			auto s3Error = outcome.GetError();
 
-			throw WorkerException(std::string("Object download failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Range: " + objectRange + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
+			if (!ignoreS3Errors)
+			{
+				throw WorkerException(std::string("Object download failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Range: " + objectRange + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+			}
 		}
 
 		IF_UNLIKELY( (size_t)outcome.GetResult().GetContentLength() < blockSize)
@@ -3570,7 +5012,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBuf, blockSize, currentOffset); // verify buf
+		((*this).*funcPostReadBlockChecker)(ioBuf, gpuIOBuf, blockSize, currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -3618,6 +5060,7 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 	const uint64_t fileOffset = rwOffsetGen->getNextOffset(); // offset within object to download
 	const uint64_t downloadBytes = rwOffsetGen->getNumBytesLeftToSubmit();
 	const size_t ioDepth = progArgs->getIODepth();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 	auto threadExecutor = std::make_unique<Aws::Utils::Threading::PooledThreadExecutor>(ioDepth);
 	uint64_t numBytesDownloaded = 0;
 	std::shared_ptr<Aws::Transfer::TransferHandle> transferHandle;
@@ -3645,6 +5088,8 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
+    OPLOG_PRE_OP("S3TransManDownload", bucketName + "/" + objectName, fileOffset, downloadBytes);
+
 	transferHandle = transferManager->DownloadFile(
 		bucketName, objectName, fileOffset, downloadBytes, [&]()
 		{ return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary); },
@@ -3652,16 +5097,25 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 	transferHandle->WaitUntilFinished();
 
+    OPLOG_POST_OP("S3TransManDownload", bucketName + "/" + objectName, fileOffset, downloadBytes,
+        transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED);
+
+    // calc io operation latency
+
+
 	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
 	IF_UNLIKELY(transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED)
 	{
-		throw WorkerException(std::string("Object download failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Requested size: " + std::to_string(downloadBytes) + "; "
-			"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+		if (!ignoreS3Errors)
+		{
+			throw WorkerException(std::string("Object download failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Requested size: " + std::to_string(downloadBytes) + "; "
+				"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+		}
 	}
 
 	IF_UNLIKELY(transferHandle->GetBytesTransferred() != downloadBytes)
@@ -3713,7 +5167,11 @@ void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectNam
 	request.WithBucket(bucketName)
 		.WithKey(objectName);
 
+	OPLOG_PRE_OP("S3HeadObject", bucketName + "/" + objectName, 0, 0);
+
 	S3::HeadObjectOutcome outcome = s3Client->HeadObject(request);
+
+    OPLOG_POST_OP("S3HeadObject", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
 	IF_UNLIKELY(!outcome.IsSuccess() )
 	{
@@ -3724,7 +5182,8 @@ void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectNam
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
 #endif // S3_SUPPORT
@@ -3741,13 +5200,21 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+
 	S3::DeleteObjectRequest request;
 	request.WithBucket(bucketName)
 		.WithKey(objectName);
 
+	OPLOG_PRE_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0);
+
 	S3::DeleteObjectOutcome outcome = s3Client->DeleteObject(request);
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
+    OPLOG_POST_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
+
+	IF_UNLIKELY(!outcome.IsSuccess() &&
+		(!ignoreDelErrors ||
+			(outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) ) )
 	{
 		auto s3Error = outcome.GetError();
 
@@ -3756,7 +5223,8 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 			"Bucket: " + bucketName + "; "
 			"Object: " + objectName + "; "
 			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 	}
 
 #endif // S3_SUPPORT
@@ -3778,6 +5246,8 @@ void LocalWorker::s3ModeListObjects()
 	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
 
+	workerGotPhaseWork = false; // not all workers might get work
+
 	for(unsigned bucketIndex = workerRank;
 		bucketIndex < numBuckets;
 		bucketIndex += numDataSetThreads)
@@ -3785,6 +5255,8 @@ void LocalWorker::s3ModeListObjects()
 		uint64_t numObjectsLeft = progArgs->getS3ListObjNum();
 		std::string nextContinuationToken;
 		bool isTruncated; // true if S3 server reports more objects left to retrieve
+
+		workerGotPhaseWork = true;
 
 		do
 		{
@@ -3800,7 +5272,13 @@ void LocalWorker::s3ModeListObjects()
 			if(!nextContinuationToken.empty() )
 				request.SetContinuationToken(nextContinuationToken);
 
+			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+				request.GetMaxKeys() );
+
 			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
+
+            OPLOG_POST_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+                outcome.GetResult().GetKeyCount(), !outcome.IsSuccess() );
 
 			IF_UNLIKELY(!outcome.IsSuccess() )
 			{
@@ -3813,7 +5291,8 @@ void LocalWorker::s3ModeListObjects()
 					"ContinuationToken: " + nextContinuationToken + "; "
 					"NumObjectsLeft: " + std::to_string(numObjectsLeft) + "; "
 					"Exception: " + s3Error.GetExceptionName() + "; " +
-					"Message: " + s3Error.GetMessage() );
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 			}
 
 			// calc entry operations latency
@@ -3859,6 +5338,7 @@ void LocalWorker::s3ModeListObjParallel()
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 	const bool doListObjVerify = progArgs->getDoListObjVerify();
 
 
@@ -3910,6 +5390,10 @@ void LocalWorker::s3ModeListObjParallel()
 					"dirIndex: " + std::to_string(dirIndex) + "; "
 					"fileIndex: " + std::to_string(fileIndex) );
 
+			if(objectPrefixRand)
+				objectPrefix = getS3RandObjectPrefix(
+					workerRank, dirIndex, fileIndex, progArgs->getS3ObjectPrefix() );
+
 			std::string currentObjectPath = objectPrefix + currentPath.data();
 
 			expectedObjs.insert(currentObjectPath);
@@ -3930,7 +5414,13 @@ void LocalWorker::s3ModeListObjParallel()
 			if(!nextContinuationToken.empty() )
 				request.SetContinuationToken(nextContinuationToken);
 
+			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + currentListPrefix, 0,
+				request.GetMaxKeys() );
+
 			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
+
+			OPLOG_POST_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + currentListPrefix, 0,
+			    outcome.GetResult().GetKeyCount(), !outcome.IsSuccess() );
 
 			IF_UNLIKELY(!outcome.IsSuccess() )
 			{
@@ -3943,7 +5433,8 @@ void LocalWorker::s3ModeListObjParallel()
 					"ContinuationToken: " + nextContinuationToken + "; "
 					"NumObjectsLeft: " + std::to_string(numObjectsLeft) + "; "
 					"Exception: " + s3Error.GetExceptionName() + "; " +
-					"Message: " + s3Error.GetMessage() );
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 			}
 
 			// calc entry operations latency
@@ -4034,6 +5525,421 @@ void LocalWorker::s3ModeVerifyListing(StringSet& expectedSet, StringList& receiv
 }
 
 /**
+ * List objects and multi-delete them in given buckets with user-defined limit for number of
+ * entries.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeListAndMultiDeleteObjects()
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+	const StringVec& bucketVec = progArgs->getBenchPaths();
+	const size_t numBuckets = bucketVec.size();
+	const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+	const uint64_t numObjectsPerRequest = progArgs->getS3MultiDelObjNum();
+	std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+
+	workerGotPhaseWork = false; // not all workers might get work
+
+	for(unsigned bucketIndex = workerRank;
+		bucketIndex < numBuckets;
+		bucketIndex += numDataSetThreads)
+	{
+		std::string nextContinuationToken;
+		bool isTruncated; // true if S3 server reports more objects left to retrieve
+
+		workerGotPhaseWork = true;
+
+		do
+		{
+			checkInterruptionRequest();
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			// receive a batch of object names through listing...
+
+			S3::ListObjectsV2Request listRequest;
+			listRequest.SetBucket(bucketVec[bucketIndex] );
+			listRequest.SetPrefix(objectPrefix);
+			listRequest.SetMaxKeys(numObjectsPerRequest);
+
+			if(!nextContinuationToken.empty() )
+				listRequest.SetContinuationToken(nextContinuationToken);
+
+			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+				numObjectsPerRequest);
+
+			S3::ListObjectsV2Outcome listOutcome = s3Client->ListObjectsV2(listRequest);
+
+            OPLOG_POST_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+                listOutcome.GetResult().GetKeyCount(), !listOutcome.IsSuccess() );
+
+			IF_UNLIKELY(!listOutcome.IsSuccess() )
+			{
+				auto s3Error = listOutcome.GetError();
+
+				throw WorkerException(std::string("Object listing v2 failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketVec[bucketIndex] + "; "
+					"Prefix: " + objectPrefix + "; "
+					"ContinuationToken: " + nextContinuationToken + "; "
+					"NumObjectsPerRequest: " + std::to_string(numObjectsPerRequest) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+			}
+
+			// send multi-delete request for received batch of objects...
+
+			Aws::S3::Model::Delete deleteObjectList;
+
+			for(const Aws::S3::Model::Object& obj : listOutcome.GetResult().GetContents() )
+				deleteObjectList.AddObjects(
+					Aws::S3::Model::ObjectIdentifier().WithKey(obj.GetKey() ) );
+
+			S3::DeleteObjectsRequest delRequest;
+			delRequest.SetBucket(bucketVec[bucketIndex] );
+			delRequest.SetDelete(deleteObjectList);
+
+			S3::DeleteObjectsOutcome delOutcome = s3Client->DeleteObjects(delRequest);
+
+			IF_UNLIKELY(!delOutcome.IsSuccess() &&
+				(!ignoreDelErrors ||
+					(delOutcome.GetError().GetResponseCode() ==
+						Aws::Http::HttpResponseCode::NOT_FOUND) ) )
+			{
+				auto s3Error = delOutcome.GetError();
+
+				throw WorkerException(std::string("DeleteObjects failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketVec[bucketIndex] + "; "
+					"NumObjectsPerRequest: " + std::to_string(numObjectsPerRequest) + "; "
+					"Exception: " + s3Error.GetExceptionName() + "; " +
+					"Message: " + s3Error.GetMessage() + "; " +
+					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+			}
+
+			// calc entry operations latency
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+			unsigned keyCount = listOutcome.GetResult().GetKeyCount();
+
+			atomicLiveOps.numEntriesDone += keyCount;
+
+			nextContinuationToken = listOutcome.GetResult().GetNextContinuationToken();
+			isTruncated = listOutcome.GetResult().GetIsTruncated();
+
+		} while(isTruncated); // end of while numObjectsLeft loop
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Put ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModePutObjectAcl(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+	S3::PutObjectAclRequest request;
+	request.WithBucket(bucketName)
+		.WithKey(objectName);
+
+    TranslatorTk::applyS3PutAclRequestGrants<S3::ObjectCannedACL>(progArgs, request);
+
+	OPLOG_PRE_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0);
+
+	S3::PutObjectAclOutcome outcome = s3Client->PutObjectAcl(request);
+
+    OPLOG_POST_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Putting object ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Get ACL of given S3 object.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + " called, but this build is without S3 support");
+#else
+
+    bool doS3AclVerify = progArgs->getDoS3AclVerify();
+
+	S3::GetObjectAclRequest request;
+	request.WithBucket(bucketName)
+		.WithKey(objectName);
+
+	OPLOG_PRE_OP("S3GetObjectAcl", bucketName + "/" + objectName, 0, 0);
+
+	S3::GetObjectAclOutcome outcome = s3Client->GetObjectAcl(request);
+
+    OPLOG_POST_OP("S3GetObjectAcl", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
+
+	IF_UNLIKELY(!outcome.IsSuccess() )
+	{
+		auto s3Error = outcome.GetError();
+
+		throw WorkerException(std::string("Getting object ACL failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Exception: " + s3Error.GetExceptionName() + "; " +
+			"Message: " + s3Error.GetMessage() + "; " +
+			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+	}
+
+	IF_UNLIKELY(doS3AclVerify)
+	{
+        // check canned ACL as special grantee...
+
+	    S3::ObjectCannedACL cannedAcl = S3::ObjectCannedACLMapper::GetObjectCannedACLForName(
+	        progArgs->getS3AclGrantee() );
+
+	    if(cannedAcl != S3::ObjectCannedACL::NOT_SET)
+	        throw WorkerException("Verification of canned ACLs is not supported.");
+
+	    // check list of grants...
+
+		std::vector<S3::Grant> verifyGrants;
+		TranslatorTk::getS3ObjectAclGrants(progArgs, verifyGrants);
+
+		const std::vector<S3::Grant>& outcomeGrants = outcome.GetResult().GetGrants();
+
+		// iterate over all grants that need to be verified
+		for(S3::Grant& verifyGrant : verifyGrants)
+		{
+			bool grantFound = false;
+
+			// iterate over all outcome grants to see if any grant matches current verifyGrant
+			for(const S3::Grant& outcomeGrant : outcomeGrants)
+			{
+				if( (outcomeGrant.GetGrantee().GetID() ==
+						verifyGrant.GetGrantee().GetID() ) ||
+					(outcomeGrant.GetGrantee().GetEmailAddress() ==
+						verifyGrant.GetGrantee().GetEmailAddress() ) ||
+					(outcomeGrant.GetGrantee().GetURI() ==
+						verifyGrant.GetGrantee().GetURI() ) )
+				{ // grantee matches => check if permission also matches
+					if(outcomeGrant.GetPermission() == verifyGrant.GetPermission() )
+					{ // permission matches
+						grantFound = true;
+						break;
+					}
+				}
+			}
+
+			if(!grantFound)
+				throw WorkerException(std::string("S3 ACL verification failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Grantee ID: " + verifyGrant.GetGrantee().GetID() + "; "
+					"Grantee Email: " + verifyGrant.GetGrantee().GetEmailAddress() + "; "
+					"Grantee URI: " + verifyGrant.GetGrantee().GetURI() + "; "
+					"Permission: " + TranslatorTk::s3AclPermissionToStr(
+						verifyGrant.GetPermission() ) );
+		}
+	} // end of verifcation
+
+#endif // S3_SUPPORT
+}
+
+
+void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
+
+    const auto& getTagOutcome = s3Client->GetObjectTagging(
+        S3::GetObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+    );
+
+    OPLOG_POST_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0, !getTagOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getTagOutcome, "Get object tagging failed.", bucketName, objectName);
+
+    // Continue only if we need to verify
+    if (!progArgs->getDoS3ObjectTaggingVerify())
+        return;
+
+    const auto& firstTag = getTagOutcome.GetResult().GetTagSet().front();
+
+    IF_UNLIKELY(!StringTk::verifyRandomS3TagValue(firstTag.GetValue(), objectName))
+    {
+        std::stringstream errStr;
+        errStr << "Random tag value is corrupted (invalid checksum). "
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl
+               << "Tag: " << firstTag.GetKey() << "=" << firstTag.GetValue() << std::endl;
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    const auto tag = S3::Tag()
+        .WithKey(TAG_KEY_MEDIUM_NAME)
+        .WithValue(StringTk::generateRandomS3TagValue(objectName, TAG_VALUE_MEDIUM_LEN));
+
+    OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
+
+    const auto& putTagOutcome = s3Client->PutObjectTagging(
+        S3::PutObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+            .WithTagging(S3::Tagging().AddTagSet(tag))
+    );
+
+    OPLOG_POST_OP("PutObjectTagging", bucketName + "/" + objectName,
+                  0, TAG_VALUE_MEDIUM_LEN, !putTagOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putTagOutcome, "Put object tagging failed.", bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+    OPLOG_PRE_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0);
+
+    const auto& delTagOutcome = s3Client->DeleteObjectTagging(
+        S3::DeleteObjectTaggingRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+    );
+
+    OPLOG_POST_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0, !delTagOutcome.IsSuccess());
+
+    s3ModeThrowOnError(delTagOutcome, "Delete object tagging failed.", bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetObjectLockConfiguration", bucketName, 0, 0);
+
+    const auto& getObjLockOutcome = s3Client->GetObjectLockConfiguration(
+        S3::GetObjectLockConfigurationRequest().WithBucket(bucketName)
+    );
+
+    OPLOG_POST_OP("GetObjectLockConfiguration", bucketName, 0, 0, !getObjLockOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getObjLockOutcome, "Get object lock configuration failed.", bucketName);
+
+    // Continue only if we need to verify
+    if (!progArgs->getDoS3ObjectLockConfigurationVerify())
+        return;
+
+    const auto& objLockCfg = getObjLockOutcome.GetResult().GetObjectLockConfiguration();
+
+    IF_UNLIKELY(!objLockCfg.ObjectLockEnabledHasBeenSet())
+        throw WorkerException("Object lock has not been enabled for bucket: " + bucketName);
+
+    IF_UNLIKELY(!objLockCfg.RuleHasBeenSet())
+        throw WorkerException("Object lock rule has not been set for bucket: " + bucketName);
+
+    const auto& objRetentionRule = objLockCfg.GetRule();
+
+    IF_UNLIKELY(!objRetentionRule.DefaultRetentionHasBeenSet())
+        throw WorkerException("Object lock default retention has not been set for bucket: " + bucketName);
+
+    const auto& objDefaultRetention = objRetentionRule.GetDefaultRetention();
+
+    IF_UNLIKELY(!objDefaultRetention.DaysHasBeenSet())
+        throw WorkerException("Object lock retention days have not been set for bucket: " + bucketName);
+
+    const auto& retentionDays = objDefaultRetention.GetDays();
+
+    IF_UNLIKELY(retentionDays != RETENTION_PERIOD_DAYS)
+    {
+        std::stringstream errStr;
+        errStr << "Object lock default retention was set to '" << retentionDays << " days' in bucket '"
+               << bucketName << "', but the expected value was '" << RETENTION_PERIOD_DAYS << " days'";
+        throw WorkerException(errStr.str());
+    }
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName, bool unset)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    S3::ObjectLockConfiguration objectLockCfg;
+
+    if (unset)
+        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::NOT_SET);
+    else
+    {
+        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::Enabled);
+        objectLockCfg.SetRule(
+            S3::ObjectLockRule().WithDefaultRetention(
+                S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::COMPLIANCE).WithDays(1)
+            )
+        );
+    }
+
+    OPLOG_PRE_OP("PutObjectLockConfiguration", bucketName, 0, 0);
+
+    const auto& putObjLockOutcome = s3Client->PutObjectLockConfiguration(
+        S3::PutObjectLockConfigurationRequest()
+            .WithBucket(bucketName)
+            .WithObjectLockConfiguration(objectLockCfg));
+
+    OPLOG_POST_OP("PutObjectLockConfiguration", bucketName, 0, 0, !putObjLockOutcome.IsSuccess());
+
+    s3ModeThrowOnError(putObjLockOutcome, "Put object lock configuration failed.", bucketName);
+#endif // S3_SUPPORT
+}
+
+/**
  * In S3 mode, decide if we do fallback to reverse upload. This would be the case if this is a write
  * phase and user selected random offsets.
  *
@@ -4049,6 +5955,45 @@ bool LocalWorker::getS3ModeDoReverseSeqFallback()
 	return false;
 }
 
+/**
+ * In S3 mode, replace any sequence of at least 3 consecutive RAND_PREFIX_MARK_CHAR chars with a
+ * random uppercase hex string based on worker rank, dir index and file index. It's based on these
+ * so that we can calculate the same random values again later to find the files.
+ *
+ * Note: It's a good idea to check progArgs->getUseS3ObjectPrefixRand() to avoid calling this
+ * 		unnecessairly.
+ *
+ * @objectPrefix string in which to repace the consecutive occurences of RAND_PREFIX_MARK_CHAR.
+ * @return objectPrefix with replaced RAND_PREFIX_MARK_CHAR chars.
+ */
+std::string LocalWorker::getS3RandObjectPrefix(size_t workerRank, size_t dirIdx,
+	size_t fileIdx, const std::string& objectPrefix)
+{
+	size_t threeMarksPos = objectPrefix.find(RAND_PREFIX_MARKS_SUBSTR);
+
+	if(threeMarksPos == std::string::npos)
+		return objectPrefix; // not found, so nothing to replace here
+
+	std::string randObjectPrefix(objectPrefix); // the copy to replace chars
+
+	// we don't want any zero-based to turn result to all-zero (e.g. "-n 0" would always be 0)
+	workerRank++;
+	dirIdx++;
+	fileIdx++;
+
+	uint64_t randomNum = RandAlgoGoldenPrime(workerRank * dirIdx * fileIdx).next();
+
+	for(size_t i = threeMarksPos;
+		(i < objectPrefix.size() ) && (objectPrefix[i] == RAND_PREFIX_MARK_CHAR);
+		i++)
+	{
+		randObjectPrefix[i] = ( (char*)HEX_ALPHABET)[randomNum % HEX_ALPHABET_LEN];
+
+		randomNum /= HEX_ALPHABET_LEN;
+	}
+
+	return randObjectPrefix;
+}
 
 /**
  * Return appropriate file open flags for the current benchmark phase in dir mode.
@@ -4091,11 +6036,18 @@ int LocalWorker::getDirModeOpenFlags(BenchPhase benchPhase)
 int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
 		unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileSize)
 {
+	const bool useMmap = progArgs->getUseMmap();
+	const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
+
+    OPLOG_PRE_OP("openat", currentPath, 0, 0);
+
 	int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
+
+    OPLOG_POST_OP("openat", currentPath, 0, 0, fd == -1);
 
 	IF_UNLIKELY(fd == -1)
 		throw WorkerException(std::string("File open failed. ") +
-			"Path: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath + "; "
+			"Path: " + currentPath + "; "
 			"SysErr: " + strerror(errno) );
 
 	// try block to ensure file close on error
@@ -4108,8 +6060,7 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 				int truncRes = ftruncate(fd, fileSize);
 				if(truncRes == -1)
 					throw WorkerException("Unable to set file size through ftruncate. "
-						"Path: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath +
-							"; "
+						"Path: " + currentPath + "; "
 						"Size: " + std::to_string(fileSize) + "; "
 						"SysErr: " + strerror(errno) );
 			}
@@ -4121,28 +6072,633 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 				if(preallocRes != 0)
 					throw WorkerException(
 						"Unable to preallocate file size through posix_fallocate. "
-						"File: " + progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath +
-							"; "
+						"File: " + currentPath + "; "
 						"Size: " + std::to_string(fileSize) + "; "
 						"SysErr: " + strerror(preallocRes) );
 			}
+		}
+
+		FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(), currentPath.c_str() );
+
+		// create memory mapping
+		if(useMmap)
+		{
+			int protectionMode = (benchPhase == BenchPhase_READFILES) ?
+				PROT_READ : (PROT_WRITE | PROT_READ);
+
+			fileHandles.mmapVec[0] =  (char*)FileTk::mmapAndMadvise<WorkerException>(
+				fileSize, protectionMode, MAP_SHARED, fd, progArgs->getMadviseFlags(),
+				currentPath.c_str() );
 		}
 
 		return fd;
 	}
 	catch(WorkerException& e)
 	{
-		int closeRes = close(fd);
+		// release memory mapping
+		if(useMmap)
+		{
+			munmap(fileHandles.mmapVec[0], fileSize);
+			fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+		}
+
+        OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+        int closeRes = close(fd);
+
+        OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
 		if(closeRes == -1)
 			ERRLOGGER(Log_NORMAL, "File close failed. " <<
-				"Path: " << progArgs->getBenchPaths()[pathFDsIndex] << "/" << relativePath <<
-					"; " <<
+				"Path: " << currentPath << "; " <<
 				"FD: " << std::to_string(fd) << "; " <<
 				"SysErr: " << strerror(errno) << std::endl);
 
 		throw;
 	}
+}
+
+/**
+ * Iterate over all directories in HDFS dir mode to create or remove them.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::hdfsDirModeIterateDirs()
+{
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
+
+	if(progArgs->getNumDirs() == 0)
+		return; // nothing to do
+
+	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t numDirs = progArgs->getNumDirs();
+	const StringVec& pathVec = progArgs->getBenchPaths();
+	const bool ignoreDelErrors = progArgs->getDoDirSharing() ?
+		true : progArgs->getIgnoreDelErrors(); // in dir share mode, all workers mk/del all dirs
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+
+	// create rank dir inside each pathFD
+	if(benchPhase == BenchPhase_CREATEDIRS)
+	{
+		for(unsigned pathFDsIndex = 0; pathFDsIndex < pathVec.size(); pathFDsIndex++)
+		{
+			// create rank dir for current pathFD...
+
+			checkInterruptionRequest();
+
+			// generate path
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("mkdir path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) );
+
+			std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+			int mkdirRes = hdfsCreateDirectory(hdfsFSHandle, fullPath.c_str() );
+
+			if( (mkdirRes == -1) && (errno != EEXIST) )
+				throw WorkerException(std::string("Rank directory creation failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+	}
+
+	// create user-specified number of directories round-robin across all given bench paths
+	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
+	{
+		checkInterruptionRequest();
+
+		// generate current dir path
+		int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu",
+			workerDirRank, dirIndex);
+		IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+			throw WorkerException("mkdir path too long for static buffer. "
+				"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+				"dirIndex: " + std::to_string(dirIndex) + "; "
+				"workerRank: " + std::to_string(workerRank) );
+
+		unsigned pathFDsIndex = (workerRank + dirIndex) % pathVec.size();
+
+		std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		if(benchPhase == BenchPhase_CREATEDIRS)
+		{ // create dir
+			int mkdirRes = hdfsCreateDirectory(hdfsFSHandle, fullPath.c_str() );
+
+			if( (mkdirRes == -1) && (errno != EEXIST) )
+				throw WorkerException(std::string("Directory creation failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+
+		if(benchPhase == BenchPhase_DELETEDIRS)
+		{ // remove dir
+			int rmdirRes = hdfsDelete(hdfsFSHandle, fullPath.c_str(), 0 /* recursive */ );
+
+			if( (rmdirRes == -1) && !ignoreDelErrors) // hdfs doesn't have a meaningful error code
+				throw WorkerException(std::string("Directory deletion failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+
+		// calc entry operations latency
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+		atomicLiveOps.numEntriesDone++;
+	} // end of for loop
+
+
+	// delete rank dir inside each pathFD
+	if(benchPhase == BenchPhase_DELETEDIRS)
+	{
+		for(unsigned pathFDsIndex = 0; pathFDsIndex < pathVec.size(); pathFDsIndex++)
+		{
+			// delete rank dir for current pathFD...
+
+			checkInterruptionRequest();
+
+			// generate path
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu", workerDirRank);
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("mkdir path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) );
+
+			std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+			int rmdirRes = hdfsDelete(hdfsFSHandle, fullPath.c_str(), 0 /* recursive */ );
+
+			if( (rmdirRes == -1) && !ignoreDelErrors) // hdfs doesn't have a meaningful error code
+				throw WorkerException(std::string("Directory deletion failed. ") +
+					"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+		}
+	}
+
+#endif // HDFS_SUPPORT
+}
+
+/**
+ * This is for HDFS directory mode. Iterate over all files to create/read/remove them.
+ * By default, this uses a unique dir per worker and fills up each dir before moving on to the next.
+ * If dir sharing is enabled, all workers will use dirs of rank 0.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::hdfsDirModeIterateFiles()
+{
+#ifndef HDFS_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but built without hdfs support");
+#else
+
+	const bool haveSubdirs = (progArgs->getNumDirs() > 0);
+	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
+	const size_t numFiles = progArgs->getNumFiles();
+	const uint64_t fileSize = progArgs->getFileSize();
+	const StringVec& pathVec = progArgs->getBenchPaths();
+	const int openFlags = (benchPhase == BenchPhase_CREATEFILES) ? O_WRONLY : O_RDONLY;
+	std::array<char, PATH_BUF_LEN> currentPath;
+	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
+		all workers use the dirs of worker rank 0 */
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+
+	// walk over each unique dir per worker
+
+	for(size_t dirIndex = 0; dirIndex < numDirs; dirIndex++)
+	{
+		// occasional interruption check
+		IF_UNLIKELY( (dirIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+			checkInterruptionRequest();
+
+		// fill up this dir with all files before moving on to the next dir
+
+		for(size_t fileIndex = 0; fileIndex < numFiles; fileIndex++)
+		{
+			// occasional interruption check
+			IF_UNLIKELY( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
+				checkInterruptionRequest();
+
+			// generate current dir path
+			int printRes;
+
+			if(haveSubdirs)
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
+					workerDirRank, dirIndex, workerRank, fileIndex);
+			else
+				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
+					workerRank, fileIndex);
+
+			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
+				throw WorkerException("file path too long for static buffer. "
+					"Buffer size: " + std::to_string(PATH_BUF_LEN) + "; "
+					"workerRank: " + std::to_string(workerRank) + "; "
+					"dirIndex: " + std::to_string(dirIndex) + "; "
+					"fileIndex: " + std::to_string(fileIndex) );
+
+			unsigned pathFDsIndex = (workerRank + dirIndex) % pathVec.size();
+
+			std::string fullPath = pathVec[pathFDsIndex] + "/" + currentPath.data();
+
+			rwOffsetGen->reset(); // reset for next file
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
+			{
+				hdfsFileHandle = hdfsOpenFile(hdfsFSHandle, fullPath.c_str(), openFlags, 0, 0, 0);
+
+				IF_UNLIKELY(hdfsFileHandle == NULL) // hdfs doesn't provide a meaningful error code
+					throw WorkerException(std::string("File open failed. ") +
+						"Path: " + fullPath);
+
+				if(progArgs->getUseDirectIO() )
+					hdfsUnbufferFile(hdfsFileHandle);
+
+				// try-block to ensure that fd is closed in case of exception
+				try
+				{
+					if(benchPhase == BenchPhase_CREATEFILES)
+					{
+						int64_t writeRes = ((*this).*funcRWBlockSized)();
+
+						IF_UNLIKELY(writeRes == -1)
+							throw WorkerException(std::string("File write failed. ") +
+								( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+									"Can be caused by directIO misalignment. " : "") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"SysErr: " + strerror(errno) );
+
+						IF_UNLIKELY( (size_t)writeRes != fileSize)
+							throw WorkerException(std::string("Unexpected short file write. ") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"Bytes written: " + std::to_string(writeRes) + "; "
+								"Expected written: " + std::to_string(fileSize) );
+					}
+
+					if(benchPhase == BenchPhase_READFILES)
+					{
+						ssize_t readRes = ((*this).*funcRWBlockSized)();
+
+						IF_UNLIKELY(readRes == -1)
+							throw WorkerException(std::string("File read failed. ") +
+								( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+									"Can be caused by directIO misalignment. " : "") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"SysErr: " + strerror(errno) );
+
+						IF_UNLIKELY( (size_t)readRes != fileSize)
+							throw WorkerException(std::string("Unexpected short file read. ") +
+								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
+								"Bytes read: " + std::to_string(readRes) + "; "
+								"Expected read: " + std::to_string(fileSize) );
+					}
+				}
+				catch(...)
+				{ // ensure that we don't leak an open file fd
+					hdfsCloseFile(hdfsFSHandle, hdfsFileHandle);
+					throw;
+				}
+
+				int closeRes = hdfsCloseFile(hdfsFSHandle, hdfsFileHandle);
+
+				IF_UNLIKELY(closeRes == -1) // hdfs doesn't provide a meaningful error code
+					throw WorkerException(std::string("File close failed. ") +
+						"Path: " + fullPath);
+			}
+
+			if(benchPhase == BenchPhase_STATFILES)
+			{
+				hdfsFileInfo* fileInfo = hdfsGetPathInfo(hdfsFSHandle, fullPath.c_str() );
+
+				if(fileInfo == NULL) // hdfs doesn't provide a meaningful error code
+					throw WorkerException(std::string("File stat failed. ") +
+						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+			}
+
+			if(benchPhase == BenchPhase_DELETEFILES)
+			{
+				int unlinkRes =  hdfsDelete(hdfsFSHandle, fullPath.c_str(), 0 /* recursive */ );
+
+				if( (unlinkRes == -1) && !progArgs->getIgnoreDelErrors() )
+					throw WorkerException(std::string("File delete failed. ") +
+						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() );
+			}
+
+			// calc entry operations latency. (for create, this includes open/rw/close.)
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			// inc special rwmix thread stats
+			if(isRWMixedReader)
+			{
+				entriesLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOpsReadMix.numEntriesDone++;
+			}
+			else
+			{
+				entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
+				atomicLiveOps.numEntriesDone++;
+			}
+
+		} // end of files for loop
+	} // end of dirs for loop
+
+
+#endif // HDFS_SUPPORT
+}
+
+/**
+ * In netbench mode, this is the wrapper to start either server or client mode (or none) for this
+ * worker thread. "None" would be the case if this was a server, but we don't have enough client
+ * connections to feed all of the server threads (e.g. 1 client with single thread and 2 servers).
+ */
+void LocalWorker::netbenchDoTransfer()
+{
+	if(serverSocketVec.size() )
+		netbenchDoTransferServer();
+	else
+	if(clientSocket)
+		netbenchDoTransferClient();
+	else // neither server nor client: clients don't have enough threads for all servers
+	{
+		LOGGER(Log_DEBUG, "This worker is neither initialized as server nor as client. "
+			"Rank: " + std::to_string(workerRank) );
+
+		workerGotPhaseWork = false;
+	}
+}
+
+/**
+ * In netbench mode, this worker owns its fair share of incoming client connections and polls all
+ * of them until we have received a complete blocksized package from one, in which case a
+ * respsized reply is sent back.
+ */
+void LocalWorker::netbenchDoTransferServer()
+{
+	const int pollShortTimeoutSecs = NETBENCH_SHORT_POLL_TIMEOUT_SEC; // to re-check for interrupt
+	const uint64_t transferBytesPerConn = progArgs->getFileSize();
+	const size_t blockSize = progArgs->getBlockSize();
+	const size_t respSize = progArgs->getNetBenchRespSize();
+	size_t transferBufSize = std::max(blockSize, respSize);
+	std::unique_ptr<char[]> transferBuf(new char [transferBufSize] );
+	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+
+	// get our own subset of sockets (each n-th socket, where n is number of local threads)
+
+	SocketVec workerSocketVec;
+
+	for(size_t i = localWorkerRank; i < serverSocketVec.size(); i += progArgs->getNumThreads() )
+		workerSocketVec.push_back(serverSocketVec[i] );
+
+	if(workerSocketVec.empty() )
+	{ // this worker didn't get any work
+
+		LOGGER(Log_DEBUG, "This server worker didn't get any sockets. "
+			"Rank: " + std::to_string(workerRank) );
+
+		workerGotPhaseWork = false;
+		return;
+	}
+
+	UInt64Vec transferredBytesVec(workerSocketVec.size(), 0); // to check when we're done
+
+	// build pollFDVec
+
+	std::vector<struct pollfd> pollFDVec; // for poll()
+
+	pollFDVec.reserve(workerSocketVec.size() );
+
+	for(BasicSocket* sock : workerSocketVec)
+		pollFDVec.push_back( { sock->getFD(), POLLIN, 0 } );
+
+
+	// at the end of a tranfer, all serverSocketVec sockets will have been erased
+	while(workerSocketVec.size() )
+	{
+		// wait for incoming data on any of the client connections
+
+		int pollRes = 0;
+
+		for(int elapsedSecs=0;
+			!pollRes && (elapsedSecs < NETBENCH_RECEIVE_TIMEOUT_SEC);
+			elapsedSecs += pollShortTimeoutSecs)
+		{
+			// (this short loop exists to more quickly detect user interrupt requests)
+			checkInterruptionRequest();
+
+			pollRes = poll(pollFDVec.data(), pollFDVec.size(), pollShortTimeoutSecs * 1000);
+		}
+
+		if(!pollRes)
+			throw WorkerException("Server: Waiting for incoming data timed out. "
+				"Rank: " + std::to_string(workerRank) + "; "
+				"1st peer: " + workerSocketVec.at(0)->getPeername() + "; "
+				"Num peers: " + std::to_string(workerSocketVec.size() ) );
+		else
+		if(pollRes == -1)
+			throw WorkerException(std::string("Server: poll() failed. ") +
+				"SysErr: " + std::strerror(errno) );
+
+		// process the events that poll() returned
+
+		int numEventsProcessed=0;
+
+		for(unsigned i=0; (numEventsProcessed < pollRes) && (i < pollFDVec.size() ); i++)
+		{
+			if(!pollFDVec[i].revents)
+				continue;
+
+			// we have an event for this socket
+
+			numEventsProcessed++;
+
+			try
+			{
+				const uint64_t bytesLeft = transferBytesPerConn - transferredBytesVec[i];
+				const size_t currentBlockSize = (bytesLeft < blockSize) ?
+					bytesLeft : blockSize;
+
+				// allow partial block read to not stall other sockets with available data
+
+				ssize_t recvRes = workerSocketVec[i]->recvT(
+					transferBuf.get(), currentBlockSize, 0, NETBENCH_RECEIVE_TIMEOUT_SEC);
+
+				transferredBytesVec[i] += recvRes;
+
+				atomicLiveOpsReadMix.numBytesDone += recvRes;
+
+				// send single response byte after a complete block transfer
+				if( ( (transferredBytesVec[i] % blockSize) == 0) ||
+					(transferredBytesVec[i] == transferBytesPerConn) )
+				{
+					((*this).*funcPreWriteBlockModifier)(
+						transferBuf.get(), gpuIOBufVec[0], respSize, transferredBytesVec[i] );
+
+					workerSocketVec[i]->send(transferBuf.get(), respSize, 0);
+
+					atomicLiveOps.numBytesDone += respSize;
+					atomicLiveOpsReadMix.numIOPSDone++;
+				}
+			}
+			catch(SocketDisconnectException& e)
+			{
+				if(transferredBytesVec[i] != transferBytesPerConn)
+				{ // unexpected premature disconnect => probably ctrl+c
+					LOGGER(Log_VERBOSE,"Server: Unexpected disconnect: " <<
+							workerSocketVec[i]->getPeername() << "; " <<
+						"Transferred bytes: " << transferredBytesVec[i] << "; " <<
+						"Expected bytes: " << transferBytesPerConn << "; "
+						"Message: " << e.what() << std::endl);
+
+					transferredBytesVec.erase(transferredBytesVec.begin() + i);
+					pollFDVec.erase(pollFDVec.begin() + i);
+					workerSocketVec.erase(
+						workerSocketVec.begin() + i); // destructor contains close()
+
+					continue; // skip check below because elem [i] has been erased
+				}
+			}
+			catch(SocketException& e)
+			{ // avoid making noise if we have e.g. incomplete send() because of ctrl+c
+				checkInterruptionRequest();
+				throw;
+			}
+
+			if(transferredBytesVec[i] == transferBytesPerConn)
+			{ // everything done with this connection
+				LOGGER(Log_DEBUG,"Server: Transfer finished: " <<
+					workerSocketVec[i]->getPeername() << std::endl);
+
+				// (note: no sock shutdown() here because of possible infloop)
+
+				transferredBytesVec.erase(transferredBytesVec.begin() + i);
+				pollFDVec.erase(pollFDVec.begin() + i);
+				workerSocketVec.erase(
+					workerSocketVec.begin() + i); // destructor contains close()
+			}
+
+		} // end of poll() returned events loop
+	} // end of while(serverSocketVec.size() )
+}
+
+/**
+ * In netbench mode, this worker owns a single connection exclusively and keeps sending
+ * "blocksize" to the server and waits "respsize" response after each block.
+ */
+void LocalWorker::netbenchDoTransferClient()
+{
+	const int pollShortTimeoutSecs = NETBENCH_SHORT_POLL_TIMEOUT_SEC; // to re-check for interrupt
+	const uint64_t transferBytesPerConn = progArgs->getFileSize();
+	const size_t blockSize = progArgs->getBlockSize();
+	const size_t respSize = progArgs->getNetBenchRespSize();
+	size_t transferBufSize = std::max(blockSize, respSize);
+	std::unique_ptr<char[]> transferBuf(new char [transferBufSize] );
+
+	// each loop is one blocksize transfer
+	for(uint64_t transferredBytes = 0; transferredBytes != transferBytesPerConn; )
+	{
+		checkInterruptionRequest();
+
+		try
+		{
+			const uint64_t bytesLeft = transferBytesPerConn - transferredBytes;
+			const size_t currentBlockSize = (bytesLeft < blockSize) ?
+				bytesLeft : blockSize;
+
+			((*this).*funcRWRateLimiter)(currentBlockSize);
+
+			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+			((*this).*funcPreWriteBlockModifier)(
+				transferBuf.get(), gpuIOBufVec[0], currentBlockSize, transferredBytes);
+
+			clientSocket->send(transferBuf.get(), currentBlockSize, 0);
+
+			transferredBytes += currentBlockSize;
+
+			// receive single response byte after a complete block transfer
+
+			int recvRes = 0;
+
+			for(int elapsedSecs=0;
+				!recvRes && (elapsedSecs < NETBENCH_RECEIVE_TIMEOUT_SEC);
+				elapsedSecs += pollShortTimeoutSecs)
+			{
+				// (this short loop exists to more quickly detect user interrupt requests)
+				checkInterruptionRequest();
+
+				try
+				{
+					recvRes = clientSocket->recvExactT(
+						transferBuf.get(), respSize, 0, pollShortTimeoutSecs * 1000);
+
+					atomicLiveOpsReadMix.numBytesDone += recvRes;
+				}
+				catch(SocketTimeoutException& e)
+				{ /* ignore for pollShortTimeoutSecs. (NETBENCH_RECEIVE_TIMEOUT_SEC handled
+						below.) */
+				}
+			}
+
+			if(!recvRes)
+				throw WorkerException("Client: Waiting for incoming data timed out. "
+					"Peer: " + clientSocket->getPeername() + "; "
+					"Transferred: " + std::to_string(transferredBytes) + " / " +
+						std::to_string(transferBytesPerConn) + "; "
+					"Timeout: " + std::to_string(NETBENCH_RECEIVE_TIMEOUT_SEC) + "s");
+
+			// calc io operation latency
+			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+			std::chrono::microseconds ioElapsedMicroSec =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(ioEndT - ioStartT);
+
+			// iops lat & num done
+			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numBytesDone += currentBlockSize;
+			atomicLiveOps.numIOPSDone++;
+		}
+		catch(SocketDisconnectException& e)
+		{
+			if(transferredBytes != transferBytesPerConn)
+			{ // unexpected premature disconnect => probably ctrl+c
+				LOGGER(Log_VERBOSE,"Client: Unexpected disconnect: " <<
+					clientSocket->getPeername() << "; " <<
+					"Transferred bytes: " << transferredBytes << "; " <<
+					"Expected bytes: " << transferBytesPerConn << "; "
+					"Message: " << e.what() << std::endl);
+
+				break;
+			}
+		}
+		catch(SocketException& e)
+		{ // avoid making noise if we have e.g. incomplete send() because of ctrl+c
+			checkInterruptionRequest();
+			throw;
+		}
+
+		if(transferredBytes == transferBytesPerConn)
+		{ // everything done with this connection
+			LOGGER(Log_DEBUG,"Client: Transfer finished: " <<
+				clientSocket->getPeername() << std::endl);
+
+			// (note: no sock shutdown() here because of possible infloop)
+		}
+
+	} // end of for-loop for each block
+
 }
 
 /**
@@ -4158,7 +6714,10 @@ void LocalWorker::anyModeSync()
 {
 	// don't do anything if this is not the first worker thread of this instance
 	if(workerRank != progArgs->getRankOffset() )
+	{
+		workerGotPhaseWork = false;
 		return;
+	}
 
 #ifndef SYNCFS_SUPPORT
 
@@ -4198,7 +6757,10 @@ void LocalWorker::anyModeDropCaches()
 {
 	// don't do anything if this is not the first worker thread of this instance
 	if(workerRank != progArgs->getRankOffset() )
+	{
+		workerGotPhaseWork = false;
 		return;
+	}
 
 	std::string dropCachesPath = "/proc/sys/vm/drop_caches";
 	std::string dropCachesValStr = "3"; // "3" to drop page cache, dentries and inodes

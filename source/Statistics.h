@@ -2,6 +2,7 @@
 #define STATISTICS_H_
 
 #include "CPUUtil.h"
+#include "LiveLatency.h"
 #include "ProgArgs.h"
 #include "workers/WorkerManager.h"
 #include "workers/WorkersSharedData.h"
@@ -47,8 +48,8 @@ class LiveResults
 		size_t numRemoteThreadsLeft; // only set in master mode
 		size_t percentRemoteCPU; // avg percent cpu util of service hosts (only set in master mode)
 
-		int winHeight; // current height of terminal window
-		int winWidth; // current width of terminal window
+		int winHeight; // current height of terminal window (set in fullscreen mode only)
+		int winWidth; // current width of terminal window (set in fullscreen mode only)
 
 		LiveOps lastLiveOps = {}; // live ops from last round for per-sec diff
 		LiveOps lastLiveOpsReadMix = {}; // live ops from last round for per-sec diff
@@ -58,6 +59,8 @@ class LiveResults
 		LiveOps liveOpsPerSecReadMix; // live ops per sec from diff of new and last live ops
 		size_t percentDone; // total percent done based on bytes (if any) or num entries in phase
 		size_t percentDoneReadMix; // total percent done based on bytes (if any) or entries in phase
+
+		LiveLatency liveLatency; // avg latency across all workers for current live stats interval
 };
 
 class Statistics
@@ -75,7 +78,8 @@ class Statistics
 		void printPhaseResultsTableHeader();
 		void printPhaseResults();
 
-		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps);
+		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
+			LiveLatency& outLiveLatency);
 		void getLiveStatsAsPropertyTree(bpt::ptree& outTree);
 		void getBenchResultAsPropertyTree(bpt::ptree& outTree);
 
@@ -87,7 +91,7 @@ class Statistics
 		WorkersSharedData& workersSharedData;
 		WorkerVec& workerVec;
 		bool consoleBufferingDisabled{false};
-		const std::string phaseResultsFormatStr{"%|-9| %|-17|%|1| %|10| %|10|"};
+		const std::string phaseResultsFormatStr{"%|-11| %|-17|%|1| %|11| %|11|"};
 		const std::string phaseResultsLeftFormatStr{"%|-9| %|-17|%|1| "}; // left side format str
 		const std::string phaseResultsFooterStr = std::string(3, '-');
 		CPUUtil liveCpuUtil; // updated by live stats loop or through http service live stat calls
@@ -113,11 +117,13 @@ class Statistics
 		void deleteSingleLineLiveStatsLine();
 		void loopSingleLineLiveStats();
 
+	#ifdef NCURSES_SUPPORT
 		void printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults);
 		void printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults);
 		void printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
 			bool fillIfShorter);
 		void loopFullScreenLiveStats();
+	#endif // NCURSES_SUPPORT
 
 		void loopNoConsoleLiveStats();
 
@@ -125,6 +131,7 @@ class Statistics
 		void updateLiveStatsLiveOps(LiveResults& liveResults);
 
 		void printDryRunPhaseInfo(BenchPhase benchPhase);
+		void printDryRunInfoNetBench();
 
 		void prepLiveCSVFile();
 		void printLiveStatsCSV(const LiveResults& liveResults);

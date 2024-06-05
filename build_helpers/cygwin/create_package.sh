@@ -20,11 +20,18 @@ mkdir -p "$PACKAGING_PATH" || exit 1
 
 make CYGWIN_SUPPORT=1 -j $(nproc) || exit 1
 
-cp -v bin/elbencho.exe "${PACKAGING_PATH}/" || exit 1
+echo "Copying executables to packaging dir..."
 
-for i in $(ldd bin/elbencho.exe | grep -o '\/usr\/bin\/.*dll'); do
+cp -v bin/elbencho.exe "${PACKAGING_PATH}/" || exit 1
+cp -v /usr/sbin/cygserver.exe "${PACKAGING_PATH}/" || exit 1
+
+echo "Copying dependency DLLs to packaging dir..."
+
+for i in $(ldd bin/elbencho.exe /usr/sbin/cygserver.exe | grep -o -e '/usr/bin/.*dll'); do
     cp -v $i "${PACKAGING_PATH}/" || exit 1
 done
+
+echo "Creating .zip file..."
 
 cd "$PACKAGING_PATH" || exit 1
 

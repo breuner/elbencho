@@ -44,14 +44,14 @@ class WorkersSharedData
 		BenchPhase currentBenchPhase{BenchPhase_IDLE}; // changed together with new bench ID
 		buuids::uuid currentBenchID = buuids::nil_uuid(); /* changed ID informs workers about next
 			phase start */
-		size_t numWorkersDone{0}; /* number of threads that are through with current phase
+		size_t numWorkersDone{0}; /* number of threads/services that are through with current phase
 			(protected by mutex, change signaled by condition) */
 		size_t numWorkersDoneWithError{0}; /* number of threads that failed the current phase
 			(protected by mutex, change signaled by condition) */
 		CPUUtil cpuUtilFirstDone; // 1st update() by WorkerManager, 2nd update() by first finisher
 		CPUUtil cpuUtilLastDone; // 1st update() by WorkerManager, 2nd update() by last finisher
 
-		void incNumWorkersDoneUnlocked();
+		void incNumWorkersDoneUnlocked(bool triggerStoneWall);
 
 	// inliners
 	public:
@@ -73,11 +73,19 @@ class WorkersSharedData
 
 		/**
 		 * To be called by a worker that has finished the current phase successfully.
+		 *
+		 * Note: Probably inappropriate to call this instead of incNumWorkersDoneUnlocked() (while
+		 * mutex locked by caller), because other bits like stonewall stats need to be updated as
+		 * well while the mutex is locked.
+		 *
+		 * @triggerStoneWall true if this thread triggers the "first done" stonewall stats. This
+		 * 		cannot be checked via "numWorkersDone==1" because the first finisher might just not
+		 * 		have gotten any work assigned and thus doesn't trigger the stonewall stats.
 		 */
-		void incNumWorkersDone()
+		void incNumWorkersDone(bool triggerStoneWall)
 		{
 			std::unique_lock<std::mutex> lock(mutex); // L O C K (scoped)
-			incNumWorkersDoneUnlocked();
+			incNumWorkersDoneUnlocked(triggerStoneWall);
 		}
 
 		/**

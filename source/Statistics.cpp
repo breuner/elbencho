@@ -2,8 +2,6 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <chrono>
-#include <ncurses.h>
-#undef OK // defined by ncurses.h, but conflicts with AWS SDK CPP using OK in enum in HttpResponse.h
 #include "ProgException.h"
 #include "Statistics.h"
 #include "Terminal.h"
@@ -13,9 +11,14 @@
 #include "workers/Worker.h"
 #include "workers/WorkerException.h"
 
+#ifdef NCURSES_SUPPORT
+	#include <ncurses.h>
+	#undef OK // defined by ncurses.h, but conflicts with AWS SDK using OK in enum in HttpResponse.h
+#endif
+
 #define CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN	"\x1B[2K\r" /* "\x1B[2K" is the VT100 code to
 										clear the line. "\r" moves cursor to beginning of line. */
-#define WHOLESCREEN_GLOBALINFO_NUMLINES		1 // lines for global info (to calc per-worker lines)
+#define FULLSCREEN_GLOBALINFO_NUMLINES		1 // lines for global info (to calc per-worker lines)
 
 
 Statistics::~Statistics()
@@ -203,7 +206,7 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 	}
 
 	stream <<
-		elapsedSec.count() << "s";
+		UnitTk::elapsedSecToHumanStr(elapsedSec.count() );
 
 	std::string lineStr(stream.str() );
 
@@ -290,8 +293,6 @@ void Statistics::loopSingleLineLiveStats()
 
 		printLiveStatsCSV(liveResults); // live stats csv file
 
-		getmaxyx(stdscr, liveResults.winHeight, liveResults.winWidth); // update screen dimensions
-
 		printSingleLineLiveStatsLine(liveResults);
 	}
 
@@ -358,36 +359,7 @@ workers_done:
 	return;
 }
 
-/**
- * Print a single line of whole screen live stats to the ncurses buffer, taking the line length
- * into account by reducing the length if it exceeds the console line length.
- *
- * @stream buffer containing the line to print to ncurses buffer; will be cleared after contents
- * 		have been added to ncurses buffer.
- * @lineLength the maximum line length that max not be exceeded.
- * @fillIfShorter if stream buffer length is shorter than line length then fill it up with spaces
- * 		to match given line length.
- */
-void Statistics::printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
-	bool fillIfShorter)
-{
-	std::string lineStr(stream.str() );
-
-	// cut off or fill as requested
-	if( (lineStr.length() > lineLength) ||
-		(fillIfShorter && (lineStr.length() < lineLength) ) )
-		lineStr.resize(lineLength, ' ');
-
-	// add to ncurses buffer
-	addstr(lineStr.c_str() );
-
-	// add newline only if string doesn't fill up the complete line
-	if(lineStr.length() < lineLength)
-		addch('\n');
-
-	// clear stream for next round
-	stream.str(std::string() );
-}
+#ifdef NCURSES_SUPPORT
 
 /**
  * Print whole screen version of live stats until workers are done with phase.
@@ -447,9 +419,12 @@ void Statistics::loopFullScreenLiveStats()
 			SCREEN* initRes = newterm(getenv("TERM"), stdout, stdin); // init curses mode
 			if(!initRes)
 			{
-				std::cerr << "NOTE: ncurses terminal init for live statistics failed. " <<
-					"Try \"--" ARG_BRIEFLIVESTATS_LONG "\" or \"--" ARG_NOLIVESTATS_LONG "\"." <<
+				std::cerr << "NOTE: ncurses terminal init for fullscreen live statistics failed. "
+					"Falling back to \"--" ARG_BRIEFLIVESTATS_LONG "\"." <<
 					std::endl;
+
+				loopSingleLineLiveStats();
+
 				return;
 			}
 
@@ -487,72 +462,34 @@ workers_done:
 }
 
 /**
- * In master mode, update number of remote threads left in liveResults and avg cpu; otherwise do
- * nothing.
+ * Print a single line of fullscreen live stats to the ncurses buffer, taking the line length
+ * into account by reducing the length if it exceeds the console line length.
+ *
+ * @stream buffer containing the line to print to ncurses buffer; will be cleared after contents
+ * 		have been added to ncurses buffer.
+ * @lineLength the maximum line length that max not be exceeded.
+ * @fillIfShorter if stream buffer length is shorter than line length then fill it up with spaces
+ * 		to match given line length.
  */
-void Statistics::updateLiveStatsRemoteInfo(LiveResults& liveResults)
+void Statistics::printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
+	bool fillIfShorter)
 {
-	if(progArgs.getHostsVec().empty() )
-		return; // nothing to do if not in master mode
+	std::string lineStr(stream.str() );
 
-	size_t numRemoteThreadsTotal = workerVec.size() * progArgs.getNumThreads();
-	liveResults.numRemoteThreadsLeft = numRemoteThreadsTotal;
+	// cut off or fill as requested
+	if( (lineStr.length() > lineLength) ||
+		(fillIfShorter && (lineStr.length() < lineLength) ) )
+		lineStr.resize(lineLength, ' ');
 
-	liveResults.percentRemoteCPU = 0;
+	// add to ncurses buffer
+	addstr(lineStr.c_str() );
 
-	for(Worker* worker : workerVec)
-	{
-		RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
-		liveResults.numRemoteThreadsLeft -= remoteWorker->getNumWorkersDone();
-		liveResults.percentRemoteCPU += remoteWorker->getCPUUtilLive();
-	}
+	// add newline only if string doesn't fill up the complete line
+	if(lineStr.length() < lineLength)
+		addch('\n');
 
-	liveResults.percentRemoteCPU /= workerVec.size();
-}
-
-/**
- * Update liveOps and percentDone of liveResults for current round of live stats.
- */
-void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
-{
-	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix);
-
-	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
-	(liveResults.liveOpsPerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
-
-	liveResults.lastLiveOps = liveResults.newLiveOps;
-
-	liveResults.liveOpsPerSecReadMix =
-		liveResults.newLiveOpsReadMix - liveResults.lastLiveOpsReadMix;
-	(liveResults.liveOpsPerSecReadMix *= 1000) /= progArgs.getLiveStatsSleepMS();
-
-	liveResults.lastLiveOpsReadMix = liveResults.newLiveOpsReadMix;
-
-	// if we have bytes in this phase, use them for percent done; otherwise use num entries
-	if(liveResults.numBytesPerWorker)
-	{
-		liveResults.percentDone =
-			(100 * liveResults.newLiveOps.numBytesDone) /
-			(liveResults.numBytesPerWorker * workerVec.size() );
-		liveResults.percentDoneReadMix =
-			(100 * liveResults.newLiveOpsReadMix.numBytesDone) /
-			(liveResults.numBytesPerWorker * workerVec.size() );
-	}
-	else
-	if(liveResults.numEntriesPerWorker)
-	{
-		liveResults.percentDone =
-			(100 * liveResults.newLiveOps.numEntriesDone) /
-			(liveResults.numEntriesPerWorker * workerVec.size() );
-		liveResults.percentDoneReadMix =
-			(100 * liveResults.newLiveOpsReadMix.numEntriesDone) /
-			(liveResults.numEntriesPerWorker * workerVec.size() );
-	}
-	else
-	{
-		liveResults.percentDone = 0; // no % available in phases like "sync" or "dropcaches"
-		liveResults.percentDoneReadMix = 0; // no % available in phases like "sync" or "dropcaches"
-	}
+	// clear stream for next round
+	stream.str(std::string() );
 }
 
 /**
@@ -566,11 +503,77 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
 
 	std::ostringstream stream;
 
-	stream << boost::format("Phase: %||  CPU: %|3|%%  Active: %||  Elapsed: %||s")
+	stream << boost::format("Phase: %||  CPU: %|3|%%  Active: %||  Elapsed: %||")
 		% liveResults.phaseName
 		% (unsigned) liveCpuUtil.getCPUUtilPercent()
 		% (workerVec.size() - liveResults.numWorkersDone)
-		% elapsedSec.count();
+		% UnitTk::elapsedSecToHumanStr(elapsedSec.count() );
+
+	printFullScreenLiveStatsLine(stream, liveResults.winWidth, false);
+
+	if(!progArgs.getShowLatency() )
+		return;
+
+	// latency
+
+	const bool isRWMixPhase = (liveResults.newLiveOpsReadMix.numBytesDone ||
+		liveResults.newLiveOpsReadMix.numEntriesDone);
+	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
+
+	stream << "Latency: ";
+
+	if(!isRWMixPhase)
+	{
+		if(progArgs.getBenchPathType() != BenchPathType_DIR)
+			stream << UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum);
+		else
+		{ // BenchPathType_DIR
+			stream <<
+				"IO=" <<
+				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
+				" " <<
+				liveResults.entryTypeUpperCase << "=" <<
+				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgEntriesLatMicroSecsSum);
+		}
+	}
+	else
+	{ // rwmix
+		stream <<
+			"IO ["
+			"wr=" <<
+			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
+			" "
+			"rd=" <<
+			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatReadMixMicroSecsSum) <<
+			"]";
+
+		if(progArgs.getBenchPathType() == BenchPathType_DIR)
+		{
+			stream << "  "; // double space as separator
+
+			if(!isRWMixThreadsPhase)
+			{
+				stream <<
+					liveResults.entryTypeUpperCase << "=" <<
+					UnitTk::latencyUsToHumanStr(
+						liveResults.liveLatency.avgEntriesLatMicroSecsSum);
+			}
+			else
+			{
+				stream <<
+					liveResults.entryTypeUpperCase <<
+					" ["
+					"wr=" <<
+					UnitTk::latencyUsToHumanStr(
+						liveResults.liveLatency.avgEntriesLatMicroSecsSum) <<
+					" "
+					"rd=" <<
+					UnitTk::latencyUsToHumanStr(
+						liveResults.liveLatency.avgEntriesLatReadMixMicrosSecsSum) <<
+					"]";
+			}
+		}
+	}
 
 	printFullScreenLiveStatsLine(stream, liveResults.winWidth, false);
 }
@@ -594,8 +597,10 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 		( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) ||
 			(workersSharedData.currentBenchPhase == BenchPhase_READFILES) );
 
+	const bool useNetBench = progArgs.getUseNetBench();
+
 	// how many lines we have to show per-worker stats ("+2" for table header and total line)
-	size_t maxNumWorkerLines = liveResults.winHeight - (WHOLESCREEN_GLOBALINFO_NUMLINES + 2);
+	size_t maxNumWorkerLines = liveResults.winHeight - (FULLSCREEN_GLOBALINFO_NUMLINES + 2);
 
 	std::ostringstream stream;
 
@@ -636,9 +641,14 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 
 	// print total for all workers...
 
+	std::string totalPercentDone = std::to_string(std::min(liveResults.percentDone, (size_t)100) );
+
+	if(useNetBench)
+		totalPercentDone = "-";
+
 	stream << boost::format(tableHeadlineFormat)
 		% (isRWMixPhase ? "Write" : "Total")
-		% std::min(liveResults.percentDone, (size_t)100)
+		% totalPercentDone
 		% (liveResults.newLiveOps.numBytesDone / (1024*1024) )
 		% (liveResults.liveOpsPerSec.numBytesDone / (1024*1024) )
 		% liveResults.liveOpsPerSec.numIOPSDone;
@@ -670,9 +680,15 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 	// print rwmix read line for all workers...
 	if(isRWMixPhase)
 	{
+		std::string readPercentDone =
+			std::to_string(std::min(liveResults.percentDoneReadMix, (size_t)100) );
+
+		if(useNetBench)
+			readPercentDone = "-";
+
 		stream << boost::format(tableHeadlineFormat)
 			% "Read"
-			% std::min(liveResults.percentDoneReadMix, (size_t)100)
+			% readPercentDone
 			% (liveResults.newLiveOpsReadMix.numBytesDone / (1024*1024) )
 			% (liveResults.liveOpsPerSecReadMix.numBytesDone / (1024*1024) )
 			% liveResults.liveOpsPerSecReadMix.numIOPSDone;
@@ -722,19 +738,37 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 
 		(workerDonePerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
 
-		size_t workerPercentDone = 0;
+		const char* netbenchServiceSuffixStr = ""; // only set in netbench mode
+		size_t workerPercentDoneNum = 0;
+		std::string workerPercentDoneStr = "-";
 
 		// if we have bytes in this phase, use them for percent done; otherwise use num entries
 		// (note: phases like sync and drop_caches have neither bytes nor entries)
 		if(liveResults.numBytesPerWorker)
-			workerPercentDone = (100 * workerDone.numBytesDone) / liveResults.numBytesPerWorker;
+			workerPercentDoneNum =
+				(100 * workerDone.numBytesDone) / liveResults.numBytesPerWorker;
 		else
 		if(liveResults.numEntriesPerWorker)
-			workerPercentDone = (100 * workerDone.numEntriesDone) / liveResults.numEntriesPerWorker;
+			workerPercentDoneNum =
+				(100 * workerDone.numEntriesDone) / liveResults.numEntriesPerWorker;
+
+		workerPercentDoneNum = std::min(workerPercentDoneNum, (size_t)100);
+		workerPercentDoneStr = std::to_string(workerPercentDoneNum);
+
+		if(useNetBench)
+		{ // special settings for netbench mode
+			if(i < progArgs.getNumNetBenchServers() )
+			{ // this is a netbench server
+				workerPercentDoneStr = "-"; // this is a server, we only have pct done for clients
+				netbenchServiceSuffixStr = " [server]";
+			}
+			else // this is a netbench client
+				netbenchServiceSuffixStr = " [client]";
+		}
 
 		stream << boost::format(tableHeadlineFormat)
 			% i
-			% std::min(workerPercentDone, (size_t)100)
+			% workerPercentDoneStr
 			% (workerDone.numBytesDone / (1024*1024) )
 			% (workerDonePerSec.numBytesDone / (1024*1024) )
 			% workerDonePerSec.numIOPSDone;
@@ -759,12 +793,87 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 			stream << boost::format(remoteTableHeadlineFormat)
 				% (progArgs.getNumThreads() - remoteWorker->getNumWorkersDone() )
 				% remoteWorker->getCPUUtilLive()
-				% progArgs.getHostsVec()[i];
+				% (progArgs.getHostsVec()[i] + netbenchServiceSuffixStr);
 		}
 
 		printFullScreenLiveStatsLine(stream, liveResults.winWidth, true);
 	}
 }
+
+#endif // NCURSES_SUPPORT
+
+/**
+ * In master mode, update number of remote threads left in liveResults and avg cpu; otherwise do
+ * nothing.
+ */
+void Statistics::updateLiveStatsRemoteInfo(LiveResults& liveResults)
+{
+	if(progArgs.getHostsVec().empty() )
+		return; // nothing to do if not in master mode
+
+	size_t numRemoteThreadsTotal = workerVec.size() * progArgs.getNumThreads();
+	liveResults.numRemoteThreadsLeft = numRemoteThreadsTotal;
+
+	liveResults.percentRemoteCPU = 0;
+
+	for(Worker* worker : workerVec)
+	{
+		RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
+		liveResults.numRemoteThreadsLeft -= remoteWorker->getNumWorkersDone();
+		liveResults.percentRemoteCPU += remoteWorker->getCPUUtilLive();
+	}
+
+	liveResults.percentRemoteCPU /= workerVec.size();
+}
+
+/**
+ * Update liveOps and percentDone of liveResults for current round of live stats.
+ */
+void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
+{
+	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
+
+	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
+	(liveResults.liveOpsPerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
+
+	liveResults.lastLiveOps = liveResults.newLiveOps;
+
+	liveResults.liveOpsPerSecReadMix =
+		liveResults.newLiveOpsReadMix - liveResults.lastLiveOpsReadMix;
+	(liveResults.liveOpsPerSecReadMix *= 1000) /= progArgs.getLiveStatsSleepMS();
+
+	liveResults.lastLiveOpsReadMix = liveResults.newLiveOpsReadMix;
+
+	// if we have bytes in this phase, use them for percent done; otherwise use num entries
+	if(liveResults.numBytesPerWorker)
+	{
+		liveResults.percentDone =
+			(100 * liveResults.newLiveOps.numBytesDone) /
+			(liveResults.numBytesPerWorker * workerVec.size() );
+		liveResults.percentDoneReadMix =
+			(100 * liveResults.newLiveOpsReadMix.numBytesDone) /
+			(liveResults.numBytesPerWorker * workerVec.size() );
+	}
+	else
+	if(liveResults.numEntriesPerWorker)
+	{
+		liveResults.percentDone =
+			(100 * liveResults.newLiveOps.numEntriesDone) /
+			(liveResults.numEntriesPerWorker * workerVec.size() );
+		liveResults.percentDoneReadMix =
+			(100 * liveResults.newLiveOpsReadMix.numEntriesDone) /
+			(liveResults.numEntriesPerWorker * workerVec.size() );
+	}
+	else
+	{
+		liveResults.percentDone = 0; // no % available in phases like "sync" or "dropcaches"
+		liveResults.percentDoneReadMix = 0; // no % available in phases like "sync" or "dropcaches"
+	}
+
+	// calc latency average values
+	liveResults.liveLatency.divAllByNumValues();
+}
+
 
 /**
  * Print live statistics on console until workers are done with phase.
@@ -789,15 +898,17 @@ void Statistics::printLiveStats()
 		return;
 	}
 
-	if( (progArgs.getUseBriefLiveStats() ) ||
-		(progArgs.getHostsVec().size() == 1) ||
-		(progArgs.getHostsVec().empty() && (progArgs.getNumThreads() == 1) ) )
-	{
-		loopSingleLineLiveStats();
-		return;
-	}
+	#ifdef NCURSES_SUPPORT
+		if( (!progArgs.getUseBriefLiveStats() ) &&
+			( (progArgs.getHostsVec().size() > 1) ||
+			  (progArgs.getHostsVec().empty() && (progArgs.getNumThreads() > 1) ) ) )
+		{
+			loopFullScreenLiveStats();
+			return;
+		}
+	#endif // NCURSES_SUPPORT
 
-	loopFullScreenLiveStats();
+	loopSingleLineLiveStats();
 }
 
 /**
@@ -806,14 +917,21 @@ void Statistics::printLiveStats()
  * @param outLiveOps entries/ops/bytes done for all workers (does not need to be initialized to 0).
  * @param outLiveRWMixReadOps rwmix mode read entries/ops/bytes done for all workers (does not need
  * 		to be initialized to 0).
+ * @param outLiveLatency this method will call divAllByNumValues(), so struct values are avg across
+ * 		all workers.
  */
-void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps)
+void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
+	LiveLatency& outLiveLatency)
 {
 	outLiveOps = {}; // set all members to zero
 	outLiveRWMixReadOps = {}; // set all members to zero
+	outLiveLatency = {}; // set all members to zero
 
 	for(size_t i=0; i < workerVec.size(); i++)
+	{
 		workerVec[i]->getAndAddLiveOps(outLiveOps, outLiveRWMixReadOps);
+		workerVec[i]->getAndAddLiveLatency(outLiveLatency);
+	}
 }
 
 /**
@@ -823,8 +941,9 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
 	LiveOps liveOpsReadMix;
+	LiveLatency liveLatency;
 
-	getLiveOps(liveOps, liveOpsReadMix);
+	getLiveOps(liveOps, liveOpsReadMix, liveLatency);
 
 	std::chrono::seconds elapsedDurationSecs =
 				std::chrono::duration_cast<std::chrono::seconds>
@@ -837,18 +956,34 @@ void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_BENCHPHASECODE, workersSharedData.currentBenchPhase);
 	outTree.put(XFER_STATS_NUMWORKERSDONE, workersSharedData.numWorkersDone);
 	outTree.put(XFER_STATS_NUMWORKERSDONEWITHERR, workersSharedData.numWorkersDoneWithError);
+	outTree.put(XFER_STATS_TRIGGERSTONEWALL,
+		!workerVec.empty() && workerVec[0]->getStoneWallTriggered());
 	outTree.put(XFER_STATS_NUMENTRIESDONE, liveOps.numEntriesDone);
 	outTree.put(XFER_STATS_NUMBYTESDONE, liveOps.numBytesDone);
 	outTree.put(XFER_STATS_NUMIOPSDONE, liveOps.numIOPSDone);
 	outTree.put(XFER_STATS_CPUUTIL, (unsigned) liveCpuUtil.getCPUUtilPercent() );
 	outTree.put(XFER_STATS_ELAPSEDSECS, elapsedSecs);
+	outTree.put(XFER_STATS_LAT_NUM_IOPS, liveLatency.numAvgIOLatValues);
+	outTree.put(XFER_STATS_LAT_SUM_IOPS, liveLatency.avgIOLatMicroSecsSum);
+	outTree.put(XFER_STATS_LAT_NUM_ENTRIES, liveLatency.numAvgEntriesLatValues);
+	outTree.put(XFER_STATS_LAT_SUM_ENTRIES, liveLatency.avgEntriesLatMicroSecsSum);
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
-		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ) )
+		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ||
+			progArgs.getUseNetBench() ) )
 	{
 		outTree.put(XFER_STATS_NUMENTRIESDONE_RWMIXREAD, liveOpsReadMix.numEntriesDone);
 		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveOpsReadMix.numBytesDone);
 		outTree.put(XFER_STATS_NUMIOPSDONE_RWMIXREAD, liveOpsReadMix.numIOPSDone);
+
+		outTree.put(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD,
+			liveLatency.numAvgIOLatReadMixValues);
+		outTree.put(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD,
+			liveLatency.avgIOLatReadMixMicroSecsSum);
+		outTree.put(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD,
+			liveLatency.numAvgEntriesLatReadMixValues);
+		outTree.put(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD,
+			liveLatency.avgEntriesLatReadMixMicrosSecsSum);
 	}
 
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );
@@ -961,9 +1096,15 @@ void Statistics::printPhaseResultsTableHeader()
  */
 void Statistics::printISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec)
 {
-	time_t time = std::time(NULL);
+	auto now = std::chrono::system_clock::now();
+	time_t time = std::chrono::system_clock::to_time_t(now);
+	auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+		now.time_since_epoch()).count() % 1000;
+
 	std::stringstream dateStream;
-	dateStream << std::put_time(std::localtime(&time), "%FT%T%z");
+	dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+		<< std::setfill('0') << std::setw(3) << milliseconds
+		<< std::put_time(std::localtime(&time), "%z");
 
 	outLabelsVec.push_back("ISO date");
 	outResultsVec.push_back(dateStream.str() );
@@ -984,7 +1125,7 @@ void Statistics::printPhaseResultsTableHeaderToStream(std::ostream& outStream)
 		% "LAST DONE"
 		<< std::endl;
 	outStream << boost::format(phaseResultsFormatStr)
-		% "========="
+		% "==========="
 		% "================"
 		% ""
 		% "=========="
@@ -1086,8 +1227,25 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 	// sum up total values
 	for(Worker* worker : workerVec)
 	{
-		IF_UNLIKELY(worker->getElapsedUSecVec().empty() )
-			return false;
+		if(worker->getElapsedUSecVec().empty() )
+		{
+			if(worker->getWorkerGotPhaseWork() )
+			{
+				ERRLOGGER(Log_NORMAL, "generate phase results: "
+					"Worker triggers stonewall, but has no elapsed time. " <<
+					"WorkerRank: " << worker->getRank() << std::endl);
+
+				return false;
+			}
+
+			// worker doesn't trigger stonewall, so it's ok to not have elapsed time
+
+			LOGGER(Log_DEBUG, "generate phase results: "
+				"Worker has no elapsed time, also doesn't trigger stonewall. " <<
+				"WorkerRank: " << worker->getRank() << std::endl);
+
+			continue;
+		}
 
 		for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
 		{
@@ -1191,10 +1349,10 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	// elapsed time
 	outStream << boost::format(Statistics::phaseResultsFormatStr)
 		% phaseName
-		% "Elapsed ms"
+		% "Elapsed time"
 		% ":"
-		% (phaseResults.firstFinishUSec / 1000)
-		% (phaseResults.lastFinishUSec / 1000)
+		% UnitTk::elapsedMSToHumanStr(phaseResults.firstFinishUSec / 1000)
+		% UnitTk::elapsedMSToHumanStr(phaseResults.lastFinishUSec / 1000)
 		<< std::endl;
 
 	// entries (dirs/files) per second
@@ -1418,7 +1576,6 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	// print individual elapsed time results for each worker
 	if(progArgs.getShowAllElapsed() )
 	{
-		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% ""
 			% "Time ms each"
@@ -1432,6 +1589,46 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
 				outStream << (elapsedUSec / 1000) << " ";
 		}
+
+		outStream << "]" << std::endl;
+	}
+
+	// print hosts sorted from fastest to slowest (if this was a distributed run)
+	if(progArgs.getShowServicesElapsed() && !progArgs.getHostsVec().empty() )
+	{
+		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
+			% ""
+			% "Svc compl. time"
+			% ":";
+
+		outStream << "[ ";
+
+		typedef std::multimap<uint64_t, std::string> CompletionTimeMultiMap;
+		typedef CompletionTimeMultiMap::value_type CompletionTimeMultiMapVal;
+		CompletionTimeMultiMap completionTimeMap; // key is time ms, val is svc name
+
+		// build map by slowest finisher of each service instance
+		for(Worker* worker : workerVec)
+		{
+			RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
+			uint64_t slowestThreadUSec = 0;
+
+			// find slowest thread of this service instance
+			for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
+			{
+				if(elapsedUSec > slowestThreadUSec)
+					slowestThreadUSec = elapsedUSec;
+			}
+
+			completionTimeMap.insert(
+				CompletionTimeMultiMapVal(slowestThreadUSec/1000, remoteWorker->getHost() ) );
+		}
+
+		// services are now ordered by completion time of their slowest thread through the map
+
+		// print ordered list of services ascending by slowest thread completion time
+		for(const CompletionTimeMultiMapVal& mapVal : completionTimeMap)
+			outStream << mapVal.second << "=" << UnitTk::elapsedMSToHumanStr(mapVal.first) << " ";
 
 		outStream << "]" << std::endl;
 	}
@@ -1646,14 +1843,14 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 		// individual results header (note: keep format in sync with general table format string)
 		outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
 			% ""
-			% (latTypeStr + " lat us")
+			% (latTypeStr + " latency")
 			% ":";
 
 		outStream <<
 			"[ " <<
-			"min=" << latHisto.getMinMicroSecLat() << " "
-			"avg=" << latHisto.getAverageMicroSec() << " "
-			"max=" << latHisto.getMaxMicroSecLat() <<
+			"min=" << UnitTk::latencyUsToHumanStr(latHisto.getMinMicroSecLat() ) << " "
+			"avg=" << UnitTk::latencyUsToHumanStr(latHisto.getAverageMicroSec() ) << " "
+			"max=" << UnitTk::latencyUsToHumanStr(latHisto.getMaxMicroSecLat() ) <<
 			" ]" << std::endl;
 	}
 
@@ -1745,12 +1942,13 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
 	LiveOps liveOpsReadMix;
+	LiveLatency liveLatency;
 	LatencyHistogram iopsLatHisto; // sum of all histograms
 	LatencyHistogram iopsLatHistoReadMix; // sum of all histograms
 	LatencyHistogram entriesLatHisto; // sum of all histograms
 	LatencyHistogram entriesLatHistoReadMix; // sum of all histograms
 
-	getLiveOps(liveOps, liveOpsReadMix);
+	getLiveOps(liveOps, liveOpsReadMix, liveLatency);
 
 	outTree.put(XFER_STATS_BENCHID, workersSharedData.currentBenchID);
 	outTree.put(XFER_STATS_BENCHPHASENAME,
@@ -1766,28 +1964,41 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_CPUUTIL,
 		(unsigned) workersSharedData.cpuUtilLastDone.getCPUUtilPercent() );
 
+	bool triggerStonewall = false; // true if at least one worker has this set to true
+
 	for(Worker* worker : workerVec)
 	{
-		// add finishElapsedUSec of each worker
-		for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
-			outTree.add(XFER_STATS_ELAPSEDUSECLIST_ITEM, elapsedUSec);
+		bool workerTriggersStonewall = worker->getWorkerGotPhaseWork();
+
+		if(workerTriggersStonewall)
+		{
+			triggerStonewall = true;
+
+			// add finishElapsedUSec of each worker
+			for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
+				outTree.add(XFER_STATS_ELAPSEDUSECLIST_ITEM, elapsedUSec);
+		}
 
 		iopsLatHisto += worker->getIOPSLatencyHistogram();
 		entriesLatHisto += worker->getEntriesLatencyHistogram();
 
 		if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ) )
+			(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ||
+				progArgs.getUseNetBench() ) )
 		{
 			iopsLatHistoReadMix += worker->getIOPSLatencyHistogramReadMix();
 			entriesLatHistoReadMix += worker->getEntriesLatencyHistogramReadMix();
 		}
 	}
 
+	outTree.put(XFER_STATS_TRIGGERSTONEWALL, triggerStonewall);
+
 	iopsLatHisto.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_IOPS);
 	entriesLatHisto.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
-		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ) )
+		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ||
+			progArgs.getUseNetBench() ) )
 	{
 		outTree.put(XFER_STATS_NUMENTRIESDONE_RWMIXREAD, liveOpsReadMix.numEntriesDone);
 		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveOpsReadMix.numBytesDone);
@@ -1805,6 +2016,12 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
  */
 void Statistics::printDryRunInfo()
 {
+	if(progArgs.getUseNetBench() )
+	{
+		printDryRunInfoNetBench();
+		return;
+	}
+
 	if(progArgs.getRunCreateDirsPhase() )
 		printDryRunPhaseInfo(BenchPhase_CREATEDIRS);
 
@@ -1822,6 +2039,18 @@ void Statistics::printDryRunInfo()
 
 	if(progArgs.getRunStatFilesPhase() )
 		printDryRunPhaseInfo(BenchPhase_STATFILES);
+
+	if(progArgs.getRunS3AclPut() )
+		printDryRunPhaseInfo(BenchPhase_PUTOBJACL);
+
+	if(progArgs.getRunS3AclGet() )
+		printDryRunPhaseInfo(BenchPhase_GETOBJACL);
+
+	if(progArgs.getRunS3BucketAclPut() )
+		printDryRunPhaseInfo(BenchPhase_PUTBUCKETACL);
+
+	if(progArgs.getRunS3BucketAclGet() )
+		printDryRunPhaseInfo(BenchPhase_GETBUCKETACL);
 }
 
 /**
@@ -1867,6 +2096,54 @@ void Statistics::printDryRunPhaseInfo(BenchPhase benchPhase)
 }
 
 /**
+ * Print dry run info for netbench mode.
+ *
+ * Note: Keep this in sync with WorkerManager::getPhaseNumEntriesAndBytes()
+ */
+void Statistics::printDryRunInfoNetBench()
+{
+	uint64_t numBytesSendPerClientThread = progArgs.getFileSize();
+	uint64_t numBytesSendPerClient = progArgs.getNumThreads() * numBytesSendPerClientThread;
+	uint64_t numBytesSendTotal =
+		(progArgs.getHostsVec().size() - progArgs.getNumNetBenchServers() ) * numBytesSendPerClient;
+
+	size_t numBlocks = progArgs.getFileSize() / progArgs.getBlockSize();
+
+	uint64_t numBytesRecvPerClientThread = numBlocks * progArgs.getNetBenchRespSize();
+	uint64_t numBytesRecvPerClient = progArgs.getNumThreads() * numBytesRecvPerClientThread;
+	uint64_t numBytesRecvTotal =
+		(progArgs.getHostsVec().size() - progArgs.getNumNetBenchServers() ) * numBytesRecvPerClient;
+
+	std::string benchPhaseStr =
+		TranslatorTk::benchPhaseToPhaseName(BenchPhase_CREATEFILES, &progArgs);
+
+	std::cout << "* Bytes per client thread:" << std::endl;
+	std::cout << "  * Send:   " << numBytesSendPerClientThread << " | " <<
+		(numBytesSendPerClientThread / (1024*1024) ) << " MiB" " | " <<
+		(numBytesSendPerClientThread / (1024*1024*1024) ) << " GiB" << std::endl;
+	std::cout << "  * Recv:   " << numBytesRecvPerClientThread << " | " <<
+		(numBytesRecvPerClientThread / (1024*1024) ) << " MiB" " | " <<
+		(numBytesRecvPerClientThread / (1024*1024*1024) ) << " GiB" << std::endl;
+
+	std::cout << "* Bytes per client service:" << std::endl;
+	std::cout << "  * Send:    " << numBytesSendPerClient << " | " <<
+		(numBytesSendPerClient / (1024*1024) ) << " MiB" " | " <<
+		(numBytesSendPerClient / (1024*1024*1024) ) << " GiB" << std::endl;
+	std::cout << "  * Recv:    " << numBytesRecvPerClient << " | " <<
+		(numBytesRecvPerClient / (1024*1024) ) << " MiB" " | " <<
+		(numBytesRecvPerClient / (1024*1024*1024) ) << " GiB" << std::endl;
+
+	std::cout << "* Bytes total for all clients:" << std::endl;
+	std::cout << "  * Send:    " << numBytesSendTotal << " | " <<
+		(numBytesSendTotal / (1024*1024) ) << " MiB" " | " <<
+		(numBytesSendTotal / (1024*1024*1024) ) << " GiB" << std::endl;
+	std::cout << "  * Recv:    " << numBytesRecvTotal << " | " <<
+		(numBytesRecvTotal / (1024*1024) ) << " MiB" " | " <<
+		(numBytesRecvTotal / (1024*1024*1024) ) << " GiB" << std::endl;
+}
+
+
+/**
  * Open and prepare csv file for live statistics.
  * This is  a no-op if user didn't set a live stats csv file.
  *
@@ -1905,6 +2182,8 @@ void Statistics::prepLiveCSVFile()
 			"IOPS,"
 			"Entries,"
 			"Entries/s,"
+			"Lat Ent us,"
+			"Lat IO us,"
 			"Active,"
 			"CPU,"
 			"Service," << std::endl;
@@ -1960,6 +2239,8 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 		liveResults.liveOpsPerSec.numIOPSDone << "," <<
 		(isDirBenchPath ? liveResults.newLiveOps.numEntriesDone : 0) << "," <<
 		(isDirBenchPath ? liveResults.liveOpsPerSec.numEntriesDone : 0) << "," <<
+		liveResults.liveLatency.avgEntriesLatMicroSecsSum << "," <<
+		liveResults.liveLatency.avgIOLatMicroSecsSum << "," <<
 		numActiveWorkers << "," <<
 		cpuUtil << ","
 		"" << ","; // service
@@ -1988,6 +2269,8 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 			liveResults.liveOpsPerSecReadMix.numIOPSDone << "," <<
 			(isDirBenchPath ? numEntriesDone : 0) << "," <<
 			(isDirBenchPath ? numEntriesDonePerSec : 0) << "," <<
+			liveResults.liveLatency.avgEntriesLatReadMixMicrosSecsSum << "," <<
+			liveResults.liveLatency.avgIOLatReadMixMicroSecsSum << "," <<
 			numActiveWorkers << "," <<
 			cpuUtil << ","
 			"" << ","; // service
@@ -2039,7 +2322,9 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 			"" << "," << // bytes/s
 			"" << "," << // iops
 			(isDirBenchPath ? workerDone.numEntriesDone : 0) << "," <<
-			"" << ","; // entries/s
+			"" << "," // entries/s
+			"" << "," // entries lat
+			"" << ","; // io lat
 
 		// add columns for remote mode
 		if(progArgs.getHostsVec().empty() )
@@ -2086,7 +2371,9 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 				"" << "," << // bytes/s
 				"" << "," << // iops
 				(isDirBenchPath ? numEntriesDone : 0) << "," <<
-				"" << ","; // entries/s
+				"" << "," // entries/s
+				"" << "," // entries lat
+				"" << ","; // io lat
 
 			// add columns for remote mode
 			if(progArgs.getHostsVec().empty() )

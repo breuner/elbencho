@@ -1,0 +1,25 @@
+# Full elbencho rpm install of latest github master on latest Fedora
+#
+# Run docker build from elbencho repository root dir like this:
+# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.rocky9.local .
+
+FROM fedora:latest as builder
+
+COPY ./ /root/elbencho
+
+RUN yum -y update && \
+    yum install -y boost-devel cmake gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build zlib zlib-devel && \
+    cd /root/elbencho && \
+    make S3_SUPPORT=1 -j "$(nproc)" && \
+    make rpm
+
+FROM fedora:latest
+
+COPY --from=builder /root/elbencho/packaging/RPMS/*/elbencho*.rpm /tmp/
+
+RUN yum install -y /tmp/elbencho*.rpm && \
+    rm -f /tmp/elbencho*.rpm && \
+    yum clean all && \
+    /usr/bin/elbencho --version
+
+ENTRYPOINT ["/usr/bin/elbencho"]

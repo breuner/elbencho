@@ -7,6 +7,7 @@
 #include <thread>
 #include <unistd.h>
 #include "Common.h"
+#include "ProgArgs.h"
 #include "ProgException.h"
 #include "SignalTk.h"
 
@@ -27,8 +28,13 @@
 /**
  * Register handler for SIGSEGV and similar.
  */
-void SignalTk::registerFaultSignalHandlers()
+void SignalTk::registerFaultSignalHandlers(const ProgArgs& progArgs)
 {
+	/* don't register fault signal handlers with local libhdfs usage, because JVM uses them:
+		https://docs.oracle.com/javase/10/troubleshoot/handle-signals-and-exceptions.htm#JSTGD354 */
+	if(progArgs.getUseHDFS() && progArgs.getHostsStr().empty() )
+		return;
+
 	std::signal(SIGSEGV, SignalTk::faultSignalHandler);
 	std::signal(SIGFPE, SignalTk::faultSignalHandler);
 	std::signal(SIGBUS, SignalTk::faultSignalHandler);
@@ -64,6 +70,9 @@ void SignalTk::faultSignalHandler(int sig)
 		{
 			stream << "FAULT HANDLER (PID " << getpid() << " / TID " << getThreadID() << "): "
 				"Bus error (bad memory access)" << std::endl;
+			stream << "NOTE: If this happened with mmap, then you probably forgot to grow the "
+				"files to their full size, e.g. via \"--" << ARG_TRUNCTOSIZE_LONG << "\" or "
+				"\"--" << ARG_PREALLOCFILE_LONG "\"." << std::endl;
 		} break;
 
 		case SIGILL:

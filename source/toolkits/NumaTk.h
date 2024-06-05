@@ -4,9 +4,12 @@
 #include <cstdarg>
 #include <sched.h>
 #include <string>
+#include <thread>
+#include <unistd.h>
 #include "Common.h"
 #include "Logger.h"
 #include "ProgException.h"
+#include "toolkits/TranslatorTk.h"
 
 #ifdef LIBNUMA_SUPPORT
 	#include <numa.h>
@@ -37,6 +40,43 @@ class NumaTk
 			return false;
 		#else // LIBNUMA_SUPPORT
 			return (numa_available() != -1);
+		#endif // LIBNUMA_SUPPORT
+		}
+
+		/**
+		 * Get a string that contains a comma-separated list of available NUMA zones.
+		 *
+		 * @throw ProgException on error, e.g. called although built without libnuma support.
+		 */
+		static std::string getAllNumaZonesStr()
+		{
+		#ifndef LIBNUMA_SUPPORT
+
+			throw ProgException("NUMA binding requested, but this executable was built without "
+				"NUMA support.");
+
+		#else // LIBNUMA_SUPPORT
+
+			std::string zonesStr;
+			int maxNode = numa_max_node();
+			struct bitmask* availableZones = numa_get_mems_allowed();
+
+			// iterate over all possible NUMA nodes and check which ones are available
+			for(int i=0; i <= maxNode; i++)
+			{
+				int isCurrentNodeAvailable = numa_bitmask_isbitset(availableZones, i);
+
+				// add to result string if this NUMA node is available
+				if(isCurrentNodeAvailable)
+					zonesStr += std::to_string(i) + ",";
+			}
+
+			// remove trailing comma
+			if(!zonesStr.empty() )
+				zonesStr.resize(zonesStr.length() - 1);
+
+			return zonesStr;
+
 		#endif // LIBNUMA_SUPPORT
 		}
 
@@ -81,8 +121,8 @@ class NumaTk
 			numa_free_nodemask(nodeMask);
 
 			if(runRes == -1)
-				ProgException("Applying NUMA zone node mask failed. "
-					"Given zones: " + zonesStr + "; "
+				throw ProgException("Applying NUMA zone node mask failed. "
+					"Given zones list: " + zonesStr + "; "
 					"SysErr: " + strerror(errno) );
 
 			// note: only "preferred" instead of numa_set_membind to allow fallback to other zones
@@ -118,11 +158,97 @@ class NumaTk
 			numa_free_nodemask(nodeMask);
 
 			if(runRes == -1)
-				ProgException("Applying NUMA zone node mask failed. "
+				throw ProgException("Applying NUMA zone node mask failed. "
 					"Given zones: " + zonesStr + "; "
 					"SysErr: " + strerror(errno) );
 
 		#endif // LIBNUMA_SUPPORT
+		}
+
+		/**
+		 * Get vec of allowed CPU cores for current thread.
+		 *
+		 * This is useful because it takes external cpu binding (e.g. through a container, taskset
+		 * and such) into account and also possibly offline or isolated CPUs.
+		 *
+		 * @outVec the vector to which the cores shall be addded.
+		 *
+		 * @throw ProgException on error, e.g. called although built without corebind support.
+		 */
+		static void getCurrentCPUAffinityVec(IntVec& outVec)
+		{
+		#ifndef COREBIND_SUPPORT
+
+			throw ProgException("CPU core binding requested, but this executable was built without "
+				"CPU core binding support.");
+
+		#else // COREBIND_SUPPORT
+
+			std::string affinityStr;
+			cpu_set_t currentAffinityMask;
+
+			int getAffinityRes = sched_getaffinity(0, sizeof(cpu_set_t), &currentAffinityMask);
+
+			if(getAffinityRes == -1)
+				throw ProgException(std::string("Getting CPU core set failed. ") +
+					"SysErr: " + strerror(errno) );
+
+			unsigned numCores = CPU_SETSIZE;
+
+			for(long i = 0; i < numCores; i++)
+			{
+				if(CPU_ISSET(i, &currentAffinityMask) )
+					outVec.push_back(i);
+			}
+
+		#endif // COREBIND_SUPPORT
+		}
+
+		/**
+		 * See other getCurrentCPUAffinityVec().
+		 */
+		static IntVec getCurrentCPUAffinityVec()
+		{
+			IntVec coresVec;
+
+			getCurrentCPUAffinityVec(coresVec);
+
+			return coresVec;
+		}
+
+		/**
+		 * Get a string that contains comma-separated list of allowed CPU cores for the current
+		 * thread.
+		 *
+		 * This is useful because it takes external cpu binding (e.g. through a container, taskset
+		 * and such) into account and also possibly offline or isolated CPUs.
+		 *
+		 * @throw ProgException on error, e.g. called although built without corebind support.
+		 */
+		static std::string getCurrentCPUAffinityStr()
+		{
+			IntVec coresVec;
+			std::string affinityStr;
+
+			getCurrentCPUAffinityVec(coresVec);
+
+			for(int coreIndex : coresVec)
+				affinityStr += std::to_string(coreIndex) + ",";
+
+			// remove trailing comma
+			if(!affinityStr.empty() )
+				affinityStr.resize(affinityStr.length() - 1);
+
+			return affinityStr;
+		}
+
+		/**
+		 * Like getCurrentCPUAffinityStr(), but with grouping based on
+		 * TranslatorTk::intVectoHumanStr().
+		 */
+		static std::string getCurrentCPUAffinityStrHuman()
+		{
+			return TranslatorTk::intVectoHumanStr(NumaTk::getCurrentCPUAffinityVec() );
 		}
 
 		/**
@@ -142,6 +268,7 @@ class NumaTk
 
 			cpu_set_t cpuCoreSet;
 			std::string coresStr; // just for error log message
+			unsigned numCores = std::thread::hardware_concurrency();
 
 			CPU_ZERO(&cpuCoreSet);
 
@@ -154,8 +281,9 @@ class NumaTk
 			int schedRes = sched_setaffinity(0, sizeof(cpuCoreSet), &cpuCoreSet);
 
 			if(schedRes == -1)
-				ProgException("Applying CPU core set failed. "
-					"Given cores: " + coresStr + "; "
+				throw ProgException("Applying CPU core set failed. "
+					"Given cores list: " + coresStr + "; "
+					"Num cores: " + std::to_string(numCores) + "; "
 					"SysErr: " + strerror(errno) );
 
 		#endif // COREBIND_SUPPORT

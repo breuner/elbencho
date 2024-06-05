@@ -6,13 +6,13 @@ TEST_C_FILE    = $(BUILD_HELPERS_PATH)/AutoDetection.c
 TEST_OBJ_FILE  = $(BUILD_HELPERS_PATH)/AutoDetection.obj
 
 # Try to auto-detect library and inlcude paths...
-CUDA_INCLUDE_PATH        ?= $(shell find /usr/local/cuda /usr/local/cuda* -name cuda_runtime.h \
+CUDA_INCLUDE_PATH        ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cuda_runtime.h \
                             -printf '%h\n' 2>/dev/null | head -n1)
-CUDA_LIB_PATH            ?= $(shell find /usr/local/cuda /usr/local/cuda* -name libcudart.so \
+CUDA_LIB_PATH            ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name libcudart.so \
                             -printf '%h\n' 2>/dev/null | head -n1)
-CUFILE_INCLUDE_PATH      ?= $(shell find /usr/local/cuda /usr/local/cuda* -name cufile.h \
+CUFILE_INCLUDE_PATH      ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cufile.h \
                             -printf '%h\n' 2>/dev/null | head -n1)
-CUFILE_LIB_PATH          ?= $(shell find /usr/local/cuda /usr/local/cuda* -name libcufile.so \
+CUFILE_LIB_PATH          ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name libcufile.so \
                             -printf '%h\n' 2>/dev/null | head -n1)
 
 # Prepare CUDA compile/link flags...
@@ -23,7 +23,7 @@ ifneq ($(CUDA_LIB_PATH),)
  LDFLAGS_CUDA_SUPPORT    += -L $(CUDA_LIB_PATH)
 endif
 CXXFLAGS_CUDA_SUPPORT    += -DCUDA_SUPPORT
-LDFLAGS_CUDA_SUPPORT     += -lcudart -ldl
+LDFLAGS_CUDA_SUPPORT     += -lcudart -lcurand -ldl
 CUDA_SUPPORT_DETECT_ARGS  = $(CXXFLAGS_CUDA_SUPPORT) $(LDFLAGS_CUDA_SUPPORT)
 
 # Prepare CUFILE (GDS) compile/link flags...

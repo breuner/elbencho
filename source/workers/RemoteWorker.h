@@ -68,6 +68,8 @@ class RemoteWorker : public Worker
 			unsigned lastDone = 0;
 		} cpuUtil; // all values are percent
 
+		LiveLatency liveLatency = {};
+
 		virtual void run() override;
 
 		void finishPhase(bool allowExceptionThrow);
@@ -89,12 +91,22 @@ class RemoteWorker : public Worker
 		unsigned getCPUUtilLastDone() const { return cpuUtil.lastDone; }
 		unsigned getCPUUtilLive() const { return cpuUtil.live; }
 
+		/**
+		 * Add current live latency values of this worker to given outSumLiveOps and reset them.
+		 */
+		virtual void getAndAddLiveLatency(LiveLatency& outLiveLatency) override
+		{
+			liveLatency.getAndAddOps(outLiveLatency);
+		}
+
 		virtual void resetStats() override
 		{
 			Worker::resetStats();
 
 			numWorkersDone = 0;
 			numWorkersDoneWithError = 0;
+
+			liveLatency = {};
 		}
 
 };

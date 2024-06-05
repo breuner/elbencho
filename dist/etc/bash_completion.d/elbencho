@@ -28,6 +28,8 @@ _elbencho_opts()
         --block
         --blockvaralgo
         --blockvarpct
+        --clients
+        --clientsfile
         --configfile
         --cores
         --cpu
@@ -43,6 +45,7 @@ _elbencho_opts()
         --dirstats
         --dropcache
         --dryrun
+        --fadv
         --files
         --foreground
         --gdsbufreg
@@ -73,7 +76,11 @@ _elbencho_opts()
         --livecsvex
         --liveint
         --log
+        --madv
         --mkdirs
+        --mmap
+        --netbench
+        --netdevs
         --no0usecerr
         --nocsvlabels
         --nodelerr
@@ -81,8 +88,13 @@ _elbencho_opts()
         --nodiocheck
         --nofdsharing
         --nolive
+        --nopathexp
         --nosvcshare
+        --numservers
+        --opslog
+        --opsloglock
         --perthread
+        --phasedelay
         --port
         --preallocfile
         --quit
@@ -92,9 +104,25 @@ _elbencho_opts()
         --randamount
         --rankoffset
         --read
+        --recvbuf
         --resfile
+        --respsize
+        --rotatehosts
         --rwmixpct
         --rwmixthr
+        --s3aclget
+        --s3aclgrantee
+        --s3aclgrants
+        --s3aclgtype
+        --s3aclput
+        --s3aclputinl
+        --s3aclverify
+        --s3baclget
+        --s3baclput
+        --s3btag
+        --s3btagverify
+        --s3bversion
+        --s3bversionverify
         --s3endpoints
         --s3fastget
         --s3key
@@ -103,15 +131,24 @@ _elbencho_opts()
         --s3listverify
         --s3log
         --s3objprefix
+        --s3olockcfg
+        --s3olockcfgverify
+        --s3otag
+        --s3otagverify
         --s3randobj
         --s3region
         --s3secret
         --s3transman
+        --s3statdirs
+        --sendbuf
+        --servers
+        --serversfile
         --service
         --sharesize
         --size
         --start
         --stat
+        --svcpwfile
         --svcupint
         --sync
         --threads
@@ -154,6 +191,8 @@ _elbencho()
         ;&
         --dirs)
         ;&
+        --fadv)
+        ;&
         --files)
         ;&
         --gpuids)
@@ -174,9 +213,17 @@ _elbencho()
         ;&
         --log)
         ;&
+        --madv)
+        ;&
         -N)
         ;&
         -n)
+        ;&
+        --netdevs)
+        ;&
+        --numservers)
+        ;&
+        --phasedelay)
         ;&
         --port)
         ;&
@@ -186,11 +233,23 @@ _elbencho()
         ;&
         --rankoffset)
         ;&
+        --recvbuf)
+        ;&
+        --respsize)
+        ;&
+        --rotatehosts)
+        ;&
         --rwmixpct)
         ;&
         --rwmixthr)
         ;&
         -s)
+        ;&
+        --s3aclgrantee)
+        ;&
+        --s3aclgrants)
+        ;&
+        --s3aclgtype)
         ;&
         --s3endpoints)
         ;&
@@ -203,6 +262,8 @@ _elbencho()
         --s3region)
         ;&
         --s3secret)
+        ;&
+        --sendbuf)
         ;&
         --sharesize)
         ;&
@@ -229,6 +290,8 @@ _elbencho()
         # options that take a file/dir argument
         -c)
         ;&
+        --clientsfile)
+        ;&
         --configfile)
         ;&
         --csvfile)
@@ -237,7 +300,13 @@ _elbencho()
         ;&
         --livecsv)
         ;&
+        --opslog)
+        ;&
         --resfile)
+        ;&
+        --serversfile)
+        ;&
+        --svcpwfile)
         ;&
         --treefile)
             compopt -o filenames 2>/dev/null
@@ -246,7 +315,11 @@ _elbencho()
         ;;
 
         # options that take a hostname argument
+        --clients)
+        ;&
         --hosts)
+        ;&
+        --servers)
             compopt -o nospace 2>/dev/null
             COMPREPLY=( $(compgen -A hostname ${cur}) )
             return 0

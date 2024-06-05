@@ -12,10 +12,11 @@ class WorkerManager
 		~WorkerManager();
 
 		void prepareThreads();
-		void cleanupThreads();
+		void deleteThreads();
 		void interruptAndNotifyWorkers();
 		void joinAllThreads();
 		void waitForWorkersDone();
+		void cleanupWorkersAfterPhaseDone();
 		bool checkWorkersDoneUnlocked(size_t* outNumWorkersDone);
 		bool checkWorkersDone(size_t* outNumWorkersDone);
 		void checkPhaseTimeLimitUnlocked();

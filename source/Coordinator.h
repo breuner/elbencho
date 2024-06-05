@@ -28,6 +28,7 @@ class Coordinator
 		void runBenchmarkPhase(BenchPhase newBenchPhase);
 		void runSyncAndDropCaches();
 		void runBenchmarks();
+		void rotateHosts();
 		void registerInterruptSignalHandlers();
 };
 

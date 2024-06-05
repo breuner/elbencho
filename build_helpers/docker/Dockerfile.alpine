@@ -2,21 +2,21 @@
 # This uses mimalloc to overcome the malloc performance issues with musl-libc, which otherwise
 # would reduce S3 performance.
 
-FROM alpine:3.14 as builder
+FROM alpine:3 as builder
 
-RUN apk add bash boost-dev cmake curl-dev gcc g++ git libaio-dev libexecinfo-dev make \
+RUN apk add bash boost-dev cmake curl-dev gcc g++ git libaio-dev make \
         numactl-dev ncurses ncurses-dev sudo
 
 RUN cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
-    make LDFLAGS_EXTRA="-lexecinfo" S3_SUPPORT=1 USE_MIMALLOC=1 -j "$(nproc)" && \
+    make BACKTRACE_SUPPORT=0 S3_SUPPORT=1 USE_MIMALLOC=1 -j "$(nproc)" && \
     make install
 
-FROM alpine:3.14
+FROM alpine:3
 
 COPY --from=builder /usr/local/bin/elbencho /usr/local/bin
 
-RUN apk add boost-regex boost-program_options libaio libcurl libexecinfo libstdc++ ncurses \
+RUN apk add boost-regex boost-program_options libaio libcurl libstdc++ ncurses \
         numactl && \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho && \
     /usr/local/bin/elbencho --version

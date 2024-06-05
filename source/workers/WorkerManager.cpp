@@ -8,7 +8,7 @@
 
 WorkerManager::~WorkerManager()
 {
-	cleanupThreads();
+	deleteThreads();
 }
 
 /**
@@ -200,7 +200,7 @@ void WorkerManager::prepareThreads()
  * This is separate from prepareWorkers, because inside prepareWorkers would create problems when
  * progArgs get changed in service mode.
  */
-void WorkerManager::cleanupThreads()
+void WorkerManager::deleteThreads()
 {
 	// cleanup allocated thread objects
 	for(std::thread* thread : threadGroup)
@@ -261,6 +261,22 @@ void WorkerManager::waitForWorkersDone()
 }
 
 /**
+ * Run the late cleanup phase of worker data structures.
+ *
+ * This is for (typically shared) data structures that can only be cleaned when all workers have
+ * stopped, but cannot be called in worker destructor because in service mode, the worker obj is
+ * only deleted when the next phase starts, not when a phase ends (because we need the worker obj
+ * to retrieve the statistics).
+ */
+void WorkerManager::cleanupWorkersAfterPhaseDone()
+{
+	// cleanup allocated worker objects
+	for(Worker* worker : workerVec)
+		worker->cleanupAfterPhaseDone();
+}
+
+
+/**
  * Reset num done and notify workers to start next phase.
  *
  * @newBenchPhase type of new bench phase to run.
@@ -312,12 +328,29 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 {
 	if(benchPathType == BenchPathType_DIR)
 	{
+		if(progArgs.getUseNetBench() )
+		{
+			// note: keep this in sync with Statistics::printDryRunInfoNetBench()
+
+			size_t reqRespSizeSum = progArgs.getBlockSize() + progArgs.getNetBenchRespSize();
+			size_t numBlocks = progArgs.getBlockSize() ?
+				(progArgs.getFileSize() / progArgs.getBlockSize() ) : 0;
+			uint64_t numBytesTotal = progArgs.getNumThreads() * numBlocks * reqRespSizeSum;
+
+			outNumEntriesPerWorker = 0;
+			outNumBytesPerWorker = numBytesTotal;
+
+			return;
+		}
+		else
 		if(progArgs.getTreeFilePath().empty() )
 		{ // standard dir mode
 			switch(benchPhase)
 			{
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
+				case BenchPhase_PUTBUCKETACL:
+				case BenchPhase_GETBUCKETACL:
 				{
 					outNumEntriesPerWorker = progArgs.getNumDirs();
 					outNumBytesPerWorker = 0;
@@ -345,6 +378,8 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 
 				case BenchPhase_DELETEFILES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_PUTOBJACL:
+				case BenchPhase_GETOBJACL:
 				case BenchPhase_LISTOBJPARALLEL:
 				{
 					const size_t numDirs = progArgs.getNumDirs() ? progArgs.getNumDirs() : 1;
@@ -376,7 +411,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
 				{
-					outNumEntriesPerWorker = numDirs; // all workers create/remove all dirs
+					outNumEntriesPerWorker = numDirs / numDataSetThreads;
 					outNumBytesPerWorker = 0;
 				} break;
 
@@ -390,6 +425,8 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 
 				case BenchPhase_DELETEFILES:
 				case BenchPhase_STATFILES:
+				case BenchPhase_PUTOBJACL:
+				case BenchPhase_GETOBJACL:
 				{
 					outNumEntriesPerWorker =
 						(numFilesNonShared + numFilesShared) / numDataSetThreads;

@@ -1,5 +1,6 @@
 #ifdef CUDA_SUPPORT
 	#include <cuda_runtime.h>
+	#include <curand.h>
 #endif
 
 #ifdef CUFILE_SUPPORT

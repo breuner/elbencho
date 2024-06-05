@@ -8,11 +8,19 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include "CuFileHandleData.h"
 #include "OffsetGenerator.h"
+#include "toolkits/net/BasicSocket.h"
+#include "toolkits/OpsLogger.h"
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
 #include "Worker.h"
+
+#ifdef CUDA_SUPPORT
+	#include <cuda_runtime.h>
+	#include <curand.h>
+#endif
 
 #ifdef S3_SUPPORT
 	#include <aws/core/Aws.h>
@@ -20,6 +28,12 @@
 
 	#include "S3UploadStore.h"
 #endif
+
+#ifdef HDFS_SUPPORT
+	#include <hdfs.h>
+#endif
+
+typedef std::vector<BasicSocket*> SocketVec;
 
 // delaration for function typedefs below
 class LocalWorker;
@@ -49,7 +63,8 @@ typedef void (LocalWorker::*CUFILE_HANDLE_REGISTER)(int fd, CuFileHandleData& ha
 typedef void (LocalWorker::*CUFILE_HANDLE_DEREGISTER)(CuFileHandleData& handleData);
 
 // preWriteIntegrityCheckFillBuf/postReadIntegrityCheckVerifyBuf
-typedef void (LocalWorker::*BLOCK_MODIFIER)(char* buf, size_t bufLen, off_t fileOffset);
+typedef void (LocalWorker::*BLOCK_MODIFIER)(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+	off_t fileOffset);
 
 // preRWRateLimiter
 typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize);
@@ -63,6 +78,8 @@ class LocalWorker : public Worker
 	public:
 		explicit LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank);
 		~LocalWorker();
+
+		virtual void cleanupAfterPhaseDone() override;
 
 	protected:
 		virtual void run() override;
@@ -88,6 +105,9 @@ class LocalWorker : public Worker
 			CuFileHandleDataVec cuFileHandleDataVec; // cuFile handle for current file in dir mode
 			CuFileHandleDataPtrVec cuFileHandleDataPtrVec; /* for funcPositionalRW; number of
 				elements corresponds to num elems in fdVecPtr target */
+
+			BufferVec mmapVec; /* pointers to mmap regions if user selected mmap IO; number of
+				entries and their order matches fdVec */
 		} fileHandles;
 
 		RateLimiter rateLimiter; // for r/w rate limit per sec if set by user
@@ -114,7 +134,12 @@ class LocalWorker : public Worker
 		std::unique_ptr<RandAlgoInterface> randBlockVarAlgo; // for random block contents variance
 		std::unique_ptr<RandAlgoInterface> randBlockVarReseed; // reseed for golden prime block var
 
+		PathStore customTreeDirs; // non-shared dirs for custom tree mode
 		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
+
+#ifdef CUDA_SUPPORT
+		curandGenerator_t gpuRandGen{NULL};
+#endif
 
 #ifdef S3_SUPPORT
 		std::shared_ptr<Aws::S3::S3Client> s3Client; // (shared_ptr expected by some SDK functions)
@@ -122,16 +147,37 @@ class LocalWorker : public Worker
 		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 #endif
 
+#ifdef HDFS_SUPPORT
+		hdfsFS hdfsFSHandle{NULL}; // currently referenced hdfs instance
+		hdfsFile hdfsFileHandle{NULL}; // currently open file on hdfs
+#endif
+
+		static SocketVec serverSocketVec; // singleton netbench server sockets for all local threads
+		BasicSocket* clientSocket{NULL}; // netbench socket for client
+
+		OpsLogger opsLog; // logger for IO operations
+
+
 		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
 
+		void preparePhase();
 		void finishPhase();
 
 		void initS3Client();
 		void uninitS3Client();
+		void initHDFS();
+		void uninitHDFS();
+		void initNetBench();
+		void initNetBenchServer();
+		void initNetBenchClient();
+		void uninitNetBench();
+		void uninitNetBenchAfterPhaseDone();
 		void initThreadFDVec();
 		void uninitThreadFDVec();
 		void initThreadCuFileHandleDataVec();
 		void uninitThreadCuFileHandleDataVec();
+		void initThreadMmapVec();
+		void uninitThreadMmapVec();
 		void initThreadPhaseVars();
 		void initPhaseFileHandleVecs();
 		void initPhaseRWOffsetGen();
@@ -159,6 +205,19 @@ class LocalWorker : public Worker
 		void s3ModeIterateObjects();
 		void s3ModeIterateObjectsRand();
 		void s3ModeIterateCustomObjects();
+		template <typename OUTCOMETYPE>
+		void s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
+		    const std::string& bucketName, const std::string& objectName="");
+		void s3ModeCreateBucket(std::string bucketName);
+		void s3ModeHeadBucket(std::string bucketName);
+		void s3ModeCreateBucketTagging(const std::string& bucketName);
+		void s3ModeDeleteBucketTagging(const std::string& bucketName);
+		void s3ModeGetBucketTagging(const std::string& bucketName);
+		void s3ModeDeleteBucket(const std::string& bucketName);
+		void s3ModePutBucketAcl(std::string bucketName);
+		void s3ModeGetBucketAcl(std::string bucketName);
+        void s3ModeGetBucketVersioning(const std::string& bucketName);
+        void s3ModePutBucketVersioning(const std::string& bucketName, bool enable = true);
 		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
@@ -176,7 +235,24 @@ class LocalWorker : public Worker
 		void s3ModeListObjParallel();
 		void s3ModeVerifyListing(StringSet& expectedSet, StringList& receivedList,
 			std::string bucketName, std::string listPrefix);
+		void s3ModeListAndMultiDeleteObjects();
+		void s3ModePutObjectAcl(std::string bucketName, std::string objectName);
+		void s3ModeGetObjectAcl(std::string bucketName, std::string objectName);
+        void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);
+        void s3ModeGetObjectLockConfiguration(const std::string& bucketName);
+        void s3ModePutObjectLockConfiguration(const std::string& bucketName, bool unset = false);
 		bool getS3ModeDoReverseSeqFallback();
+		std::string getS3RandObjectPrefix(size_t workerRank, size_t dirIdx, size_t fileIdx,
+			const std::string& objectPrefix);
+
+		void hdfsDirModeIterateDirs();
+		void hdfsDirModeIterateFiles();
+
+		void netbenchDoTransfer();
+		void netbenchDoTransferServer();
+		void netbenchDoTransferClient();
 
 		void anyModeSync();
 		void anyModeDropCaches();
@@ -202,14 +278,25 @@ class LocalWorker : public Worker
 		ssize_t pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 		ssize_t cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+			off_t offset);
 		ssize_t cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+		ssize_t mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 
-		void noOpIntegrityCheck(char* buf, size_t bufLen, off_t fileOffset);
-		void preWriteIntegrityCheckFillBuf(char* buf, size_t bufLen, off_t fileOffset);
-		void postReadIntegrityCheckVerifyBuf(char* buf, size_t bufLen, off_t fileOffset);
-		void preWriteBufRandRefill(char* buf, size_t bufLen, off_t fileOffset);
-		void preWriteBufRandRefillFast(char* buf, size_t bufLen, off_t fileOffset);
+		void noOpIntegrityCheck(char* hostIOBuf, char* gpuIOBuf, size_t bufLen, off_t fileOffset);
+		void preWriteIntegrityCheckFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void postReadIntegrityCheckVerifyBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void preWriteBufRandRefillFast(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
+		void preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+			off_t fileOffset);
 
 		void aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);

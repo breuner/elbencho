@@ -49,12 +49,12 @@ docker run --net=host -it breuner/elbencho --quit --hosts HOST1,HOST2,...
 
 ### GPUs & GPUDirect Storage (GDS)
 
-To test GPU storage access performance through Nvidia CUDA or GPUDirect Storage (GDS), use the MagnumIO container.
+To test GPU storage access performance through Nvidia CUDA or GPUDirect Storage (GDS/cuFile), use the MagnumIO container (tag "master-magnum-io") or the multi-arch Ubuntu container with CUDA installed (tag "master-ubuntu-cuda-multiarch").
 
 Here is an example to read 128 large file via GDS, assuming a DGX-A100 style system with 8 GPUs and 8 NUMA zones:
 
 ```bash
-nvidia-docker run --privileged -v /data:/data -it breuner/elbencho:master-magnum-io /data/mylargefile{1..128} -r -t 256 -b 4m --direct --zones "$(echo {0..7},)" --gpuids "$(echo {0..7})" --cufile --gdsbufreg 
+nvidia-docker run --privileged -v /data:/data -it breuner/elbencho:master-magnum-io /data/mylargefile{1..128} -r -t 256 -b 4m --direct --zones "$(echo {0..7},)" --gpuids "$(echo {0..7})" --gds
 ```
 
 If you don't have `nvidia-docker`, you can alternatively use `docker run --gpus all ...`.
@@ -71,18 +71,23 @@ docker run -it --entrypoint elbencho-scan-path breuner/elbencho:master-ubuntu200
 
 ### S3 Support
 
-Images with stable version tags include S3 support as of elbencho v2.0. Additionally, the following image flavor tags include S3 support:
+Images with stable version tags include S3 support as of elbencho v2.0. Additionally, the following image tags based on the master branch include S3 support:
 - latest
 - master-alpine
-- master-centos7, master-centos8
+- master-centos7, master-centos8, master-rocky9
 - master-magnum-io
 - master-sles15
-- master-ubuntu2004
+- master-ubuntu2004, master-ubuntu2204
+- master-ubuntu-cuda-multiarch
 
 ### Local Image Builds
 
-To build docker images from your local elbencho git clone (e.g. because you modified the sources or want to build a particular previous version), you can find the corresponding dockerfiles in the `build_helpers/docker` subdir with a `.local` extension. To build a Ubuntu 20.04 image from your local sources, run this command:
+To build docker images from your local elbencho git clone (e.g. because you modified the sources or want to build a particular previous version), you can find the corresponding dockerfiles in the `build_helpers/docker` subdir with a `.local` extension. To build a Ubuntu 22.04 image from your local sources, run this command:
 
 ```bash
-docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2004.local .
+docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2204.local .
 ```
+
+### ARM64 & Multi-Platform
+
+The image tag "master-ubuntu-cuda-multiarch" support x86_64 and arm64/v8 (aka aarch64) platforms.

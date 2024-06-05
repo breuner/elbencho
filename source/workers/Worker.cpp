@@ -1,5 +1,6 @@
 #include "toolkits/NumaTk.h"
 #include "toolkits/SignalTk.h"
+#include "toolkits/TranslatorTk.h"
 #include "Worker.h"
 #include "WorkerException.h"
 
@@ -9,7 +10,7 @@
  */
 void Worker::threadStart(Worker* worker)
 {
-	SignalTk::registerFaultSignalHandlers();
+	SignalTk::registerFaultSignalHandlers(*(worker->progArgs) );
 
 	worker->run();
 	worker->cleanup();
@@ -24,11 +25,20 @@ void Worker::incNumWorkersDone()
 {
 	std::unique_lock<std::mutex> lock(workersSharedData->mutex); // L O C K (scoped)
 
-	workersSharedData->incNumWorkersDoneUnlocked();
+	/* ensure that last worker triggers stonewall if all have !workerCanTriggerStoneWall, but only
+		if this is not a server, because then master will have this trigger if needed and we don't
+		want the first finishing service to trigger stonewall if the service didn't do anything */
+	size_t numWorkersTotal = workersSharedData->workerVec->size();
+	bool lastFinisherTrigger = progArgs->getRunAsService() ?
+		false : ( (workersSharedData->numWorkersDone + 1) == numWorkersTotal);
+	bool triggerStoneWall = (!stoneWallTriggered &&
+		(workerGotPhaseWork || lastFinisherTrigger) );
 
-	/* create stonewall stats when 1st worker finishes (mutex guarantees that no other worker
+	workersSharedData->incNumWorkersDoneUnlocked(triggerStoneWall);
+
+	/* create stonewall stats when 1st real worker finishes. (mutex guarantees that no other worker
 	   increases the done counter in the meantime) */
-	if( (workersSharedData->numWorkersDone == 1) && !stoneWallTriggered)
+	if(triggerStoneWall)
 	{
 		for(Worker* worker : *workersSharedData->workerVec)
 			worker->createStoneWallStats();
@@ -85,6 +95,11 @@ void Worker::applyNumaAndCoreBinding()
 	const IntVec& numaZonesVec = progArgs->getNumaZonesVec();
 	const IntVec& cpuCoresVec = progArgs->getCPUCoresVec();
 
+	if(!numaZonesVec.empty() || !cpuCoresVec.empty() )
+		LOGGER(Log_DEBUG, __func__ << " entry: " << "workerRank: " << workerRank << "; "
+			"numCores: " << std::thread::hardware_concurrency() << "; "
+			"cpu core affinity list: " << NumaTk::getCurrentCPUAffinityStrHuman() << std::endl);
+
 	if(!numaZonesVec.empty() && NumaTk::isNumaInfoAvailable() )
 	{
 		int zoneNum = numaZonesVec[workerRank % numaZonesVec.size() ];
@@ -114,6 +129,11 @@ void Worker::applyNumaAndCoreBinding()
 			throw WorkerException(e.what() );
 		}
 	}
+
+	if(!numaZonesVec.empty() || !cpuCoresVec.empty() )
+		LOGGER(Log_DEBUG, __func__ << " end: " << "workerRank: " << workerRank << "; "
+			"numCores: " << std::thread::hardware_concurrency() << "; "
+			"cpu core affinity list: " << NumaTk::getCurrentCPUAffinityStrHuman() << std::endl);
 }
 
 /**

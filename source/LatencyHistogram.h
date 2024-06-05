@@ -1,6 +1,7 @@
 #ifndef LATENCYHISTOGRAM_H_
 #define LATENCYHISTOGRAM_H_
 
+#include <atomic>
 #include <cmath>
 #include <ctype.h>
 #include <vector>
@@ -37,11 +38,17 @@ class LatencyHistogram
 		uint64_t minMicroSecLat{(size_t)~0}; // min measured lat val (~0 so any 1st val is smaller)
 		uint64_t maxMicroSecLat{0}; // max measured latency value
 		std::vector<uint64_t> buckets; // buckets represent counters for latency categories
+		std::atomic_uint64_t numStoredValuesLive{0}; // for live stats
+		std::atomic_uint64_t numMicroSecsTotalLive{0}; // for live stats
 
 		// inliners
 	public:
 		void addLatency(uint64_t latencyMicroSec)
 		{
+			// note: live stats update is not atomic across the two vals, but that's negleticable
+			numStoredValuesLive++;
+			numMicroSecsTotalLive += latencyMicroSec;
+
 			numStoredValues++;
 			numMicroSecTotal += latencyMicroSec;
 
@@ -68,6 +75,16 @@ class LatencyHistogram
 		size_t getNumStoredValues() const { return numStoredValues; }
 		size_t getMinMicroSecLat() const { return minMicroSecLat; }
 		size_t getMaxMicroSecLat() const { return maxMicroSecLat; }
+
+		void addAndResetAverageLiveMicroSec(
+			uint64_t& outNumStoredValues, uint64_t& outNumMicroSecsTotal)
+		{
+			outNumStoredValues += numStoredValuesLive;
+			outNumMicroSecsTotal += numMicroSecsTotalLive;
+
+			numStoredValuesLive = 0;
+			numMicroSecsTotalLive = 0;
+		}
 
 		size_t getAverageMicroSec() const
 		{

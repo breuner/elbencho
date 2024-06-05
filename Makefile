@@ -3,9 +3,9 @@
 #
 
 EXE_NAME           ?= elbencho
-EXE_VER_MAJOR      ?= 2
-EXE_VER_MINOR      ?= 2
-EXE_VER_PATCHLEVEL ?= 3
+EXE_VER_MAJOR      ?= 3
+EXE_VER_MINOR      ?= 0
+EXE_VER_PATCHLEVEL ?= 10
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -33,6 +33,7 @@ BACKTRACE_SUPPORT  ?= 1
 COREBIND_SUPPORT   ?= 1
 LIBAIO_SUPPORT     ?= 1
 LIBNUMA_SUPPORT    ?= 1
+NCURSES_SUPPORT    ?= 1
 SYNCFS_SUPPORT     ?= 1
 S3_SUPPORT         ?= 0
 SYSCALLH_SUPPORT   ?= 1
@@ -45,7 +46,8 @@ CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOS
 CXXFLAGS_RELEASE  = -O3 -Wuninitialized
 CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON    = -rdynamic -pthread -lrt $(LDFLAGS_NUMA) $(LDFLAGS_AIO) $(LDFLAGS_BOOST)
+LDFLAGS_COMMON    = -rdynamic -pthread -l crypto -l rt -l ssl -l stdc++fs $(LDFLAGS_NUMA) \
+	$(LDFLAGS_AIO) $(LDFLAGS_BOOST)
 LDFLAGS_RELASE    = -O3
 LDFLAGS_DEBUG     = -O0
 
@@ -72,12 +74,14 @@ endif
 
 # Dynamic or static linking
 ifeq ($(BUILD_STATIC), 1)
-LDFLAGS            += -static -lncursesw
+LDFLAGS            += -static
+# NOTE: Alpine v3.20+ requires additional "-l cares -l zstd"
+# NOTE: "-l ssl -l crypto" intetionally appear again here although they are in LDFLAGS_COMMON. This
+#       is because the link order matters for static libs.
 LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec -l brotlicommon \
-	-l dl
+	-l idn2 -l unistring -l psl -l dl
 else # dynamic linking
-LDFLAGS += -lncurses
-LDFLAGS_S3_DYNAMIC += -l curl -l ssl -l crypto -l dl
+LDFLAGS_S3_DYNAMIC += -l curl -l z -l dl
 endif
 
 # Compiler and linker flags for S3 support
@@ -109,6 +113,26 @@ ifeq ($(ALTHTTPSVC_SUPPORT), 1)
 CXXFLAGS += -DALTHTTPSVC_SUPPORT -I $(EXTERNAL_PATH)/uWebSockets/src \
 	-I $(EXTERNAL_PATH)/uWebSockets/uSockets/src -DUWS_NO_ZLIB -DLIBUS_NO_SSL
 LDFLAGS  += -L $(EXTERNAL_PATH)/uWebSockets/uSockets -l:uSockets.a
+endif
+
+# Support for Hadoop HDFS
+# (Note: "lib/amd64/server" is for OpenJDK 1.8 on RHEL8.)
+ifeq ($(HDFS_SUPPORT), 1)
+CXXFLAGS += -DHDFS_SUPPORT -I $(HADOOP_HOME)/include
+LDFLAGS  += -L $(HADOOP_HOME)/lib/native -l:libhdfs.a -L $(JAVA_HOME)/lib/server \
+	-L $(JAVA_HOME)/lib/amd64/server -l jvm
+endif
+
+# Support for ncurses
+ifeq ($(NCURSES_SUPPORT), 1)
+CXXFLAGS += -DNCURSES_SUPPORT
+
+  ifeq ($(BUILD_STATIC), 1)
+    LDFLAGS += -lncursesw
+  else # dynamic linking
+    LDFLAGS += -lncurses
+  endif
+
 endif
 
 # Support build in Cygwin environment
@@ -270,6 +294,14 @@ ifeq ($(ALTHTTPSVC_SUPPORT),1)
 else
 	$(info [OPT] Alternative HTTP service disabled)
 endif
+ifeq ($(HDFS_SUPPORT),1)
+	$(info [OPT] HDFS support enabled. (HADOOP_HOME: $(HADOOP_HOME); JAVA_HOME: $(JAVA_HOME)))
+else
+	$(info [OPT] HDFS support disabled)
+endif
+ifneq ($(NCURSES_SUPPORT),1)
+	$(info [OPT] ncurses disabled)
+endif
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
@@ -283,12 +315,14 @@ endif
 
 clean-externals:
 ifdef BUILD_VERBOSE
+	rm -f $(EXTERNAL_PATH)/alpine-chroot-install
 	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server 
 	rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	rm -rf $(EXTERNAL_PATH)/mimalloc
 else
 	@echo "[DELETE] EXTERNALS"
+	@rm -f $(EXTERNAL_PATH)/alpine-chroot-install
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
 	@rm -rf $(EXTERNAL_PATH)/uWebSockets 
 	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
@@ -397,9 +431,10 @@ deb: | prepare-buildroot
 	sed -i "s/__NAME__/$(EXE_NAME)/" $(PACKAGING_PATH)/BUILDROOT/debian/control
 	
 	cd $(PACKAGING_PATH)/BUILDROOT && \
-		EDITOR=/bin/true VISUAL=/bin/true debchange --create --package elbencho --urgency low \
-			--noquery --newversion "$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)" \
-			"Custom package build."
+	EDITOR=/bin/true VISUAL=/bin/true DEBEMAIL=elbencho@localhost.localdomain debchange --create \
+		--package elbencho --urgency low --noquery \
+		--newversion "$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)" \
+		"Custom package build."
 	
 	cd $(PACKAGING_PATH)/BUILDROOT && \
 		debuild -b -us -uc
@@ -427,26 +462,43 @@ help:
 	@echo '                             libcufile.so)'
 	@echo '   CYGWIN_SUPPORT=0|1      - Reduce build features to enable build in Cygwin'
 	@echo '                             environment. (Default: 0)'
+	@echo '   HDFS_SUPPORT=0|1        - Build with support for Hadoop HDFS. HADOOP_HOME'
+	@echo '                             and JAVA_HOME need to be set correctly so that'
+	@echo '                             $$HADDOP_HOME/include/hdfs.h and'
+	@echo '                             $$JAVA_HOME/lib/server/libjvm.so can be found.'
+	@echo '                             (Default: 0)'
+	@echo '   NCURSES_SUPPORT=0|1     - Link against ncurses for fullscreen live stats'
+	@echo '                             support. (Default: 1)'
+	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
+	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo '   USE_MIMALLOC=0|1        - Use Microsoft mimalloc library for memory'
 	@echo '                             allocation management. Recommended when using'
 	@echo '                             musl-libc. (Default: 0)'
-	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
-	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo
 	@echo 'Optional Compile/Link Arguments:'
-	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
-	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++17)'
-	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
-	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
 	@echo '   BUILD_STATIC=1          - Generate a static binary without dependencies.'
 	@echo '                             (Tested only on Alpine Linux.)'
 	@echo '   BUILD_DEBUG=1           - Include debug info in executable.'
-	@echo '   AWS_LIB_DIR=<path>      - If this is set in combination with S3_SUPPORT=1'
-	@echo '                             then link against pre-built libs in given dir'
-	@echo '                             instead of building the AWS SDK CPP.'
-	@echo '   AWS_INCLUDE_DIR=<path>  - Include files path for AWS_LIB_DIR. (Default: '
-	@echo '                             "/usr/include")'
+	@echo '   CXX=<string>            - Path to alternative C++ compiler. (Default: g++)'
+	@echo '   CXX_FLAVOR=<string>     - C++ standard compiler flag. (Default: c++17)'
+	@echo '   CXXFLAGS_EXTRA=<string> - Additional C++ compiler flags.'
+	@echo '   LDFLAGS_EXTRA=<string>  - Additional linker flags.'
+	@echo
+	@echo 'Include and library paths:'
+	@echo '   AWS_LIB_DIR=<path>         - If this is set in combination with S3_SUPPORT=1'
+	@echo '                                then link against pre-built libs in given dir'
+	@echo '                                instead of building the AWS SDK CPP.'
+	@echo '   AWS_INCLUDE_DIR=<path>     - Include files path for AWS_LIB_DIR.'
+	@echo '                                (Default: /usr/include")'
+	@echo '   CUDA_INCLUDE_PATH=<path>   - Path to directory containing cuda_runtime.h.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUDA_LIB_PATH=<path>       - Path to directory containing libcudart.so.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUFILE_INCLUDE_PATH=<path> - Path to directory containing cufile.h.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUFILE_LIB_PATH=<path>     - Path to directory containing libcufile.so.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'

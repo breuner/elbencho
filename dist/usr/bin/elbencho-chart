@@ -30,7 +30,6 @@ CSVCOLUMNSIDX_Y_RIGHT=()     # dicsovered column indices for right y-axis
 XTICLABELROTDEGREES="0"      # x-axis tick label rotation degrees
 NUMCSVCOLUMNS="0"            # discovered number of columns in csv input file
 CSVOPCOLUMN="operation"      # title of operation column in csv input file
-CSVOPCOLUMNIDX=""            # discovered index of operation column in csv input file
 LINECOLORS=("#26afd0" "#2a9df4" "#fa8f6f" "#fadb6f" "#ff6961" "#a8cce8" "#d5aaff" "#54fffb")
 
 
@@ -316,7 +315,10 @@ list_csv_ops()
    local i
    local csvopcolumnidx
 
-   csvopcolumnidx+=$(find_column_index_or_exit "${CSVOPCOLUMN}") || exit 1
+   if ! csvopcolumnidx+=$(find_column_index "${CSVOPCOLUMN}"); then
+      echo "ERROR: Column not found: ${CSVCOLUMNS_X[$i]}" >&2
+      exit 1
+   fi
 
    echo "Available operations in csv file:"
 
@@ -450,7 +452,7 @@ check_op_filter_rows_exist_or_exit()
 #
 # $1: Column text to search
 # Return: CSV column index
-find_column_index_or_exit()
+find_column_index()
 {
    local COLUMNTEXT=$(get_column_name "$1")
    local CURRENT_COLUMN
@@ -466,8 +468,7 @@ find_column_index_or_exit()
    done
 
    if [ -z "$FOUND_COLUMN_IDX" ]; then
-      echo "ERROR: Given column not found: \"$COLUMNTEXT\"" 1>&2
-      exit 1
+      return 1
    fi
 
    echo "$FOUND_COLUMN_IDX"
@@ -480,18 +481,25 @@ set_column_indices()
    local i
 
    for (( i=0; i < ${#CSVCOLUMNS_X[@]}; i++ )); do
-      CSVCOLUMNSIDX_X+=($(find_column_index_or_exit "${CSVCOLUMNS_X[$i]}")) || exit 1
+      if ! CSVCOLUMNSIDX_X+=($(find_column_index "${CSVCOLUMNS_X[$i]}")); then
+         echo "ERROR: Column not found: ${CSVCOLUMNS_X[$i]}" >&2
+         exit 1
+      fi
    done
 
    for (( i=0; i < ${#CSVCOLUMNS_Y_LEFT[@]}; i++ )); do
-      CSVCOLUMNSIDX_Y_LEFT+=($(find_column_index_or_exit "${CSVCOLUMNS_Y_LEFT[$i]}")) || exit 1
+      if ! CSVCOLUMNSIDX_Y_LEFT+=($(find_column_index "${CSVCOLUMNS_Y_LEFT[$i]}")); then
+         echo "ERROR: Column not found: ${CSVCOLUMNS_Y_LEFT[$i]}" >&2
+         exit 1
+      fi
    done
 
    for (( i=0; i < ${#CSVCOLUMNS_Y_RIGHT[@]}; i++ )); do
-      CSVCOLUMNSIDX_Y_RIGHT+=($(find_column_index_or_exit "${CSVCOLUMNS_Y_RIGHT[$i]}")) || exit 1
+      if ! CSVCOLUMNSIDX_Y_RIGHT+=($(find_column_index "${CSVCOLUMNS_Y_RIGHT[$i]}")); then
+         echo "ERROR: Column not found: ${CSVCOLUMNS_Y_RIGHT[$i]}" >&2
+         exit 1
+      fi
    done
-
-   CSVOPCOLUMNIDX=$(find_column_index_or_exit "${CSVOPCOLUMN}") || exit 1
 }
 
 # Generate x-axis tic labels gnuplot subcommand.

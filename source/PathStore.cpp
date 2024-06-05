@@ -12,6 +12,9 @@
 #ifndef ARG_TREEROUNDUP_LONG // because we can't include ProgArgs.h here
 	#define ARG_TREEROUNDUP_LONG		"treeroundup"
 #endif
+#ifndef ARG_NODIRECTIOCHECK_LONG // because we can't include ProgArgs.h here
+	#define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
+#endif
 
 /**
  * Load directories from file. Lines not starting with PATHSTORE_DIR_LINE_PREFIX will be ignored.
@@ -232,8 +235,10 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
 	while(true)
 	{
 		const uint64_t fileSize = pathsIter->totalLen;
-		const uint64_t numFileBlocks = (fileSize / blockSize) +
-				( (fileSize % blockSize) ? 1 : 0);
+		uint64_t numFileBlocks = 0;
+
+		if(blockSize) // (blockSize can be zero for dir store)
+			numFileBlocks = (fileSize / blockSize) + ( (fileSize % blockSize) ? 1 : 0);
 
 		if(throwOnFileSmallerBlock && (fileSize < blockSize) )
 			throw ProgException("Found file that is smaller than block size. Consider using "
@@ -365,6 +370,7 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 		if(throwOnSliceSmallerBlock && (rangeLen < blockSize) )
 			throw ProgException("Found file slice that is smaller than block size. Consider using "
 				"\"--" ARG_TREEROUNDUP_LONG "\". "
+				"(\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
 				"File: " + pathsIter->path + "; "
 				"RangeStart: " + std::to_string(rangeStart) + "; "
 				"RangeLength: " + std::to_string(rangeLen) + "; "

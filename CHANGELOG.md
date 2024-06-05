@@ -1,5 +1,116 @@
 # Changelog of elbencho
 
+## v3.0.10 (work in progress)
+
+## v3.0.9 (June 04, 2024)
+
+### New Features & Enhancements
+* Added options to read and stat files immediately after creation while they are still open. (See "--readinline" and "--statinline".)
+* Added option to sleep between test phases. (See "--phasedelay".)
+* Added option to rotate hosts list for service instances between phases to avoid caching effects. (See "--rotatehosts".)
+* Added support for S3 object and bucket ACL PUT/GET. (See "--s3aclput", "--s3aclputinl", "--s3baclput".)
+* Added new ops log to log all IO operations (open, read, ...). (See "--opslog".)
+* Added support for shared secret to protect services from unauthorized requests. (See "--svcpwfile".)
+* Added new ops for S3 bucket and object tagging and object locking. (See "--s3btag", "--s3otag", "--s3olockcfg"). [STILL WORK-IN-PROGRESS]
+
+### General Changes
+* Timestamps in csv files now include milliseconds for higher precision.
+* Updated S3 to latest AWS SDK CPP v1.11.319.
+* Added new script in `build_helpers/chroot` to build static executable via Alpine chroot.
+
+### Contributors
+Thanks to Casey Peel, Michael Shustin, Erez Horev and Github user russki for code contributions. Thanks to Andy Black, Jean-Baptiste Denis and Github user mhanafi1970 for helpful comments and suggestions.
+
+## v3.0.7 (March 21, 2024)
+
+### New Features & Enhancements
+* Added new multi-arch (ARM64 & x86_64) docker container with CUDA/GDS support.
+* If an S3 object prefix contains a sequence of three or more '%' chars, this sequence will now get replaced by a random hex string of the same length.
+* New option to specify a custom path and prefix for AWS S3 SDK log file: "--s3logprefix".
+
+### Contributors
+* Thanks to Phil Canman, Erez Binia, Ohad Shamir and Erez Horev for helpful comments and suggestions.
+
+## v3.0.5 (Jan 05, 2024)
+
+### New Features & Enhancements
+* Square brackets can now be used to define number lists and ranges in paths, host lists, S3 endpoints.
+    * Examples:
+        * 4 different files (myfile1, myfile2, ...): `elbencho -w /data/myfile[1-4]`
+        * Specify two different hosts (node001, node002): `elbencho --hosts node00[1,2]`
+        * Specify 2x5=10 different S3 servers (192.168.1.1, 192.168.2.1, ...): `elbencho --s3endpoints http://192.168.[1,2].[1,3,5-7]`
+
+### General Changes
+* Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.
+* Support building without fullscreen live stats to avoid ncurses dependency. ("make NCURSES_SUPPORT=0").
+
+### Contributors
+* Thanks to Eyal Rif and Oz Perry for helpful comments and suggestions.
+
+## v3.0.3 (Nov 11, 2023)
+
+### New Features & Enhancements
+* Block variance to defeat compression is now also effective for writes from GPUs.
+* Makefile now provides options to manually specify CUDA include and library paths.
+* Added support for S3 multi-delete (S3 DeleteObjects) operation. See new option "--s3multidel".
+
+### General Changes
+* S3 error messages now also show HTTP error code.
+* Use latest Alpine Linux 3.x for static builds instead of always 3.14.
+* Core binding arguments now support "all" as value: "--zones all" & "--cores all".
+* GPU list argument now supports "all" as value: "--gpuids all".
+* Added cygserver.exe to Windows .zip package to speed up Active Directory lookups.
+
+### Fixes
+* elbencho-chart tool now also works with csv files created via "--livecsv".
+
+### Contributors
+* Thanks to Bob Holmes and Github user bolochavaez for code contributions. Thanks to Prabhjyot Singh Saluja, David Johnson, Erez Zilber, Dima Persov, Omri Zedan, Andy Black for helpful comments and suggestions.
+
+## v3.0.1 (Aug 08, 2023)
+
+### New Features & Enhancements
+* Added N-to-M network bandwidth test. See new option "--netbench".
+* Added support for memory mapped IO (aka mmap). See new option "--mmap".
+* Added support for file access hints via fadvise. See new option "--fadv".
+* Added support for mmap access hints via madvise. See new option "--madv".
+
+### General Changes
+* Updated S3 to latest AWS SDK CPP v1.11.102.
+* Updated mimalloc memory allocation library to latest version 2.1.2.
+
+### Fixes
+* Fixed compilation error (missing include directive) when building without S3 support.
+* Fixed check for file slice smaller than block size in situations without direct IO.
+* Fixed missing random IO flag in config file example.
+* Fixed Windows build not listening for TCP/IPv4 connections in service mode. 
+
+### Contributors
+* Thanks to Glenn K. Lockwood, Avi Drabkin, Michael Bertelson for reporting issues. Thanks to Jan Heichler, Rob Mallory, Maria Gutierrez for helpful comments and suggestions.
+
+## v2.3.1 (Apr 10, 2023)
+
+### New Features & Enhancements
+* Added support for Hadoop HDFS through the offical libhdfs. See new option "--hdfs".
+* Added average latency to live statistics. Will be shown in "--livecsv" and in fullscreen live stats when "--lat" is given as argument.
+
+### General Changes
+* Improved help text for distributed tests ("--help-dist").
+* Improved speed of directory creation in custom tree mode by making each worker only create a subset of the dirs.
+* Elapsed time is shown more human-friendly in phase results table and in live statistics. (Hours and minutes instead of previously only seconds and milliseconds.)
+* Improved error message when existing CSV file fails compatibility check.
+
+### Contributors
+* Thanks to Leon Clayton, Andy Black, Roger Goff, John Legato for helpful comments and suggestions.
+
+## v2.2.5 (Dec 04, 2022)
+
+### New Features & Enhancements
+* New option "--svcelapsed" shows service instances ordered by completion time of their slowest thread to make it easier to see if some services are always slower/faster than others.
+
+### Contributors
+* Thanks to Samuel Fulcomer for helpful comments and suggestions.
+
 ## v2.2.3 (Sep 18, 2022)
 
 ### New Features & Enhancements

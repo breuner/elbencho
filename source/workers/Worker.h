@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include "LatencyHistogram.h"
+#include "LiveLatency.h"
 #include "LiveOps.h"
 #include "ProgArgs.h"
 #include "WorkersSharedData.h"
@@ -25,6 +26,9 @@ class Worker
 
 		virtual ~Worker() {}
 
+		virtual void cleanupAfterPhaseDone() {}; /* late (non-parallel) cleanup by master thread
+													after all workers are done with current phase */
+
 		static void threadStart(Worker* worker);
 
 
@@ -43,6 +47,8 @@ class Worker
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
 		AtomicLiveOps oldAtomicLiveOpsReadMix; // copy of old atomicLiveOps for diff stats
 		std::atomic_bool stoneWallTriggered{false}; // true after 1st worker triggered stonewall
+		bool workerGotPhaseWork{true}; /* workers set this to false if they got no work
+			assigned and thus finish immediately. these also don't trigger stonewall. */
 		LiveOps stoneWallOps; // done values when stonewall was hit
 		LiveOps stoneWallOpsReadMix; // done values when stonewall was hit
 		LatencyHistogram iopsLatHisto; // ops latency histogram (valid only at phase end)
@@ -51,7 +57,7 @@ class Worker
 		LatencyHistogram entriesLatHistoReadMix; // entry lat histogram (valid only at phase end)
 
 		virtual void run() = 0;
-		virtual void cleanup() {}; // cleanup that needs to be done after run()
+		virtual void cleanup() {}; // cleanup immediately after run() (other workers still running)
 
 		void incNumWorkersDone();
 		void incNumWorkersDoneWithError();
@@ -62,6 +68,10 @@ class Worker
 
 	// inliners
 	public:
+		size_t getRank() const
+			{ return workerRank; }
+		bool getStoneWallTriggered() const
+			{ return stoneWallTriggered; }
 		const SizeTVec& getElapsedUSecVec() const
 			{ return elapsedUSecVec; }
 		const LatencyHistogram& getIOPSLatencyHistogram() const
@@ -76,6 +86,7 @@ class Worker
 		virtual void resetStats()
 		{
 			phaseFinished = false;
+			workerGotPhaseWork = true;
 
 			elapsedUSecVec.resize(0);
 			atomicLiveOps.setToZero();
@@ -116,6 +127,24 @@ class Worker
 		{
 			atomicLiveOps.getAndAddLiveOps(outSumLiveOps);
 			atomicLiveOpsReadMix.getAndAddLiveOps(outSumLiveOpsReadMix);
+		}
+
+		/**
+		 * Add current live latency values of this worker to given outSumLiveOps and reset them.
+		 */
+		virtual void getAndAddLiveLatency(LiveLatency& outLiveLatency)
+		{
+			iopsLatHisto.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgIOLatValues, outLiveLatency.avgIOLatMicroSecsSum);
+
+			iopsLatHistoReadMix.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgIOLatReadMixValues, outLiveLatency.avgIOLatReadMixMicroSecsSum);
+
+			entriesLatHisto.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgEntriesLatValues, outLiveLatency.avgEntriesLatMicroSecsSum);
+
+			entriesLatHistoReadMix.addAndResetAverageLiveMicroSec(
+				outLiveLatency.numAvgEntriesLatReadMixValues, outLiveLatency.avgEntriesLatReadMixMicrosSecsSum);
 		}
 
 		/**
@@ -174,6 +203,11 @@ class Worker
 
 			atomicLiveOps.getAsLiveOps(stoneWallOps);
 			atomicLiveOpsReadMix.getAsLiveOps(stoneWallOpsReadMix);
+		}
+
+		bool getWorkerGotPhaseWork() const
+		{
+			return workerGotPhaseWork;
 		}
 
 		/**
