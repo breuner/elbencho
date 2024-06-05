@@ -8,7 +8,7 @@
 # docker buildx build --progress plain --push --platform linux/amd64,linux/arm64 -t breuner/elbencho:master-ubuntu-cuda-multiarch -f build_helpers/docker/Dockerfile.ubuntu-cuda-multiarch.local .
 
 
-FROM ubuntu:22.04 as builder
+FROM ubuntu:24.04 as builder
 
 COPY ./ /root/elbencho
 
@@ -39,7 +39,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     make S3_SUPPORT=1 -j $NUM_JOBS && \
     make deb
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 
