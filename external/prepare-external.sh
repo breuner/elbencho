@@ -251,8 +251,8 @@ prepare_awssdk()
 	echo "Configuring build and running install..."
 	cd "$CLONE_DIR" && \
 		cmake . -DBUILD_ONLY="s3;transfer" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=17 \
-			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF \
-			-DCMAKE_BUILD_TYPE=Release -DBYO_CRYPTO=ON \
+			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DUSE_CRT_HTTP_CLIENT=OFF \
+			-DCMAKE_BUILD_TYPE=Release -DBYO_CRYPTO=ON -DUSE_OPENSSL=ON -DFORCE_SHARED_CRT=OFF \
 			"-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR" && \
 		make -j $(nproc) install && \
 		cd "$EXTERNAL_BASE_DIR"
@@ -288,7 +288,7 @@ prepare_awssdk()
 # Prepare git clone and required tag.
 prepare_mimalloc()
 {
-	local REQUIRED_TAG="v2.1.2"
+	local REQUIRED_TAG="v2.1.7"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/mimalloc"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/mimalloc/build"

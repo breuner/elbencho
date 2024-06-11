@@ -1,6 +1,13 @@
 # Changelog of elbencho
 
-## v3.0.10 (work in progress)
+## v3.0.11 (June 11, 2024)
+
+### New Features & Enhancements
+* Added options to reduce CPU overhead for S3 uploads. (See "--s3fastput", "--s3nocompress", "--s3nomd5".)
+
+### General Changes
+* Disabled curl's "Expect: 100-Continue" header for S3 requests to reduce round-trips.
+* Updated mimalloc memory allocation library to latest version 2.1.7.
 
 ## v3.0.9 (June 04, 2024)
 

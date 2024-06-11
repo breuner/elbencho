@@ -125,11 +125,14 @@ _elbencho_opts()
         --s3bversionverify
         --s3endpoints
         --s3fastget
+        --s3fastput
         --s3key
         --s3listobj
         --s3listobjpar
         --s3listverify
         --s3log
+        --s3nocompress
+        --s3nomd5
         --s3objprefix
         --s3olockcfg
         --s3olockcfgverify

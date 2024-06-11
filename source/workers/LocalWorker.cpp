@@ -427,9 +427,26 @@ void LocalWorker::initS3Client()
 	config.connectTimeoutMs = 5000;
 	config.requestTimeoutMs = 300000;
 	config.executor = std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(1);
+    config.disableExpectHeader = true;
+    config.enableTcpKeepAlive = true;
+    config.requestCompressionConfig.requestMinCompressionSizeBytes = 1;
+	config.requestCompressionConfig.useRequestCompression = (progArgs->getS3NoCompression() ?
+	    Aws::Client::UseRequestCompression::DISABLE : Aws::Client::UseRequestCompression::ENABLE);
 
 	if(!progArgs->getS3Region().empty() )
-		config.region = progArgs->getS3Region();
+        config.region = progArgs->getS3Region();
+
+    // select endpoint...
+
+    const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
+    size_t numEndpoints = endpointsVec.size();
+    std::string endpoint = endpointsVec[workerRank % numEndpoints];
+
+    config.endpointOverride = endpoint;
+
+    s3EndpointStr = endpoint;
+
+    // set credentials...
 
 	Aws::Auth::AWSCredentials credentials;
 
@@ -439,16 +456,9 @@ void LocalWorker::initS3Client()
 	if(!progArgs->getS3AccessSecret().empty() )
 		credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
 
+	// create s3 client for this worker
 	s3Client = std::make_shared<Aws::S3::S3Client>(credentials, config,
 		(Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(), false);
-
-	const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
-	size_t numEndpoints = endpointsVec.size();
-	std::string endpoint = endpointsVec[workerRank % numEndpoints];
-
-	s3Client->OverrideEndpoint(endpoint);
-
-	s3EndpointStr = endpoint;
 
 #endif // S3_SUPPORT
 }
@@ -4380,6 +4390,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+    const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
 
 	std::shared_ptr<Aws::IOStream> s3MemStream;
 	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
@@ -4404,6 +4415,9 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	request.WithBucket(bucketName)
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
+
+	if(s3NoMD5)
+	    request.SetContentMD5("");
 
 	if(blockSize)
 		request.SetBody(s3MemStream);
@@ -4477,6 +4491,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+    const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
 
 	// S T E P 1: retrieve multipart upload ID from server
 
@@ -4544,6 +4559,10 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			.WithUploadId(uploadID)
 			.WithPartNumber(currentPartNum)
 			.WithContentLength(blockSize);
+
+        if(s3NoMD5)
+            uploadPartRequest.SetContentMD5("");
+
 		uploadPartRequest.SetBody(s3MemStream);
 
 		uploadPartRequest.SetDataSentEventHandler(
@@ -4672,6 +4691,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+    const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
+
 	// S T E P 1: retrieve multipart upload ID from server
 
 	Aws::String uploadID = s3SharedUploadStore.getMultipartUploadID(
@@ -4709,6 +4730,10 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			.WithUploadId(uploadID)
 			.WithPartNumber(currentPartNum)
 			.WithContentLength(blockSize);
+
+        if(s3NoMD5)
+            uploadPartRequest.SetContentMD5("");
+
 		uploadPartRequest.SetBody(s3MemStream);
 
 		uploadPartRequest.SetDataSentEventHandler(

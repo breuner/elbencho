@@ -505,6 +505,9 @@ void ProgArgs::defineAllowedArgs()
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
 			"GPU data transfer.")
+/*s3f*/ (ARG_S3FASTPUT_LONG,
+            "Reduce CPU overhead on uploads. Enables \"--" ARG_S3SIGNPAYLOAD_LONG "=2 (never)\", "
+            "\"--" ARG_S3NOMD5_LONG "\", \"--" ARG_S3NOCOMPRESS_LONG "\".")
 /*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
@@ -537,6 +540,10 @@ void ProgArgs::defineAllowedArgs()
 			"typical max value. Use \"--" ARG_S3OBJECTPREFIX_LONG "\" to list/delete only objects "
 			"with the given prefix. (Multiple threads will only be effecive if multiple buckets "
 			"are given.)")
+/*s3n*/ (ARG_S3NOCOMPRESS_LONG, bpo::bool_switch(&this->s3NoCompression),
+            "Disable S3 request compression.")
+/*s3n*/ (ARG_S3NOMD5_LONG, bpo::bool_switch(&this->s3NoMD5Checksum),
+            "Set empty MD5 checksum for S3 upload requests.")
 /*s3n*/	(ARG_S3NOMPCHECK_LONG, bpo::bool_switch(&this->ignoreS3PartNum),
 			"Don't check for S3 multi-part uploads exceeding 10,000 parts.")
 /*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
@@ -791,6 +798,8 @@ void ProgArgs::defineDefaults()
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
+	this->s3NoCompression = false;
+	this->s3NoMD5Checksum = false;
 }
 
 /**
@@ -857,6 +866,14 @@ void ProgArgs::initImplicitValues()
 	useS3ObjectPrefixRand = (s3ObjectPrefix.find(RAND_PREFIX_MARKS_SUBSTR) != std::string::npos);
 
 	loadServicePasswordFile(); // sets svcPasswordHash
+
+    if(argsVariablesMap.count(ARG_S3FASTPUT_LONG) )
+    {
+        s3SignPolicy = 2; /* Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never */
+        s3NoCompression = true;
+        s3NoMD5Checksum = true;
+    }
+
 }
 
 /**
@@ -3081,6 +3098,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3AclGranteePermissions = tree.get<std::string>(ARG_S3ACLGRANTS_LONG);
 	s3AclGranteeType = tree.get<std::string>(ARG_S3ACLGRANTEETYPE_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
+	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
+    s3NoMD5Checksum = tree.get<bool>(ARG_S3NOMD5_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
@@ -3225,6 +3244,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
+    outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
+    outTree.put(ARG_S3NOMD5_LONG, s3NoMD5Checksum);
     outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);

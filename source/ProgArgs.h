@@ -150,6 +150,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETVER_VERIFY_LONG "s3bversionverify"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
+#define ARG_S3FASTPUT_LONG          "s3fastput"
 #define ARG_S3IGNOREERRORS_LONG		"s3ignoreerrors"
 #define ARG_S3LISTOBJ_LONG			"s3listobj"
 #define ARG_S3LISTOBJPARALLEL_LONG	"s3listobjpar"
@@ -157,6 +158,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
+#define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
+#define ARG_S3NOMD5_LONG            "s3nomd5"
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_S3OBJLOCKCFG_LONG       "s3olockcfg"
@@ -447,6 +450,8 @@ class ProgArgs
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
+		bool s3NoCompression; // disable request compression of aws sdk cpp
+        bool s3NoMD5Checksum; // set empty md5 checksum for uploads
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
@@ -682,6 +687,8 @@ class ProgArgs
         uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
         unsigned short getS3LogLevel() const { return s3LogLevel; }
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
+        bool getS3NoCompression() const { return s3NoCompression; };
+        bool getS3NoMD5Checksum() const { return s3NoMD5Checksum; };
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
         std::string getS3Region() const { return s3Region; }
