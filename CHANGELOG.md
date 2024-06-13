@@ -1,5 +1,13 @@
 # Changelog of elbencho
 
+## WIP
+
+### New Features & Enhancements
+* Added support for S3 object legal holds (See "--s3olegal", "--s3olegalverify")
+
+### Fixes
+* Fixed a bug where elbencho tried to disable object lock configurations during the delete phase (this operation is not possible)
+
 ## v3.0.11 (June 11, 2024)
 
 ### New Features & Enhancements

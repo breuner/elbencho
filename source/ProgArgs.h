@@ -162,6 +162,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3NOMD5_LONG            "s3nomd5"
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
+#define ARG_S3OBJLEGAL_LONG         "s3olegal"
+#define ARG_S3OBJLEGALVERIFY_LONG   "s3olegalverify"
 #define ARG_S3OBJLOCKCFG_LONG       "s3olockcfg"
 #define ARG_S3OBJLOCKCFGVERIFY_LONG "s3olockcfgverify"
 #define ARG_S3OBJTAG_LONG           "s3otag"
@@ -354,6 +356,8 @@ class ProgArgs
 		bool doS3BucketTagVerify; // do bucket tagging verification.
         bool doS3ObjectTag; // add object tagging ops during different object operations
         bool doS3ObjectTagVerify; // do bucket tagging verification.
+        bool doS3ObjectLegalHold; // do object legal hold configuration
+        bool doS3ObjectLegalHoldVerify; // do object legal hold configuration
         bool doS3ObjectLockCfg; // do S3 object lock configuration
         bool doS3ObjectLockCfgVerify; // do S3 object lock configuration verification
 		bool doTruncate; // truncate files to 0 size on open for writing
@@ -554,10 +558,14 @@ class ProgArgs
 		const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
 		BenchPathType getBenchPathType() const { return benchPathType; }
 
-        bool getS3BucketMetadataRequested() const {
+        bool getS3BucketMetadataRequested() const
+        {
             return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning;
         }
-        bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
+        bool getS3ObjectMetadataRequested() const
+        {
+            return doS3ObjectTag || doS3ObjectLegalHold;
+        }
         bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
         bool getRunS3PutObjectMetadata() const
             { return getS3ObjectMetadataRequested() && runCreateFilesPhase; }
@@ -597,6 +605,8 @@ class ProgArgs
         bool getDoS3BucketVersioningVerify() const { return doS3BucketVersioningVerify; }
         bool getDoS3BucketTagging() const { return doS3BucketTag; }
         bool getDoS3BucketTaggingVerify() const { return doS3BucketTagVerify; }
+        bool getDoS3ObjectLegalHold() const { return doS3ObjectLegalHold; }
+        bool getDoS3ObjectLegalHoldVerify() const { return doS3ObjectLegalHoldVerify; }
         bool getDoS3ObjectTagging() const { return doS3ObjectTag; }
         bool getDoS3ObjectTaggingVerify() const { return doS3ObjectTagVerify; }
         bool getDoS3ObjectLockConfiguration() const { return doS3ObjectLockCfg; }

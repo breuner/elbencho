@@ -238,11 +238,13 @@ class LocalWorker : public Worker
 		void s3ModeListAndMultiDeleteObjects();
 		void s3ModePutObjectAcl(std::string bucketName, std::string objectName);
 		void s3ModeGetObjectAcl(std::string bucketName, std::string objectName);
+        void s3ModeGetObjectLegalHold(const std::string& bucketName, const std::string& objectName);
+        void s3ModePutObjectLegalHold(const std::string& bucketName, const std::string& objectName, bool state = true);
         void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
         void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
         void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);
         void s3ModeGetObjectLockConfiguration(const std::string& bucketName);
-        void s3ModePutObjectLockConfiguration(const std::string& bucketName, bool unset = false);
+        void s3ModePutObjectLockConfiguration(const std::string& bucketName);
 		bool getS3ModeDoReverseSeqFallback();
 		std::string getS3RandObjectPrefix(size_t workerRank, size_t dirIdx, size_t fileIdx,
 			const std::string& objectPrefix);

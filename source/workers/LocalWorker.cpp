@@ -41,6 +41,7 @@
 	#include <aws/s3/model/GetBucketTaggingRequest.h>
 	#include <aws/s3/model/GetObjectAclRequest.h>
 	#include <aws/s3/model/GetObjectRequest.h>
+    #include <aws/s3/model/GetObjectLegalHoldRequest.h>
     #include <aws/s3/model/GetObjectTaggingRequest.h>
     #include <aws/s3/model/GetObjectLockConfigurationRequest.h>
     #include <aws/s3/model/GetBucketVersioningRequest.h>
@@ -53,6 +54,7 @@
 	#include <aws/s3/model/PutBucketTaggingRequest.h>
 	#include <aws/s3/model/PutObjectAclRequest.h>
 	#include <aws/s3/model/PutObjectRequest.h>
+    #include <aws/s3/model/PutObjectLegalHoldRequest.h>
     #include <aws/s3/model/PutObjectTaggingRequest.h>
     #include <aws/s3/model/PutObjectLockConfigurationRequest.h>
     #include <aws/s3/model/PutBucketVersioningRequest.h>
@@ -3584,10 +3586,6 @@ void LocalWorker::s3ModeIterateBuckets()
             if (progArgs->getDoS3BucketVersioning())
                 s3ModePutBucketVersioning(bucketName, true);
 
-            // Disable lock configuration
-            if (progArgs->getDoS3ObjectLockConfiguration())
-                s3ModePutObjectLockConfiguration(bucketName, true);
-
             if (progArgs->getDoS3BucketTagging())
                 s3ModeDeleteBucketTagging(bucketName);
         }
@@ -3704,6 +3702,9 @@ void LocalWorker::s3ModeIterateObjects()
             {
                 if (progArgs->getDoS3ObjectTagging())
                     s3ModePutObjectTags(bucketVec[bucketIndex], currentObjectPath);
+
+                if (progArgs->getDoS3ObjectLegalHold())
+                    s3ModePutObjectLegalHold(bucketVec[bucketIndex], currentObjectPath);
             }
 
 			if( (benchPhase == BenchPhase_READFILES) || isRWMixedReader)
@@ -3723,6 +3724,9 @@ void LocalWorker::s3ModeIterateObjects()
             {
                 if (progArgs->getDoS3ObjectTagging())
                     s3ModeGetObjectTags(bucketVec[bucketIndex], currentObjectPath);
+
+                if (progArgs->getDoS3ObjectLegalHold())
+                    s3ModeGetObjectLegalHold(bucketVec[bucketIndex], currentObjectPath);
             }
 
 			if(benchPhase == BenchPhase_PUTOBJACL)
@@ -3735,6 +3739,9 @@ void LocalWorker::s3ModeIterateObjects()
             {
                 if (progArgs->getDoS3ObjectTagging())
                     s3ModeDeleteObjectTags(bucketVec[bucketIndex], currentObjectPath);
+
+                if (progArgs->getDoS3ObjectLegalHold())
+                    s3ModePutObjectLegalHold(bucketVec[bucketIndex], currentObjectPath, false);
             }
 
 			if(benchPhase == BenchPhase_DELETEFILES)
@@ -4334,7 +4341,7 @@ void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
     if (!progArgs->getDoS3BucketVersioningVerify())
         return;
 
-    const auto statusNameMapper = Aws::S3::Model::BucketVersioningStatusMapper::GetNameForBucketVersioningStatus;
+    const auto statusNameMapper = S3::BucketVersioningStatusMapper::GetNameForBucketVersioningStatus;
     const auto& expectedStatus = S3::BucketVersioningStatus::Suspended;
 
     IF_UNLIKELY(bucketVersioningStatus != expectedStatus)
@@ -4342,7 +4349,7 @@ void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
         std::stringstream errStr;
         errStr << "Bucket versioning is set to '" << statusNameMapper(bucketVersioningStatus)
                << "' but the expected value was '" << statusNameMapper(expectedStatus) << "'." << std::endl
-               << "Bucket: " << bucketName << ';';
+               << "Bucket: " << bucketName << ';' << std::endl;
         throw WorkerException(errStr.str());
     }
 
@@ -5480,7 +5487,7 @@ void LocalWorker::s3ModeListObjParallel()
 
 			// build list of received keys. (std::list to preserve order; must be alphabetic)
 			IF_UNLIKELY(doListObjVerify)
-				for(const Aws::S3::Model::Object& obj : outcome.GetResult().GetContents() )
+				for(const S3::Object& obj : outcome.GetResult().GetContents() )
 					receivedObjs.push_back(obj.GetKey() );
 
 		} while(isTruncated && numObjectsLeft); // end of while numObjectsLeft in dir loop
@@ -5620,11 +5627,11 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 
 			// send multi-delete request for received batch of objects...
 
-			Aws::S3::Model::Delete deleteObjectList;
+			S3::Delete deleteObjectList;
 
-			for(const Aws::S3::Model::Object& obj : listOutcome.GetResult().GetContents() )
+			for(const S3::Object& obj : listOutcome.GetResult().GetContents() )
 				deleteObjectList.AddObjects(
-					Aws::S3::Model::ObjectIdentifier().WithKey(obj.GetKey() ) );
+					S3::ObjectIdentifier().WithKey(obj.GetKey() ) );
 
 			S3::DeleteObjectsRequest delRequest;
 			delRequest.SetBucket(bucketVec[bucketIndex] );
@@ -5800,6 +5807,65 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 #endif // S3_SUPPORT
 }
 
+void LocalWorker::s3ModeGetObjectLegalHold(const std::string& bucketName, const std::string& objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    OPLOG_PRE_OP("GetObjectLegalHold", bucketName + "/" + objectName, 0, 0);
+
+    const auto& getLegalHoldOutcome = s3Client->GetObjectLegalHold(
+        S3::GetObjectLegalHoldRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+    );
+
+    OPLOG_POST_OP("GetObjectLegalHold", bucketName + "/" + objectName, 0, 0, !getLegalHoldOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getLegalHoldOutcome, "Get object legal hold failed.", bucketName, objectName);
+
+    if (!progArgs->getDoS3ObjectLegalHoldVerify())
+        return;
+
+    const auto& legalHoldStatus = getLegalHoldOutcome.GetResult().GetLegalHold().GetStatus();
+    const auto& expectedStatus = S3::ObjectLockLegalHoldStatus::ON;
+    const auto& mapper = S3::ObjectLockLegalHoldStatusMapper::GetNameForObjectLockLegalHoldStatus;
+
+    IF_UNLIKELY(legalHoldStatus != expectedStatus)
+    {
+        std::stringstream errStr;
+        errStr << "Legal hold is set to '" << mapper(legalHoldStatus)
+               << "' but the expected value was '" << mapper(expectedStatus) << "'." << std::endl
+               << "Bucket: " << bucketName << "; Object: " << objectName << ";" << std::endl;
+        throw WorkerException(errStr.str());
+    }
+
+#endif // S3_SUPPORT
+}
+
+void LocalWorker::s3ModePutObjectLegalHold(const std::string& bucketName, const std::string& objectName, bool state)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+    const auto legalHold = S3::ObjectLockLegalHold().WithStatus(state ? S3::ObjectLockLegalHoldStatus::ON
+                                                                      : S3::ObjectLockLegalHoldStatus::OFF);
+
+    OPLOG_PRE_OP("PutObjectLegalHold", bucketName + "/" + objectName, state, 0);
+
+    const auto& getLegalHoldOutcome = s3Client->PutObjectLegalHold(
+        S3::PutObjectLegalHoldRequest()
+            .WithBucket(bucketName)
+            .WithKey(objectName)
+            .WithLegalHold(legalHold)
+    );
+
+    OPLOG_POST_OP("PutObjectLegalHold", bucketName + "/" + objectName, state, 0, !getLegalHoldOutcome.IsSuccess());
+
+    s3ModeThrowOnError(getLegalHoldOutcome, "Get object legal hold failed.", bucketName, objectName);
+
+#endif // S3_SUPPORT
+}
 
 void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName)
 {
@@ -5932,24 +5998,19 @@ void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName
 #endif // S3_SUPPORT
 }
 
-void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName, bool unset)
+void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName)
 {
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
     S3::ObjectLockConfiguration objectLockCfg;
 
-    if (unset)
-        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::NOT_SET);
-    else
-    {
-        objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::Enabled);
-        objectLockCfg.SetRule(
-            S3::ObjectLockRule().WithDefaultRetention(
-                S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::COMPLIANCE).WithDays(1)
-            )
-        );
-    }
+    objectLockCfg.SetObjectLockEnabled(S3::ObjectLockEnabled::Enabled);
+    objectLockCfg.SetRule(
+        S3::ObjectLockRule().WithDefaultRetention(
+            S3::DefaultRetention().WithMode(S3::ObjectLockRetentionMode::COMPLIANCE).WithDays(1)
+        )
+    );
 
     OPLOG_PRE_OP("PutObjectLockConfiguration", bucketName, 0, 0);
 
@@ -5957,6 +6018,7 @@ void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName
         S3::PutObjectLockConfigurationRequest()
             .WithBucket(bucketName)
             .WithObjectLockConfiguration(objectLockCfg));
+
 
     OPLOG_POST_OP("PutObjectLockConfiguration", bucketName, 0, 0, !putObjLockOutcome.IsSuccess());
 
