@@ -134,6 +134,8 @@ _elbencho_opts()
         --s3nocompress
         --s3nomd5
         --s3objprefix
+        --s3olegal
+        --s3olegalverify
         --s3olockcfg
         --s3olockcfgverify
         --s3otag

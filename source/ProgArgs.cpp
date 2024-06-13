@@ -550,6 +550,10 @@ void ProgArgs::defineAllowedArgs()
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
 			"is a bucket. (A sequence of 3 to 16 \"" RAND_PREFIX_MARKS_SUBSTR "\" chars will be "
 			"replaced by a random hex string of the same length.)")
+/*s3o*/	(ARG_S3OBJLEGAL_LONG, bpo::bool_switch(&this->doS3ObjectLegalHold),
+            "Activate object legal hold configurations. Must be passed with \"--" ARG_S3OBJLOCKCFG_LONG "\"")
+/*s3o*/	(ARG_S3OBJLEGALVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectLegalHoldVerify),
+            "Verify the correctness of object legal hold configurations")
 /*s3o*/	(ARG_S3OBJLOCKCFG_LONG, bpo::bool_switch(&this->doS3ObjectLockCfg),
             "Activate object lock configuration creation")
 /*s3o*/	(ARG_S3OBJLOCKCFGVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectLockCfgVerify),
@@ -795,6 +799,8 @@ void ProgArgs::defineDefaults()
     this->doS3BucketVersioningVerify = false;
     this->doS3ObjectTag = false;
     this->doS3ObjectTagVerify = false;
+    this->doS3ObjectLegalHold = false;
+    this->doS3ObjectLegalHoldVerify = false;
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
@@ -3048,6 +3054,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     doS3BucketVersioningVerify = tree.get<bool>(ARG_S3BUCKETVER_VERIFY_LONG);
     doS3ObjectTag = tree.get<bool>(ARG_S3OBJTAG_LONG);
     doS3ObjectTagVerify = tree.get<bool>(ARG_S3OBJTAGVERIFY_LONG);
+    doS3ObjectLegalHold = tree.get<bool>(ARG_S3OBJLEGAL_LONG);
+    doS3ObjectLegalHoldVerify = tree.get<bool>(ARG_S3OBJLEGALVERIFY_LONG);
     doS3ObjectLockCfg = tree.get<bool>(ARG_S3OBJLOCKCFG_LONG);
     doS3ObjectLockCfgVerify = tree.get<bool>(ARG_S3OBJLOCKCFGVERIFY_LONG);
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
@@ -3261,6 +3269,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3BUCKETVER_VERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
+    outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLegalHold);
+    outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLegalHoldVerify);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
     outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
     outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
