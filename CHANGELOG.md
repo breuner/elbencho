@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v3.0.13 (June 16, 2024)
+
+### Fixes
+* Fixed memory mamangement for various S3 requests. (Regression from v3.0.9)
+
 ## v3.0.11 (June 11, 2024)
 
 ### New Features & Enhancements

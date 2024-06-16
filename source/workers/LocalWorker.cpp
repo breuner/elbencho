@@ -3982,7 +3982,7 @@ void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::stri
     IF_LIKELY(outcome.IsSuccess() )
         return;
 
-    const auto& s3Error = outcome.GetError();
+    const auto s3Error = outcome.GetError();
 
     std::stringstream errStr;
         errStr << failMessage << " " <<
@@ -4011,7 +4011,7 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 
     OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
 
-    const auto& createOutcome = s3Client->CreateBucket(S3::CreateBucketRequest().WithBucket(bucketName));
+    const auto createOutcome = s3Client->CreateBucket(S3::CreateBucketRequest().WithBucket(bucketName));
 
     OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess());
 
@@ -4047,7 +4047,7 @@ void LocalWorker::s3ModeHeadBucket(std::string bucketName)
 #else
     OPLOG_PRE_OP("HeadBucket", bucketName, 0, 0);
 
-	const auto& outcome = s3Client->HeadBucket(S3::HeadBucketRequest().WithBucket(bucketName));
+	const auto outcome = s3Client->HeadBucket(S3::HeadBucketRequest().WithBucket(bucketName));
 
     OPLOG_POST_OP("HeadBucket", bucketName, 0, 0, !outcome.IsSuccess());
 
@@ -4077,7 +4077,7 @@ void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
 
     OPLOG_PRE_OP("PutBucketTagging", bucketName, 0, 0);
 
-    const auto& taggingOutcome = s3Client->PutBucketTagging(
+    const auto taggingOutcome = s3Client->PutBucketTagging(
         S3::PutBucketTaggingRequest().WithBucket(bucketName).WithTagging(tagging)
     );
 
@@ -4100,7 +4100,7 @@ void LocalWorker::s3ModeGetBucketTagging(const std::string& bucketName)
 #else
     OPLOG_PRE_OP("GetBucketTagging", bucketName, 0, 0);
 
-    const auto& outcome = s3Client->GetBucketTagging(S3::GetBucketTaggingRequest().WithBucket(bucketName));
+    const auto outcome = s3Client->GetBucketTagging(S3::GetBucketTaggingRequest().WithBucket(bucketName));
 
     OPLOG_POST_OP("GetBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
 
@@ -4137,7 +4137,7 @@ void LocalWorker::s3ModeDeleteBucketTagging(const std::string& bucketName)
 
     OPLOG_PRE_OP("DeleteBucketTagging", bucketName, 0, 0);
 
-    const auto& outcome = s3Client->DeleteBucketTagging(
+    const auto outcome = s3Client->DeleteBucketTagging(
         S3::DeleteBucketTaggingRequest().WithBucket(bucketName)
     );
 
@@ -4321,7 +4321,7 @@ void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
 #else
     OPLOG_PRE_OP("GetBucketVersioning", bucketName, 0, 0);
 
-    const auto& bucketVersioningOutcome = s3Client->GetBucketVersioning(
+    const auto bucketVersioningOutcome = s3Client->GetBucketVersioning(
             S3::GetBucketVersioningRequest().WithBucket(bucketName)
     );
 
@@ -4329,13 +4329,13 @@ void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
 
     s3ModeThrowOnError(bucketVersioningOutcome, "Get bucket versioning failed.", bucketName);
 
-    const auto& bucketVersioningStatus = bucketVersioningOutcome.GetResult().GetStatus();
+    const auto bucketVersioningStatus = bucketVersioningOutcome.GetResult().GetStatus();
 
     if (!progArgs->getDoS3BucketVersioningVerify())
         return;
 
     const auto statusNameMapper = Aws::S3::Model::BucketVersioningStatusMapper::GetNameForBucketVersioningStatus;
-    const auto& expectedStatus = S3::BucketVersioningStatus::Suspended;
+    const auto expectedStatus = S3::BucketVersioningStatus::Suspended;
 
     IF_UNLIKELY(bucketVersioningStatus != expectedStatus)
     {
@@ -4361,7 +4361,7 @@ void LocalWorker::s3ModePutBucketVersioning(const std::string& bucketName, bool 
 
     OPLOG_PRE_OP("PutBucketVersioning", bucketName, 0, 0);
 
-    const auto& putBucketVersioningOutcome = s3Client->PutBucketVersioning(
+    const auto putBucketVersioningOutcome = s3Client->PutBucketVersioning(
             S3::PutBucketVersioningRequest()
                     .WithBucket(bucketName)
                     .WithVersioningConfiguration(versioningConfiguration)
@@ -5808,7 +5808,7 @@ void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::
 #else
     OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
 
-    const auto& getTagOutcome = s3Client->GetObjectTagging(
+    const auto getTagOutcome = s3Client->GetObjectTagging(
         S3::GetObjectTaggingRequest()
             .WithBucket(bucketName)
             .WithKey(objectName)
@@ -5847,7 +5847,7 @@ void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::
 
     OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
 
-    const auto& putTagOutcome = s3Client->PutObjectTagging(
+    const auto putTagOutcome = s3Client->PutObjectTagging(
         S3::PutObjectTaggingRequest()
             .WithBucket(bucketName)
             .WithKey(objectName)
@@ -5870,7 +5870,7 @@ void LocalWorker::s3ModeDeleteObjectTags(const std::string& bucketName, const st
 
     OPLOG_PRE_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0);
 
-    const auto& delTagOutcome = s3Client->DeleteObjectTagging(
+    const auto delTagOutcome = s3Client->DeleteObjectTagging(
         S3::DeleteObjectTaggingRequest()
             .WithBucket(bucketName)
             .WithKey(objectName)
@@ -5890,7 +5890,7 @@ void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName
 #else
     OPLOG_PRE_OP("GetObjectLockConfiguration", bucketName, 0, 0);
 
-    const auto& getObjLockOutcome = s3Client->GetObjectLockConfiguration(
+    const auto getObjLockOutcome = s3Client->GetObjectLockConfiguration(
         S3::GetObjectLockConfigurationRequest().WithBucket(bucketName)
     );
 
@@ -5902,7 +5902,7 @@ void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName
     if (!progArgs->getDoS3ObjectLockConfigurationVerify())
         return;
 
-    const auto& objLockCfg = getObjLockOutcome.GetResult().GetObjectLockConfiguration();
+    const auto objLockCfg = getObjLockOutcome.GetResult().GetObjectLockConfiguration();
 
     IF_UNLIKELY(!objLockCfg.ObjectLockEnabledHasBeenSet())
         throw WorkerException("Object lock has not been enabled for bucket: " + bucketName);
@@ -5910,17 +5910,17 @@ void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName
     IF_UNLIKELY(!objLockCfg.RuleHasBeenSet())
         throw WorkerException("Object lock rule has not been set for bucket: " + bucketName);
 
-    const auto& objRetentionRule = objLockCfg.GetRule();
+    const auto objRetentionRule = objLockCfg.GetRule();
 
     IF_UNLIKELY(!objRetentionRule.DefaultRetentionHasBeenSet())
         throw WorkerException("Object lock default retention has not been set for bucket: " + bucketName);
 
-    const auto& objDefaultRetention = objRetentionRule.GetDefaultRetention();
+    const auto objDefaultRetention = objRetentionRule.GetDefaultRetention();
 
     IF_UNLIKELY(!objDefaultRetention.DaysHasBeenSet())
         throw WorkerException("Object lock retention days have not been set for bucket: " + bucketName);
 
-    const auto& retentionDays = objDefaultRetention.GetDays();
+    const auto retentionDays = objDefaultRetention.GetDays();
 
     IF_UNLIKELY(retentionDays != RETENTION_PERIOD_DAYS)
     {
@@ -5953,7 +5953,7 @@ void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName
 
     OPLOG_PRE_OP("PutObjectLockConfiguration", bucketName, 0, 0);
 
-    const auto& putObjLockOutcome = s3Client->PutObjectLockConfiguration(
+    const auto putObjLockOutcome = s3Client->PutObjectLockConfiguration(
         S3::PutObjectLockConfigurationRequest()
             .WithBucket(bucketName)
             .WithObjectLockConfiguration(objectLockCfg));
