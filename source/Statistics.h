@@ -91,8 +91,8 @@ class Statistics
 		WorkersSharedData& workersSharedData;
 		WorkerVec& workerVec;
 		bool consoleBufferingDisabled{false};
-		const std::string phaseResultsFormatStr{"%|-11| %|-17|%|1| %|11| %|11|"};
-		const std::string phaseResultsLeftFormatStr{"%|-9| %|-17|%|1| "}; // left side format str
+		const std::string phaseResultsFormatStr{"%|-11| %|-17|%|1| %|11| %|11|"}; // note line below
+		const std::string phaseResultsLeftFormatStr{"%|-11| %|-17|%|1| "}; // left side format str
 		const std::string phaseResultsFooterStr = std::string(3, '-');
 		CPUUtil liveCpuUtil; // updated by live stats loop or through http service live stat calls
 		int liveCSVFileFD = -1; // fd for live stats csv file

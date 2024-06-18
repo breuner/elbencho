@@ -217,7 +217,7 @@ test_loopdev_read_stream()
 # Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR
 test_multifile_create()
 {
-  cmd="${EXE_PATH} -t 2 -d -n 3 -w -N 4 -s 1m -b 1m --verify 1 --no0usecerr $BASE_DIR"
+  cmd="${EXE_PATH} -t 2 -d -n 3 -w -N 4 -s 1m -b 1m --lat --verify 1 --no0usecerr $BASE_DIR"
   
   echo "Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"

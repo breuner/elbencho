@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v3.0.14 (work in progress)
+
+### Fixes
+* Fixed slight misalignment of latency results column console output. (Regression from v3.0.9)
+
 ## v3.0.13 (June 16, 2024)
 
 ### Fixes
