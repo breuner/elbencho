@@ -617,10 +617,27 @@ void TranslatorTk::applyS3PutAclRequestGrants(const ProgArgs* progArgs, S3REQUES
     S3CANNEDACLTYPE cannedAcl =
         (S3CANNEDACLTYPE)S3::ObjectCannedACLMapper::GetObjectCannedACLForName(granteeStr);
 
-    if( ( (S3::ObjectCannedACL)cannedAcl) != S3::ObjectCannedACL::NOT_SET)
-    { // found canned ACL as special grantee
-        outRequest.SetACL(cannedAcl);
-        return;
+    /* note: checking for ::NOT_SET alone here is not enough, because GetObjectCannedACLForName()
+        can return other values if granteeStr doesn't match another enum value. */
+    switch( (S3::ObjectCannedACL)cannedAcl)
+    {
+        case S3::ObjectCannedACL::private_:
+        case S3::ObjectCannedACL::public_read:
+        case S3::ObjectCannedACL::public_read_write:
+        case S3::ObjectCannedACL::authenticated_read:
+        case S3::ObjectCannedACL::aws_exec_read:
+        case S3::ObjectCannedACL::bucket_owner_read:
+        case S3::ObjectCannedACL::bucket_owner_full_control:
+        { // found canned ACL as special grantee
+            outRequest.SetACL(cannedAcl);
+            return;
+        }
+
+        case S3::ObjectCannedACL::NOT_SET:
+        default:
+        { // normal grantee, not a canned ACL
+            break;
+        }
     }
 
     Aws::Vector<S3::Grant> grants;

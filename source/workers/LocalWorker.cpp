@@ -4266,8 +4266,27 @@ void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
         S3::BucketCannedACL cannedAcl = S3::BucketCannedACLMapper::GetBucketCannedACLForName(
             progArgs->getS3AclGrantee() );
 
-        if(cannedAcl != S3::BucketCannedACL::NOT_SET)
-            throw WorkerException("Verification of canned ACLs is not supported.");
+        /* note: checking for ::NOT_SET alone here is not enough, because GetObjectCannedACLForName()
+            can return other values if granteeStr doesn't match another enum value. */
+        switch( (S3::ObjectCannedACL)cannedAcl)
+        {
+            case S3::ObjectCannedACL::private_:
+            case S3::ObjectCannedACL::public_read:
+            case S3::ObjectCannedACL::public_read_write:
+            case S3::ObjectCannedACL::authenticated_read:
+            case S3::ObjectCannedACL::aws_exec_read:
+            case S3::ObjectCannedACL::bucket_owner_read:
+            case S3::ObjectCannedACL::bucket_owner_full_control:
+            { // found canned ACL as special grantee
+                throw WorkerException("Verification of canned ACLs is not supported.");
+            }
+
+            case S3::ObjectCannedACL::NOT_SET:
+            default:
+            { // normal grantee, not a canned ACL
+                break;
+            }
+        }
 
         // check list of grants...
 
@@ -5748,11 +5767,30 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 	{
         // check canned ACL as special grantee...
 
-	    S3::ObjectCannedACL cannedAcl = S3::ObjectCannedACLMapper::GetObjectCannedACLForName(
-	        progArgs->getS3AclGrantee() );
+        S3::BucketCannedACL cannedAcl = S3::BucketCannedACLMapper::GetBucketCannedACLForName(
+            progArgs->getS3AclGrantee() );
 
-	    if(cannedAcl != S3::ObjectCannedACL::NOT_SET)
-	        throw WorkerException("Verification of canned ACLs is not supported.");
+        /* note: checking for ::NOT_SET alone here is not enough, because GetObjectCannedACLForName()
+            can return other values if granteeStr doesn't match another enum value. */
+        switch( (S3::ObjectCannedACL)cannedAcl)
+        {
+            case S3::ObjectCannedACL::private_:
+            case S3::ObjectCannedACL::public_read:
+            case S3::ObjectCannedACL::public_read_write:
+            case S3::ObjectCannedACL::authenticated_read:
+            case S3::ObjectCannedACL::aws_exec_read:
+            case S3::ObjectCannedACL::bucket_owner_read:
+            case S3::ObjectCannedACL::bucket_owner_full_control:
+            { // found canned ACL as special grantee
+                throw WorkerException("Verification of canned ACLs is not supported.");
+            }
+
+            case S3::ObjectCannedACL::NOT_SET:
+            default:
+            { // normal grantee, not a canned ACL
+                break;
+            }
+        }
 
 	    // check list of grants...
 

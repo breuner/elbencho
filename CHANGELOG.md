@@ -2,8 +2,12 @@
 
 ## v3.0.14 (work in progress)
 
+### General Changes
+* Updated S3 to latest AWS SDK CPP v1.11.335.
+
 ### Fixes
 * Fixed slight misalignment of latency results column console output. (Regression from v3.0.9)
+* Fixed putting S3 ACLs for types other than canned ACLs.
 
 ## v3.0.13 (June 16, 2024)
 

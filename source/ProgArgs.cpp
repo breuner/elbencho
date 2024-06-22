@@ -461,8 +461,8 @@ void ProgArgs::defineAllowedArgs()
 /*s3a*/	(ARG_S3ACLGET_LONG, bpo::bool_switch(&this->runS3AclGet),
 			"Get S3 object ACLs.")
 /*s3a*/	(ARG_S3ACLGRANTEE_LONG, bpo::value(&this->s3AclGrantee),
-			"S3 object ACL grantee. This can be used to special values to set a canned ACL, in "
-			"which case the grantee type and permissions arguments be ignored: private, "
+			"S3 object ACL grantee. This can be used with special values to set a canned ACL, in "
+			"which case the grantee type and permissions arguments will be ignored: private, "
 			"public-read, public-read-write, authenticated-read")
 /*s3a*/	(ARG_S3ACLGRANTEETYPE_LONG, bpo::value(&this->s3AclGranteeType),
 			"S3 object ACL grantee type. Possible values: "
