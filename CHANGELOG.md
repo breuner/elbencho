@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.14 (work in progress)
+## v3.0.15 (June 23, 2024)
 
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.335.
