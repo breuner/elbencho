@@ -11,13 +11,9 @@
 #  * Try running an arm64 executable:
 #    $ docker run --rm -t arm64v8/ubuntu uname -m 
 
-# NOTE on Alpine v3.17:
-# * Alpine v3.18-3.20 fail on ARM64 with git clone error "bad address".
-# * Alpine v3.20+ requires "apk add c-ares-static zstd-static";
-#   see Makefile alpine 3.20 hint for linker flags
 
 CHROOT_PATH=${CHROOT_PATH:="/var/tmp/elbencho_chroot_$(whoami)"}
-CHROOT_VERSION="v3.17"                                              # see note on alpine 3.17 above
+CHROOT_VERSION="v3.20"
 ELBENCHO_VERSION=$(make version)
 BUILD_ARCH=${BUILD_ARCH:="$(uname -m)"}                             # e.g. aarch64, x86_64
 ALPINE_SCRIPT_PATH=${ALPINE_SCRIPT_PATH:="external/alpine-chroot-install"}
@@ -89,21 +85,13 @@ sudo "$ALPINE_SCRIPT_PATH" -b "$CHROOT_VERSION" -a "$BUILD_ARCH" \
         cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
-        libpsl-static"
+        libpsl-static c-ares-static zstd-static"
 
 if [ $? -ne 0 ]; then
   echo "ERROR: Preparation of chroot failed."
   cleanup_chroot_and_exit
   exit 1 
 fi
-
-echo
-echo "*** Setting git parallelism...."
-
-sudo "$CHROOT_PATH/enter-chroot" -u $(whoami) \
-  git config --global submodule.fetchJobs "$NUM_JOBS"
-sudo "$CHROOT_PATH/enter-chroot" -u $(whoami) \
-  git config --global fetch.parallel "$NUM_JOBS"
 
 echo
 echo "*** Building in chroot..."

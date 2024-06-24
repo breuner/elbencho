@@ -7,12 +7,9 @@
 # Note: For podman's docker interface (e.g. RHEL8) remove "sudo -u builduser",
 #       because it already runs under the calling UID.
 
-# NOTE on Alpine v3.17:
-# * Alpine v3.18-3.20 fail on ARM64 with git clone error "bad address".
-# * Alpine v3.20+ requires "apk add c-ares-static zstd-static";
-#   see Makefile alpine 3.20 hint for linker flags.
+
 CONTAINER_NAME="elbencho-static"
-IMAGE_NAME="alpine:3.17"            # see note on alpine 3.17 above
+IMAGE_NAME="alpine:3.20"
 ELBENCHO_VERSION=$(make version)
 
 ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-1}"
@@ -30,11 +27,9 @@ docker run --name $CONTAINER_NAME --privileged -i -v $PWD:$PWD -w $PWD $IMAGE_NA
         cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
-        libpsl-static && \
+        libpsl-static c-ares-static zstd-static && \
     apk update && apk upgrade && \
     adduser -u $UID -D builduser && \
-    sudo -u builduser git config --global submodule.fetchJobs 0 && \
-    sudo -u builduser git config --global fetch.parallel 0 && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $(nproc) \
         BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT \

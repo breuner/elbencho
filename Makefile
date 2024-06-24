@@ -75,11 +75,10 @@ endif
 # Dynamic or static linking
 ifeq ($(BUILD_STATIC), 1)
 LDFLAGS            += -static
-# NOTE: Alpine v3.20+ requires additional "-l cares -l zstd"
 # NOTE: "-l ssl -l crypto" intetionally appear again here although they are in LDFLAGS_COMMON. This
 #       is because the link order matters for static libs.
 LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec -l brotlicommon \
-	-l idn2 -l unistring -l psl -l dl
+	-l idn2 -l unistring -l psl -l cares -l zstd -l dl
 else # dynamic linking
 LDFLAGS_S3_DYNAMIC += -l curl -l z -l dl
 endif
