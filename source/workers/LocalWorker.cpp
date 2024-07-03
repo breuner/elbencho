@@ -4686,13 +4686,16 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		auto s3Error = completionOutcome.GetError();
 
-		throw WorkerException(std::string("Multipart upload completion failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
+		if (!ignoreS3Errors)
+		{
+			throw WorkerException(std::string("Multipart upload completion failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
+				"Exception: " + s3Error.GetExceptionName() + "; " +
+				"Message: " + s3Error.GetMessage() );
+		}
 	}
 
 #endif // S3_SUPPORT
@@ -5046,13 +5049,16 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 		IF_UNLIKELY( (size_t)outcome.GetResult().GetContentLength() < blockSize)
 		{
-			throw WorkerException(std::string("Object too small. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Offset: " + std::to_string(currentOffset) + "; "
-				"Requested blocksize: " + std::to_string(blockSize) + "; "
-				"Received length: " + std::to_string(outcome.GetResult().GetContentLength() ) );
+			if (!ignoreS3Errors)
+			{
+				throw WorkerException(std::string("Object too small. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Offset: " + std::to_string(currentOffset) + "; "
+					"Requested blocksize: " + std::to_string(blockSize) + "; "
+					"Received length: " + std::to_string(outcome.GetResult().GetContentLength() ) );
+			}
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
@@ -5164,12 +5170,15 @@ void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::stri
 
 	IF_UNLIKELY(transferHandle->GetBytesTransferred() != downloadBytes)
 	{
-		throw WorkerException(std::string("Object too small. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Requested size: " + std::to_string(downloadBytes) + "; "
-			"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+		if (!ignoreS3Errors)
+		{
+			throw WorkerException(std::string("Object too small. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Requested size: " + std::to_string(downloadBytes) + "; "
+				"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
+		}
 	}
 
 	// calc io operation latency
