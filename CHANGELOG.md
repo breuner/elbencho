@@ -1,5 +1,13 @@
 # Changelog of elbencho
 
+## v3.0.16 (work in progress)
+
+### General Changes
+* Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.
+
+### Fixes
+* Fixed retry mechanism for S3 object download in case server is temporarily unavailable.
+
 ## v3.0.15 (June 23, 2024)
 
 ### General Changes

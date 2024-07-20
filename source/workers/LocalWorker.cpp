@@ -5000,13 +5000,23 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			.WithKey(objectName)
 			.WithRange(objectRange);
 
-		if(!useS3FastRead)
-			request.SetResponseStreamFactory( [&]() { return new S3MemoryStream(&streamBuf); } );
-		else
-			request.SetResponseStreamFactory( [&]()
-			{
-				return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary);
-			} );
+        if(!useS3FastRead)
+            request.SetResponseStreamFactory([&]()
+            {
+                S3MemoryStream* s3MemStream = new S3MemoryStream(&streamBuf);
+
+                /* note on seek: this factory will also get called in case of failures/retries, so
+                   we need to reset to beginning of buffer. */
+                s3MemStream->seekp(0);
+                s3MemStream->seekg(0);
+
+                return s3MemStream;
+            } );
+        else
+            request.SetResponseStreamFactory([&]()
+            {
+                return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary);
+            });
 
 		request.SetDataReceivedEventHandler(
 			[&](const Aws::Http::HttpRequest* request, Aws::Http::HttpResponse* response,
