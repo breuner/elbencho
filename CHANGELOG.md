@@ -4,6 +4,7 @@
 
 ### General Changes
 * Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.
+* Updated CentOS 7 dockerfiles to vault repo due to EOL.
 
 ### Fixes
 * Fixed retry mechanism for S3 object download in case server is temporarily unavailable.
