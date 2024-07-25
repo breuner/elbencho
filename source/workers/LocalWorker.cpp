@@ -4680,22 +4680,27 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
         completedMultipartUpload.GetParts().size(), !completionOutcome.IsSuccess() );
 
-	IF_UNLIKELY(!completionOutcome.IsSuccess() )
+	IF_UNLIKELY(!completionOutcome.IsSuccess())
 	{
-		s3AbortMultipartUpload(bucketName, objectName, uploadID);
+        auto s3Error = completionOutcome.GetError();
 
-		auto s3Error = completionOutcome.GetError();
+        if (!(progArgs->getS3IgnoreMultipartUpload404() &&
+              completionOutcome.GetRetryCount() > 1 &&
+              s3Error.GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND))
+        {
+            s3AbortMultipartUpload(bucketName, objectName, uploadID);
 
-		if (!ignoreS3Errors)
-		{
-			throw WorkerException(std::string("Multipart upload completion failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() );
-		}
+            if (!ignoreS3Errors)
+            {
+                throw WorkerException(std::string("Multipart upload completion failed. ") +
+                     "Endpoint: " + s3EndpointStr + "; "
+                     "Bucket: " + bucketName + "; "
+                     "Object: " + objectName + "; "
+                     "NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
+                     "Exception: " + s3Error.GetExceptionName() + "; " +
+                     "Message: " + s3Error.GetMessage() );
+            }
+        }
 	}
 
 #endif // S3_SUPPORT
@@ -4865,20 +4870,26 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 	OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize,
 		!completionOutcome.IsSuccess() );
 
-	IF_UNLIKELY(!completionOutcome.IsSuccess() )
-	{
-		s3AbortMultipartUpload(bucketName, objectName, uploadID);
 
-		auto s3Error = completionOutcome.GetError();
+    IF_UNLIKELY(!completionOutcome.IsSuccess() )
+    {
+        auto s3Error = completionOutcome.GetError();
 
-		throw WorkerException(std::string("Shared multipart upload completion failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
-	}
+        if (!(progArgs->getS3IgnoreMultipartUpload404() &&
+              completionOutcome.GetRetryCount() > 1 &&
+              s3Error.GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND))
+        {
+            s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+            throw WorkerException(std::string("Shared multipart upload completion failed. ") +
+                "Endpoint: " + s3EndpointStr + "; "
+                "Bucket: " + bucketName + "; "
+                "Object: " + objectName + "; "
+                "NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
+                "Exception: " + s3Error.GetExceptionName() + "; " +
+                "Message: " + s3Error.GetMessage() );
+        }
+    }
 
 #endif // S3_SUPPORT
 }

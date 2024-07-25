@@ -540,6 +540,12 @@ void ProgArgs::defineAllowedArgs()
 			"typical max value. Use \"--" ARG_S3OBJECTPREFIX_LONG "\" to list/delete only objects "
 			"with the given prefix. (Multiple threads will only be effecive if multiple buckets "
 			"are given.)")
+/*s3m*/	(ARG_S3MULTI_IGNORE_404, bpo::value(&this->s3IgnoreMultipartUpload404),
+            "Ignores a specific 404 error in multipart uploads, that can happen if the AWS client "
+            "doesn't get a response on a CompleteMultipartUpload request and sends another one. "
+            "Depending on how the S3 backend handles this, it might return a 404 because the upload "
+            "was already completed beforehand. "
+            "Enabling this will ignore 404 errors if the client retried the request")
 /*s3n*/ (ARG_S3NOCOMPRESS_LONG, bpo::bool_switch(&this->s3NoCompression),
             "Disable S3 request compression.")
 /*s3n*/ (ARG_S3NOMD5_LONG, bpo::bool_switch(&this->s3NoMD5Checksum),
@@ -3088,6 +3094,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
+    runS3MultiDelObjNum = tree.get<bool>(ARG_S3MULTI_IGNORE_404);
 	runS3StatDirs = tree.get<bool>(ARG_S3STATDIRS_LONG);
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);
@@ -3244,6 +3251,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
+    outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
     outTree.put(ARG_S3NOMD5_LONG, s3NoMD5Checksum);
     outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);

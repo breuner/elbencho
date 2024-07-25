@@ -158,6 +158,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
+#define ARG_S3MULTI_IGNORE_404      "s3multiignore404"
 #define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
 #define ARG_S3NOMD5_LONG            "s3nomd5"
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
@@ -436,6 +437,7 @@ class ProgArgs
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
+        bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		bool runServiceInForeground; // true to not daemonize service process into background
 		bool runStatFilesPhase; // stat files
 		bool runSyncPhase; // run the sync() phase to commit all dirty page cache buffers
@@ -666,6 +668,7 @@ class ProgArgs
         bool getRunListObjParallelPhase() const { return runS3ListObjParallel; }
         bool getRunListObjPhase() const { return (runS3ListObjNum > 0); }
         bool getRunMultiDelObjPhase() const { return (runS3MultiDelObjNum > 0); }
+        bool getS3IgnoreMultipartUpload404() const { return s3IgnoreMultipartUpload404; }
         bool getRunReadPhase() const { return runReadPhase; }
         bool getRunS3AclPut() const { return runS3AclPut; }
         bool getRunS3AclGet() const { return runS3AclGet; }
