@@ -131,6 +131,7 @@ _elbencho_opts()
         --s3listobjpar
         --s3listverify
         --s3log
+        --s3multiignore404
         --s3nocompress
         --s3nomd5
         --s3objprefix
