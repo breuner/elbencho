@@ -437,7 +437,6 @@ class ProgArgs
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
-        bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		bool runServiceInForeground; // true to not daemonize service process into background
 		bool runStatFilesPhase; // stat files
 		bool runSyncPhase; // run the sync() phase to commit all dirty page cache buffers
@@ -450,6 +449,7 @@ class ProgArgs
 		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
+        bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
 		bool s3NoCompression; // disable request compression of aws sdk cpp
@@ -668,7 +668,6 @@ class ProgArgs
         bool getRunListObjParallelPhase() const { return runS3ListObjParallel; }
         bool getRunListObjPhase() const { return (runS3ListObjNum > 0); }
         bool getRunMultiDelObjPhase() const { return (runS3MultiDelObjNum > 0); }
-        bool getS3IgnoreMultipartUpload404() const { return s3IgnoreMultipartUpload404; }
         bool getRunReadPhase() const { return runReadPhase; }
         bool getRunS3AclPut() const { return runS3AclPut; }
         bool getRunS3AclGet() const { return runS3AclGet; }
@@ -687,6 +686,7 @@ class ProgArgs
         std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
         std::string getS3EndpointsStr() const { return s3EndpointsStr; }
         const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
+        bool getS3IgnoreMultipartUpload404() const { return s3IgnoreMultipartUpload404; }
         uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
         unsigned short getS3LogLevel() const { return s3LogLevel; }
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
