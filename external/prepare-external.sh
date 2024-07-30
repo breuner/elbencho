@@ -8,6 +8,9 @@
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
+NUM_PARALLEL_JOBS=1  # Number of parallel "make -j X" jobs
+
+
 # Clone Simple-Web-Server git repo and switch to required tag. Nothing to configure/build/install
 # here.
 prepare_webserver_sws()
@@ -103,9 +106,9 @@ prepare_webserver_uws()
 		
 	[ $? -ne 0 ] && exit 1
 	
-	echo "Building uSockets lib for uWS HTTP server..."
+	echo "Building uSockets lib for uWS HTTP server... (parallel jobs: $NUM_PARALLEL_JOBS)"
 	cd "$CLONE_DIR/uSockets" && \
-		make -j $(nproc) && \
+		make -j "$NUM_PARALLEL_JOBS" && \
 		cd "$EXTERNAL_BASE_DIR"
 
 	[ $? -ne 0 ] && exit 1
@@ -248,13 +251,13 @@ prepare_awssdk()
 	
 	[ $? -ne 0 ] && exit 1
 	
-	echo "Configuring build and running install..."
+	echo "Configure, build and install...  (parallel jobs: $NUM_PARALLEL_JOBS)"
 	cd "$CLONE_DIR" && \
 		cmake . -DBUILD_ONLY="s3;transfer" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=17 \
 			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DUSE_CRT_HTTP_CLIENT=OFF \
 			-DCMAKE_BUILD_TYPE=Release -DBYO_CRYPTO=ON -DUSE_OPENSSL=ON -DFORCE_SHARED_CRT=OFF \
 			"-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR" && \
-		make -j $(nproc) install && \
+		make -j "$NUM_PARALLEL_JOBS" install && \
 		cd "$EXTERNAL_BASE_DIR"
 
 	[ $? -ne 0 ] && exit 1
@@ -338,11 +341,11 @@ prepare_mimalloc()
 	
 	[ $? -ne 0 ] && exit 1
 	
-	echo "Configuring build and running install..."
+	echo "Configure, build and install... (parallel jobs: $NUM_PARALLEL_JOBS)"
 	mkdir -p "$INSTALL_DIR" && \
 		cd "$INSTALL_DIR" && \
 		cmake .. && \
-		make -j $(nproc) && \
+		make -j "$NUM_PARALLEL_JOBS" && \
 		cd "$EXTERNAL_BASE_DIR" && \
 		return 0
 
@@ -351,6 +354,13 @@ prepare_mimalloc()
 
 
 ########### End of function definitions ############
+
+# Get number of parallel jobs from "make" environment variables
+NUM_PARALLEL_JOBS=$(echo " $MAKEFLAGS" | grep -o -e "-j[[:digit:]]\+" | sed s/-j//g)
+
+if [ -z "$NUM_PARALLEL_JOBS" ]; then 
+	NUM_PARALLEL_JOBS=$(nproc); 
+fi
 
 prepare_webserver_sws
 

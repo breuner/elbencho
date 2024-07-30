@@ -3,11 +3,12 @@
 ## v3.0.16 (work in progress)
 
 ### New Features & Enhancements
-* Added option to ignore 404 errors on multiple retries of MultipartUploadComplete requests (See `--s3multiignore404`)
+* Added option to ignore 404 errors on multiple retries of MultipartUploadComplete requests. (See `--s3multiignore404`.)
 
 ### General Changes
 * Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.
 * Updated CentOS 7 dockerfiles to vault repo due to EOL.
+* Use number of parallel jobs from makefile environment variable for builds of external software in `prepare-external.sh`.
 
 ### Fixes
 * Fixed retry mechanism for S3 object download in case server is temporarily unavailable.
