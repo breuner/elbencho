@@ -11,9 +11,13 @@
 * Use number of parallel jobs from makefile environment variable for builds of external software in `prepare-external.sh`.
 * Reseed golden prime based random number generator after 256KB at the latest with a random number generator from a stronger generator.
 * Rotate through multiple golden primes for fast random number generator.
+* Add hint about initial sequential write or `--trunctosize` in case of short reads.
 
 ### Fixes
 * Fixed retry mechanism for S3 object download in case server is temporarily unavailable.
+
+### Contributors
+Thanks to Chuck Cancilla for helpful comments and suggestions.
 
 ## v3.0.15 (June 23, 2024)
 

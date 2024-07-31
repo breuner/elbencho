@@ -2863,7 +2863,9 @@ void LocalWorker::dirModeIterateFiles()
 							throw WorkerException(std::string("Unexpected short file write. ") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"Bytes written: " + std::to_string(writeRes) + "; "
-								"Expected written: " + std::to_string(fileSize) );
+								"Expected written: " + std::to_string(fileSize) + "; "
+                                "Hint: Consider initial sequential write or adding "
+                                    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 					}
 
 					if(benchPhase == BenchPhase_READFILES)
@@ -2881,7 +2883,9 @@ void LocalWorker::dirModeIterateFiles()
 							throw WorkerException(std::string("Unexpected short file read. ") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"Bytes read: " + std::to_string(readRes) + "; "
-								"Expected read: " + std::to_string(fileSize) );
+								"Expected read: " + std::to_string(fileSize) + "; "
+                                "Hint: Consider initial sequential write or adding "
+                                    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 					}
 				}
 				catch(...)
@@ -3068,7 +3072,9 @@ void LocalWorker::dirModeIterateCustomFiles()
 						throw WorkerException(std::string("Unexpected short file write. ") +
 							"Path: " + benchPathStr + "/" + currentPath + "; "
 							"Bytes written: " + std::to_string(writeRes) + "; "
-							"Expected written: " + std::to_string(rangeLen) );
+							"Expected written: " + std::to_string(rangeLen) + "; "
+                            "Hint: Consider initial sequential write or adding "
+                                "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 				}
 
 				if(benchPhase == BenchPhase_READFILES)
@@ -3086,7 +3092,9 @@ void LocalWorker::dirModeIterateCustomFiles()
 						throw WorkerException(std::string("Unexpected short file read. ") +
 							"Path: " + benchPathStr + "/" + currentPath + "; "
 							"Bytes read: " + std::to_string(readRes) + "; "
-							"Expected read: " + std::to_string(rangeLen) );
+							"Expected read: " + std::to_string(rangeLen) + "; "
+                            "Hint: Consider initial sequential write or adding "
+                                "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 				}
 			}
 			catch(...)
@@ -3215,7 +3223,9 @@ void LocalWorker::fileModeIterateFilesRand()
 			throw WorkerException(std::string("Unexpected short file write. ") +
 				fileModeLogPathFromFileHandlesErr() +
 				"Bytes written: " + std::to_string(writeRes) + "; "
-				"Expected written: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) );
+				"Expected written: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) + "; "
+                "Hint: Consider initial sequential write or adding "
+                    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 	}
 
 	if(benchPhase == BenchPhase_READFILES)
@@ -3233,7 +3243,9 @@ void LocalWorker::fileModeIterateFilesRand()
 			throw WorkerException(std::string("Unexpected short file read. ") +
 				fileModeLogPathFromFileHandlesErr() +
 				"Bytes read: " + std::to_string(readRes) + "; "
-				"Expected read: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) );
+				"Expected read: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) + "; "
+                "Hint: Consider initial sequential write or adding "
+                    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 	}
 
 }
@@ -3337,7 +3349,9 @@ void LocalWorker::fileModeIterateFilesSeq()
 					throw WorkerException(std::string("Unexpected short file write. ") +
 						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
 						"Bytes written: " + std::to_string(writeRes) + "; "
-						"Expected written: " + std::to_string(currentIOLen) );
+						"Expected written: " + std::to_string(currentIOLen) + "; "
+                        "Hint: Consider initial sequential write or adding "
+                            "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 			}
 
 			if(benchPhase == BenchPhase_READFILES)
@@ -3355,7 +3369,9 @@ void LocalWorker::fileModeIterateFilesSeq()
 					throw WorkerException(std::string("Unexpected short file read. ") +
 						"Path: " + progArgs->getBenchPaths()[currentFileIndex] + "; "
 						"Bytes read: " + std::to_string(readRes) + "; "
-						"Expected read: " + std::to_string(currentIOLen) );
+						"Expected read: " + std::to_string(currentIOLen) + "; "
+                        "Hint: Consider initial sequential write or adding "
+                            "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 			}
 
 			// calc completed number of blocks to inc for next loop pass
@@ -6369,7 +6385,9 @@ void LocalWorker::hdfsDirModeIterateFiles()
 							throw WorkerException(std::string("Unexpected short file write. ") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"Bytes written: " + std::to_string(writeRes) + "; "
-								"Expected written: " + std::to_string(fileSize) );
+								"Expected written: " + std::to_string(fileSize) + "; "
+                                "Hint: Consider initial sequential write or adding "
+                                    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 					}
 
 					if(benchPhase == BenchPhase_READFILES)
@@ -6387,7 +6405,9 @@ void LocalWorker::hdfsDirModeIterateFiles()
 							throw WorkerException(std::string("Unexpected short file read. ") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"Bytes read: " + std::to_string(readRes) + "; "
-								"Expected read: " + std::to_string(fileSize) );
+								"Expected read: " + std::to_string(fileSize) + "; "
+								"Hint: Consider initial sequential write or adding "
+								    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
 					}
 				}
 				catch(...)
