@@ -293,8 +293,6 @@ class LocalWorker : public Worker
 			off_t fileOffset);
 		void preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
 			off_t fileOffset);
-		void preWriteBufRandRefillFast(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
-			off_t fileOffset);
 		void preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
 			off_t fileOffset);
 

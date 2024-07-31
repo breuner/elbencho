@@ -540,12 +540,12 @@ void ProgArgs::defineAllowedArgs()
 			"typical max value. Use \"--" ARG_S3OBJECTPREFIX_LONG "\" to list/delete only objects "
 			"with the given prefix. (Multiple threads will only be effecive if multiple buckets "
 			"are given.)")
-/*s3m*/	(ARG_S3MULTI_IGNORE_404, bpo::value(&this->s3IgnoreMultipartUpload404),
-            "Ignores a specific 404 error in multipart uploads, that can happen if the AWS client "
-            "doesn't get a response on a CompleteMultipartUpload request and sends another one. "
-            "Depending on how the S3 backend handles this, it might return a 404 because the upload "
-            "was already completed beforehand. "
-            "Enabling this will ignore 404 errors if the client retried the request")
+/*s3m*/	(ARG_S3MULTI_IGNORE_404, bpo::bool_switch(&this->s3IgnoreMultipartUpload404),
+            "Ignore 404 HTTP error code for multipart upload completions, which can happen if the "
+            "CompleteMultipartUpload request has to be retried, e.g. because of a failure. "
+            "Depending on how the S3 backend handles this, it might return a 404 because the "
+            "upload was already completed beforehand. "
+            "Enabling this will ignore 404 HTTP errors if the client retried the request.")
 /*s3n*/ (ARG_S3NOCOMPRESS_LONG, bpo::bool_switch(&this->s3NoCompression),
             "Disable S3 request compression.")
 /*s3n*/ (ARG_S3NOMD5_LONG, bpo::bool_switch(&this->s3NoMD5Checksum),
@@ -806,6 +806,7 @@ void ProgArgs::defineDefaults()
 	this->useOpsLogLocking = false;
 	this->s3NoCompression = false;
 	this->s3NoMD5Checksum = false;
+	this->s3IgnoreMultipartUpload404 = false;
 }
 
 /**

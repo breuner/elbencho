@@ -1093,8 +1093,6 @@ void LocalWorker::initPhaseFunctionPointers()
 	const bool doReadInline = progArgs->getDoReadInline();
 	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
-	const RandAlgoType blockVarAlgo = RandAlgoSelectorTk::stringToEnum(
-		progArgs->getBlockVarianceAlgo() );
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
@@ -1153,9 +1151,6 @@ void LocalWorker::initPhaseFunctionPointers()
 		else
 		if(blockVariancePercent && areGPUsGiven)
 			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillCuda;
-		else
-		if(blockVariancePercent && (blockVarAlgo == RandAlgo_GOLDENRATIOPRIME) )
-			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillFast;
 		else
 		if(blockVariancePercent)
 			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefill;
@@ -2009,67 +2004,6 @@ void LocalWorker::preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t 
 	// fill remainder of buffer with same 64bit value
 	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
 	bufFill(&hostIOBuf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
-}
-
-/**
- * Refill some percentage of the buffer with random data. The percentage to refill is defined via
- * progArgs::blockVariancePercent.
- *
- * Note: The only reason why this function exists separate from preWriteBufRandRefill() which does
- * the same with RandAlgoGoldenPrime::fillBuf() is that tests have shown 30% lower perf for
- * "-w -t 1 -b 128k --iodepth 128 --blockvarpct 100 --rand --direct" when the function in the
- * RandAlgo object is called (which is quite mysterious).
- */
-void LocalWorker::preWriteBufRandRefillFast(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
-	off_t fileOffset)
-{
-	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
-	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
-		return; // this is a read in rwmix mode, so no need for refill in this round
-
-	// note: workerRank is used to have skew between different worker threads
-	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getBlockVariancePercent() )
-		return;
-
-	// refill buffer with random data
-
-	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
-	const uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
-	const size_t constFillRemainderLen = bufLen - varFillLen;
-
-	uint64_t state = randBlockVarReseed->next();
-
-	size_t numBytesDone = 0;
-
-	for(uint64_t i=0; i < (varFillLen / sizeof(uint64_t) ); i++)
-	{
-		uint64_t* uint64Buf = (uint64_t*)hostIOBuf;
-		state *= RANDALGO_GOLDEN_RATIO_PRIME;
-		state >>= 3;
-		*uint64Buf = state;
-
-		hostIOBuf += sizeof(uint64_t);
-		numBytesDone += sizeof(uint64_t);
-	}
-
-	if(numBytesDone < varFillLen)
-	{ // we have a remainder to fill, which can only be smaller than sizeof(uint64_t)
-		state *= RANDALGO_GOLDEN_RATIO_PRIME;
-		state >>= 3;
-		uint64_t randUint64 = state;
-
-		const size_t memcpySize = varFillLen - numBytesDone;
-
-		memcpy(hostIOBuf, &randUint64, memcpySize);
-		hostIOBuf += memcpySize;
-	}
-
-	if(!constFillRemainderLen)
-		return;
-
-	// fill remainder of buffer with same 64bit value
-	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
-	bufFill(hostIOBuf, randBlockVarAlgo->next(), constFillRemainderLen);
 }
 
 /**

@@ -6,35 +6,44 @@
 #include "RandAlgoInterface.h"
 #include "RandAlgoXoshiro256ss.h"
 
-#define RANDALGO_GOLDEN_RATIO_PRIME		0x9e37fffffffc0001UL
-#define RANDALGO_GOLDEN_RESEED_SIZE		(256*1024)
+#define RANDALGO_GOLDEN_RESEED_SIZE     (256*1024)
+#define RANDALGO_GOLDEN_PRIMESARRAY_LEN (sizeof(RandAlgoGoldenPrimes) / \
+                                        sizeof(RandAlgoGoldenPrimes[0] ) )
+
+static const uint64_t RandAlgoGoldenPrimes[] =
+    {0x9e37fffffffc0001UL, 0x9e3779b97f4a7c15UL, 0xbf58476d1ce4e5b9UL, 0x94d049bb133111ebUL};
 
 /**
  * Fast but weak random number generator based on simple multiplication and shifting of 64bits of
  * state. (The upper 3 bits are always zero in the generated values.)
  *
  * Since the random numbers are weak, this internally uses a stronger random number generator for
- * occasional reseeding on request through reseed() and at the beginning of each new buffer fill
- * via fillBuf().
+ * occasional reseeding on request through reseed() and after RANDALGO_GOLDEN_RESEED_SIZE bytes have
+ * been generated. This also itereates over an array of golden prime numbers for higher variance.
  */
 class RandAlgoGoldenPrime : public RandAlgoInterface
 {
 	public:
-		RandAlgoGoldenPrime()
-		{
-			state = stateSeeder.next();
-		}
+        RandAlgoGoldenPrime()
+        {
+            state = stateSeeder.next();
 
-		RandAlgoGoldenPrime(uint64_t seed)
-		{
-			state = seed;
-		}
+            currentGoldenPrimeIdx = state % RANDALGO_GOLDEN_PRIMESARRAY_LEN;
+        }
+
+        RandAlgoGoldenPrime(uint64_t seed)
+        {
+            state = seed;
+
+            currentGoldenPrimeIdx = state % RANDALGO_GOLDEN_PRIMESARRAY_LEN;
+        }
 
 		virtual ~RandAlgoGoldenPrime() {}
 
 	private:
 		RandAlgoXoshiro256ss stateSeeder; // for occasional reseed
 		uint64_t state;
+		unsigned currentGoldenPrimeIdx{0}; // index in RandAlgoGoldenPrimes, updated during reseed
 
 		// inliners
 	public:
@@ -46,11 +55,14 @@ class RandAlgoGoldenPrime : public RandAlgoInterface
 		virtual void fillBuf(char* buf, uint64_t bufLen) override
 		{
 			size_t numBytesDone = 0;
-			uint64_t chunkLen;
 
-			// loop to reseed with better random number every RANDALGO_GOLDEN_RESEED_SIZE
-			while( (chunkLen = (bufLen - numBytesDone) ) >= (RANDALGO_GOLDEN_RESEED_SIZE) )
+			// loop to reseed with better random number every RANDALGO_GOLDEN_RESEED_SIZE bytes
+			for(uint64_t chunkLen = bufLen - numBytesDone;
+			    chunkLen >= RANDALGO_GOLDEN_RESEED_SIZE;
+			    chunkLen = bufLen - numBytesDone)
 			{
+			    chunkLen = RANDALGO_GOLDEN_RESEED_SIZE;
+
 				reseed();
 
 				fillBufNoReseed(buf, chunkLen);
@@ -93,13 +105,14 @@ class RandAlgoGoldenPrime : public RandAlgoInterface
 			memcpy(buf, &randUint64, bufLen - numBytesDone);
 		}
 
-		/**
-		 * Reseed with better random number.
-		 */
-		void reseed()
-		{
-			state = stateSeeder.next();
-		};
+        /**
+         * Reseed with better random number.
+         */
+        void reseed()
+        {
+            state = stateSeeder.next();
+            currentGoldenPrimeIdx = (currentGoldenPrimeIdx + 1) % RANDALGO_GOLDEN_PRIMESARRAY_LEN;
+        }
 
 		// inliners
 	private:
@@ -109,9 +122,9 @@ class RandAlgoGoldenPrime : public RandAlgoInterface
 		 * Note: This code exists in a spearate function to avoid the virtual function call overhead
 		 * of next() for fillBuf().
 		 */
-		uint64_t nextInternal()
+		inline uint64_t nextInternal()
 		{
-			state *= RANDALGO_GOLDEN_RATIO_PRIME;
+			state *= RandAlgoGoldenPrimes[currentGoldenPrimeIdx];
 			state >>= 3;
 
 			return state;
