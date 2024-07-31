@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.16 (work in progress)
+## v3.0.17 (July 31, 2024)
 
 ### New Features & Enhancements
 * Added option to ignore 404 errors on multiple retries of MultipartUploadComplete requests. (See `--s3multiignore404`.)

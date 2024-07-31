@@ -6385,9 +6385,7 @@ void LocalWorker::hdfsDirModeIterateFiles()
 							throw WorkerException(std::string("Unexpected short file write. ") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"Bytes written: " + std::to_string(writeRes) + "; "
-								"Expected written: " + std::to_string(fileSize) + "; "
-                                "Hint: Consider initial sequential write or adding "
-                                    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
+								"Expected written: " + std::to_string(fileSize) );
 					}
 
 					if(benchPhase == BenchPhase_READFILES)
@@ -6405,9 +6403,7 @@ void LocalWorker::hdfsDirModeIterateFiles()
 							throw WorkerException(std::string("Unexpected short file read. ") +
 								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
 								"Bytes read: " + std::to_string(readRes) + "; "
-								"Expected read: " + std::to_string(fileSize) + "; "
-								"Hint: Consider initial sequential write or adding "
-								    "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
+								"Expected read: " + std::to_string(fileSize) );
 					}
 				}
 				catch(...)
