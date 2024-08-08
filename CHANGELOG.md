@@ -3,7 +3,7 @@
 ## v3.0.17 (July 31, 2024)
 
 ### New Features & Enhancements
-* Added option to ignore 404 errors on multiple retries of MultipartUploadComplete requests. (See `--s3multiignore404`.)
+* Added option to ignore 404 errors in MultipartUploadComplete responses. (See `--s3multiignore404`.)
 
 ### General Changes
 * Use latest Alpine Linux 3.x for Alpine-based docker containers instead of always 3.14.

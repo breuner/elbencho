@@ -542,10 +542,10 @@ void ProgArgs::defineAllowedArgs()
 			"are given.)")
 /*s3m*/	(ARG_S3MULTI_IGNORE_404, bpo::bool_switch(&this->s3IgnoreMultipartUpload404),
             "Ignore 404 HTTP error code for multipart upload completions, which can happen if the "
-            "CompleteMultipartUpload request has to be retried, e.g. because of a failure. "
+            "CompleteMultipartUpload request has to be retried, e.g. because of a connection failure. "
             "Depending on how the S3 backend handles this, it might return a 404 because the "
             "upload was already completed beforehand. "
-            "Enabling this will ignore 404 HTTP errors if the client retried the request.")
+            "Enabling this will ignore 404 HTTP errors in CompleteMultiPartUpload responses")
 /*s3n*/ (ARG_S3NOCOMPRESS_LONG, bpo::bool_switch(&this->s3NoCompression),
             "Disable S3 request compression.")
 /*s3n*/ (ARG_S3NOMD5_LONG, bpo::bool_switch(&this->s3NoMD5Checksum),
