@@ -4635,7 +4635,6 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         auto s3Error = completionOutcome.GetError();
 
         if (!(progArgs->getS3IgnoreMultipartUpload404() &&
-              completionOutcome.GetRetryCount() > 1 &&
               s3Error.GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND))
         {
             s3AbortMultipartUpload(bucketName, objectName, uploadID);
@@ -4826,7 +4825,6 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
         auto s3Error = completionOutcome.GetError();
 
         if (!(progArgs->getS3IgnoreMultipartUpload404() &&
-              completionOutcome.GetRetryCount() > 1 &&
               s3Error.GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND))
         {
             s3AbortMultipartUpload(bucketName, objectName, uploadID);
