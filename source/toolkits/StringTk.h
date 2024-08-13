@@ -1,6 +1,7 @@
 #ifndef TOOLKITS_STRINGTK_H_
 #define TOOLKITS_STRINGTK_H_
 
+#include <algorithm>
 #include "Common.h"
 
 #define HEX_ALPHABET					"0123456789ABCDEF"
@@ -24,6 +25,21 @@ class StringTk
 
 	private:
 		StringTk() {}
+
+	// inliners
+	public:
+		/**
+		 * Remove any characters matching std::iscntrl from this string. Newline is among the
+		 * matching characters.
+		 */
+		static void eraseControlChars(std::string &str)
+		{
+		    str.erase(std::remove_if(str.begin(), str.end(),
+                [&](char ch)
+                    { return std::iscntrl(static_cast<unsigned char>(ch) ); } ),
+		        str.end() );
+		}
+
 };
 
 

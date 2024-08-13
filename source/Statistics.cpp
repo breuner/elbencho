@@ -4,8 +4,8 @@
 #include <chrono>
 #include "ProgException.h"
 #include "Statistics.h"
-#include "Terminal.h"
 #include "toolkits/FileTk.h"
+#include "toolkits/TerminalTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "workers/RemoteWorker.h"
 #include "workers/Worker.h"
@@ -16,8 +16,6 @@
 	#undef OK // defined by ncurses.h, but conflicts with AWS SDK using OK in enum in HttpResponse.h
 #endif
 
-#define CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN	"\x1B[2K\r" /* "\x1B[2K" is the VT100 code to
-										clear the line. "\r" moves cursor to beginning of line. */
 #define FULLSCREEN_GLOBALINFO_NUMLINES		1 // lines for global info (to calc per-worker lines)
 
 
@@ -40,7 +38,7 @@ void Statistics::disableConsoleBuffering()
 	if(progArgs.getDisableLiveStats() )
 		return; // live stats disabled
 
-	bool disableRes = Terminal::disableConsoleBuffering();
+	bool disableRes = TerminalTk::disableConsoleBuffering();
 
 	if(!disableRes)
 		throw ProgException(std::string("Failed to disable buffering of stdout for live stats. ") +
@@ -59,7 +57,7 @@ void Statistics::resetConsoleBuffering()
 	if(!consoleBufferingDisabled)
 		return;
 
-	bool resetRes = Terminal::resetConsoleBuffering();
+	bool resetRes = TerminalTk::resetConsoleBuffering();
 
 	if(!resetRes)
 		ErrLogger(Log_DEBUG) << "Failed to reset buffering of stdout after live stats. "
@@ -76,7 +74,7 @@ void Statistics::printLiveCountdown()
 	if(progArgs.getDisableLiveStats() )
 		return; // live stats disabled
 
-	if(!Terminal::isStdoutTTY() )
+	if(!TerminalTk::isStdoutTTY() )
 		return; // live stats won't work
 
 	if(!progArgs.getStartTime() )
@@ -96,7 +94,7 @@ void Statistics::printLiveCountdown()
 			usleep(1000); // shorter timeout for better start sync in distributed mode
 	}
 
-	deleteSingleLineLiveStatsLine();
+	TerminalTk::clearConsoleLine();
 	resetConsoleBuffering();
 }
 
@@ -110,8 +108,8 @@ void Statistics::printLiveCountdownLine(unsigned long long waittimeSec)
 	// "%c[2K" (27) is the VT100 code to clear the current line.
 	// "\r" moves cursor to beginning of line.
 
-	printf("%c[2K\r"
-		"Waiting for start time: %Lus", 27, (unsigned long long)waittimeSec);
+	printf(CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN
+		"Waiting for start time: %Lus", (unsigned long long)waittimeSec);
 }
 
 /**
@@ -219,7 +217,7 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 
 		// check console size to handle console resize at runtime
 
-		int terminalLineLen = Terminal::getTerminalLineLength();
+		int terminalLineLen = TerminalTk::getTerminalLineLength();
 		if(!terminalLineLen)
 			return; // don't cancel program (by throwing) just because we can't show live stats
 
@@ -231,14 +229,6 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 
 		std::cout << lineStr;
 	}
-}
-
-/**
- * Erase the current line and move cursor back to beginning of erased line.
- */
-void Statistics::deleteSingleLineLiveStatsLine()
-{
-	std::cout << CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN;
 }
 
 /**
@@ -300,7 +290,7 @@ workers_done:
 
 	if(!useLiveStatsNewLine)
 	{
-		deleteSingleLineLiveStatsLine();
+		TerminalTk::clearConsoleLine();
 		resetConsoleBuffering();
 	}
 }
@@ -884,7 +874,7 @@ void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
 void Statistics::printLiveStats()
 {
 	bool showConsoleStats = !progArgs.getDisableLiveStats() &&
-		(Terminal::isStdoutTTY() || progArgs.getUseBriefLiveStatsNewLine() );
+		(TerminalTk::isStdoutTTY() || progArgs.getUseBriefLiveStatsNewLine() );
 
 	prepLiveCSVFile();
 

@@ -114,7 +114,6 @@ class Statistics
 		void printLiveCountdownLine(unsigned long long waittimeSec);
 
 		void printSingleLineLiveStatsLine(LiveResults& liveResults);
-		void deleteSingleLineLiveStatsLine();
 		void loopSingleLineLiveStats();
 
 	#ifdef NCURSES_SUPPORT

@@ -9,6 +9,9 @@
 #define PATHSTORE_DIR_LINE_PREFIX	"d"
 #define PATHSTORE_FILE_LINE_PREFIX	"f"
 
+#define TREEFILE_COMMENT_LINE_CHAR      '#'
+#define TREEFILE_BASE64ENCODING_HEADER  "# encoding=base64" // to avoid probs with newlines in names
+
 
 /**
  * Elements of PathStore.
@@ -23,6 +26,7 @@ struct PathStoreElem
 
 typedef std::list<PathStoreElem> PathList;
 typedef PathList::const_iterator PathListCIter;
+
 
 /**
  * Stores a list of paths. Typically used to store either a list of files or dirs to process by
@@ -52,11 +56,15 @@ class PathStore
 
 	private:
 		uint64_t blockSize{0}; // progArgs blockSize
+
 		uint64_t numBlocksTotal{0}; // sum of blocks in all files (if file size >0)
 		uint64_t numBytesTotal{0}; // sum of bytes in all files
 		size_t numPaths{0}; /* only exists because C++14's std::list.size() with devtoolset-9 on
 				CentOS 7 counts elements each time instead of having a separate counter for O(1) */
+
 		PathList paths;
+
+		bool checkBase64Encoding(std::string path);
 
 		// inliners
 	public:
@@ -86,5 +94,17 @@ class PathStore
 		}
 
 };
+
+
+/**
+ *  Dir and file/object paths for custom tree mode.
+ */
+struct CustomTree
+{
+    PathStore dirs; // contains only dirs
+    PathStore filesNonShared; // file sizes < fileShareSize
+    PathStore filesShared; // file sizes >= fileShareSize
+};
+
 
 #endif /* PATHSTORE_H_ */

@@ -12,9 +12,10 @@
 #include <sys/stat.h>
 #include "ProgArgs.h"
 #include "ProgException.h"
-#include "Terminal.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/NumaTk.h"
+#include "toolkits/S3Tk.h"
+#include "toolkits/TerminalTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
 
@@ -49,6 +50,11 @@
 
 #define AWS_SDK_LOGPREFIX_DEFAULT	"aws_sdk_"
 
+#define TREESCAN_PATH_S3_PREFIX     "s3://" // prefix to use s3 bucket for treescan
+#define TREESCAN_OUTFILE_DEFAULT    ("/var/tmp/" EXE_NAME "_" + SystemTk::getUsername() + "_" + \
+                                    "treescan.txt")
+
+
 
 /**
  * Constructor.
@@ -58,7 +64,7 @@
  * @throw ProgException if config is invalid.
  */
 ProgArgs::ProgArgs(int argc, char** argv) :
-	argsGenericDescription("", Terminal::getTerminalLineLength(80) )
+	argsGenericDescription("", TerminalTk::getTerminalLineLength(80) )
 {
 	this->argc = argc;
 	this->argv = argv;
@@ -637,6 +643,17 @@ void ProgArgs::defineAllowedArgs()
 			"When loading a treefile, round up all contained file sizes to a multiple of the given "
 			"size. This is useful for \"--" ARG_DIRECTIO_LONG "\" with its alignment requirements "
 			"on many platforms. (Default: 0 for disabled)")
+/*tr*/  (ARG_TREESCAN_LONG, bpo::value(&this->treeScanPath),
+            "Path to scan on startup. The discovered entries will be stored in a treefile and "
+            "the resulting treefile will be used for the run. Path can be a directory "
+            "(\"/mnt/mystorage\") or an S3 bucket with optional prefix "
+            "(\"s3://mybucket/myprefix\"). The location of the generated treefile can be changed "
+            "from the default in \"/var/tmp\" by setting \"--" ARG_TREEFILE_LONG "\". The scan "
+            "runs single-threaded. In case of a distributed run with services, the master instance "
+            "(i.e. the host from which the test gets submitted) will run the scan. Only regular "
+            "files will be used, symlinks and other special files will be ignored. S3 prefix from "
+            "scan will not be stored in the treefile, so use \"--" ARG_S3OBJECTPREFIX_LONG "\" to"
+            "set/change prefix for benchmark runs.")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")
 /*tr*/	(ARG_TRUNCTOSIZE_LONG, bpo::bool_switch(&this->doTruncToSize),
@@ -881,6 +898,8 @@ void ProgArgs::initImplicitValues()
         s3NoMD5Checksum = true;
     }
 
+    if(!treeScanPath.empty() && treeFilePath.empty() )
+        treeFilePath = TREESCAN_OUTFILE_DEFAULT;
 }
 
 /**
@@ -975,6 +994,8 @@ void ProgArgs::checkArgs()
 
 	if(!fileShareSize)
 		fileShareSize = FILESHAREBLOCKFACTOR * blockSize;
+
+	scanCustomTree();
 
 	loadCustomTreeFile();
 
@@ -2214,6 +2235,63 @@ void ProgArgs::parseRandAlgos()
 }
 
 /**
+ * Scan a given dir or S3 bucket with optional prefix ("s3://mybucket/myprefix") to use instead of
+ * providing a treefile. The result is a treefile which gets stored under treeFilePath. For
+ * distributed runs with services, the scan runs on the master instance.
+ */
+void ProgArgs::scanCustomTree()
+{
+    if(treeScanPath.empty() )
+        return;
+
+    if(runAsService)
+        throw ProgException("Tree scan cannot be used in service instance startup mode.");
+
+    // check if TREESCAN_PATH_LOCAL_PREFIX prefix
+
+    // check for TREESCAN_PATH_S3_PREFIX prefix
+    if(treeScanPath.find(TREESCAN_PATH_S3_PREFIX) == 0)
+    { // found TREESCAN_PATH_S3_PREFIX prefix => we're scanning a bucket
+    #ifndef S3_SUPPORT
+        throw ProgException("S3 bucket scan requested, but this build does not include S3 "
+            "support.");
+    #else
+
+        // erase s3 prefix to isolate bucket name (and optional object prefix)
+
+        treeScanPath.erase(0, strlen(TREESCAN_PATH_S3_PREFIX) );
+
+        // check if objectPrefix is given
+
+        std::string scanObjectPrefix;
+
+        size_t slashPos = treeScanPath.find("/", 1);
+
+        if(slashPos != std::string::npos)
+        { // we have a non-trailing slash => extract objectPrefix
+            scanObjectPrefix = treeScanPath.substr(slashPos); // copy object prefix
+            scanObjectPrefix.erase(0, 1); // remove leading slash of object prefix
+
+            treeScanPath.erase(slashPos); // remove object prefix from bucket name
+        }
+
+        S3Tk::initS3Global(*this);
+
+        std::shared_ptr<Aws::S3::S3Client> s3Client = S3Tk::initS3Client(*this);
+
+        S3Tk::scanCustomTree(*this, s3Client, treeScanPath, scanObjectPrefix, treeFilePath);
+
+        s3Client.reset(); // std::shared_ptr, so reset() deletes the s3 client object
+
+        return;
+
+    #endif // S3_SUPPORT
+    }
+
+    FileTk::scanCustomTree(*this, treeScanPath, treeFilePath);
+}
+
+/**
  * If tree file is given, load PathStores from tree file. Otherwise do nothing.
  *
  * @throw ProgException on error, such as tree file not exists.
@@ -2250,7 +2328,7 @@ void ProgArgs::loadCustomTreeFile()
 		if(runAsService && !s3EndpointsStr.empty() && runCreateFilesPhase &&
 			(numDataSetThreads != numThreads) )
 		{
-			/* shared s3 uploads of an object possible, but may among threads within the same
+			/* shared s3 uploads of an object possible, but only among threads within the same
 				service instance (due to the uploadID not beeing shared among service instances).
 				thus we split into full files per service according to rank offset. workers can
 				afterwards grab shared files from this by subtracting the service's rank offset */
@@ -2259,7 +2337,7 @@ void ProgArgs::loadCustomTreeFile()
 			size_t numServiceRanksTotal = numDataSetThreads / numThreads;
 			PathStore filesSharedTemp;
 
-			// build temporary list of files that are sharable based on their size
+			// build temporary list of files that are shareable based on their size
 			filesSharedTemp.setBlockSize(blockSize);
 			filesSharedTemp.loadFilesFromFile(treeFilePath, fileShareSize, ~0ULL, treeRoundUpSize);
 			filesSharedTemp.sortByFileSize();
@@ -2507,7 +2585,7 @@ void ProgArgs::printHelpBlockDev()
 		std::endl;
 
 	bpo::options_description argsBlockdevBasicDescription(
-		"Basic Options", Terminal::getTerminalLineLength(80) );
+		"Basic Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsBlockdevBasicDescription.add_options()
 		(ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(&this->runCreateFilesPhase),
@@ -2525,7 +2603,7 @@ void ProgArgs::printHelpBlockDev()
     std::cout << argsBlockdevBasicDescription << std::endl;
 
 	bpo::options_description argsBlockdevFrequentDescription(
-		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+		"Frequently Used Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsBlockdevFrequentDescription.add_options()
 		(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
@@ -2547,7 +2625,7 @@ void ProgArgs::printHelpBlockDev()
     std::cout << argsBlockdevFrequentDescription << std::endl;
 
 	bpo::options_description argsBlockdevMiscDescription(
-		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+		"Miscellaneous Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsBlockdevMiscDescription.add_options()
 		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
@@ -2601,7 +2679,7 @@ void ProgArgs::printHelpMultiFile()
 		std::endl;
 
 	bpo::options_description argsMultiFileBasicDescription(
-		"Basic Options", Terminal::getTerminalLineLength(80) );
+		"Basic Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsMultiFileBasicDescription.add_options()
 		(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
@@ -2636,7 +2714,7 @@ void ProgArgs::printHelpMultiFile()
     std::cout << argsMultiFileBasicDescription << std::endl;
 
 	bpo::options_description argsMultiFileFrequentDescription(
-		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+		"Frequently Used Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsMultiFileFrequentDescription.add_options()
 		(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
@@ -2652,7 +2730,7 @@ void ProgArgs::printHelpMultiFile()
     std::cout << argsMultiFileFrequentDescription << std::endl;
 
 	bpo::options_description argsMultiFileMiscDescription(
-		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+		"Miscellaneous Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsMultiFileMiscDescription.add_options()
 		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
@@ -2708,7 +2786,7 @@ void ProgArgs::printHelpS3()
 		std::endl;
 
 	bpo::options_description argsS3ServiceArgsDescription(
-		"S3 Service Arguments", Terminal::getTerminalLineLength(80) );
+		"S3 Service Arguments", TerminalTk::getTerminalLineLength(80) );
 
 	argsS3ServiceArgsDescription.add_options()
 		(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
@@ -2722,7 +2800,7 @@ void ProgArgs::printHelpS3()
     std::cout << argsS3ServiceArgsDescription << std::endl;
 
 	bpo::options_description argsS3BasicDescription(
-		"Basic Options", Terminal::getTerminalLineLength(80) );
+		"Basic Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsS3BasicDescription.add_options()
 		(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
@@ -2759,7 +2837,7 @@ void ProgArgs::printHelpS3()
     std::cout << argsS3BasicDescription << std::endl;
 
 	bpo::options_description argsS3FrequentDescription(
-		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+		"Frequently Used Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsS3FrequentDescription.add_options()
 		(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3TransferManager),
@@ -2777,7 +2855,7 @@ void ProgArgs::printHelpS3()
     std::cout << argsS3FrequentDescription << std::endl;
 
 	bpo::options_description argsS3MiscDescription(
-		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+		"Miscellaneous Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsS3MiscDescription.add_options()
 		(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
@@ -2831,7 +2909,7 @@ void ProgArgs::printHelpDistributed()
 		std::endl;
 
 	bpo::options_description argsDistributedBasicDescription(
-		"Basic Options", Terminal::getTerminalLineLength(80) );
+		"Basic Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsDistributedBasicDescription.add_options()
 		(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
@@ -2848,7 +2926,7 @@ void ProgArgs::printHelpDistributed()
     std::cout << argsDistributedBasicDescription << std::endl;
 
 	bpo::options_description argsDistributedFrequentDescription(
-		"Frequently Used Options", Terminal::getTerminalLineLength(80) );
+		"Frequently Used Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsDistributedFrequentDescription.add_options()
 		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
@@ -2864,7 +2942,7 @@ void ProgArgs::printHelpDistributed()
     std::cout << argsDistributedFrequentDescription << std::endl;
 
 	bpo::options_description argsDistributedMiscDescription(
-		"Miscellaneous Options", Terminal::getTerminalLineLength(80) );
+		"Miscellaneous Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsDistributedMiscDescription.add_options()
 		(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),

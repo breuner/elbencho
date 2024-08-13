@@ -160,6 +160,7 @@ _elbencho_opts()
         --treefile
         --treerand
         --treeroundup
+        --treescan
         --trunc
         --trunctosize
         --verify
@@ -313,6 +314,8 @@ _elbencho()
         --svcpwfile)
         ;&
         --treefile)
+        ;&
+        --treescan)
             compopt -o filenames 2>/dev/null
             COMPREPLY=( $(compgen -f ${cur}) )
             return 0

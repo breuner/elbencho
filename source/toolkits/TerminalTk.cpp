@@ -4,14 +4,14 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include "ProgException.h"
-#include "Terminal.h"
+#include "toolkits/TerminalTk.h"
 
 /**
  * Check if stdout is a tty. Intended to find out if live stats can be enabled.
  *
  * @return true if stdout is a tty (and this is likely to understand special codes to erase line).
  */
-bool Terminal::isStdoutTTY()
+bool TerminalTk::isStdoutTTY()
 {
 	if(isatty(fileno(stdout) ) == 1)
 		return true;
@@ -26,7 +26,7 @@ bool Terminal::isStdoutTTY()
  * @return If terminal line length cannot be retrieved (e.g. because output is not a terminal) then
  * 		defaultLen will be returned.
  */
-int Terminal::getTerminalLineLength(int defaultLen)
+int TerminalTk::getTerminalLineLength(int defaultLen)
 {
 	struct winsize consoleSize;
 
@@ -44,7 +44,7 @@ int Terminal::getTerminalLineLength(int defaultLen)
  * @statusVariable optional value to set to true if buffering has been disabled.
  * @return true on success (if console is not a tty, then this is also counted as success).
  */
-bool Terminal::disableConsoleBuffering()
+bool TerminalTk::disableConsoleBuffering()
 {
 	if(!isStdoutTTY() )
 		return true; // stdout might be a file
@@ -60,7 +60,7 @@ bool Terminal::disableConsoleBuffering()
  *
  * @return true on success (if console is not a tty, then this is also counted as success).
  */
-bool Terminal::resetConsoleBuffering()
+bool TerminalTk::resetConsoleBuffering()
 {
 	if(!isStdoutTTY() )
 		return true; // stdout might be a file
@@ -68,4 +68,48 @@ bool Terminal::resetConsoleBuffering()
 	int setBufRes = setvbuf(stdout, NULL, _IOLBF, 0);
 
 	return setBufRes ? false : true;
+}
+
+/**
+ * Erase the contents of the current console line and write the new given line. This is useful for
+ * single-line console live stats. The given line must not end with a newline and will get trimmed
+ * to the console width.
+ *
+ * This is a no-op if stdout is not a TTY.
+ *
+ * Console buffering needs to be disabled for this to work.
+ *
+ * @return always true, just so that this can be used as "liveStatsDisabled || rewriteLine()"
+ */
+bool TerminalTk::rewriteConsoleLine(std::string lineStr)
+{
+    if(!isStdoutTTY() )
+        return true; // stdout might be a file
+
+    // check console size to handle console resize at runtime
+
+    int terminalLineLen = getTerminalLineLength();
+    if(!terminalLineLen)
+        return true; // don't cancel program (by throwing) just because we can't show live stats
+
+    // note: "-2" for "^C" printed when user presses ctrl+c
+    unsigned usableLineLen = terminalLineLen - 2;
+
+    if(lineStr.length() > usableLineLen)
+        lineStr.resize(usableLineLen);
+
+
+    std::cout << CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN << lineStr;
+
+    return true;
+}
+
+/**
+ * Erase the current line and move cursor back to beginning of erased line.
+ *
+ * @return see rewriteConsoleLine().
+ */
+bool TerminalTk::clearConsoleLine()
+{
+    return rewriteConsoleLine(std::string() );
 }

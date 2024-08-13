@@ -1,3 +1,4 @@
+#include <array>
 #include <cctype>
 #include <iomanip>
 #include <iostream>
@@ -187,4 +188,128 @@ std::string UnitTk::elapsedMSToHumanStr(uint64_t elapsedMS)
 		resultStream << numMS << "ms";
 
 	return resultStream.str();
+}
+
+/**
+ * Convert a number to a string with base10 unit (e.g. K, M, G etc).
+ *
+ * @number the number to be converted.
+ * @maxLen maximum string length to be returned; must be at least 4 (for 999 with the unit suffix).
+ * @maxNumDecimalPlaces maxumum decimal places; can be 0; only makes sense for maxLen >= 6.
+ * @return number with unit suffix if original number was longer than maxLen.
+ */
+std::string UnitTk::numToHumanStrBaseAny(const UnitPair baseAnyUnits[],
+    const unsigned short numUnits, uint64_t number, unsigned short maxLen,
+    unsigned maxNumDecimalPlaces)
+{
+    // fast path for numbers that fit already within maxLen
+
+    std::string retVal = std::to_string(number);
+
+    if(retVal.length() <= maxLen)
+        return retVal;
+
+    // number is large enough to require scaling...
+
+    unsigned unitIndex = 0;
+    short diffToMaxLen;
+
+    do
+    {
+        uint64_t scaledNumber = number / baseAnyUnits[unitIndex].scaleFactor;
+
+        retVal = std::to_string(scaledNumber);
+
+        diffToMaxLen = (maxLen - 1) - retVal.length(); // (-1 for unit char)
+
+        if(diffToMaxLen >= 0)
+            break;
+
+        unitIndex++;
+
+    } while(unitIndex < numUnits);
+
+    if(unitIndex >= numUnits)
+        unitIndex = (numUnits-1);
+
+    int numDecimalPlaces =
+        std::min(diffToMaxLen - 1, (int)maxNumDecimalPlaces); // -1 for decimal separator dot
+
+    if(numDecimalPlaces > 0)
+    { // we can affort a decimal place
+        std::ostringstream decimalStream;
+
+        decimalStream << std::setprecision(numDecimalPlaces) << std::fixed <<
+            (double)number / baseAnyUnits[unitIndex].scaleFactor;
+
+        retVal = decimalStream.str();
+
+        // remove trailing zeros after decimal point
+        while( (retVal.back() == '0') || (retVal.back() == '.') )
+        {
+            if(retVal.back() == '.')
+            { // decimal point, so we have to stop here
+                retVal.pop_back();
+                break;
+            }
+
+            // not the decimal point yet, so we can continue after removing last digit
+            retVal.pop_back();
+        }
+    }
+
+    retVal += baseAnyUnits[unitIndex].unitSuffix;
+
+    return retVal;
+}
+/**
+ * Convert a number to a string with base10 unit (e.g. K, M, G etc).
+ *
+ * @number the number to be converted.
+ * @maxLen maximum string length to be returned; must be at least 4 (for 999 with the unit suffix).
+ * @maxNumDecimalPlaces maxumum decimal places; can be 0; only makes sense for maxLen >= 6.
+ * @return number with unit suffix if original number was longer than maxLen.
+ */
+std::string UnitTk::numToHumanStrBase10(uint64_t number, unsigned short maxLen,
+    unsigned maxNumDecimalPlaces)
+{
+    const UnitPair base10Units[] =
+    {
+        { UINT64_C(1000), "K" },
+        { UINT64_C(1000000), "M" },
+        { UINT64_C(1000000000), "G" },
+        { UINT64_C(1000000000000), "T" },
+        { UINT64_C(1000000000000000), "P" },
+        { UINT64_C(1000000000000000000), "E" }
+    };
+
+    const unsigned short numUnits = sizeof(base10Units) / sizeof(base10Units[0] );
+
+    return numToHumanStrBaseAny(base10Units, numUnits, number, maxLen, maxNumDecimalPlaces);
+}
+
+/**
+ * Convert a number to a string with base2 unit (e.g. K, M, G etc).
+ *
+ * @number the number to be converted.
+ * @maxLen maximum string length to be returned; must be at least 4 (for 999 with the unit suffix).
+ * @maxNumDecimalPlaces maxumum decimal places; can be 0; only makes sense for maxLen >= 6.
+ * @return number with unit suffix if original number was longer than maxLen.
+ */
+std::string UnitTk::numToHumanStrBase2(uint64_t number, unsigned short maxLen,
+    unsigned maxNumDecimalPlaces)
+{
+    const UnitPair base2Units[] =
+    {
+        { UINT64_C(1) << 10, "K" },
+        { UINT64_C(1) << 20, "M" },
+        { UINT64_C(1) << 30, "G" },
+        { UINT64_C(1) << 40, "T" },
+        { UINT64_C(1) << 50, "P" },
+        { UINT64_C(1) << 60, "E" }
+    };
+
+    const unsigned short numUnits = sizeof(base2Units) / sizeof(base2Units[0] );
+
+    return numToHumanStrBaseAny(base2Units, numUnits, number, maxLen, maxNumDecimalPlaces);
 }

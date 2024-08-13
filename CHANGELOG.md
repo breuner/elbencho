@@ -1,5 +1,13 @@
 # Changelog of elbencho
 
+## v3.0.18 (work in progress)
+
+### New Features & Enhancements
+* New option to scan directory or bucket on startup and use result as custom treefile. (See `--treescan`.)
+
+### General Changes
+* Option `--s3objprefix` is now also effective when `--treefile` (and the new `--treescan`) is used.
+
 ## v3.0.17 (July 31, 2024)
 
 ### New Features & Enhancements

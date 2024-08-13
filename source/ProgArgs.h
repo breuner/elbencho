@@ -188,6 +188,7 @@ namespace bpt = boost::property_tree;
 #define ARG_TREEFILE_LONG			"treefile"
 #define ARG_TREERANDOMIZE_LONG		"treerand"
 #define ARG_TREEROUNDUP_LONG		"treeroundup"
+#define ARG_TREESCAN_LONG           "treescan"
 #define ARG_TRUNCATE_LONG			"trunc"
 #define ARG_TRUNCTOSIZE_LONG		"trunctosize"
 #define ARG_VERIFYDIRECT_LONG		"verifydirect"
@@ -302,12 +303,7 @@ class ProgArgs
 		int argc; // command line argument count (as in main(argc, argv) )
 		char** argv; // command line arg vector (as in main(argc, argv) )
 
-		struct // file and dir paths for custom tree mode
-		{
-			PathStore dirs; // contains only dirs
-			PathStore filesNonShared; // file sizes < fileShareSize
-			PathStore filesShared; // file sizes >= fileShareSize
-		} customTree;
+		CustomTree customTree; // file and dir paths for custom tree mode
 
 		std::string progPath; // absolute path to program binary
 		std::string benchPathStr; // benchmark path(s), separated by BENCHPATH_DELIMITER
@@ -478,6 +474,7 @@ class ProgArgs
 		uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
 			(useful for directIO with its alignment reqs on some file systems. 0 disables this.) */
 		std::string treeRoundUpSizeOrigStr; // original treeRoundUpSize str from user with unit
+        std::string treeScanPath; // path to dir/bucket to scan as custom tree
 		size_t timeLimitSecs; // time limit in seconds for each phase (0 to disable)
 		bool useAlternativeHTTPService; // use alternative http service implememtation
 		bool useBriefLiveStats; // single-line live stats
@@ -527,6 +524,7 @@ class ProgArgs
 		void parseRandAlgos();
 		void parseS3Endpoints();
 		void parseNetDevs();
+		void scanCustomTree();
 		void loadCustomTreeFile();
 		void loadServicePasswordFile();
 		void splitCustomTreeForSharedS3Upload();
@@ -710,6 +708,7 @@ class ProgArgs
         size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
         std::string getSvcPasswordFile() const { return svcPasswordFile; }
         std::string getSvcPasswordHash() const { return svcPasswordHash; }
+        std::string getTreeScanPath() const { return treeScanPath; }
         bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
         bool getUseBriefLiveStats() const { return useBriefLiveStats; }
         bool getUseBriefLiveStatsNewLine() const { return useBriefLiveStatsNewLine; }

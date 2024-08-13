@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include "Common.h"
 
+class ProgArgs; // forward declaration
+
+
 class FileTk
 {
 	public:
@@ -17,6 +20,8 @@ class FileTk
 		template <class EXCEPTION>
 		static void* mmapAndMadvise(size_t length, int protect, int flags, int fd,
 			unsigned progArgsMadviseFlags, const char* path);
+		static void scanCustomTree(const ProgArgs& progArgs, std::string scanPath,
+		    std::string outTreeFilePath);
 
 	private:
 		FileTk() {}

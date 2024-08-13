@@ -4,10 +4,14 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "FileTk.h"
 #include "Logger.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
+#include "toolkits/Base64Encoder.h"
+#include "toolkits/FileTk.h"
+#include "toolkits/StringTk.h"
+#include "toolkits/UnitTk.h"
+#include "toolkits/TerminalTk.h"
 #include "workers/WorkerException.h"
 
 #if __has_include(<filesystem>)
@@ -336,3 +340,97 @@ template void* FileTk::mmapAndMadvise<ProgException>(size_t length, int protect,
 	int fd, unsigned progArgsMadviseFlags, const char* path);
 template void* FileTk::mmapAndMadvise<WorkerException>(size_t length, int protect, int flags,
 	int fd, unsigned progArgsMadviseFlags, const char* path);
+
+
+/**
+ *  List all entries under the given path and write them to the given output file in custom tree
+ *  file format.
+ *
+ *  @scanPath path to scan.
+ *  @outTreeFilePath path to output file in custom tree format.
+ */
+void FileTk::scanCustomTree(const ProgArgs& progArgs, std::string scanPath,
+            std::string outTreeFilePath)
+{
+    const bool isLiveStatsDisabled = progArgs.getDisableLiveStats();
+    const time_t consoleUpdateIntervalT = 2; // time_t, so unit is seconds
+    const time_t startT = time(NULL); // seconds since the epoch (for elapsed time)
+    time_t consoleLastUpdateT = startT; // seconds since the epoch (for console updates)
+
+    size_t numFilesFound = 0;
+    size_t numDirsFound = 0;
+    size_t numBytesFound = 0;
+
+    std::string currentEntry;
+    fs::path basePath(scanPath);
+
+    std::ofstream fileStream;
+
+    fileStream.open(outTreeFilePath, std::ofstream::out | std::ofstream::trunc);
+
+    if(!fileStream)
+        throw ProgException("Opening tree scan results file failed: " + outTreeFilePath);
+
+    // add base64 encoding header to file
+    fileStream << TREEFILE_BASE64ENCODING_HEADER << std::endl;
+
+    // try-block to clean-up console buffering on error
+    try
+    {
+        isLiveStatsDisabled || TerminalTk::disableConsoleBuffering();
+
+        // recursive_directory_iterator walks over entire subdir tree
+        for(const fs::directory_entry& dirEntry : fs::recursive_directory_iterator(scanPath) )
+        {
+            // only write regular files and dirs to tree file, other dir entries get ignored...
+
+            currentEntry = dirEntry.path().lexically_relative(basePath).string();
+
+            if(dirEntry.is_regular_file() )
+            {
+                numFilesFound++;
+                numBytesFound += dirEntry.file_size();
+
+                fileStream << PATHSTORE_FILE_LINE_PREFIX " " << dirEntry.file_size() << " " <<
+                    Base64Encoder::encode(currentEntry) << std::endl;
+            }
+            else
+            if(dirEntry.is_directory() )
+            {
+                numDirsFound++;
+
+                fileStream << PATHSTORE_DIR_LINE_PREFIX " " <<
+                    Base64Encoder::encode(currentEntry) << std::endl;
+            }
+
+            if( (time(NULL) - consoleLastUpdateT) >= consoleUpdateIntervalT)
+            { // time to update console live stats line
+                StringTk::eraseControlChars(currentEntry); // avoid '\n' and such in console output
+
+                std::ostringstream stream;
+                stream << "Directory scan in progress... "
+                    "Dirs: " << UnitTk::numToHumanStrBase10(numDirsFound) << "; "
+                    "Files: " << UnitTk::numToHumanStrBase10(numFilesFound) << "; "
+                    "Bytes: " << UnitTk::numToHumanStrBase2(numBytesFound) << "; "
+                    "Elapsed: " << UnitTk::elapsedSecToHumanStr(time(NULL) - startT) << "; "
+                    "Current: " << currentEntry;
+
+                isLiveStatsDisabled || TerminalTk::rewriteConsoleLine(stream.str() );
+                consoleLastUpdateT = time(NULL); // update time for next console update
+            }
+        }
+    }
+    catch(...)
+    {
+        isLiveStatsDisabled || TerminalTk::resetConsoleBuffering();
+        throw;
+    }
+
+    isLiveStatsDisabled || TerminalTk::clearConsoleLine();
+    isLiveStatsDisabled || TerminalTk::resetConsoleBuffering();
+
+    std::cout << "NOTE: Directory scan finished. "
+        "Files: " << numFilesFound << "; "
+        "Dirs: " << numDirsFound << "; "
+        "Elapsed: " << (time(NULL) - startT) << "s" << std::endl;
+}

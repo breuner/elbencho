@@ -4,6 +4,7 @@
 #include "LocalWorker.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/S3Tk.h"
 #include "toolkits/StringTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "WorkerException.h"
@@ -224,7 +225,8 @@ void LocalWorker::run()
                     case BenchPhase_PUT_S3_OBJECT_MD:
                     case BenchPhase_DEL_S3_OBJECT_MD:
                     {
-                        progArgs->getTreeFilePath().empty() ? s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+                        progArgs->getTreeFilePath().empty() ?
+                            s3ModeIterateObjects() : s3ModeIterateCustomObjects();
                     } break;
 
 					case BenchPhase_STATFILES:
@@ -419,46 +421,7 @@ void LocalWorker::initS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	Aws::Client::ClientConfiguration config;
-
-	config.verifySSL = false; // to avoid self-signed certificate errors
-	config.enableEndpointDiscovery = false; // to avoid delays for discovery
-	config.maxConnections = progArgs->getIODepth();
-	config.connectTimeoutMs = 5000;
-	config.requestTimeoutMs = 300000;
-	config.executor = std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(1);
-    config.disableExpectHeader = true;
-    config.enableTcpKeepAlive = true;
-    config.requestCompressionConfig.requestMinCompressionSizeBytes = 1;
-	config.requestCompressionConfig.useRequestCompression = (progArgs->getS3NoCompression() ?
-	    Aws::Client::UseRequestCompression::DISABLE : Aws::Client::UseRequestCompression::ENABLE);
-
-	if(!progArgs->getS3Region().empty() )
-        config.region = progArgs->getS3Region();
-
-    // select endpoint...
-
-    const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
-    size_t numEndpoints = endpointsVec.size();
-    std::string endpoint = endpointsVec[workerRank % numEndpoints];
-
-    config.endpointOverride = endpoint;
-
-    s3EndpointStr = endpoint;
-
-    // set credentials...
-
-	Aws::Auth::AWSCredentials credentials;
-
-	if(!progArgs->getS3AccessKey().empty() )
-		credentials.SetAWSAccessKeyId(progArgs->getS3AccessKey() );
-
-	if(!progArgs->getS3AccessSecret().empty() )
-		credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
-
-	// create s3 client for this worker
-	s3Client = std::make_shared<Aws::S3::S3Client>(credentials, config,
-		(Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(), false);
+	s3Client = S3Tk::initS3Client(*progArgs, workerRank);
 
 #endif // S3_SUPPORT
 }
@@ -473,6 +436,7 @@ void LocalWorker::uninitS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
+	// s3Client is a std::shared_ptr, so reset() will cleanup the client object
 	s3Client.reset();
 
 #endif // S3_SUPPORT
@@ -3830,6 +3794,8 @@ void LocalWorker::s3ModeIterateCustomObjects()
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+    std::string objectPrefix = progArgs->getS3ObjectPrefix();
+
 
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so "short" is ok)
 
@@ -3854,13 +3820,16 @@ void LocalWorker::s3ModeIterateCustomObjects()
 			if(benchPhase == BenchPhase_CREATEFILES)
 			{
 				if(rangeLen < fileSize)
-					s3ModeUploadObjectMultiPartShared(bucketName, currentPathElem.path, fileSize);
+					s3ModeUploadObjectMultiPartShared(bucketName,
+					    objectPrefix + currentPathElem.path, fileSize);
 				else
 				{ // this worker uploads the whole object
 					if(blockSize < fileSize)
-						s3ModeUploadObjectMultiPart(bucketName, currentPathElem.path);
+						s3ModeUploadObjectMultiPart(bucketName,
+						    objectPrefix + currentPathElem.path);
 					else
-						s3ModeUploadObjectSinglePart(bucketName, currentPathElem.path);
+						s3ModeUploadObjectSinglePart(bucketName,
+						    objectPrefix + currentPathElem.path);
 				}
 			}
 
@@ -3869,21 +3838,21 @@ void LocalWorker::s3ModeIterateCustomObjects()
 				if(useTransMan)
 					s3ModeDownloadObjectTransMan(bucketName, currentPathElem.path, false);
 				else
-					s3ModeDownloadObject(bucketName, currentPathElem.path, false);
+					s3ModeDownloadObject(bucketName, objectPrefix + currentPathElem.path, false);
 			}
 		}
 
 		if(benchPhase == BenchPhase_STATFILES)
-			s3ModeStatObject(bucketName, currentPathElem.path);
+			s3ModeStatObject(bucketName, objectPrefix + currentPathElem.path);
 
 		if(benchPhase == BenchPhase_PUTOBJACL)
-			s3ModePutObjectAcl(bucketName, currentPathElem.path);
+			s3ModePutObjectAcl(bucketName, objectPrefix + currentPathElem.path);
 
 		if(benchPhase == BenchPhase_GETOBJACL)
-			s3ModeGetObjectAcl(bucketName, currentPathElem.path);
+			s3ModeGetObjectAcl(bucketName, objectPrefix + currentPathElem.path);
 
 		if(benchPhase == BenchPhase_DELETEFILES)
-			s3ModeDeleteObject(bucketName, currentPathElem.path);
+			s3ModeDeleteObject(bucketName, objectPrefix + currentPathElem.path);
 
 		// calc entry operations latency. (for create, this includes open/rw/close.)
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -5555,7 +5524,7 @@ void LocalWorker::s3ModeVerifyListing(StringSet& expectedSet, StringList& receiv
 void LocalWorker::s3ModeListAndMultiDeleteObjects()
 {
 #ifndef S3_SUPPORT
-	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
 
 	const StringVec& bucketVec = progArgs->getBenchPaths();

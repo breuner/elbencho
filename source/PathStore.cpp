@@ -8,6 +8,8 @@
 #include "Logger.h"
 #include "PathStore.h"
 #include "ProgException.h"
+#include "toolkits/Base64Encoder.h"
+
 
 #ifndef ARG_TREEROUNDUP_LONG // because we can't include ProgArgs.h here
 	#define ARG_TREEROUNDUP_LONG		"treeroundup"
@@ -15,6 +17,7 @@
 #ifndef ARG_NODIRECTIOCHECK_LONG // because we can't include ProgArgs.h here
 	#define ARG_NODIRECTIOCHECK_LONG	"nodiocheck"
 #endif
+
 
 /**
  * Load directories from file. Lines not starting with PATHSTORE_DIR_LINE_PREFIX will be ignored.
@@ -28,6 +31,8 @@
  */
 void PathStore::loadDirsFromFile(std::string path)
 {
+    const bool isBase64Encoding = checkBase64Encoding(path);
+
 	std::string lineStr;
 	unsigned lineNum = 0;
 
@@ -54,6 +59,11 @@ void PathStore::loadDirsFromFile(std::string path)
 		std::getline(lineStream, newElem.path);
 
 		boost::trim(newElem.path); // (path would otherwise at least contain leading space)
+
+		if(isBase64Encoding)
+		    newElem.path = Base64Encoder::decode(newElem.path);
+
+        // check if path is valid
 
 		if(newElem.path.empty() )
 			throw ProgException("Encountered invalid directory line without path in input file. "
@@ -83,6 +93,8 @@ void PathStore::loadDirsFromFile(std::string path)
 void PathStore::loadFilesFromFile(std::string path, uint64_t minFileSize, uint64_t maxFileSize,
 	uint64_t roundUpSize)
 {
+    const bool isBase64Encoding = checkBase64Encoding(path);
+
 	std::string lineStr;
 	unsigned lineNum = 0;
 
@@ -137,6 +149,9 @@ void PathStore::loadFilesFromFile(std::string path, uint64_t minFileSize, uint64
 
 		boost::trim(newElem.path); // (path would otherwise at least contain leading space)
 
+        if(isBase64Encoding)
+            newElem.path = Base64Encoder::decode(newElem.path);
+
 		if(newElem.path.empty() )
 			throw ProgException("Encountered invalid file line without path in input file. "
 				"File: " + path + "; "
@@ -148,6 +163,38 @@ void PathStore::loadFilesFromFile(std::string path, uint64_t minFileSize, uint64
 		numBlocksTotal += numFileBlocks;
 		numBytesTotal += fileSize;
 	}
+}
+
+/**
+ * Read header comment of given treefile to check if the special option for base64 encoding is
+ * set.
+ *
+ * @path path to treefile to check for special base64 encoding option in header.
+ *
+ * @return true if base64 encoding header is found, false otherwise.
+ *
+ * @throw ProgException on error.
+ */
+bool PathStore::checkBase64Encoding(std::string path)
+{
+    std::string lineStr;
+
+    std::ifstream fileStream(path.c_str() );
+    if(!fileStream)
+        throw ProgException("Opening input file failed: " + path);
+
+    // process each line in input file (and stop after header comment lines)
+    for( ; std::getline(fileStream, lineStr); )
+    {
+        if(lineStr == TREEFILE_BASE64ENCODING_HEADER)
+            return true;
+
+        // end of header: non-empty line that doesn't start with a comment char
+        if(!lineStr.empty() && (lineStr[0] != TREEFILE_COMMENT_LINE_CHAR) )
+            break;
+    }
+
+    return false;
 }
 
 /**

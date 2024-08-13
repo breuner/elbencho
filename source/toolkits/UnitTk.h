@@ -4,19 +4,34 @@
 #include <cstdint>
 #include <string>
 
+
 /**
  * Toolkit to convert units (e.g. bytes to kilobytes).
  */
 class UnitTk
 {
+    struct UnitPair
+    {
+        uint64_t scaleFactor;
+        std::string unitSuffix;
+    };
+
 	public:
 		static uint64_t numHumanToBytesBinary(std::string numHuman, bool throwOnEmpty);
 		static std::string latencyUsToHumanStr(uint64_t numMicroSec);
 		static std::string elapsedSecToHumanStr(uint64_t elapsedSec);
 		static std::string elapsedMSToHumanStr(uint64_t elapsedMS);
+        static std::string numToHumanStrBase10(uint64_t number, unsigned short maxLen=6,
+            unsigned maxNumDecimalPlaces=1);
+        static std::string numToHumanStrBase2(uint64_t number, unsigned short maxLen=6,
+            unsigned maxNumDecimalPlaces=1);
 
 	private:
 		UnitTk() {}
+
+        static std::string numToHumanStrBaseAny(const UnitPair baseAnyUnits[],
+            const unsigned short numUnits, uint64_t number, unsigned short maxLen,
+            unsigned maxNumDecimalPlaces);
 
 		// inliners
 	public:
