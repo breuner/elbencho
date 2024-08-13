@@ -10,9 +10,9 @@ COPY ./ /root/elbencho
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \
     apt -y upgrade && \
-    apt install -y build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev libssl-dev lintian && \
+    apt install -y build-essential debhelper devscripts fakeroot gcc-8 g++-8 git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev libssl-dev lintian && \
     cd /root/elbencho && \
-    make -j "$(nproc)" && \
+    CC=gcc-8 CXX=g++-8 make -j "$(nproc)" && \
     make deb
 
 FROM ubuntu:18.04
