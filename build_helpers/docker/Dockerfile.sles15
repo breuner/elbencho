@@ -6,7 +6,7 @@ RUN zypper update -y && \
     zypper install -y cmake gcc-c++ gcc13-c++ git libaio-devel libboost_program_options-devel libboost_system-devel libboost_thread-devel libcurl-devel libnuma-devel libuuid-devel make ncurses-devel openssl-devel rpm-build && \
     cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
-    make S3_SUPPORT=1 -j "$(nproc)" && \
+    CC=gcc-13 CXX=g++-13 make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm
 
 FROM registry.suse.com/bci/bci-base:15.6
