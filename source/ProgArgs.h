@@ -171,7 +171,6 @@ namespace bpt = boost::property_tree;
 #define ARG_S3REGION_LONG			"s3region"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
-#define ARG_S3TRANSMAN_LONG			"s3transman"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -502,7 +501,6 @@ class ProgArgs
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
 								via buffer possible, such as GPU copy or data verification) */
-		bool useS3TransferManager; // use AWS SDK TransferManager for object downloads
 
 
 		void defineDefaults();
@@ -729,7 +727,6 @@ class ProgArgs
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
-        bool getUseS3TransferManager() const { return useS3TransferManager; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		std::string getTreeFilePath() const { return treeFilePath; }
         uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }

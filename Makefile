@@ -35,6 +35,7 @@ LIBAIO_SUPPORT     ?= 1
 LIBNUMA_SUPPORT    ?= 1
 NCURSES_SUPPORT    ?= 1
 SYNCFS_SUPPORT     ?= 1
+S3_AWSCRT          ?= 0
 S3_SUPPORT         ?= 0
 SYSCALLH_SUPPORT   ?= 1
 
@@ -46,7 +47,7 @@ CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOS
 CXXFLAGS_RELEASE  = -O3 -Wuninitialized
 CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON    = -rdynamic -pthread -l crypto -l rt -l ssl -l stdc++fs $(LDFLAGS_NUMA) \
+LDFLAGS_COMMON    = -rdynamic -pthread -l rt -l stdc++fs $(LDFLAGS_NUMA) \
 	$(LDFLAGS_AIO) $(LDFLAGS_BOOST)
 LDFLAGS_RELASE    = -O3
 LDFLAGS_DEBUG     = -O0
@@ -74,13 +75,24 @@ endif
 
 # Dynamic or static linking
 ifeq ($(BUILD_STATIC), 1)
-LDFLAGS            += -static
-# NOTE: "-l ssl -l crypto" intetionally appear again here although they are in LDFLAGS_COMMON. This
-#       is because the link order matters for static libs.
-LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec -l brotlicommon \
-	-l idn2 -l unistring -l psl -l cares -l zstd -l dl
+
+  LDFLAGS += -static
+
+  ifeq ($(S3_AWSCRT), 1)
+    LDFLAGS_S3_STATIC  += -l z
+  else
+    LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec \
+      -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd -l dl
+  endif
+  
 else # dynamic linking
-LDFLAGS_S3_DYNAMIC += -l curl -l z -l dl
+
+  ifeq ($(S3_AWSCRT), 1)
+    LDFLAGS_S3_DYNAMIC += -l z -l dl
+  else
+    LDFLAGS_S3_DYNAMIC += -l crypto -l ssl -l curl -l z -l dl
+  endif
+  
 endif
 
 # Compiler and linker flags for S3 support
@@ -90,11 +102,15 @@ CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
 LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
 	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
 
+  ifeq ($(S3_AWSCRT), 1)
+    CXXFLAGS += -DS3_AWSCRT
+  endif
+
   # Apply user-provided AWS SDK include dir if given
   ifeq ($(AWS_INCLUDE_DIR),)
-  CXXFLAGS += -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include
+    CXXFLAGS += -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include
   else
-  CXXFLAGS += -I $(AWS_INCLUDE_DIR)
+    CXXFLAGS += -I $(AWS_INCLUDE_DIR)
   endif
 
 endif
@@ -250,8 +266,9 @@ $(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on 
 
 externals:
 ifdef BUILD_VERBOSE
-	PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
-		PREP_MIMALLOC=$(USE_MIMALLOC) PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
+	PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
+		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
+		PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 else
 	@PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
@@ -279,7 +296,11 @@ else
 	$(info [OPT] CUDA support disabled)
 endif
 ifeq ($(S3_SUPPORT),1)
+  ifeq ($(S3_AWSCRT),1)
+	$(info [OPT] S3 support enabled (AWS CRT))
+  else
 	$(info [OPT] S3 support enabled)
+  endif
 else
 	$(info [OPT] S3 support disabled. (Enable via S3_SUPPORT=1))
 endif
@@ -468,6 +489,10 @@ help:
 	@echo '                             (Default: 0)'
 	@echo '   NCURSES_SUPPORT=0|1     - Link against ncurses for fullscreen live stats'
 	@echo '                             support. (Default: 1)'
+	@echo '   S3_AWSCRT=0|1           - Build S3 support based on AWS Common Runtime (CRT)'
+	@echo '                             instead of external libraries like libcurl. Only'
+	@echo '                             effective together with S3_SUPPORT=1. Not'
+	@echo '                             compatible with BUILD_STATIC=1. (Default: 0)'
 	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
 	@echo '                             git repo of over 1GB size. (Default: 0)'
 	@echo '   USE_MIMALLOC=0|1        - Use Microsoft mimalloc library for memory'

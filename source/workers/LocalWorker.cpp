@@ -28,37 +28,36 @@
 	#include <aws/core/utils/StringUtils.h>
 	#include <aws/core/utils/threading/Executor.h>
 	#include <aws/core/utils/UUID.h>
-	#include <aws/s3/model/AbortMultipartUploadRequest.h>
-	#include <aws/s3/model/BucketLocationConstraint.h>
-	#include <aws/s3/model/CompleteMultipartUploadRequest.h>
-	#include <aws/s3/model/CreateBucketRequest.h>
-	#include <aws/s3/model/CreateMultipartUploadRequest.h>
-	#include <aws/s3/model/DeleteBucketRequest.h>
-	#include <aws/s3/model/DeleteBucketTaggingRequest.h>
-	#include <aws/s3/model/DeleteObjectRequest.h>
-    #include <aws/s3/model/DeleteObjectTaggingRequest.h>
-	#include <aws/s3/model/DeleteObjectsRequest.h>
-	#include <aws/s3/model/GetBucketAclRequest.h>
-	#include <aws/s3/model/GetBucketTaggingRequest.h>
-	#include <aws/s3/model/GetObjectAclRequest.h>
-	#include <aws/s3/model/GetObjectRequest.h>
-    #include <aws/s3/model/GetObjectTaggingRequest.h>
-    #include <aws/s3/model/GetObjectLockConfigurationRequest.h>
-    #include <aws/s3/model/GetBucketVersioningRequest.h>
-	#include <aws/s3/model/HeadObjectRequest.h>
-	#include <aws/s3/model/HeadBucketRequest.h>
-	#include <aws/s3/model/ListObjectsV2Request.h>
-	#include <aws/s3/model/Object.h>
-    #include <aws/s3/model/ObjectLockRule.h>
-	#include <aws/s3/model/PutBucketAclRequest.h>
-	#include <aws/s3/model/PutBucketTaggingRequest.h>
-	#include <aws/s3/model/PutObjectAclRequest.h>
-	#include <aws/s3/model/PutObjectRequest.h>
-    #include <aws/s3/model/PutObjectTaggingRequest.h>
-    #include <aws/s3/model/PutObjectLockConfigurationRequest.h>
-    #include <aws/s3/model/PutBucketVersioningRequest.h>
-	#include <aws/s3/model/UploadPartRequest.h>
-	#include <aws/transfer/TransferManager.h>
+	#include INCLUDE_AWS_S3(model/AbortMultipartUploadRequest.h)
+	#include INCLUDE_AWS_S3(model/BucketLocationConstraint.h)
+	#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
+	#include INCLUDE_AWS_S3(model/CreateBucketRequest.h)
+	#include INCLUDE_AWS_S3(model/CreateMultipartUploadRequest.h)
+	#include INCLUDE_AWS_S3(model/DeleteBucketRequest.h)
+	#include INCLUDE_AWS_S3(model/DeleteBucketTaggingRequest.h)
+	#include INCLUDE_AWS_S3(model/DeleteObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/DeleteObjectTaggingRequest.h)
+	#include INCLUDE_AWS_S3(model/DeleteObjectsRequest.h)
+	#include INCLUDE_AWS_S3(model/GetBucketAclRequest.h)
+	#include INCLUDE_AWS_S3(model/GetBucketTaggingRequest.h)
+	#include INCLUDE_AWS_S3(model/GetObjectAclRequest.h)
+	#include INCLUDE_AWS_S3(model/GetObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/GetObjectTaggingRequest.h)
+    #include INCLUDE_AWS_S3(model/GetObjectLockConfigurationRequest.h)
+    #include INCLUDE_AWS_S3(model/GetBucketVersioningRequest.h)
+	#include INCLUDE_AWS_S3(model/HeadObjectRequest.h)
+	#include INCLUDE_AWS_S3(model/HeadBucketRequest.h)
+	#include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
+	#include INCLUDE_AWS_S3(model/Object.h)
+    #include INCLUDE_AWS_S3(model/ObjectLockRule.h)
+	#include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
+	#include INCLUDE_AWS_S3(model/PutBucketTaggingRequest.h)
+	#include INCLUDE_AWS_S3(model/PutObjectAclRequest.h)
+	#include INCLUDE_AWS_S3(model/PutObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/PutObjectTaggingRequest.h)
+    #include INCLUDE_AWS_S3(model/PutObjectLockConfigurationRequest.h)
+    #include INCLUDE_AWS_S3(model/PutBucketVersioningRequest.h)
+	#include INCLUDE_AWS_S3(model/UploadPartRequest.h)
 #endif
 
 #define PATH_BUF_LEN					64
@@ -80,9 +79,14 @@
 #define RETENTION_PERIOD_DAYS   1
 
 #ifdef S3_SUPPORT
-	S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
+    #ifdef S3_AWSCRT
+        namespace S3 = Aws::S3Crt::Model;
+    #else
+        namespace S3 = Aws::S3::Model;
+        using S3Errors = Aws::S3::S3Errors;
+    #endif
 
-	namespace S3 = Aws::S3::Model;
+    S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
 
 	/**
 	 * Aws::IOStream derived in-memory stream implementation for S3 object upload/download. The
@@ -421,7 +425,7 @@ void LocalWorker::initS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	s3Client = S3Tk::initS3Client(*progArgs, workerRank);
+	s3Client = S3Tk::initS3Client(progArgs, workerRank);
 
 #endif // S3_SUPPORT
 }
@@ -1203,7 +1207,7 @@ void LocalWorker::allocIOBuffer()
 		return; // nothing to do here
 
 	if(!progArgs->getS3EndpointsStr().empty() && !progArgs->getRunCreateFilesPhase() &&
-		(progArgs->getUseS3FastRead() || progArgs->getUseS3TransferManager() ) )
+		progArgs->getUseS3FastRead() )
 		return; // nothing to do if read to /dev/null is set and no writes to be done
 
 	// alloc number of IO buffers matching iodepth
@@ -3553,7 +3557,6 @@ void LocalWorker::s3ModeIterateObjects()
 	std::array<char, PATH_BUF_LEN> currentPath;
 	const size_t workerDirRank = progArgs->getDoDirSharing() ? 0 : workerRank; /* for dir sharing,
 		all workers use the dirs of worker rank 0 */
-	const bool useTransMan = progArgs->getUseS3TransferManager();
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
 	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
@@ -3620,15 +3623,11 @@ void LocalWorker::s3ModeIterateObjects()
                     s3ModePutObjectTags(bucketVec[bucketIndex], currentObjectPath);
             }
 
-			if( (benchPhase == BenchPhase_READFILES) || isRWMixedReader)
-			{
-				if(useTransMan)
-					s3ModeDownloadObjectTransMan(bucketVec[bucketIndex], currentObjectPath,
-						isRWMixedReader);
-				else
-					s3ModeDownloadObject(bucketVec[bucketIndex], currentObjectPath,
-						isRWMixedReader);
-			}
+            if( (benchPhase == BenchPhase_READFILES) || isRWMixedReader)
+            {
+                s3ModeDownloadObject(bucketVec[bucketIndex], currentObjectPath,
+                    isRWMixedReader);
+            }
 
 			if(benchPhase == BenchPhase_STATFILES)
                 s3ModeStatObject(bucketVec[bucketIndex], currentObjectPath);
@@ -3789,7 +3788,6 @@ void LocalWorker::s3ModeIterateCustomObjects()
 	const std::string bucketName = progArgs->getBenchPaths()[0];
 	const size_t blockSize = progArgs->getBlockSize();
 	const PathList& customTreePaths = customTreeFiles.getPaths();
-	const bool useTransMan = progArgs->getUseS3TransferManager();
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
@@ -3833,13 +3831,8 @@ void LocalWorker::s3ModeIterateCustomObjects()
 				}
 			}
 
-			if(benchPhase == BenchPhase_READFILES)
-			{
-				if(useTransMan)
-					s3ModeDownloadObjectTransMan(bucketName, currentPathElem.path, false);
-				else
-					s3ModeDownloadObject(bucketName, objectPrefix + currentPathElem.path, false);
-			}
+            if(benchPhase == BenchPhase_READFILES)
+                s3ModeDownloadObject(bucketName, objectPrefix + currentPathElem.path, false);
 		}
 
 		if(benchPhase == BenchPhase_STATFILES)
@@ -3939,8 +3932,8 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 		auto s3Error = createOutcome.GetError();
 
         // bucket already existing is not an error
-        if (s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU &&
-            s3Error.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS)
+        if (s3Error.GetErrorType() != S3Errors::BUCKET_ALREADY_OWNED_BY_YOU &&
+            s3Error.GetErrorType() != S3Errors::BUCKET_ALREADY_EXISTS)
         {
 
             std::stringstream errStr;
@@ -4093,7 +4086,7 @@ void LocalWorker::s3ModeDeleteBucket(const std::string& bucketName)
 	{
 		auto s3Error = deleteOutcome.GetError();
 
-		if( (s3Error.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET) ||
+		if( (s3Error.GetErrorType() != S3Errors::NO_SUCH_BUCKET) ||
 			!ignoreDelErrors)
 		{
 			throw WorkerException(std::string("Bucket deletion failed. ") +
@@ -4272,7 +4265,8 @@ void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
     if (!progArgs->getDoS3BucketVersioningVerify())
         return;
 
-    const auto statusNameMapper = Aws::S3::Model::BucketVersioningStatusMapper::GetNameForBucketVersioningStatus;
+    const auto statusNameMapper =
+        S3::BucketVersioningStatusMapper::GetNameForBucketVersioningStatus;
     const auto expectedStatus = S3::BucketVersioningStatus::Suspended;
 
     IF_UNLIKELY(bucketVersioningStatus != expectedStatus)
@@ -5027,122 +5021,6 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 }
 
 /**
- * Chunked download of an S3 object via AWS SDK Transfer Manager.
- *
- * Downloads to "/dev/null" instead of memory buffer, so no post-processing like data verification
- * or GPU transfer possible. But iodepth greater 1 is supported, translating to multiple
- * TransferManager threads.
- *
- * @isRWMixedReader true if this is a reader of a mixed read/write phase, so that the corresponding
- *		statistics get increased.
- *
- * @throw WorkerException on error.
- */
-void LocalWorker::s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
-	const bool isRWMixedReader)
-{
-#ifndef S3_SUPPORT
-	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
-#else
-
-	const uint64_t fileOffset = rwOffsetGen->getNextOffset(); // offset within object to download
-	const uint64_t downloadBytes = rwOffsetGen->getNumBytesLeftToSubmit();
-	const size_t ioDepth = progArgs->getIODepth();
-	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
-	auto threadExecutor = std::make_unique<Aws::Utils::Threading::PooledThreadExecutor>(ioDepth);
-	uint64_t numBytesDownloaded = 0;
-	std::shared_ptr<Aws::Transfer::TransferHandle> transferHandle;
-
-	Aws::Transfer::TransferManagerConfiguration transferConfig(threadExecutor.get() );
-	transferConfig.s3Client = s3Client;
-
-	transferConfig.downloadProgressCallback = [&](const Aws::Transfer::TransferManager*,
-		const std::shared_ptr<const Aws::Transfer::TransferHandle> &handle)
-		{
-			if(isInterruptionRequested)
-				transferHandle->Cancel();
-
-			const uint64_t numBytesDone = handle->GetBytesTransferred() - numBytesDownloaded;
-
-			if(isRWMixedReader)
-				atomicLiveOpsReadMix.numBytesDone += numBytesDone;
-			else
-				atomicLiveOps.numBytesDone += numBytesDone;
-
-			numBytesDownloaded = handle->GetBytesTransferred();
-		};
-
-	auto transferManager = Aws::Transfer::TransferManager::Create(transferConfig);
-
-	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
-
-    OPLOG_PRE_OP("S3TransManDownload", bucketName + "/" + objectName, fileOffset, downloadBytes);
-
-	transferHandle = transferManager->DownloadFile(
-		bucketName, objectName, fileOffset, downloadBytes, [&]()
-		{ return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary); },
-		Aws::Transfer::DownloadConfiguration(), "/dev/null");
-
-	transferHandle->WaitUntilFinished();
-
-    OPLOG_POST_OP("S3TransManDownload", bucketName + "/" + objectName, fileOffset, downloadBytes,
-        transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED);
-
-    // calc io operation latency
-
-
-	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
-
-	IF_UNLIKELY(transferHandle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED)
-	{
-		if (!ignoreS3Errors)
-		{
-			throw WorkerException(std::string("Object download failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Requested size: " + std::to_string(downloadBytes) + "; "
-				"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
-		}
-	}
-
-	IF_UNLIKELY(transferHandle->GetBytesTransferred() != downloadBytes)
-	{
-		if (!ignoreS3Errors)
-		{
-			throw WorkerException(std::string("Object too small. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Requested size: " + std::to_string(downloadBytes) + "; "
-				"Received length: " + std::to_string(transferHandle->GetBytesTransferred() ) );
-		}
-	}
-
-	// calc io operation latency
-	std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
-	std::chrono::microseconds ioElapsedMicroSec =
-		std::chrono::duration_cast<std::chrono::microseconds>
-		(ioEndT - ioStartT);
-
-	if(isRWMixedReader)
-	{
-		iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
-		atomicLiveOpsReadMix.numIOPSDone++;
-	}
-	else
-	{
-		iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
-		atomicLiveOps.numIOPSDone++;
-	}
-
-	numIOPSSubmitted++;
-	rwOffsetGen->addBytesSubmitted(downloadBytes);
-
-#endif // S3_SUPPORT
-}
-
-/**
  * Retrieve object metadata by sending a HeadObject request (the equivalent of a stat() call in the
  * file world).
  *
@@ -5446,7 +5324,7 @@ void LocalWorker::s3ModeListObjParallel()
 
 			// build list of received keys. (std::list to preserve order; must be alphabetic)
 			IF_UNLIKELY(doListObjVerify)
-				for(const Aws::S3::Model::Object& obj : outcome.GetResult().GetContents() )
+				for(const S3::Object& obj : outcome.GetResult().GetContents() )
 					receivedObjs.push_back(obj.GetKey() );
 
 		} while(isTruncated && numObjectsLeft); // end of while numObjectsLeft in dir loop
@@ -5586,11 +5464,11 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 
 			// send multi-delete request for received batch of objects...
 
-			Aws::S3::Model::Delete deleteObjectList;
+			S3::Delete deleteObjectList;
 
-			for(const Aws::S3::Model::Object& obj : listOutcome.GetResult().GetContents() )
+			for(const S3::Object& obj : listOutcome.GetResult().GetContents() )
 				deleteObjectList.AddObjects(
-					Aws::S3::Model::ObjectIdentifier().WithKey(obj.GetKey() ) );
+					S3::ObjectIdentifier().WithKey(obj.GetKey() ) );
 
 			S3::DeleteObjectsRequest delRequest;
 			delRequest.SetBucket(bucketVec[bucketIndex] );

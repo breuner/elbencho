@@ -14,6 +14,7 @@ ELBENCHO_VERSION=$(make version)
 
 ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-1}"
 S3_SUPPORT="${OVERRIDE_S3_SUPPORT:-1}"
+S3_AWSCRT="${OVERRIDE_S3_AWSCRT:-0}"
 USE_MIMALLOC="${OVERRIDE_USE_MIMALLOC:-1}"
 
 rm -f packaging/elbencho-\${ELBENCHO_VERSION}-static-$(uname -m).tar.gz
@@ -32,8 +33,8 @@ docker run --name $CONTAINER_NAME --privileged -i -v $PWD:$PWD -w $PWD $IMAGE_NA
     adduser -u $UID -D builduser && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $(nproc) \
-        BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT \
-        S3_SUPPORT=$S3_SUPPORT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1" && \
+        BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT S3_SUPPORT=$S3_SUPPORT \
+        S3_AWSCRT=$S3_AWSCRT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1" && \
 docker rm $CONTAINER_NAME && \
 cd bin/ && \
 ./elbencho --version && \

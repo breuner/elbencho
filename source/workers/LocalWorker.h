@@ -15,18 +15,13 @@
 #include "toolkits/OpsLogger.h"
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
+#include "toolkits/S3Tk.h"
+#include "S3UploadStore.h"
 #include "Worker.h"
 
 #ifdef CUDA_SUPPORT
 	#include <cuda_runtime.h>
 	#include <curand.h>
-#endif
-
-#ifdef S3_SUPPORT
-	#include <aws/core/Aws.h>
-	#include <aws/s3/S3Client.h>
-
-	#include "S3UploadStore.h"
 #endif
 
 #ifdef HDFS_SUPPORT
@@ -142,9 +137,9 @@ class LocalWorker : public Worker
 #endif
 
 #ifdef S3_SUPPORT
-		std::shared_ptr<Aws::S3::S3Client> s3Client; // (shared_ptr expected by some SDK functions)
-		std::string s3EndpointStr; // set after s3Client initialized
-		static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
+        std::shared_ptr<S3Client> s3Client; // (shared_ptr expected by some SDK functions)
+        std::string s3EndpointStr; // set after s3Client initialized
+        static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 #endif
 
 #ifdef HDFS_SUPPORT
@@ -226,8 +221,6 @@ class LocalWorker : public Worker
 			std::string uploadID);
 		void s3ModeAbortUnfinishedSharedUploads();
 		void s3ModeDownloadObject(std::string bucketName, std::string objectName,
-			const bool isRWMixedReader);
-		void s3ModeDownloadObjectTransMan(std::string bucketName, std::string objectName,
 			const bool isRWMixedReader);
 		void s3ModeStatObject(std::string bucketName, std::string objectName);
 		void s3ModeDeleteObject(std::string bucketName, std::string objectName);

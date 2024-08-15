@@ -13,6 +13,7 @@
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "toolkits/FileTk.h"
+#include "toolkits/HashTk.h"
 #include "toolkits/NumaTk.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/TerminalTk.h"
@@ -583,10 +584,6 @@ void ProgArgs::defineAllowedArgs()
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
             "Do bucket Stats.")
-/*s3t*/	(ARG_S3TRANSMAN_LONG, bpo::bool_switch(&this->useS3TransferManager),
-			"Use AWS SDK TransferManager for object downloads. This enables iodepth greater than "
-			"1, but only supports simple sequential downloads. This is incompatible with "
-			"post-processing options similar to \"--" ARG_S3FASTGET_LONG "\".")
 #endif // S3_SUPPORT
 /*se*/	(ARG_SENDBUFSIZE_LONG, bpo::value(&this->sockSendBufSizeOrigStr),
 			"In netbench mode, this sets the send buffer size of sockets in bytes. "
@@ -761,7 +758,6 @@ void ProgArgs::defineDefaults()
 	this->treeRoundUpSize = 0;
 	this->treeRoundUpSizeOrigStr = "0";
 	this->useS3FastRead = false;
-	this->useS3TransferManager = false;
 	this->ignoreS3Errors = false;
 	this->s3LogLevel = 0;
 	this->s3LogfilePrefix = AWS_SDK_LOGPREFIX_DEFAULT;
@@ -1055,9 +1051,6 @@ void ProgArgs::checkArgs()
 	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
 		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
 			"Falling back to \"--" ARG_REVERSESEQOFFSETS_LONG "\"." << std::endl);
-
-	if(useRandomOffsets && !s3EndpointsStr.empty() && useS3TransferManager)
-		throw ProgException("S3 TransferManager does not support random offsets.");
 
 	if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize &&
 		runCreateFilesPhase && ( (fileSize/blockSize) > 10000) )
@@ -2275,11 +2268,11 @@ void ProgArgs::scanCustomTree()
             treeScanPath.erase(slashPos); // remove object prefix from bucket name
         }
 
-        S3Tk::initS3Global(*this);
+        S3Tk::initS3Global(this);
 
-        std::shared_ptr<Aws::S3::S3Client> s3Client = S3Tk::initS3Client(*this);
+        std::shared_ptr<S3Client> s3Client = S3Tk::initS3Client(this);
 
-        S3Tk::scanCustomTree(*this, s3Client, treeScanPath, scanObjectPrefix, treeFilePath);
+        S3Tk::scanCustomTree(this, s3Client, treeScanPath, scanObjectPrefix, treeFilePath);
 
         s3Client.reset(); // std::shared_ptr, so reset() deletes the s3 client object
 
@@ -2383,18 +2376,7 @@ void ProgArgs::loadServicePasswordFile()
     if(lineStr.empty() )
         throw ProgException("First line in service password file is empty: " + svcPasswordFile);
 
-    unsigned char messageDigestBuf[SHA_DIGEST_LENGTH];
-
-    SHA1( (const unsigned char*)lineStr.c_str(), lineStr.length(), messageDigestBuf);
-
-    std::stringstream hexStream;
-
-    hexStream << std::hex;
-
-    for(unsigned i=0; i < SHA_DIGEST_LENGTH; i++)
-        hexStream << std::setw(2) << std::setfill('0') << (unsigned)messageDigestBuf[i];
-
-    svcPasswordHash = hexStream.str();
+    svcPasswordHash = HashTk::simple128(lineStr);
 }
 
 /**
@@ -2840,7 +2822,7 @@ void ProgArgs::printHelpS3()
 		"Frequently Used Options", TerminalTk::getTerminalLineLength(80) );
 
 	argsS3FrequentDescription.add_options()
-		(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3TransferManager),
+		(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3FastRead),
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
 			"GPU data transfer.")
@@ -3075,10 +3057,15 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "ncurses ";
 #endif
 
-#ifdef S3_SUPPORT
-	includedStream << "s3 ";
+#if defined(S3_SUPPORT) && defined(S3_AWSCRT)
+    includedStream << "s3 ";
+    includedStream << "s3crt ";
+#elif defined(S3_SUPPORT)
+    includedStream << "s3 ";
+    notIncludedStream << "s3crt ";
 #else
-	notIncludedStream << "s3 ";
+    notIncludedStream << "s3 ";
+    notIncludedStream << "s3crt ";
 #endif
 
 #ifdef SYNCFS_SUPPORT
@@ -3207,7 +3194,6 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
-	useS3TransferManager = tree.get<bool>(ARG_S3TRANSMAN_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -3338,7 +3324,6 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
-	outTree.put(ARG_S3TRANSMAN_LONG, useS3TransferManager);
 	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);

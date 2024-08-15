@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "Logger.h"
 #include "OpsLogger.h"
+#include "ProgArgs.h"
 #include "toolkits/Base64Encoder.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/StringTk.h"
@@ -9,16 +10,24 @@
 
 #ifdef S3_SUPPORT
     #include <aws/core/auth/AWSCredentialsProvider.h>
-	#include <aws/core/Aws.h>
-	#include <aws/core/utils/logging/DefaultLogSystem.h>
-	#include <aws/core/utils/logging/AWSLogging.h>
-    #include <aws/s3/model/ListObjectsV2Request.h>
-#endif
+    #include <aws/core/Aws.h>
+    #include <aws/core/utils/logging/DefaultLogSystem.h>
+    #include <aws/core/utils/logging/AWSLogging.h>
+    #include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
+
+    #ifdef S3_AWSCRT
+        #include <aws/core/utils/logging/CRTLogSystem.h>
+    #endif
+
+#endif // S3_SUPPORT
 
 #ifdef S3_SUPPORT
-	bool S3Tk::globalInitCalled = false;
-	Aws::SDKOptions* S3Tk::s3SDKOptions = NULL; // needed for init and again for uninit later
-#endif
+    bool S3Tk::globalInitCalled = false;
+    Aws::SDKOptions* S3Tk::s3SDKOptions = NULL; // needed for init and again for uninit later
+#endif // S3_SUPPORT
+
+#define S3_ENV_ACCESS_KEY   "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
+#define S3_ENV_SECRET_KEY   "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret key
 
 
 /**
@@ -32,7 +41,7 @@
  * flag in ShutdownAPI(), which is why initialization can only be done once and will not work again
  * after ShutdownAPI was called.
  */
-void S3Tk::initS3Global(const ProgArgs& progArgs)
+void S3Tk::initS3Global(const ProgArgs* progArgs)
 {
 #ifdef S3_SUPPORT
 
@@ -46,13 +55,27 @@ void S3Tk::initS3Global(const ProgArgs& progArgs)
 
 	globalInitCalled = true;
 
-	if(progArgs.getS3LogLevel() > 0)
+    s3SDKOptions = new Aws::SDKOptions;
+
+	if(progArgs->getS3LogLevel() > 0)
+	{
+	    s3SDKOptions->loggingOptions.logLevel =
+	        (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel();
+
 		Aws::Utils::Logging::InitializeAWSLogging(
 			Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>("DebugLogging",
-				(Aws::Utils::Logging::LogLevel)progArgs.getS3LogLevel(),
-				progArgs.getS3LogfilePrefix() ) );
+				(Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
+				progArgs->getS3LogfilePrefix() ) );
 
-	s3SDKOptions = new Aws::SDKOptions;
+        #ifdef S3_AWSCRT
+            s3SDKOptions->loggingOptions.crt_logger_create_fn = [&]()
+            {
+                return Aws::MakeShared<Aws::Utils::Logging::DefaultCRTLogSystem>("DebugLogging",
+                    (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel() );
+            };
+        #endif // S3_AWSCRT
+	}
+
 	Aws::InitAPI(*s3SDKOptions);
 
 	/* note: this is to avoid a long delay for the client config trying to contact the
@@ -67,7 +90,7 @@ void S3Tk::initS3Global(const ProgArgs& progArgs)
  * Globally uninitialize the AWS SDK. Call this only once for the whole application lifetime. (See
  * S3Tk::initS3Global comments for why this may only be called once.)
  */
-void S3Tk::uninitS3Global(const ProgArgs& progArgs)
+void S3Tk::uninitS3Global(const ProgArgs* progArgs)
 {
 #ifdef S3_SUPPORT
 
@@ -78,7 +101,7 @@ void S3Tk::uninitS3Global(const ProgArgs& progArgs)
 
 	Aws::ShutdownAPI(*s3SDKOptions);
 
-	if(progArgs.getS3LogLevel() > 0)
+	if(progArgs->getS3LogLevel() > 0)
 		Aws::Utils::Logging::ShutdownAWSLogging();
 
 #endif // S3_SUPPORT
@@ -98,33 +121,40 @@ void S3Tk::uninitS3Global(const ProgArgs& progArgs)
  * @workerRank to select s3 endpoint if multiple endpoints are available in progArgs; otherwise
  *     a clock-based random number will be chosen.
  */
-std::shared_ptr<Aws::S3::S3Client> S3Tk::initS3Client(const ProgArgs& progArgs,
+std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     size_t workerRank)
 {
-    if(progArgs.getS3EndpointsVec().empty() )
+    if(progArgs->getS3EndpointsVec().empty() )
         throw ProgException(std::string(__func__) + " cannot init S3 client if no S3 endpoints are "
             "provided.");
 
-    Aws::Client::ClientConfiguration config;
+    S3ClientConfiguration config;
 
     config.verifySSL = false; // to avoid self-signed certificate errors
     config.enableEndpointDiscovery = false; // to avoid delays for discovery
-    config.maxConnections = progArgs.getIODepth();
+    config.maxConnections = progArgs->getIODepth();
     config.connectTimeoutMs = 5000;
     config.requestTimeoutMs = 300000;
     config.executor = std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(1);
     config.disableExpectHeader = true;
     config.enableTcpKeepAlive = true;
     config.requestCompressionConfig.requestMinCompressionSizeBytes = 1;
-    config.requestCompressionConfig.useRequestCompression = (progArgs.getS3NoCompression() ?
+    config.requestCompressionConfig.useRequestCompression = (progArgs->getS3NoCompression() ?
         Aws::Client::UseRequestCompression::DISABLE : Aws::Client::UseRequestCompression::ENABLE);
 
-    if(!progArgs.getS3Region().empty() )
-        config.region = progArgs.getS3Region();
+#ifdef S3_AWSCRT
+    config.useVirtualAddressing = false; /* only exists in config of s3-crt and not effective in
+        client constructor (but effective there for non-crt s3 client) */
+    config.partSize = progArgs->getBlockSize(); // partSize is used to auto-parallelize large GETs.
+    //config.throughputTargetGbps = 100; // not clear what the effect of setting this is.
+#endif // S3_AWSCRT
+
+    if(!progArgs->getS3Region().empty() )
+        config.region = progArgs->getS3Region();
 
     // select endpoint...
 
-    const StringVec& endpointsVec = progArgs.getS3EndpointsVec();
+    const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
     size_t numEndpoints = endpointsVec.size();
     std::string endpoint = endpointsVec[workerRank % numEndpoints];
 
@@ -134,15 +164,22 @@ std::shared_ptr<Aws::S3::S3Client> S3Tk::initS3Client(const ProgArgs& progArgs,
 
     Aws::Auth::AWSCredentials credentials;
 
-    if(!progArgs.getS3AccessKey().empty() )
-        credentials.SetAWSAccessKeyId(progArgs.getS3AccessKey() );
+    // read access key from command line args or environment variables
+    if(!progArgs->getS3AccessKey().empty() )
+        credentials.SetAWSAccessKeyId(progArgs->getS3AccessKey() );
+    else
+    if(getenv(S3_ENV_ACCESS_KEY) != NULL)
+        credentials.SetAWSAccessKeyId(getenv(S3_ENV_ACCESS_KEY) );
 
-    if(!progArgs.getS3AccessSecret().empty() )
-        credentials.SetAWSSecretKey(progArgs.getS3AccessSecret() );
+    if(!progArgs->getS3AccessSecret().empty() )
+        credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
+    else
+    if(getenv(S3_ENV_SECRET_KEY) != NULL)
+        credentials.SetAWSSecretKey(getenv(S3_ENV_SECRET_KEY) );
 
     // create s3 client for this worker
-    std::shared_ptr<Aws::S3::S3Client> s3Client = std::make_shared<Aws::S3::S3Client>(credentials,
-        config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs.getS3SignPolicy(),
+    std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentials,
+        config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(),
         false);
 
     return s3Client;
@@ -161,11 +198,11 @@ std::shared_ptr<Aws::S3::S3Client> S3Tk::initS3Client(const ProgArgs& progArgs,
  *  @objectPrefix object prefix to scan under given bucket; can be empty.
  *  @outTreeFilePath path to output file in custom tree format.
  */
-void S3Tk::scanCustomTree(const ProgArgs& progArgs, std::shared_ptr<Aws::S3::S3Client> s3Client,
+void S3Tk::scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
     std::string bucketName, std::string objectPrefix, std::string outTreeFilePath)
 {
     const unsigned numObjectsPerRequest = 1000;
-    const bool isLiveStatsDisabled = progArgs.getDisableLiveStats();
+    const bool isLiveStatsDisabled = progArgs->getDisableLiveStats();
     const time_t consoleUpdateIntervalT = 2; // time_t, so unit is seconds
     const time_t startT = time(NULL); // seconds since the epoch (for elapsed time)
     time_t consoleLastUpdateT = startT; // seconds since the epoch (for console updates)
@@ -224,7 +261,7 @@ void S3Tk::scanCustomTree(const ProgArgs& progArgs, std::shared_ptr<Aws::S3::S3C
 
             std::string currentEntry;
 
-            for(const Aws::S3::Model::Object& obj : listOutcome.GetResult().GetContents() )
+            for(const S3::Object& obj : listOutcome.GetResult().GetContents() )
             {
                 currentEntry = obj.GetKey().substr(objectPrefix.size(), std::string::npos);
 

@@ -9,6 +9,16 @@
 #include <unistd.h>
 #include <vector>
 
+// macro to easily switch between AWS Common Runtime (CRT) includes and external libs runtime
+
+#ifdef S3_AWSCRT
+    #define INCLUDE_AWS_S3(FILEPATH) <aws/s3-crt/FILEPATH>
+#else
+    #define INCLUDE_AWS_S3(FILEPATH) <aws/s3/FILEPATH>
+#endif
+
+// common types
+
 typedef std::list<std::string> StringList;
 typedef std::set<std::string> StringSet;
 typedef std::vector<std::string> StringVec;

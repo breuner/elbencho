@@ -7,10 +7,10 @@
 #include "ProgArgs.h"
 
 #ifdef S3_SUPPORT
-    #include <aws/s3/model/PutObjectAclRequest.h>
-    #include <aws/s3/model/PutBucketAclRequest.h>
-	#include <aws/s3/model/PutObjectRequest.h>
-    #include <aws/s3/model/ObjectCannedACL.h>
+    #include INCLUDE_AWS_S3(model/PutObjectAclRequest.h)
+    #include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
+    #include INCLUDE_AWS_S3(model/PutObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/ObjectCannedACL.h)
 #endif // S3_SUPPORT
 
 

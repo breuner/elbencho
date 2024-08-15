@@ -7,18 +7,16 @@
 #include <aws/core/Aws.h>
 #include <aws/core/utils/memory/stl/AWSString.h>
 #include <aws/core/utils/StringUtils.h>
-#include <aws/s3/model/CompleteMultipartUploadRequest.h>
-#include <aws/s3/model/CreateMultipartUploadRequest.h>
-#include <aws/s3/model/UploadPartRequest.h>
-#include <aws/s3/S3Client.h>
+#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
+#include INCLUDE_AWS_S3(model/CreateMultipartUploadRequest.h)
+#include INCLUDE_AWS_S3(model/UploadPartRequest.h)
 #include <map>
 #include <mutex>
 #include <string>
 #include "Logger.h"
 #include "workers/WorkerException.h"
+#include "toolkits/S3Tk.h"
 
-
-namespace S3 = Aws::S3::Model;
 
 class OpsLogger; // forward declaration to avoid cyclic include
 class ProgArgs; // forward declaration to avoid cyclic include
@@ -85,7 +83,7 @@ class S3UploadStore
 	public:
         void setProgArgs(const ProgArgs* progArgs);
 		std::string getMultipartUploadID(const std::string& bucketName,
-			const std::string& objectName, std::shared_ptr<Aws::S3::S3Client> s3Client,
+			const std::string& objectName, std::shared_ptr<S3Client> s3Client,
 			OpsLogger& opsLog);
 		std::unique_ptr<Aws::Vector<S3::CompletedPart>> addCompletedPart(
 			const std::string& bucketName, const std::string& objectName,

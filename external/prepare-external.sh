@@ -3,6 +3,7 @@
 # Prepare git clones and checkout the required tags of external sources.
 # Simple-Web-Server will always be prepared when this is called.
 # AWS SDK CPP will only be prepared when PREP_AWS_SDK=1 is set.
+# (S3_AWSCRT=1 controls build options for the AWS SDK CPP.)
 # Mimalloc will only be prepared when PREP_MIMALLOC=1 is set.
 # uWebSockets will only be prepared when PREP_UWS=1 is set.
 
@@ -204,6 +205,12 @@ prepare_awssdk()
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
+	local LIB_FILE_NAME="libaws-sdk-all.a"
+	
+	# fast path: check if lib file exists, in which case previous build completed
+	if [ -e "$INSTALL_DIR"/lib*/"$LIB_FILE_NAME" ]; then
+	  return 0
+	fi
 	
 	# change to external subdir if we were called from somewhere else
 	cd "$EXTERNAL_BASE_DIR" || exit 1
@@ -211,51 +218,60 @@ prepare_awssdk()
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
 		echo "Cloning AWS SDK git repo..."
+
 		git clone --recursive https://github.com/breuner/aws-sdk-cpp.git $CLONE_DIR
 		if [ $? -ne 0 ]; then
+			echo "ERROR: Cloning AWS SDK git repo failed." \
+				"Consider \"make clean-all\" before retrying a partially completed clone."
 			exit 1
 		fi
 	fi
 	
 	# directory exists, check if we already have the right tag.
-	# (this is the fast path for dependency calls from Makefile)
 	cd "$CLONE_DIR" && \
 		CURRENT_TAG="$(git describe --tags)" && \
-		if [ "$CURRENT_TAG" = "$REQUIRED_TAG" ]; then
-			# Already at the right tag, so nothing to do
-			return 0;
-		fi && \
-		cd "$EXTERNAL_BASE_DIR"
-
-	# we need to change tag...
+		if [ "$CURRENT_TAG" != "$REQUIRED_TAG" ]; then
+			# we need to change tag
+			
+			# clean up and uninstall any previous build before we switch to new tag
+			if [ -f "$CLONE_DIR/Makefile" ]; then
+				echo "Cleaning up previous build..."
+				cd "$CLONE_DIR" && \
+				make uninstall && \
+				make clean
+				
+				[ $? -ne 0 ] && exit 1
+			fi
+			
+			# check out required tag
+			# (fetching is relevant in case we update to a new required tag.)
+			echo "Checking out AWS SDK tag ${REQUIRED_TAG}..."
+			
+			cd "$CLONE_DIR" && \
+				git fetch --recurse-submodules -q --all && \
+				git checkout -q ${REQUIRED_TAG} && \
+				git submodule -q update --recursive && \
+				cd "$EXTERNAL_BASE_DIR"
+			
+			[ $? -ne 0 ] && exit 1
+		fi
 	
-	# clean up and uninstall any previous build before we switch to new tag
-	if [ -f "$CLONE_DIR/Makefile" ]; then
-		echo "Cleaning up previous build..."
-		cd "$CLONE_DIR" && \
-		make uninstall && \
-		make clean
-		
-		[ $? -ne 0 ] && exit 1
-	fi
-	
-	# check out required tag
-	# (fetching is relevant in case we update to a new required tag.)
-	echo "Checking out AWS SDK tag ${REQUIRED_TAG}..."
-	
-	cd "$CLONE_DIR" && \
-		git fetch --recurse-submodules -q --all && \
-		git checkout -q ${REQUIRED_TAG} && \
-		git submodule -q update --recursive && \
-		cd "$EXTERNAL_BASE_DIR"
-	
-	[ $? -ne 0 ] && exit 1
+	# configure, build and install
 	
 	echo "Configure, build and install...  (parallel jobs: $NUM_PARALLEL_JOBS)"
+	
+	if [ "$S3_AWSCRT" -eq 1 ]; then
+	  local cmake_build_opts=(-DBUILD_ONLY="s3-crt" "-DBYO_CRYPTO=OFF" "-DUSE_OPENSSL=OFF" \
+	      "-DUSE_CRT_HTTP_CLIENT=ON")
+	else
+	  local cmake_build_opts=(-DBUILD_ONLY="s3" "-DBYO_CRYPTO=ON" "-DUSE_OPENSSL=ON" \
+	      "-DUSE_CRT_HTTP_CLIENT=OFF")
+	fi
+	
 	cd "$CLONE_DIR" && \
-		cmake . -DBUILD_ONLY="s3;transfer" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=17 \
-			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DUSE_CRT_HTTP_CLIENT=OFF \
-			-DCMAKE_BUILD_TYPE=Release -DBYO_CRYPTO=ON -DUSE_OPENSSL=ON -DFORCE_SHARED_CRT=OFF \
+		cmake . "${cmake_build_opts[@]}" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=17 \
+			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
+			-DFORCE_SHARED_CRT=OFF -DENABLE_UNITY_BUILD=ON \
 			"-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR" && \
 		make -j "$NUM_PARALLEL_JOBS" install && \
 		cd "$EXTERNAL_BASE_DIR"
@@ -264,9 +280,10 @@ prepare_awssdk()
 	
 	echo "Preparing static AWS SDK lib..."
 	
+	# (note: path vars declared down here because "lib*" might not exist before "make install")
 	local AWS_LIB_DIR="$(echo ${INSTALL_DIR}/lib*)"
 	local MRI_FILE="${AWS_LIB_DIR}/libaws-sdk-all.mri"
-	local LIB_FILE="${AWS_LIB_DIR}/libaws-sdk-all.a"
+	local LIB_FILE="${AWS_LIB_DIR}/$LIB_FILE_NAME"
 	
 	# delete old mri file and old lib
 	rm -f "$LIB_FILE" "$MRI_FILE"

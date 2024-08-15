@@ -30,7 +30,7 @@ void HTTPServiceSWS::startServer()
 	if(!progArgs.getRunServiceInForeground() )
 		daemonize(); // daemonize process in background
 
-	S3Tk::initS3Global(progArgs); // inits threads and thus after service daemonize
+	S3Tk::initS3Global(&progArgs); // inits threads and thus after service daemonize
 
 	// prepare http server and its URLs
 

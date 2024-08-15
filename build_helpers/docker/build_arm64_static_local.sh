@@ -20,6 +20,7 @@ ELBENCHO_VERSION=$(make version)
 
 ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-0}"
 S3_SUPPORT="${OVERRIDE_S3_SUPPORT:-1}"
+S3_AWSCRT="${OVERRIDE_S3_AWSCRT:-0}"
 USE_MIMALLOC="${OVERRIDE_USE_MIMALLOC:-1}"
 
 # Cross-compile is mem intensive, so limit to one proc per GB RAM
@@ -43,8 +44,8 @@ docker run --platform linux/arm64 --name $CONTAINER_NAME --privileged -i -v $PWD
     adduser -u $UID -D builduser && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $NUM_JOBS \
-        BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT \
-        S3_SUPPORT=$S3_SUPPORT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1 && \
+        BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT S3_SUPPORT=$S3_SUPPORT \
+        S3_AWSCRT=$S3_AWSCRT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1 && \
     cd bin/ && \
     sudo -u builduser ./elbencho --version && \
     sudo -u builduser sh -c \"file elbencho | grep static\" && \

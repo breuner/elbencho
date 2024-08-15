@@ -21,7 +21,7 @@ void S3UploadStore::setProgArgs(const ProgArgs* progArgs)
  * @throw WorkerException on error, e.g. failed server communication.
  */
 std::string S3UploadStore::getMultipartUploadID(const std::string& bucketName,
-	const std::string& objectName, std::shared_ptr<Aws::S3::S3Client> s3Client, OpsLogger& opsLog)
+	const std::string& objectName, std::shared_ptr<S3Client> s3Client, OpsLogger& opsLog)
 {
 	std::unique_lock<std::mutex> lock(mutex); // L O C K (scoped)
 

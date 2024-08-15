@@ -4,9 +4,13 @@
 
 ### New Features & Enhancements
 * New option to scan directory or bucket on startup and use result as custom treefile. (See `--treescan`.)
+* New build option to use S3 CRT client of AWS SDK, which uses AWS libs instead of external libs like libcurl. (See `S3_AWSCRT` in `make help`.)
+* S3 credentials can now also be provided via environment variables instead of config parameters. (`AWS_ACCESS_KEY_ID` & `AWS_SECRET_ACCESS_KEY`.)
 
 ### General Changes
 * Option `--s3objprefix` is now also effective when `--treefile` (and the new `--treescan`) is used.
+* Removed unused `--s3transman` option to reduce AWS SDK build options and build time.
+* AWS SDK build process now tries to recover if it turns out that a previous build did not complete successfully.
 
 ## v3.0.17 (July 31, 2024)
 

@@ -48,7 +48,7 @@ int Coordinator::main()
 			goto joinall_and_exit;
 		}
 
-		S3Tk::initS3Global(progArgs); // inits threads and thus after potential service daemonize
+		S3Tk::initS3Global(&progArgs); // inits threads and thus after potential service daemonize
 		workerManager.prepareThreads();
 
 		/* register signal handlers for clean worker stop and stats print after ctrl+c. This is not
@@ -116,7 +116,7 @@ joinall_and_exit:
 		LoggerBase::clearErrHistory();
 	}
 
-	S3Tk::uninitS3Global(progArgs);
+	S3Tk::uninitS3Global(&progArgs);
 
 	if( (retVal != EXIT_SUCCESS) || workerManager.getNumWorkersDoneWithError() )
 		return EXIT_FAILURE;
