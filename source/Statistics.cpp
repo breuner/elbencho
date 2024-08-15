@@ -1205,14 +1205,11 @@ void Statistics::printPhaseResults()
 bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 {
 	// check if results uninitialized. can happen if called in service mode before 1st run.
-	IF_UNLIKELY(workerVec.empty() || workerVec[0]->getElapsedUSecVec().empty() )
+	IF_UNLIKELY(workerVec.empty() )
 		return false;
 
-	// init first/last elapsed milliseconds
-	phaseResults.firstFinishUSec =
-		workerVec[0]->getElapsedUSecVec()[0]; // stonewall: time to completion of fastest worker
-	phaseResults.lastFinishUSec =
-		workerVec[0]->getElapsedUSecVec()[0]; // time to completion of slowest worker
+	// (first worker might not have gotten work, so we can only init while we iterate over workers)
+	bool firstAndLastFinishInitialized = false;
 
 	// sum up total values
 	for(Worker* worker : workerVec)
@@ -1239,6 +1236,19 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 
 		for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
 		{
+		    // init first/last elapsed milliseconds
+		    if(!firstAndLastFinishInitialized)
+            {
+		        LOGGER(Log_DEBUG, "gen phase res: init first&last finished. "
+		            "WorkerRank: " << worker->getRank() << std::endl);
+
+                phaseResults.firstFinishUSec = elapsedUSec; // stonewall: time to compl of fastest
+                phaseResults.lastFinishUSec = elapsedUSec; // time to completion of slowest worker
+
+                firstAndLastFinishInitialized = true;
+		        continue;
+            }
+
 			if(elapsedUSec < phaseResults.firstFinishUSec)
 				phaseResults.firstFinishUSec = elapsedUSec;
 
@@ -1255,6 +1265,12 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 		phaseResults.entriesLatHistoReadMix += worker->getEntriesLatencyHistogramReadMix();
 
 	} // end of for loop
+
+	if(!firstAndLastFinishInitialized)
+	{
+        LOGGER(Log_DEBUG, "gen phase res: No worker provided elapsedUSec." << std::endl);
+	    return false;
+	}
 
 	// total per sec for all workers by 1st finisher
 	if(phaseResults.firstFinishUSec)

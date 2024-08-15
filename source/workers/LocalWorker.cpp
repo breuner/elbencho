@@ -2984,6 +2984,16 @@ void LocalWorker::dirModeIterateCustomFiles()
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
 
+
+	// check if this worker has anything to do in this round
+    IF_UNLIKELY(customTreePaths.empty() )
+    {
+        LOGGER(Log_DEBUG, "got no work in this round. workerRank: " << workerRank << std::endl);
+        workerGotPhaseWork = false;
+        return;
+    }
+
+
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so short is ok)
 
 	// walk over custom tree part of this worker
@@ -3260,6 +3270,17 @@ void LocalWorker::fileModeIterateFilesSeq()
 		"thisWorkerNumBlocks: " << thisWorkerNumBlocks << "; "
 		"startBlock: " << startBlock << "; "
 		"endBlock: " << endBlock << "; " << std::endl);
+
+
+	// check if worker has anything to do in this round
+	IF_UNLIKELY(startBlock >= endBlock)
+	{
+        LOGGER(Log_DEBUG, "got no work in this round. workerRank: " << workerRank << std::endl);
+
+	    workerGotPhaseWork = false;
+	    return;
+	}
+
 
 	uint64_t currentBlockIdx = startBlock;
 
@@ -3793,6 +3814,16 @@ void LocalWorker::s3ModeIterateCustomObjects()
 	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
     std::string objectPrefix = progArgs->getS3ObjectPrefix();
+
+
+    // check if this worker has anything to do in this round
+    IF_UNLIKELY(customTreePaths.empty() )
+    {
+        LOGGER(Log_DEBUG, "got no work in this round. workerRank: " << workerRank << std::endl);
+
+        workerGotPhaseWork = false;
+        return;
+    }
 
 
 	unsigned short numFilesDone = 0; // just for occasional interruption check (so "short" is ok)

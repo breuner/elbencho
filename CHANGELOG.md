@@ -11,6 +11,7 @@
 * Option `--s3objprefix` is now also effective when `--treefile` (and the new `--treescan`) is used.
 * Removed unused `--s3transman` option to reduce AWS SDK build options and build time.
 * AWS SDK build process now tries to recover if it turns out that a previous build did not complete successfully.
+* Stonewall will no longer get triggered by workers without any work assignments in custom tree mode (e.g. because of very small dataset).
 
 ## v3.0.17 (July 31, 2024)
 
