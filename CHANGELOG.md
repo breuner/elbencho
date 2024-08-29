@@ -13,6 +13,9 @@
 * AWS SDK build process now tries to recover if it turns out that a previous build did not complete successfully.
 * Stonewall will no longer get triggered by workers without any work assignments in custom tree mode (e.g. because of very small dataset).
 
+### Fixes
+* Fixed a segmentation fault when attempting to validate an empty S3 tag set (will throw an appropriate error instead)
+
 ## v3.0.17 (July 31, 2024)
 
 ### New Features & Enhancements
