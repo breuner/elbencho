@@ -5716,7 +5716,19 @@ void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::
     if (!progArgs->getDoS3ObjectTaggingVerify())
         return;
 
-    const auto& firstTag = getTagOutcome.GetResult().GetTagSet().front();
+    const auto& tagSet = getTagOutcome.GetResult().GetTagSet();
+
+    IF_UNLIKELY(tagSet.empty())
+    {
+        std::stringstream errStr;
+        errStr << "Object has not tags, but 1 tag was expected"
+               << "Bucket: " << bucketName << "; "
+               << "Key: " << objectName << std::endl
+               << "Tag: " << TAG_KEY_MEDIUM_NAME << std::endl;
+        throw WorkerException(errStr.str());
+    }
+
+    const auto& firstTag = tagSet.front();
 
     IF_UNLIKELY(!StringTk::verifyRandomS3TagValue(firstTag.GetValue(), objectName))
     {
