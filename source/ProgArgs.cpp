@@ -1264,7 +1264,8 @@ void ProgArgs::checkPathDependentArgs()
 			randomAmount = newRandomAmount;
 		}
 
-		if(blockSize && (numBlocksTotal < numDataSetThreads) )
+		if(blockSize && (numBlocksTotal < numDataSetThreads) &&
+		    (runCreateFilesPhase || runReadPhase) )
 			throw ProgException("Aggregate usable file size must be large enough so that each I/O "
 				"thread can at least read/write one block. "
 				"Block size: " + std::to_string(blockSize) + "; "
@@ -1272,7 +1273,7 @@ void ProgArgs::checkPathDependentArgs()
 				"Aggregate file size: " + std::to_string(numFiles*fileSize) + "; "
 				"Aggregate blocks: " + std::to_string(numBlocksTotal) );
 
-		if(useRandomOffsets && (fileSize < blockSize) )
+		if(useRandomOffsets && (fileSize < blockSize) && (runCreateFilesPhase || runReadPhase) )
 			throw ProgException("File size must not be smaller than block size when random I/O "
 				"with alignment is selected.");
 

@@ -9,10 +9,12 @@ EXE_PATH="$SCRIPT_PATH/../bin/$EXE_NAME"
 LOOP_BACKING_FILES=("backing1" "backing2")
 LOOP_BACKING_FILE_SIZE="$((10*1024*1024))"
 LOOPDEV_PATHS=() # array of loop device paths based on LOOP_BACKING_FILES
+RANDOM_IO_FILENAME_PREFIX="testfile" # filename prefix for random IO tests
 
 SKIP_BLOCKDEV_TESTS=0 # user-defined. 1 means skip block device tests.
 SKIP_MULTIFILE_TESTS=0 # user-defined. 1 means skip multi-file tests.
 SKIP_DISTRIBUTED_TESTS=0 # user-defined. 1 means skip distributed tests.
+RUN_RANDOM_IO_TESTS=0 # user-defined. 1 means run random IO tests.
 
 unset BASE_DIR # user-defined base dir for benchmarks
 
@@ -34,6 +36,7 @@ usage()
   echo "  -b          Skip block device tests. (Device setup requires root privileges.)"
   echo "  -d          Skip distributed tests."
   echo "  -m          Skip multi-file tests."
+  echo "  -r          Run random IO tests."
   echo
   echo "Examples:"
   echo "  Run tests in directory /data/test:"
@@ -47,7 +50,7 @@ parse_args()
 {
   local OPTIND # local to prevent effects from other subscripts
 
-  while getopts ":bdmh" opt; do
+  while getopts ":bdhmr" opt; do
     case "${opt}" in
       b)
         SKIP_BLOCKDEV_TESTS=1
@@ -55,12 +58,15 @@ parse_args()
       d)
         SKIP_DISTRIBUTED_TESTS=1
         ;;
-      m)
-        SKIP_MULTIFILE_TESTS=1
-        ;;
       h)
         # help
         usage
+        ;;
+      m)
+        SKIP_MULTIFILE_TESTS=1
+        ;;
+      r)
+        RUN_RANDOM_IO_TESTS=1
         ;;
       *)
         # Other option arguments are invalid
@@ -346,6 +352,90 @@ stop_distributed_services()
   fi
 }
 
+# Test 4 threads writing 13 files of 1MiB each using 4KB random IOs with iodepth 2 inside $BASE_DIR
+test_random_io_create()
+{
+  local num_matching_files=0;
+  
+  cmd="${EXE_PATH} -t 4 -w -s 1m -b 4k --rand --direct --iodepth 2 --no0usecerr $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX'[1-13]'"
+  
+  echo "Test 4 threads writing 13 files of 1MiB each using 4KB random IOs with iodepth 2 inside $BASE_DIR:"
+  echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
+  
+  eval "$cmd"
+
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Test failed."
+    cleanup_random_io
+    exit 1
+  fi
+  
+  num_matching_files=$(du -sh $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX* | grep -e '^1.0M' | wc -l)
+  if [ "$num_matching_files" -ne 13 ]; then
+    echo "ERROR: File disk usage verification failed."
+    cleanup_random_io
+    exit 1
+  fi
+  
+  num_matching_files=$(du --apparent-size -s $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX* | grep -e '^1024' | wc -l)
+  if [ "$num_matching_files" -ne 13 ]; then
+    echo "ERROR: File size verification failed."
+    cleanup_random_io
+    exit 1
+  fi
+  
+}
+
+# Test 5 threads reading 13 files of 1MiB each using 8KB random IOs inside $BASE_DIR
+test_random_io_read()
+{
+  cmd="${EXE_PATH} -t 5 -r -s 1m -b 8k --rand --no0usecerr $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX'[1-13]'"
+  
+  echo "Test 5 threads reading 13 files of 1MiB each using 8KB random IOs inside $BASE_DIR:"
+  echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
+  
+  eval "$cmd"
+
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Test failed."
+    cleanup_random_io
+    exit 1
+  fi
+}
+
+# Delete files and directories created by test_random_io_create() inside $BASE_DIR
+test_random_io_delete()
+{
+  cmd="${EXE_PATH} -t 6 -F --no0usecerr $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX'[1-13]'"
+  
+  echo "Delete files and directories created by previous test inside $BASE_DIR:"
+  echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
+  
+  eval "$cmd"
+
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Test failed."
+    cleanup_random_io
+    exit 1
+  fi
+}
+
+# Delete files and directories previously created inside $BASE_DIR
+cleanup_random_io()
+{
+  cmd="rm -f $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX*"
+  
+  echo "Cleaning up any files and directories left inside $BASE_DIR:"
+  echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
+  
+  eval "$cmd"
+
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Cleanup failed."
+    exit 1
+  fi
+}
+
 parse_args "$@"
 find_executable_or_exit
 check_basedir_or_exit
@@ -382,6 +472,18 @@ if [ $SKIP_DISTRIBUTED_TESTS -eq 0 ]; then
   test_distributed_master
   echo
   stop_distributed_services
+fi
+
+echo
+
+if [ $RUN_RANDOM_IO_TESTS -eq 1 ]; then
+  test_random_io_create
+  echo
+  test_random_io_read
+  echo
+  test_random_io_delete
+  echo
+  cleanup_random_io
 fi
 
 echo
