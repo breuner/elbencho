@@ -995,6 +995,7 @@ void LocalWorker::initPhaseRWOffsetGen()
 {
 	const size_t blockSize = progArgs->getBlockSize();
 	const uint64_t fileSize = progArgs->getFileSize();
+	const bool isWritePhase = (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES);
 
 	/* in dir mode randAmount is file size, for file/bdev it's the total amount for this thread
 		across all given files/bdevs */
@@ -1002,9 +1003,13 @@ void LocalWorker::initPhaseRWOffsetGen()
 		fileSize : progArgs->getRandomAmount() / progArgs->getNumDataSetThreads();
 
 	// init random algos
-	randOffsetAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo() );
 	randBlockVarAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getBlockVarianceAlgo() );
 	randBlockVarReseed = std::make_unique<RandAlgoXoshiro256ss>();
+
+	/* note: randOffsetAlgo is also used to select files, so needs to be initialized indepedent of
+	    OffsetGenRandomAlignedFullCoverage not using it */
+    randOffsetAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo().empty() ?
+        RANDALGO_BALANCED_SEQUENTIAL_STR : progArgs->getRandOffsetAlgo() );
 
 	// note: in some cases these defs get overridden per-file later (e.g. for custom tree)
 
@@ -1016,14 +1021,22 @@ void LocalWorker::initPhaseRWOffsetGen()
 		rwOffsetGen = std::make_unique<OffsetGenSequential>(
 			fileSize, 0, blockSize);
 	else
-	if(progArgs->getUseRandomAligned() ) // random aligned
+	if(progArgs->getUseRandomUnaligned() ) // random unaligned
 	{
-		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
-			fileSize, 0, blockSize);
+        rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
+            fileSize, 0, blockSize);
 	}
-	else // random unaligned
-		rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
-			fileSize, 0, blockSize);
+	else // random aligned
+	{
+	    if(!progArgs->getRandOffsetAlgo().empty() || !isWritePhase )
+	        rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
+	            fileSize, 0, blockSize);
+	    else
+	    { // random aligned writes without explicit algo selection => use full coverage algo
+	        rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverage>(
+	            randomAmount, fileSize, 0, blockSize);
+	    }
+	} // end of random aligned
 }
 
 /**
@@ -1494,39 +1507,44 @@ void LocalWorker::cleanupAfterPhaseDone()
  * Loop around pread/pwrite to use user-defined block size instead of full given count in one call.
  * Reads/writes the pre-allocated ioBuf. Uses rwOffsetGen for next offset and block size.
  *
- * @fdVec if more multiple fds are given then they will be used round-robin; there is no guarantee
- * 		for which fd from the vec will be used first, so this is only suitable for random IO.
+ * If this->fileHandles contains multiple FDs then they will be treated as described in
+ * calcFileIdxAndOffsetStriped().
+ *
  * @return similar to pread/pwrite.
  */
 int64_t LocalWorker::rwBlockSized()
 {
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
-	const size_t fileHandleVecSize = fileHandles.fdVecPtr->size();
-
-	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, fileHandleVecSize, 0, 1);
+    const uint64_t fileSize = progArgs->getFileSize();
+    const bool isSingleFile = (fileHandles.fdVecPtr->size() == 1);
 
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const size_t fileHandleIdx = (fileHandleVecSize > 1) ? randFileIndexGen.getNextOffset() : 0;
-		bool isRWMixRead = false;
-		ssize_t rwRes;
+        const uint64_t rwOffsetGenNext = rwOffsetGen->getNextOffset();
+        const size_t currentBlockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+        uint64_t currentOffset;
+        size_t fileHandleIdx;
+        bool isRWMixRead = false;
+        ssize_t rwRes;
 
-		((*this).*funcRWRateLimiter)(blockSize);
+        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile,
+            fileHandleIdx, currentOffset);
+
+		((*this).*funcRWRateLimiter)(currentBlockSize);
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
-		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
+		    currentOffset);
+		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
 
 		if(benchPhase == BenchPhase_READFILES)
 		{ // this is a read, but could be a rwmix read thread
 			isRWMixRead = (benchPhase != globalBenchPhase);
 
 			rwRes = ((*this).*funcPositionalRead)(
-				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 		}
 		else // this is a write or rwmixpct read
 		if(rwMixPercent &&
@@ -1535,17 +1553,17 @@ int64_t LocalWorker::rwBlockSized()
 			isRWMixRead = true;
 
 			rwRes = ((*this).*funcPositionalRead)(
-				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 		}
 		else
 		{ // this is a plain write
 			rwRes = ((*this).*funcPositionalWrite)(
-				fileHandleIdx, ioBufVec[0], blockSize, currentOffset);
+				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 		}
 
 		IF_UNLIKELY(rwRes <= 0)
 		{ // unexpected result
-			ERRLOGGER(Log_NORMAL, "IO failed: " << "blockSize: " << blockSize << "; " <<
+			ERRLOGGER(Log_NORMAL, "IO failed: " << "blockSize: " << currentBlockSize << "; " <<
 				"currentOffset:" << currentOffset << "; " <<
 				"leftToSubmit:" << rwOffsetGen->getNumBytesLeftToSubmit() << "; " <<
 				"rank:" << workerRank << "; " <<
@@ -1559,8 +1577,9 @@ int64_t LocalWorker::rwBlockSized()
 				(rwOffsetGen->getNumBytesTotal() - rwOffsetGen->getNumBytesLeftToSubmit() );
 		}
 
-		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
+		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
+		    currentOffset);
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -1594,11 +1613,12 @@ int64_t LocalWorker::rwBlockSized()
 /**
  * Loop around libaio read/write to use user-defined block size instead of full file size in one
  * call.
- * Reads/writes the pre-allocated ioBuf. Uses iodepth from progArgs. Uses rwOffsetGen for next
- * offset and block size.
+ * Reads/writes the pre-allocated ioBuf. Uses iodepth from progArgs.
  *
- * @fdVec if more multiple fds are given then they will be used round-robin; there is no guarantee
- * 		for which fd from the vec will be used first, so this is only suitable for random IO.
+ * If this->fileHandles contains multiple FDs then they will be treated as a striped single range,
+ * so sequential IOs would be done round-robin. Thus, this is not suitable if serial processing
+ * of files is needed.
+ *
  * @return similar to pread/pwrite.
  * @throw WorkerException on async IO framework errors.
  */
@@ -1614,6 +1634,8 @@ int64_t LocalWorker::aioBlockSized()
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const size_t maxIODepth = progArgs->getIODepth();
 	const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
+    const uint64_t fileSize = progArgs->getFileSize();
+    const bool isSingleFile = (fileHandlesVecSize == 1);
 
 	size_t numPending = 0; // num requests submitted and pending for completion
 	size_t numBytesDone = 0; // after successfully completed requests
@@ -1625,8 +1647,6 @@ int64_t LocalWorker::aioBlockSized()
 	struct io_event ioEvents[AIO_MAX_EVENTS];
 	struct timespec ioTimeout;
 
-	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, fileHandlesVecSize, 0, 1);
-
 	int initRes = io_queue_init(maxIODepth, &ioContext);
 	IF_UNLIKELY(initRes)
 		throw WorkerException(std::string("Initializing async IO (io_queue_init) failed. ") +
@@ -1637,12 +1657,17 @@ int64_t LocalWorker::aioBlockSized()
 
 	while(rwOffsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
 	{
-		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		const size_t fileHandlesIdx = (fileHandlesVecSize > 1) ?
-			randFileIndexGen.getNextOffset() : 0;
-		const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
+		const uint64_t rwOffsetGenNext = rwOffsetGen->getNextOffset();
+        const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 		const size_t ioVecIdx = numPending; // iocbVec index
+
+		uint64_t currentOffset;
+        size_t fileHandlesIdx;
+
+        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile,
+            fileHandlesIdx, currentOffset);
+
+        const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
 		iocbPointerVec[ioVecIdx] = &iocbVec[ioVecIdx];
 
@@ -1776,9 +1801,14 @@ int64_t LocalWorker::aioBlockSized()
 			// request complete, so reuse iocb for the next request...
 
 			const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-			const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-			const size_t fileHandlesIdx = (fileHandlesVecSize > 1) ?
-				randFileIndexGen.getNextOffset() : 0;
+			const uint64_t rwOffsetGenNext = rwOffsetGen->getNextOffset();
+
+			uint64_t currentOffset;
+            size_t fileHandlesIdx;
+
+            calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile,
+                fileHandlesIdx, currentOffset);
+
 			const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
 			((*this).*funcAioRwPrepper)(ioEvents[eventIdx].obj, fd, ioBufVec[ioVecIdx], blockSize,
@@ -1817,6 +1847,34 @@ int64_t LocalWorker::aioBlockSized()
 	return rwOffsetGen->getNumBytesTotal();
 
 #endif // LIBAIO_SUPPORT
+}
+
+/**
+ * Calculate the next file and offset within file for rwBlockSized and aioBlockSized.
+ *
+ * If only one file in fileHandlesVec then rwOffsetGenNext is the next offset. Otherwise the set
+ * of files is treated like a single virtual large file with one file after the other and all
+ * files are expected to have progArgs->getFileSize() length.
+ *
+ * @fileSize progArgs->getFileSize().
+ * @isSingleFile true if there is only one file in fileHandlesVec.
+ * @outFileOffset offset within outNextFileIdx.
+ * @outFileIdx index within fileHandlesVec.
+ */
+void LocalWorker::calcFileIdxAndOffsetStriped(const uint64_t rwOffsetGenNext,
+    const uint64_t fileSize, const bool isSingleFile,
+    size_t& outFileIdx, uint64_t& outFileOffset)
+{
+    if(isSingleFile)
+    { // single file
+        outFileIdx = 0;
+        outFileOffset = rwOffsetGenNext;
+    }
+    else
+    { // multiple files => treat them as single serial block range, one file after the other
+        outFileIdx = rwOffsetGenNext / fileSize;
+        outFileOffset = rwOffsetGenNext % fileSize;
+    }
 }
 
 /**
@@ -3184,7 +3242,37 @@ void LocalWorker::dirModeIterateCustomFiles()
  */
 void LocalWorker::fileModeIterateFilesRand()
 {
-	// funcRWBlockSized() will send IOs round-robin to all user-given files.
+	// the total file range used for all workers
+
+    const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
+    const bool isWritePhase = (benchPhase == BenchPhase_CREATEFILES);
+    const size_t fileHandleVecSize = fileHandles.fdVecPtr->size();
+    const size_t blockSize = progArgs->getBlockSize();
+    const uint64_t fileSize = progArgs->getFileSize();
+    const uint64_t numBlocksPerFile = fileSize / blockSize;
+    const uint64_t numBlocksTotal = numBlocksPerFile * fileHandleVecSize;
+    const size_t numDataSetThreads = progArgs->getNumDataSetThreads();
+    const uint64_t randomAmount = progArgs->getRandomAmount() / numDataSetThreads;
+
+    // treat all files as virtual file-serial range of blocks and instantiate selected offset gen...
+
+    const uint64_t rangeLen = blockSize * (numBlocksTotal / numDataSetThreads);
+    const uint64_t rangeOffset = workerRank * blockSize * (numBlocksTotal / numDataSetThreads);
+
+    if(progArgs->getUseRandomUnaligned() )
+        rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
+            rangeLen, rangeOffset, blockSize);
+    else
+    if(!progArgs->getRandOffsetAlgo().empty() || !isWritePhase )
+        rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
+            rangeLen, rangeOffset, blockSize);
+    else
+    { // random aligned writes without explicit algo selection => use full coverage algo
+        rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverage>(
+            randomAmount, rangeLen, rangeOffset, blockSize);
+    }
+
+    // let funcRWBlockSized do the actual work of reading/writing all blocks...
 
 	if(benchPhase == BenchPhase_CREATEFILES)
 	{
@@ -3732,7 +3820,7 @@ void LocalWorker::s3ModeIterateObjectsRand()
 	// init random offset gen for one read per file
 
 	const uint64_t randomAmount = progArgs->getRandomAmount() / progArgs->getNumDataSetThreads();
-	if(progArgs->getUseRandomAligned() ) // random aligned
+	if(!progArgs->getUseRandomUnaligned() ) // random aligned
 	{
 		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(blockSize, *randOffsetAlgo,
 			fileSize, 0, blockSize);

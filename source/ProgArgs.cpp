@@ -393,8 +393,8 @@ void ProgArgs::defineAllowedArgs()
 /*nod*/	(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
 /*nod*/	(ARG_NODIRECTIOCHECK_LONG, bpo::bool_switch(&this->noDirectIOCheck),
-			"Don't check direct IO alignment. Many platforms require direct IO alignment. NFS is "
-			"a prominent exception.")
+			"Don't check direct IO alignment and minimum block size. Many platforms require "
+			"IOs to be aligned to certain minimum block sizes for direct IO.")
 /*nof*/	(ARG_NOFDSHARING_LONG, bpo::bool_switch(&this->useNoFDSharing),
 			"If benchmark path is a file or block device, let each worker thread open the given"
 			"file/bdev separately instead of sharing the same file descriptor among all threads.")
@@ -402,6 +402,8 @@ void ProgArgs::defineAllowedArgs()
 			"Disable live statistics on console.")
 /*nop*/	(ARG_NOPATHEXPANSION_LONG, bpo::bool_switch(&this->disablePathBracketsExpansion),
 			"Disable expansion of number lists and ranges in square brackets for given paths.")
+/*nor*/ (ARG_NORANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomUnaligned),
+            "Do not align offsets to multiples of given block size for random IO.")
 /*nos*/	(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service instances. Thus, each service instance "
 			"will work on its own full dataset instead of a fraction of the data set.")
@@ -431,9 +433,8 @@ void ProgArgs::defineAllowedArgs()
 			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
 			RANDALGO_BALANCED_SEQUENTIAL_STR "\" for good balance of speed and randomness; \""
 			RANDALGO_STRONG_STR "\" for high CPU cost but strong randomness. "
-			"(Default: " RANDALGO_BALANCED_SEQUENTIAL_STR ")")
-/*ra*/	(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
-			"Align random offsets to block size.")
+			"(Default: a special algo for maximum single pass block coverage in write phase for "
+			"aligned IO and \"" RANDALGO_BALANCED_SEQUENTIAL_STR "\" for reads and unaligned IO)")
 /*ra*/	(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmountOrigStr),
 			"Number of bytes to write/read when using random offsets. Only effective when "
 			"benchmark path is a file or block device. (Default: Set to file size)")
@@ -720,7 +721,7 @@ void ProgArgs::defineDefaults()
 	this->showServicesElapsed = false;
 	this->liveStatsSleepMS = 2000;
 	this->useRandomOffsets = false;
-	this->useRandomAligned = false;
+	this->useRandomUnaligned = false;
 	this->randomAmount = 0;
 	this->randomAmountOrigStr = "0";
 	this->ioDepth = 1;
@@ -751,7 +752,7 @@ void ProgArgs::defineDefaults()
 	this->rwMixPercent = 0;
 	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
-	this->randOffsetAlgo = RANDALGO_BALANCED_SEQUENTIAL_STR;
+	this->randOffsetAlgo = ""; // empty means full coverage for writes, balanced_single for reads
 	this->fileShareSize = 0;
 	this->fileShareSizeOrigStr = "0";
 	this->useCustomTreeRandomize = false;
@@ -1170,12 +1171,14 @@ void ProgArgs::checkPathDependentArgs()
 		blockSize = fileSize; // to avoid allocating large buffers if file size is small
 	}
 
-	// reduce file size to multiple of block size for directIO
-	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) && (fileSize % blockSize) )
+	// reduce file size to multiple of block size for directIO and random IO
+	if( (useDirectIO || useRandomOffsets) && fileSize && (runCreateFilesPhase || runReadPhase) &&
+	    (fileSize % blockSize) )
 	{
 		size_t newFileSize = fileSize - (fileSize % blockSize);
 
-		LOGGER(Log_NORMAL, "NOTE: File size for direct IO is not a multiple of block size. "
+		LOGGER(Log_NORMAL, "NOTE: File size has to be a multiple of block size for direct IO and "
+		    "for random IO. "
 			"Reducing file size. " <<
 			"Old: " << fileSize << "; " <<
 			"New: " << newFileSize << std::endl);
@@ -1195,12 +1198,13 @@ void ProgArgs::checkPathDependentArgs()
 
 	if(useDirectIO && fileSize && (runCreateFilesPhase || runReadPhase) )
 	{
-		if(useRandomOffsets && !useRandomAligned)
+		if(!noDirectIOCheck && useRandomOffsets && useRandomUnaligned)
 		{
 			LOGGER(Log_VERBOSE, "NOTE: Direct IO requires alignment. "
-				"Enabling \"--" ARG_RANDOMALIGN_LONG "\"." << std::endl);
+				"Disabling \"--" ARG_NORANDOMALIGN_LONG "\". "
+				"(\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.)" << std::endl);
 
-			useRandomAligned = true;
+			useRandomUnaligned = false;
 		}
 
 		if(!noDirectIOCheck && ( (blockSize % DIRECTIO_MINSIZE) != 0) )
@@ -1211,7 +1215,7 @@ void ProgArgs::checkPathDependentArgs()
 				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
 	}
 
-	if(useRandomOffsets && useRandomAligned && blockSize && (randomAmount % blockSize) &&
+	if(useRandomOffsets && !useRandomUnaligned && blockSize && (randomAmount % blockSize) &&
 		(benchPathType != BenchPathType_DIR) )
 	{
 		size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
@@ -1248,7 +1252,7 @@ void ProgArgs::checkPathDependentArgs()
 
 		// reduce randomAmount to multiple of blockSetSize
 		// (check above ensures that randAmount>=blockSetSize)
-		if(useRandomOffsets && useRandomAligned && (randomAmount % blockSetSize) )
+		if(useRandomOffsets && !useRandomUnaligned && (randomAmount % blockSetSize) )
 		{
 			size_t newRandomAmount = randomAmount - (randomAmount % blockSetSize);
 
@@ -1260,7 +1264,7 @@ void ProgArgs::checkPathDependentArgs()
 			randomAmount = newRandomAmount;
 		}
 
-		if(!useRandomOffsets && blockSize && (numBlocksTotal < numDataSetThreads) )
+		if(blockSize && (numBlocksTotal < numDataSetThreads) )
 			throw ProgException("Aggregate usable file size must be large enough so that each I/O "
 				"thread can at least read/write one block. "
 				"Block size: " + std::to_string(blockSize) + "; "
@@ -1268,7 +1272,7 @@ void ProgArgs::checkPathDependentArgs()
 				"Aggregate file size: " + std::to_string(numFiles*fileSize) + "; "
 				"Aggregate blocks: " + std::to_string(numBlocksTotal) );
 
-		if(useRandomOffsets && useRandomAligned && (fileSize < blockSize) )
+		if(useRandomOffsets && (fileSize < blockSize) )
 			throw ProgException("File size must not be smaller than block size when random I/O "
 				"with alignment is selected.");
 
@@ -2221,10 +2225,13 @@ void ProgArgs::parseRandAlgos()
 		throw ProgException("Invalid random generator selection for block variance: " +
 			blockVarianceAlgo);
 
-	RandAlgoType randAlgoOffsets = RandAlgoSelectorTk::stringToEnum(randOffsetAlgo);
-	if(randAlgoOffsets == RandAlgo_INVALID)
-		throw ProgException("Invalid random generator selection for random offsets: " +
-			randOffsetAlgo);
+	if(!randOffsetAlgo.empty() )
+	{
+        RandAlgoType randAlgoOffsets = RandAlgoSelectorTk::stringToEnum(randOffsetAlgo);
+        if(randAlgoOffsets == RandAlgo_INVALID)
+            throw ProgException("Invalid random generator selection for random offsets: " +
+                randOffsetAlgo);
+	}
 }
 
 /**
@@ -2598,8 +2605,8 @@ void ProgArgs::printHelpBlockDev()
 		(ARG_RANDOMAMOUNT_LONG, bpo::value(&this->randomAmount),
 			"Number of bytes to write/read when using random offsets. (Default: Set to aggregate "
 			"file size)")
-		(ARG_RANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomAligned),
-			"Align random offsets to block size.")
+		(ARG_NORANDOMALIGN_LONG, bpo::bool_switch(&this->useRandomUnaligned),
+			"Do not align offsets to block size for random IO.")
 		(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
 			"Show minimum, average and maximum latency for read/write operations.")
 	;
@@ -3190,7 +3197,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useNetBench = tree.get<bool>(ARG_NETBENCH_LONG);
 	useNoFDSharing = tree.get<bool>(ARG_NOFDSHARING_LONG);
 	useOpsLogLocking = tree.get<bool>(ARG_OPSLOGLOCKING_LONG);
-	useRandomAligned = tree.get<bool>(ARG_RANDOMALIGN_LONG);
+	useRandomUnaligned = tree.get<bool>(ARG_NORANDOMALIGN_LONG);
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
@@ -3287,7 +3294,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_OPSLOGLOCKING_LONG, useOpsLogLocking);
 	outTree.put(ARG_OPSLOGPATH_LONG, opsLogPath);
 	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
-	outTree.put(ARG_RANDOMALIGN_LONG, useRandomAligned);
+	outTree.put(ARG_NORANDOMALIGN_LONG, useRandomUnaligned);
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
 	outTree.put(ARG_RANDOMOFFSETS_LONG, useRandomOffsets);
 	outTree.put(ARG_RANDSEEKALGO_LONG, randOffsetAlgo);
@@ -3401,7 +3408,7 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 	outValuesVec.push_back(std::to_string(useRandomOffsets) );
 
 	outLabelsVec.push_back("random aligned");
-	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(useRandomAligned) );
+	outValuesVec.push_back(!useRandomOffsets ? "" : std::to_string(!useRandomUnaligned) );
 
 	outLabelsVec.push_back("IO depth");
 	outValuesVec.push_back(std::to_string(ioDepth) );

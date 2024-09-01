@@ -290,6 +290,7 @@ void PathStore::getWorkerSublistNonShared(unsigned workerRank, unsigned numDataS
 		if(throwOnFileSmallerBlock && (fileSize < blockSize) )
 			throw ProgException("Found file that is smaller than block size. Consider using "
 				"\"--" ARG_TREEROUNDUP_LONG "\". "
+				"(\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
 				"File: " + pathsIter->path + "; "
 				"FileSize: " + std::to_string(fileSize) + "; "
 				"BlockSize: " + std::to_string(blockSize) );

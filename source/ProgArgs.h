@@ -101,6 +101,7 @@ namespace bpt = boost::property_tree;
 #define ARG_NOFDSHARING_LONG		"nofdsharing"
 #define ARG_NOLIVESTATS_LONG 		"nolive"
 #define ARG_NOPATHEXPANSION_LONG	"nopathexp"
+#define ARG_NORANDOMALIGN_LONG      "norandalign"
 #define ARG_NOSVCPATHSHARE_LONG		"nosvcshare"
 #define ARG_NUMAZONES_LONG			"zones"
 #define ARG_NUMDATASETTHREADS_LONG	"datasetthreads" // internal (not set by user)
@@ -117,7 +118,6 @@ namespace bpt = boost::property_tree;
 #define ARG_PHASEDELAYTIME_LONG		"phasedelay"
 #define ARG_PREALLOCFILE_LONG		"preallocfile"
 #define ARG_QUIT_LONG				"quit"
-#define ARG_RANDOMALIGN_LONG		"randalign"
 #define ARG_RANDOMAMOUNT_LONG		"randamount"
 #define ARG_RANDOMOFFSETS_LONG		"rand"
 #define ARG_RANDSEEKALGO_LONG		"randalgo"
@@ -394,7 +394,7 @@ class ProgArgs
 		StringVec netDevsVec; // netDevsStr broken down into individual elements
 		unsigned nextPhaseDelaySecs; // delay between bench phases in seconds
 		bool noCSVLabels; // true to not print headline with labels to csv file
-		bool noDirectIOCheck; // ignore directIO alignment and sanity checks
+		bool noDirectIOCheck; // ignore directIO alignment and block size sanity checks
 		bool noSharedServicePath; // true if bench paths not shared between service instances
 		std::string numaZonesStr; // comma-separated numa zones that this process may run on
 		IntVec numaZonesVec; // list from numaZoneStr broken down into individual elements
@@ -491,7 +491,7 @@ class ProgArgs
 		bool useNetBench; // run network benchmarking
 		bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
 		bool useOpsLogLocking; // use file locking to sync opsLogPath writes
-		bool useRandomAligned; // use block-aligned random offsets (when randomOffsets is used)
+		bool useRandomUnaligned; // don't use block-aligned offsets for random IO
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRWMixPercent; // implicitly set in case of rwmixpct (even if ==0)
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
@@ -722,7 +722,7 @@ class ProgArgs
         bool getUseNetBench() const { return useNetBench; }
         bool getUseNoFDSharing() const { return useNoFDSharing; }
         bool getUseOpsLogLocking() const { return useOpsLogLocking; }
-        bool getUseRandomAligned() const { return useRandomAligned; }
+        bool getUseRandomUnaligned() const { return useRandomUnaligned; }
         bool getUseRandomOffsets() const { return useRandomOffsets; }
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }

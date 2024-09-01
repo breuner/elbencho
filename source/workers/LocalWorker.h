@@ -185,6 +185,9 @@ class LocalWorker : public Worker
 
 		int64_t rwBlockSized();
 		int64_t aioBlockSized();
+		void calcFileIdxAndOffsetStriped(const uint64_t rwOffsetGenNext,
+		    const uint64_t fileSize, const bool isSingleFile,
+		    size_t& outFileIdx, uint64_t& outFileOffset);
 
 		void dirModeIterateDirs();
 		void dirModeIterateCustomDirs();

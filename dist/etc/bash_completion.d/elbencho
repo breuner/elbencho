@@ -89,6 +89,7 @@ _elbencho_opts()
         --nofdsharing
         --nolive
         --nopathexp
+        --norandalign
         --nosvcshare
         --numservers
         --opslog
@@ -100,7 +101,6 @@ _elbencho_opts()
         --quit
         --rand
         --randalgo
-        --randalign
         --randamount
         --rankoffset
         --read

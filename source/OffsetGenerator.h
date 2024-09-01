@@ -11,6 +11,9 @@
 #include "ProgArgs.h"
 #include "toolkits/random/RandAlgoRange.h"
 
+#define OFFSETGEN_FULLCOV_PRIME      (2147483647)
+
+
 /**
  * Generate sequential, random, and random block aligned offsets for LocalWorker's file read/write
  * methods.
@@ -245,7 +248,9 @@ class OffsetGenRandomAligned : public OffsetGenerator
 	public:
 		OffsetGenRandomAligned(uint64_t numBytesTotal, RandAlgoInterface& randAlgo, uint64_t len,
 			uint64_t offset, size_t blockSize) :
-			randRange(randAlgo, 0, (len - std::min(blockSize, len) ) / std::min(blockSize, len) ),
+			randRange(randAlgo, 0,
+			    !std::min(blockSize, len) ? 0 : /* avoid div by zero */
+			        (len - std::min(blockSize, len) ) / std::min(blockSize, len) ),
 			numBytesTotal(numBytesTotal), numBytesLeft(numBytesTotal),
 			offset(offset),
 			blockSize(blockSize)
@@ -278,7 +283,10 @@ class OffsetGenRandomAligned : public OffsetGenerator
 			this->numBytesLeft = len;
 			this->offset = offset;
 
-			randRange.reset(0, (len - minLenAndBlockSize) / minLenAndBlockSize);
+			if(minLenAndBlockSize)
+			    randRange.reset(0, (len - minLenAndBlockSize) / minLenAndBlockSize);
+			else
+			    randRange.reset(0, 0); // avoid div by zero
 		}
 
 		virtual uint64_t getNextOffset() override
@@ -300,5 +308,123 @@ class OffsetGenRandomAligned : public OffsetGenerator
 			{ numBytesLeft -= numBytes; }
 
 };
+
+/**
+ * Generate random offsets aligned to block size for maximum file blocks coverage.
+ *
+ * This random generator is specifically built to provide full coverage of all block offsets within
+ * a file. For that we multiply file indices by a special prime number.
+ *
+ * The seed here corresponds to the start offset within a file. Thus, if muliple workers do random
+ * writes across the same file then the seed of a worker needs to be its rank index multiplied by
+ * the number of blocks that each worker writes to ensure full coverage.
+ *
+ * Other random number generators typically only cover around 70% of the file blocks in a single
+ * pass, which makes them less appropriate for cases where the file should also be read after
+ * a single random write pass, because of the resulting amount of holes in a file.
+ *
+ * offset and len in constructor define the range in which random offsets are selected. Only full
+ * blocks are taken into account within the given range.
+ *
+ * It's possible that the last IO is a partial block. Caller is responsible for setting
+ * randomAmount to prevent this, if desired.
+ */
+class OffsetGenRandomAlignedFullCoverage : public OffsetGenerator
+{
+    public:
+        OffsetGenRandomAlignedFullCoverage(uint64_t numBytesTotal,
+            uint64_t len, uint64_t offset, size_t blockSize) :
+            numBytesTotal(numBytesTotal), numBytesLeft(numBytesTotal),
+            rangeOffset(offset), rangeLen(len), blockSize(blockSize)
+        {
+            initVirtualBlockIndex();
+        }
+
+        virtual ~OffsetGenRandomAlignedFullCoverage() {}
+
+    private:
+        uint64_t numBytesTotal;
+        uint64_t numBytesLeft;
+        uint64_t rangeOffset; // byte offset from beginning of file
+        uint64_t rangeLen; // byte length of range to randomly seek in from given offset
+        uint64_t virtualBlockIndex; // sequentially inc'ed to calculate next random block offset
+        uint64_t numBlocksInRange; // number of blocks that can be randomly hit
+
+        const size_t blockSize;
+
+        // inliners
+    public:
+        virtual void reset() override
+        {
+            numBytesLeft = numBytesTotal;
+
+            initVirtualBlockIndex();
+        }
+
+        /**
+         * Note: This sets numBytesTotal equal to len, so might not appropriate for cases of shared
+         * overlapping file writes where each thread possibly only writes a partial amount of the
+         * file size.
+         */
+        virtual void reset(uint64_t len, uint64_t offset) override
+        {
+            this->numBytesTotal = len;
+            this->numBytesLeft = len;
+            this->rangeOffset = offset;
+            this->rangeLen = len;
+
+            initVirtualBlockIndex();
+        }
+
+        virtual uint64_t getNextOffset() override
+        {
+            uint64_t nextRandBlockIdx =
+                (virtualBlockIndex * OFFSETGEN_FULLCOV_PRIME) % numBlocksInRange;
+
+            uint64_t nextOffsetRes = rangeOffset + (nextRandBlockIdx * blockSize);
+
+            virtualBlockIndex++;
+
+            return nextOffsetRes;
+        }
+
+        virtual size_t getBlockSize() const override
+            { return blockSize; }
+
+        virtual size_t getNextBlockSizeToSubmit() const override
+            { return std::min(numBytesLeft, blockSize); }
+
+        virtual uint64_t getNumBytesTotal() const override
+            { return numBytesTotal; }
+
+        virtual uint64_t getNumBytesLeftToSubmit() const override
+            { return numBytesLeft; }
+
+        virtual void addBytesSubmitted(size_t numBytes) override
+            { numBytesLeft -= numBytes; }
+
+
+    private:
+        void initVirtualBlockIndex()
+        {
+            IF_UNLIKELY(!blockSize)
+            { // happens for empty files
+                numBlocksInRange = 0;
+                virtualBlockIndex = 0;
+                return;
+            }
+
+            numBlocksInRange = rangeLen / blockSize;
+
+            if(!numBlocksInRange)
+                numBlocksInRange = 1; // to avoid div by zero
+
+            /* note: this is key to ensure full coverage. we sequentially inc the virtual index
+                and the multiplication with the special prime modulo the number of blocks results
+                in full pseudo-random coverage of all blocks. */
+            virtualBlockIndex = 0;
+        }
+};
+
 
 #endif /* OFFSETGENERATOR_H_ */
