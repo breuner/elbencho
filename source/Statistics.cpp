@@ -2163,15 +2163,32 @@ void Statistics::prepLiveCSVFile()
 	if(progArgs.getLiveCSVFilePath().empty() )
 		return; // nothing to do
 
-	liveCSVFileFD = open(progArgs.getLiveCSVFilePath().c_str(),
-		O_WRONLY | O_APPEND | O_CREAT, MKFILE_MODE);
-	if(liveCSVFileFD == -1)
-		throw ProgException("Unable to open live stats csv file: " +
-			progArgs.getLiveCSVFilePath() );
+	bool printCSVHeaders = true;
 
-	bool fileEmpty = FileTk::checkFileEmpty(progArgs.getLiveCSVFilePath() );
-	if(fileEmpty)
-	{ // empty => print csv labels
+	if(progArgs.getLiveCSVFilePath() == ARG_LIVECSV_STDOUT)
+	{ // live csv to stdout
+	    liveCSVFileFD = dup(progArgs.getStdoutDupFD() );
+
+        if(liveCSVFileFD == -1)
+            throw ProgException(std::string("Unable to duplicate stdout file descriptor. ") +
+                "SysErr: " + strerror(errno) );
+	}
+	else
+	{ // output to regular file
+        liveCSVFileFD = open(progArgs.getLiveCSVFilePath().c_str(),
+            O_WRONLY | O_APPEND | O_CREAT, MKFILE_MODE);
+
+        if(liveCSVFileFD == -1)
+            throw ProgException("Unable to open live stats csv file: " +
+                progArgs.getLiveCSVFilePath() );
+
+        // print headers only if file is empty
+        printCSVHeaders = FileTk::checkFileEmpty(progArgs.getLiveCSVFilePath() );
+	}
+
+	// print CSV table headers
+	if(printCSVHeaders)
+	{
 		std::ostringstream stream;
 
 		// print table headline...

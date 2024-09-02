@@ -257,6 +257,8 @@ namespace bpt = boost::property_tree;
 #define RAND_PREFIX_MARK_CHAR				'%' // name prefix char to replace with random value
 #define RAND_PREFIX_MARKS_SUBSTR			"%%%" // three times RAND_PREFIX_MARK_CHAR
 
+#define ARG_LIVECSV_STDOUT                  "stdout" // special filename value to send to stdout
+
 
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
 typedef std::vector<CuFileHandleData*> CuFileHandleDataPtrVec;
@@ -316,6 +318,8 @@ class ProgArgs
 		CuFileHandleDataVec cuFileHandleDataVec; /* registered cuFile handles in file/bdev mode;
 							vec will also be filled (with unreg'ed handles) if cuFile API is not
 							selected to make things easier for localworkers */
+
+		int stdoutDupFD; // dup of stdout file descriptor if overridden e.g. due to csv to stdout
 
         // config options in alphabetic order...
 
@@ -706,6 +710,7 @@ class ProgArgs
         size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
         std::string getSvcPasswordFile() const { return svcPasswordFile; }
         std::string getSvcPasswordHash() const { return svcPasswordHash; }
+        int getStdoutDupFD() const { return stdoutDupFD; }
         std::string getTreeScanPath() const { return treeScanPath; }
         bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
         bool getUseBriefLiveStats() const { return useBriefLiveStats; }

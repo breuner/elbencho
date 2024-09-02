@@ -147,6 +147,9 @@ ProgArgs::~ProgArgs()
 	if(isCuFileDriverOpen)
 		cuFileDriverClose();
 #endif
+
+	if(stdoutDupFD != -1)
+	    close(stdoutDupFD);
 }
 
 /**
@@ -339,7 +342,9 @@ void ProgArgs::defineAllowedArgs()
 /*liv*/	(ARG_CSVLIVEFILE_LONG, bpo::value(&this->liveCSVFilePath),
 			"Path to file for live progress results in csv format. If the file exists, results "
 			"will be appended. This must not be the same file that is given as \"--"
-			ARG_CSVFILE_LONG "\".")
+			ARG_CSVFILE_LONG "\". The special value \"" ARG_LIVECSV_STDOUT "\" as filename will "
+			"make the CSV get printed to stdout (and all other console prints will get sent to "
+			"stderr).")
 /*liv*/	(ARG_CSVLIVEEXTENDED_LONG, bpo::bool_switch(&this->useExtendedLiveCSV),
 			"Use extended live results csv file. By default, only aggregate results of all worker "
 			"threads will be added. This option also adds results of individual threads in "
@@ -821,6 +826,7 @@ void ProgArgs::defineDefaults()
 	this->s3NoCompression = false;
 	this->s3NoMD5Checksum = false;
 	this->s3IgnoreMultipartUpload404 = false;
+	this->stdoutDupFD = -1;
 }
 
 /**
@@ -829,8 +835,23 @@ void ProgArgs::defineDefaults()
  */
 void ProgArgs::initImplicitValues()
 {
-	/* note: boost bool type options are always present (because they default to false), so can't
-		just be checked via argsVariablesMap.count(). */
+	/* note: boost bool type options are always present in map (because they default to false), so
+	    can't just be checked via argsVariablesMap.count(). */
+
+    /* stdout reroute. has to be done as early as possible before any other message gets printed
+         to stdout. */
+    if(liveCSVFilePath == ARG_LIVECSV_STDOUT)
+    {
+        /* copy stdout fd, so that e.g. live csv output can still use it, while all other normal
+            messages will go to stderr. */
+        stdoutDupFD = dup(STDOUT_FILENO);
+        if(stdoutDupFD == -1)
+            throw ProgException(std::string("Unable to duplicate stdout file descriptor. ") +
+                "SysErr: " + strerror(errno) );
+
+        // override stdout with stderr, so that all normal log messages go to stderr
+        dup2(STDERR_FILENO, STDOUT_FILENO);
+    }
 
 	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
 		useRWMixPercent = true;
@@ -897,6 +918,15 @@ void ProgArgs::initImplicitValues()
 
     if(!treeScanPath.empty() && treeFilePath.empty() )
         treeFilePath = TREESCAN_OUTFILE_DEFAULT;
+
+    if(!disableLiveStats && (stdoutDupFD != -1) )
+    {
+        LOGGER(Log_DEBUG, "Disabling live statistics because stdout has been re-routed." <<
+            std::endl);
+
+        disableLiveStats = true;
+    }
+
 }
 
 /**

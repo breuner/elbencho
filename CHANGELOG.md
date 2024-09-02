@@ -7,19 +7,20 @@
 * New build option to use S3 CRT client of AWS SDK, which uses AWS libs instead of external libs like libcurl. (See `S3_AWSCRT` in `make help`.)
 * S3 credentials can now also be provided via environment variables instead of config parameters. (`AWS_ACCESS_KEY_ID` & `AWS_SECRET_ACCESS_KEY`.)
 * Random writes now use a new algorithm by default to achieve maximum coverage of file blocks. (Typical random number generators only cover around 70% of file blocks in a single write pass, which is less suitable for file reads after a single random write pass due to the resulting amount of holes.)
+* New option to have live statistics in CSV format be printed to console. (See `--livecsv`.)
 
 ### General Changes
 * Option `--s3objprefix` is now also effective when `--treefile` (and the new `--treescan`) is used.
 * Removed unused `--s3transman` option to reduce AWS SDK build options and build time.
 * AWS SDK build process now tries to recover if it turns out that a previous build did not complete successfully.
 * Stonewall will no longer get triggered by workers without any work assignments in custom tree mode (e.g. because of very small dataset).
-* Random IOs are aligned by default now. Corresponding option ` --randalign`  has been removed and new option `--norandalign` has been added.
+* Random IOs are aligned by default now. Corresponding option ` --randalign` has been removed and new option `--norandalign` has been added.
 
 ### Fixes
 * Fixed a segmentation fault when attempting to validate an empty S3 tag set. (Will throw an appropriate error instead.)
 
 ### Contributors
-Thanks to Alon Horev for helpful comments and suggestions.
+Thanks to Alon Horev and Phil Canman for helpful comments and suggestions.
 
 ## v3.0.17 (July 31, 2024)
 
