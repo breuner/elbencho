@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.18 (work in progress)
+## v3.0.19 (Sep 02, 2024)
 
 ### New Features & Enhancements
 * New option to scan directory or bucket on startup and use result as custom treefile. (See `--treescan`.)
