@@ -2194,6 +2194,7 @@ void Statistics::prepLiveCSVFile()
 		// print table headline...
 
 		stream <<
+		    "ISO Date,"
 			"Label,"
 			"Phase,"
 			"RuntimeMS,"
@@ -2232,6 +2233,16 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 	if(liveCSVFileFD == -1)
 		return; // output file not open => nothing to do
 
+    auto now = std::chrono::system_clock::now();
+    time_t time = std::chrono::system_clock::to_time_t(now);
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()).count() % 1000;
+
+    std::stringstream dateStream;
+    dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+        << std::setfill('0') << std::setw(3) << milliseconds
+        << std::put_time(std::localtime(&time), "%z");
+
 	std::chrono::milliseconds elapsedMS =
 				std::chrono::duration_cast<std::chrono::milliseconds>
 				(std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
@@ -2251,6 +2262,7 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 	// print total for all workers...
 
 	stream <<
+	    dateStream.str() << "," <<
 		progArgs.getBenchLabelNoCommas() << "," <<
 		liveResults.phaseName << "," <<
 		elapsedMS.count() << "," <<
@@ -2281,6 +2293,7 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 				liveResults.liveOpsPerSec.numEntriesDone;
 
 		stream <<
+	        dateStream.str() << "," <<
 			progArgs.getBenchLabelNoCommas() << "," <<
 			liveResults.phaseName << "," <<
 			elapsedMS.count() << "," <<
@@ -2335,6 +2348,7 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 			workerPercentDone = (100 * workerDone.numEntriesDone) / liveResults.numEntriesPerWorker;
 
 		stream <<
+		    dateStream.str() << "," <<
 			progArgs.getBenchLabelNoCommas() << "," <<
 			liveResults.phaseName << "," <<
 			elapsedMS.count() << "," <<
@@ -2384,6 +2398,7 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 					liveResults.numEntriesPerWorker;
 
 			stream <<
+			    dateStream.str() << "," <<
 				progArgs.getBenchLabelNoCommas() << "," <<
 				liveResults.phaseName << "," <<
 				elapsedMS.count() << "," <<

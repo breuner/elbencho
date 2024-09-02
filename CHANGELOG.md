@@ -15,6 +15,7 @@
 * AWS SDK build process now tries to recover if it turns out that a previous build did not complete successfully.
 * Stonewall will no longer get triggered by workers without any work assignments in custom tree mode (e.g. because of very small dataset).
 * Random IOs are aligned by default now. Corresponding option ` --randalign` has been removed and new option `--norandalign` has been added.
+* Live CSV now has a new column for ISO date.
 
 ### Fixes
 * Fixed a segmentation fault when attempting to validate an empty S3 tag set. (Will throw an appropriate error instead.)
