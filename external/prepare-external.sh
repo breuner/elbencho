@@ -219,42 +219,14 @@ prepare_awssdk()
 	if [ ! -d "$CLONE_DIR" ]; then
 		echo "Cloning AWS SDK git repo..."
 
-		git clone --recursive https://github.com/breuner/aws-sdk-cpp.git $CLONE_DIR
+		git clone --recursive --depth 1 --branch "$REQUIRED_TAG" \
+			https://github.com/breuner/aws-sdk-cpp.git $CLONE_DIR
 		if [ $? -ne 0 ]; then
 			echo "ERROR: Cloning AWS SDK git repo failed." \
 				"Consider \"make clean-all\" before retrying a partially completed clone."
 			exit 1
 		fi
 	fi
-	
-	# directory exists, check if we already have the right tag.
-	cd "$CLONE_DIR" && \
-		CURRENT_TAG="$(git describe --tags)" && \
-		if [ "$CURRENT_TAG" != "$REQUIRED_TAG" ]; then
-			# we need to change tag
-			
-			# clean up and uninstall any previous build before we switch to new tag
-			if [ -f "$CLONE_DIR/Makefile" ]; then
-				echo "Cleaning up previous build..."
-				cd "$CLONE_DIR" && \
-				make uninstall && \
-				make clean
-				
-				[ $? -ne 0 ] && exit 1
-			fi
-			
-			# check out required tag
-			# (fetching is relevant in case we update to a new required tag.)
-			echo "Checking out AWS SDK tag ${REQUIRED_TAG}..."
-			
-			cd "$CLONE_DIR" && \
-				git fetch --recurse-submodules -q --all && \
-				git checkout -q ${REQUIRED_TAG} && \
-				git submodule -q update --recursive && \
-				cd "$EXTERNAL_BASE_DIR"
-			
-			[ $? -ne 0 ] && exit 1
-		fi
 	
 	# configure, build and install
 	

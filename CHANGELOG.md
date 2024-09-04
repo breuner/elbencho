@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v3.0.20 (work in progress)
+
+### General Changes
+* Create only a shallow clone of AWS SDK to reduce time to download.
+
 ## v3.0.19 (Sep 02, 2024)
 
 ### New Features & Enhancements
