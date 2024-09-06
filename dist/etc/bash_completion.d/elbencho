@@ -47,6 +47,7 @@ _elbencho_opts()
         --dryrun
         --fadv
         --files
+        --flock
         --foreground
         --gdsbufreg
         --gpuids
@@ -198,6 +199,8 @@ _elbencho()
         --fadv)
         ;&
         --files)
+        ;&
+        --flock)
         ;&
         --gpuids)
         ;&

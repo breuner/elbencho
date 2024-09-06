@@ -32,6 +32,7 @@ class TranslatorTk
 		static std::string stringVecToString(const StringVec& vec, std::string separator);
 		static unsigned fadviseArgsStrToFlags(std::string fadviseArgsStr);
 		static unsigned madviseArgsStrToFlags(std::string madviseArgsStr);
+        static unsigned short flockArgsStrToType(std::string flockArgsStr);
 		static std::string intVectoHumanStr(const IntVec& intVec);
 		static bool expandSquareBrackets(StringVec& inoutStrVec);
 		static bool replaceCommasOutsideOfSquareBrackets(std::string& inoutStr,

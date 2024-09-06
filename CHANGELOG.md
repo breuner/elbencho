@@ -2,6 +2,9 @@
 
 ## v3.0.20 (work in progress)
 
+### New Features & Enhancements
+* New option to use file locks around each read/write. (See `--flock`.)
+
 ### General Changes
 * Create only a shallow clone of AWS SDK to reduce time to download.
 

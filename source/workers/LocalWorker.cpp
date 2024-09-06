@@ -1518,6 +1518,7 @@ int64_t LocalWorker::rwBlockSized()
 	const unsigned rwMixPercent = progArgs->getRWMixPercent();
     const uint64_t fileSize = progArgs->getFileSize();
     const bool isSingleFile = (fileHandles.fdVecPtr->size() == 1);
+    const unsigned short fileLockType = progArgs->getFLockType();
 
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
@@ -1543,6 +1544,9 @@ int64_t LocalWorker::rwBlockSized()
 		{ // this is a read, but could be a rwmix read thread
 			isRWMixRead = (benchPhase != globalBenchPhase);
 
+            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+                currentOffset, currentBlockSize, false /*isWrite*/, false /*isUnlock*/, NULL);
+
 			rwRes = ((*this).*funcPositionalRead)(
 				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 		}
@@ -1552,11 +1556,17 @@ int64_t LocalWorker::rwBlockSized()
 		{ // this is a rwmix read
 			isRWMixRead = true;
 
-			rwRes = ((*this).*funcPositionalRead)(
+            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+                currentOffset, currentBlockSize, false /*isWrite*/, false /*isUnlock*/, NULL);
+
+            rwRes = ((*this).*funcPositionalRead)(
 				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 		}
 		else
 		{ // this is a plain write
+            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+                currentOffset, currentBlockSize, true /*isWrite*/, false /*isUnlock*/, NULL);
+
 			rwRes = ((*this).*funcPositionalWrite)(
 				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 		}
@@ -1572,10 +1582,16 @@ int64_t LocalWorker::rwBlockSized()
 
 			fileHandles.errorFDVecIdx = fileHandleIdx;
 
-			return (rwRes < 0) ?
+	        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+	            currentOffset, currentBlockSize, true /*ignored*/, true /*isUnlock*/, NULL);
+
+	        return (rwRes < 0) ?
 				rwRes :
 				(rwOffsetGen->getNumBytesTotal() - rwOffsetGen->getNumBytesLeftToSubmit() );
 		}
+
+        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+            currentOffset, currentBlockSize, true /*ignored*/, true /*isUnlock*/, NULL);
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
 		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
@@ -1636,6 +1652,7 @@ int64_t LocalWorker::aioBlockSized()
 	const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
     const uint64_t fileSize = progArgs->getFileSize();
     const bool isSingleFile = (fileHandlesVecSize == 1);
+    const unsigned short fileLockType = progArgs->getFLockType();
 
 	size_t numPending = 0; // num requests submitted and pending for completion
 	size_t numBytesDone = 0; // after successfully completed requests
@@ -1684,10 +1701,17 @@ int64_t LocalWorker::aioBlockSized()
 			currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
+        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+            currentOffset, blockSize, iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
+            false /*isUnlock*/, NULL);
+
 		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[ioVecIdx] );
 		IF_UNLIKELY(submitRes != 1)
 		{
-			io_queue_release(ioContext);
+	        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+	            currentOffset, blockSize, true /*ignored*/, true /*isUnlock*/, NULL);
+
+	        io_queue_release(ioContext);
 
 			throw WorkerException(std::string("Async IO submission (io_submit) failed. ") +
 				"NumRequests: " + std::to_string(numPending) + "; "
@@ -1739,15 +1763,19 @@ int64_t LocalWorker::aioBlockSized()
 			IF_UNLIKELY(ioEvents[eventIdx].res2 ||
 				(ioEvents[eventIdx].res != ioEvents[eventIdx].obj->u.c.nbytes) )
 			{ // unexpected result
-				io_queue_release(ioContext);
+	            io_queue_release(ioContext);
 
 				if(ioEvents[eventIdx].res2)
 					throw WorkerException(std::string("Async IO framework error. ") +
 						"NumPending: " + std::to_string(numPending) + "; "
-						"res: " + std::to_string(ioEvents[eventIdx].res2) + "; "
-						"res2: " + std::to_string(ioEvents[eventIdx].res) + "; "
+						"res: " + std::to_string(ioEvents[eventIdx].res) + "; "
+						"res2: " + std::to_string(ioEvents[eventIdx].res2) + "; "
 						"IO size: " + std::to_string(ioEvents[eventIdx].obj->u.c.nbytes) + "; "
 						"SysErr: " + strerror(-(int)ioEvents[eventIdx].res2) );
+
+	            FileTk::flock<WorkerException>(ioEvents[eventIdx].obj->aio_fildes, fileLockType,
+	                ioEvents[eventIdx].obj->u.c.offset, ioEvents[eventIdx].obj->u.c.nbytes,
+	                true /*ignored*/, true /*isUnlock*/, NULL);
 
 				if( (int)ioEvents[eventIdx].res < 0)
 				{
@@ -1758,6 +1786,10 @@ int64_t LocalWorker::aioBlockSized()
 				// partial read/write, so return what we got so far
 				return (numBytesDone + ioEvents[eventIdx].res);
 			}
+
+            FileTk::flock<WorkerException>(ioEvents[eventIdx].obj->aio_fildes, fileLockType,
+                ioEvents[eventIdx].obj->u.c.offset, ioEvents[eventIdx].obj->u.c.nbytes,
+                true /*ignored*/, true /*isUnlock*/, NULL);
 
 			const size_t ioVecIdx = (size_t)ioEvents[eventIdx].data; // caller priv data is vec idx
 
@@ -1822,6 +1854,10 @@ int64_t LocalWorker::aioBlockSized()
 			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
 				blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
+
+	        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+	            currentOffset, blockSize, iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
+	            false /*isUnlock*/, NULL);
 
 			int submitRes = io_submit(
 				ioContext, 1, &iocbPointerVec[ioVecIdx] );

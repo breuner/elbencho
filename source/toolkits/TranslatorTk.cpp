@@ -281,6 +281,27 @@ unsigned TranslatorTk::madviseArgsStrToFlags(std::string madviseArgsStr)
 }
 
 /**
+ * Turn ARG_FLOCK_x_NAME
+ *
+ * @return combined ARG_FADVISE_FLAG_x flags value.
+ *
+ * @throw ProgException in case of invalid string in fadviseArgsStr.
+ */
+unsigned short TranslatorTk::flockArgsStrToType(std::string flockArgsStr)
+{
+    if(flockArgsStr.empty() || (flockArgsStr == ARG_FLOCK_NONE_NAME) )
+        return ARG_FLOCK_NONE;
+    else
+    if(flockArgsStr == ARG_FLOCK_RANGE_NAME)
+        return ARG_FLOCK_RANGE;
+    else
+    if(flockArgsStr == ARG_FLOCK_FULL_NAME)
+        return ARG_FLOCK_FULL;
+    else
+        throw ProgException("Invalid file locking value: " + flockArgsStr);
+}
+
+/**
  * Get a human-readable string from an IntVec. The result groups ranges and comma-separates
  * non-consecutive numbers, e.g. "2,6-31,983". Grouping relies on intVec being sorted.
  *

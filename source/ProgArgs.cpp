@@ -239,7 +239,11 @@ void ProgArgs::defineAllowedArgs()
 /*d*/	(ARG_CREATEDIRS_LONG "," ARG_CREATEDIRS_SHORT, bpo::bool_switch(&this->runCreateDirsPhase),
 			"Create directories. (Already existing dirs are not treated as error.)")
 /*di*/	(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
-			"Use direct IO to avoid caching.")
+			"Use direct IO (also known as O_DIRECT) to avoid file contents caching. Note: For "
+			"network or cluster filesystems, it depends on the actual filesystem whether this "
+			"option is only effective for the client-side cache or also for the server-side cache. "
+			"Also, some filesystems might ignore this completely or might have a RAID controller "
+			"cache which operates independent of this setting.")
 /*di*/	(ARG_DIRSHARING_LONG, bpo::bool_switch(&this->doDirSharing),
 			"If benchmark path is a directory, all threads create their files in the same dirs "
 			"instead of using different dirs for each thread. In this case, \"-" ARG_NUMDIRS_SHORT
@@ -264,6 +268,10 @@ void ProgArgs::defineAllowedArgs()
 /*fa*/	(ARG_FADVISE_LONG, bpo::value(&this->fadviseFlagsOrigStr),
 			"Provide file access hints via fadvise(). This value is a comma-separated list of the "
 			"following flags: seq, rand, willneed, dontneed, noreuse.")
+/*fl*/  (ARG_FLOCK_LONG, bpo::value(&this->flockTypeOrigStr),
+            "Use POSIX file locks around each file read/write operation. Possible values: "
+            "\"range\" to lock the specific range of each IO operation, \"full\" to lock the "
+            "entire file for each IO operation.")
 /*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
 			"detaching from console and daemonizing into backgorund.")
@@ -800,6 +808,7 @@ void ProgArgs::defineDefaults()
 	this->useMmap = false;
 	this->fadviseFlags = 0;
 	this->madviseFlags = 0;
+    this->flockType = 0;
 	this->runS3MultiDelObjNum = 0;
     this->runS3StatDirs = false;
 	this->disablePathBracketsExpansion = false;
@@ -951,6 +960,7 @@ void ProgArgs::convertUnitStrings()
 
 	fadviseFlags = TranslatorTk::fadviseArgsStrToFlags(fadviseFlagsOrigStr);
 	madviseFlags = TranslatorTk::madviseArgsStrToFlags(madviseFlagsOrigStr);
+    flockType = TranslatorTk::flockArgsStrToType(flockTypeOrigStr);
 }
 
 /**
@@ -1125,6 +1135,9 @@ void ProgArgs::checkArgs()
 
 	if(doReadInline && (ioDepth > 1) )
 		throw ProgException("Inline read cannot be used together with --" ARG_IODEPTH_LONG);
+
+	if( (flockType == ARG_FLOCK_FULL) && (ioDepth > 1) && runCreateFilesPhase)
+        throw ProgException("Full file write locks cannot be used together with async IO");
 
 	if(!hostsVec.empty() )
 		return;
@@ -3165,6 +3178,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
 	fileShareSize = tree.get<uint64_t>(ARG_FILESHARESIZE_LONG);
 	fileSize = tree.get<uint64_t>(ARG_FILESIZE_LONG);
+	flockType = tree.get<unsigned short>(ARG_FLOCK_LONG);
 	gpuIDsStr = tree.get<std::string>(ARG_GPUIDS_LONG);
 	ignore0USecErrors = tree.get<bool>(ARG_IGNORE0USECERR_LONG);
 	ignoreDelErrors = tree.get<bool>(ARG_IGNOREDELERR_LONG);
@@ -3302,6 +3316,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_FADVISE_LONG, fadviseFlags);
 	outTree.put(ARG_FILESHARESIZE_LONG, fileShareSize);
 	outTree.put(ARG_FILESIZE_LONG, fileSize);
+	outTree.put(ARG_FLOCK_LONG, flockType);
 	outTree.put(ARG_GDSBUFREG_LONG, useGDSBufReg);
 	outTree.put(ARG_HDFS_LONG, useHDFS);
 	outTree.put(ARG_IGNORE0USECERR_LONG, ignore0USecErrors);

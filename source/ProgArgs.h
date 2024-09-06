@@ -57,6 +57,7 @@ namespace bpt = boost::property_tree;
 #define ARG_FILESHARESIZE_LONG		"sharesize"
 #define ARG_FILESIZE_LONG	 		"size"
 #define ARG_FILESIZE_SHORT 			"s"
+#define ARG_FLOCK_LONG              "flock"
 #define ARG_FOREGROUNDSERVICE_LONG	"foreground"
 #define ARG_GDSBUFREG_LONG			"gdsbufreg"
 #define ARG_GPUDIRECTSSTORAGE_LONG	"gds"
@@ -237,6 +238,14 @@ namespace bpt = boost::property_tree;
 #define ARG_MADVISE_FLAG_NOHUGEPAGE			32
 #define ARG_MADVISE_FLAG_NOHUGEPAGE_NAME	"nohugepage"
 
+// values for file locking
+#define ARG_FLOCK_NONE                      0
+#define ARG_FLOCK_NONE_NAME                 ""
+#define ARG_FLOCK_RANGE                     1
+#define ARG_FLOCK_RANGE_NAME                "range" // lock only the specific range of each IO
+#define ARG_FLOCK_FULL                      2
+#define ARG_FLOCK_FULL_NAME                 "full" // lock entire file instead of only a range
+
 /* permission flags for S3 ACLs.
 	note: std::string::find() will be used with these, so make sure each name is unambiguous and not
 	a substring of another name. */
@@ -365,6 +374,8 @@ class ProgArgs
 		std::string fileShareSizeOrigStr; // original fileShareSize str from user with unit
 		uint64_t fileSize; // size per file
 		std::string fileSizeOrigStr; // original fileSize str from user with unit
+        unsigned short flockType; // internal type of file lock based on user string (ARG_FLOCK_x)
+        std::string flockTypeOrigStr; // type of file lock on command line (ARG_FLOCK_x_NAME)
 		std::string gpuIDsServiceOverride; // set in service mode to override gpu IDs
 		std::string gpuIDsStr; // list of gpu IDs, separated by GPULIST_DELIMITERS
 		IntVec gpuIDsVec; // gpuIDsStr broken down into individual GPU IDs
@@ -613,6 +624,8 @@ class ProgArgs
         uint64_t getFileShareSize() const { return fileShareSize; }
         uint64_t getFileSize() const { return fileSize; }
         std::string getFileSizeOrigStr() const { return fileSizeOrigStr; }
+        unsigned short getFLockType() const { return flockType; }
+        std::string getFLockTypeOrigStr() const { return flockTypeOrigStr; }
 		std::string getGPUIDsStr() const { return gpuIDsStr; }
 		const IntVec& getGPUIDsVec() const { return gpuIDsVec; }
 		std::string getGPUIDsServiceOverride() const { return gpuIDsServiceOverride; }
