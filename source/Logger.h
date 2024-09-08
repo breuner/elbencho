@@ -6,7 +6,8 @@
 #include <sstream>
 #include <sys/time.h>
 
-#define LOGGER(logLevel, stream) 	do { Logger(logLevel) << stream; } while(0)
+#define LOGGER(logLevel, stream) 	do { if(logLevel <= LoggerBase::getFilterLevel() ) \
+                                        Logger(logLevel) << stream; } while(0)
 #define ERRLOGGER(logLevel, stream) do { ErrLogger(logLevel, true) << stream; } while(0)
 
 #ifdef BUILD_DEBUG
@@ -52,6 +53,11 @@ class LoggerBase
 			std::unique_lock<std::mutex> lock(mutex); // L O C K (scoped)
 
 			LoggerBase::filterLevel = filterLevel;
+		}
+
+		static LogLevel getFilterLevel()
+		{
+		    return filterLevel;
 		}
 
 		static void enableErrHistory()

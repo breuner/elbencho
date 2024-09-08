@@ -624,6 +624,9 @@ void ProgArgs::defineAllowedArgs()
 			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
 			"start of benchmarks on different hosts, assuming they use synchronized clocks. "
 			"(Hint: Try 'date +%s' to get seconds since the epoch.)")
+/*st*/  (ARG_STRIDEDACCESS_LONG, bpo::bool_switch(&this->useStridedAccess),
+            "Use strided read/write access pattern. Only available if given benchmark paths are "
+            "files or block devices.")
 /*sv*/	(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
 			"Show elapsed time to completion of each service instance ordered by slowest thread.")
 /*sv*/  (ARG_SVCPASSWORDFILE_LONG, bpo::value(&this->svcPasswordFile),
@@ -737,6 +740,7 @@ void ProgArgs::defineDefaults()
 	this->useRandomUnaligned = false;
 	this->randomAmount = 0;
 	this->randomAmountOrigStr = "0";
+	this->useStridedAccess = false;
 	this->ioDepth = 1;
 	this->showLatency = false;
 	this->showLatencyPercentiles = false;
@@ -1065,8 +1069,13 @@ void ProgArgs::checkArgs()
 		runReadPhase || runDeleteFilesPhase) )
 		throw ProgException("Netbench mode only run in write phase.");
 
-	if(useRandomOffsets && useHDFS && runCreateFilesPhase)
-		throw ProgException("HDFS does not support random offsets for writes.");
+	if( (useRandomOffsets + useStridedAccess + doReverseSeqOffsets) > 1)
+	    throw ProgException("Random, strided and reverse sequence offsets cannot be used "
+	        "together.");
+
+	if( (useRandomOffsets || useStridedAccess || doReverseSeqOffsets) && useHDFS &&
+	    runCreateFilesPhase)
+		throw ProgException("HDFS does not support non-sequential offsets for writes.");
 
 	if(!treeFilePath.empty() && useHDFS)
 		throw ProgException("HDFS mode does not support custom tree files.");
@@ -1215,13 +1224,13 @@ void ProgArgs::checkPathDependentArgs()
 	}
 
 	// reduce file size to multiple of block size for directIO and random IO
-	if( (useDirectIO || useRandomOffsets) && fileSize && (runCreateFilesPhase || runReadPhase) &&
-	    (fileSize % blockSize) )
+	if( (useDirectIO || useRandomOffsets || useStridedAccess) && fileSize &&
+	    (runCreateFilesPhase || runReadPhase) && (fileSize % blockSize) )
 	{
 		size_t newFileSize = fileSize - (fileSize % blockSize);
 
-		LOGGER(Log_NORMAL, "NOTE: File size has to be a multiple of block size for direct IO and "
-		    "for random IO. "
+		LOGGER(Log_NORMAL, "NOTE: File size has to be a multiple of block size for direct IO, "
+		    "random IO and strided IO. "
 			"Reducing file size. " <<
 			"Old: " << fileSize << "; " <<
 			"New: " << newFileSize << std::endl);
@@ -1274,6 +1283,10 @@ void ProgArgs::checkPathDependentArgs()
 	if( (benchPathType == BenchPathType_DIR) && useRandomOffsets && (fileSize < blockSize) &&
 		treeFilePath.empty() )
 		throw ProgException("For random offsets, file size must not be smaller than block size.");
+
+	if( (benchPathType == BenchPathType_DIR) && useStridedAccess)
+	    throw ProgException("Strided access mode is only available if given benchmark paths are "
+	        "files or block devices.");
 
 	// shared file or block device mode
 	if(benchPathType != BenchPathType_DIR)
@@ -3246,6 +3259,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
+	useStridedAccess = tree.get<bool>(ARG_STRIDEDACCESS_LONG);
 
 	// dynamically calculated values for service hosts...
 
@@ -3388,6 +3402,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
     outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_STRIDEDACCESS_LONG, useStridedAccess);
     outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);

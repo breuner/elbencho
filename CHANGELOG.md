@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * New option to use file locks around each read/write. (See `--flock`.)
+* New option for strided file access. (See `--strided`.)
 
 ### General Changes
 * Create only a shallow clone of AWS SDK to reduce time to download.

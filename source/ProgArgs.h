@@ -181,6 +181,7 @@ namespace bpt = boost::property_tree;
 #define ARG_STARTTIME_LONG			"start"
 #define ARG_STATFILES_LONG			"stat"
 #define ARG_STATFILESINLINE_LONG	"statinline"
+#define ARG_STRIDEDACCESS_LONG            "strided"
 #define ARG_SVCPASSWORDFILE_LONG    "svcpwfile"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_SYNCPHASE_LONG			"sync"
@@ -516,6 +517,7 @@ class ProgArgs
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
 								via buffer possible, such as GPU copy or data verification) */
+		bool useStridedAccess; // use strided file access pattern for shared files
 
 
 		void defineDefaults();
@@ -745,6 +747,7 @@ class ProgArgs
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
+        bool getUseStridedAccess() const { return useStridedAccess; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		std::string getTreeFilePath() const { return treeFilePath; }
         uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }

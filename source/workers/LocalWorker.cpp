@@ -218,10 +218,10 @@ void LocalWorker::run()
 						}
 						else
 						{
-							if(!progArgs->getUseRandomOffsets() )
+                            if(progArgs->getUseRandomOffsets() || progArgs->getUseStridedAccess() )
+                                fileModeIterateFilesRand();
+                            else
 								fileModeIterateFilesSeq();
-							else
-								fileModeIterateFilesRand();
 						}
 					} break;
 
@@ -860,7 +860,7 @@ void LocalWorker::initThreadMmapVec()
 	if(progArgs->getBenchPathType() == BenchPathType_DIR)
 		return; // init will happen in initPhaseFileHandleVecs()
 
-	if(!progArgs->getUseRandomOffsets() )
+	if(!progArgs->getUseRandomOffsets() && !progArgs->getUseStridedAccess() )
 		return; // init will happen in initPhaseFileHandleVecs()
 
 	fileHandles.mmapVec = progArgs->getMmapVec();
@@ -872,7 +872,7 @@ void LocalWorker::initThreadMmapVec()
 void LocalWorker::uninitThreadMmapVec()
 {
 	if( (progArgs->getBenchPathType() != BenchPathType_DIR) &&
-		progArgs->getUseRandomOffsets() )
+		(progArgs->getUseRandomOffsets() || progArgs->getUseStridedAccess() ) )
 	{ // random file/bdev mode: we copied mappings from progArgs, so don't unmap here
 		fileHandles.mmapVec.resize(0);
 
@@ -951,7 +951,7 @@ void LocalWorker::initPhaseFileHandleVecs()
 		fileHandles.mmapVec.resize(1, (char*)MAP_FAILED);
 	}
 	else
-	if(!progArgs->getUseRandomOffsets() )
+	if(!progArgs->getUseRandomOffsets() && !progArgs->getUseStridedAccess() )
 	{
 		/* in sequential file/bdev mode, there is only one currently active file per worker.
 			original file FDs will be taken from progArgs or fileHandles.threadFDVec, but FD will be
@@ -1017,7 +1017,7 @@ void LocalWorker::initPhaseRWOffsetGen()
 		rwOffsetGen = std::make_unique<OffsetGenReverseSeq>(
 			fileSize, 0, blockSize);
 	else
-	if(!progArgs->getUseRandomOffsets() ) // sequential forward
+	if(!progArgs->getUseRandomOffsets() && !progArgs->getUseStridedAccess() ) // sequential forward
 		rwOffsetGen = std::make_unique<OffsetGenSequential>(
 			fileSize, 0, blockSize);
 	else
@@ -1911,6 +1911,15 @@ void LocalWorker::calcFileIdxAndOffsetStriped(const uint64_t rwOffsetGenNext,
         outFileIdx = rwOffsetGenNext / fileSize;
         outFileOffset = rwOffsetGenNext % fileSize;
     }
+
+    LOGGER_DEBUG_BUILD(__func__ << ": " <<
+        "workerRank: " << workerRank << "; " <<
+        "rwOffsetGenNext: " << rwOffsetGenNext << "; " <<
+        "fileSize: " << fileSize << "; " <<
+        "isSingleFile: " << isSingleFile << "; " <<
+        "outFileIdx: " << outFileIdx << "; " <<
+        "outFileOffset: " << outFileOffset <<
+        std::endl);
 }
 
 /**
@@ -3295,6 +3304,10 @@ void LocalWorker::fileModeIterateFilesRand()
     const uint64_t rangeLen = blockSize * (numBlocksTotal / numDataSetThreads);
     const uint64_t rangeOffset = workerRank * blockSize * (numBlocksTotal / numDataSetThreads);
 
+    if(progArgs->getUseStridedAccess() )
+        rwOffsetGen = std::make_unique<OffsetGenStrided>(rangeLen, blockSize * workerRank,
+            blockSize, numDataSetThreads);
+    else
     if(progArgs->getUseRandomUnaligned() )
         rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
             rangeLen, rangeOffset, blockSize);
