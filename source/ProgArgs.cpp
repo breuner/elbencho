@@ -20,8 +20,11 @@
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
 
+#ifdef CUDA_SUPPORT
+    #include <cuda_runtime.h>
+#endif
+
 #ifdef CUFILE_SUPPORT
-	#include <cuda_runtime.h>
 	#include <cufile.h>
 #endif
 
