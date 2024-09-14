@@ -8,13 +8,13 @@ RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo && \
     yum install -y boost-devel centos-release-scl gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
     sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo && \
     sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo && \
-    yum install -y devtoolset-8 && \
+    yum install -y devtoolset-11 && \
     yum -y install epel-release && \
     yum install -y --enablerepo=epel cmake3 && \
     ln -vs /usr/bin/cmake3 /usr/local/bin/cmake && \
     cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
-    source /opt/rh/devtoolset-8/enable && \
+    source /opt/rh/devtoolset-11/enable && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm
 
