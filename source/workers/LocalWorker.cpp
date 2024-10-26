@@ -4592,6 +4592,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
     const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
+    const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
 
 	// S T E P 1: retrieve multipart upload ID from server
 
@@ -4736,16 +4737,19 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	// S T E P 3: submit upload completion
 
-	if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() )
-	{ // we need to reverse the parts vector for ascending order
-		const Aws::Vector<S3::CompletedPart>& reversePartsVec = completedMultipartUpload.GetParts();
-		Aws::Vector<S3::CompletedPart> forwardPartsVec(reversePartsVec.size() );
+    IF_UNLIKELY(s3NoMpuCompletion)
+        return; // user-defined skip of completion message
 
-		std::reverse_copy(std::begin(reversePartsVec), std::end(reversePartsVec),
-			std::begin(forwardPartsVec) );
+    if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() )
+    { // we need to reverse the parts vector for ascending order
+        const Aws::Vector<S3::CompletedPart>& reversePartsVec = completedMultipartUpload.GetParts();
+        Aws::Vector<S3::CompletedPart> forwardPartsVec(reversePartsVec.size() );
 
-		completedMultipartUpload.SetParts(forwardPartsVec);
-	}
+        std::reverse_copy(std::begin(reversePartsVec), std::end(reversePartsVec),
+            std::begin(forwardPartsVec) );
+
+        completedMultipartUpload.SetParts(forwardPartsVec);
+    }
 
 	S3::CompleteMultipartUploadRequest completionRequest;
 	completionRequest.WithBucket(bucketName)
@@ -4799,6 +4803,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 #else
 
     const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
+    const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
 
 	// S T E P 1: retrieve multipart upload ID from server
 
@@ -4925,6 +4930,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 	}
 
 	// S T E P 3: submit upload completion
+
+	IF_UNLIKELY(s3NoMpuCompletion)
+	    return; // user-defined skip of completion message
 
 	if(!allCompletedParts)
 		return; // another worker still needs to upload parts, so no completion yet

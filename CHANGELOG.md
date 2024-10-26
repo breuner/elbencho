@@ -5,6 +5,7 @@
 ### New Features & Enhancements
 * New option to use file locks around each read/write. (See `--flock`.)
 * New option for strided file access. (See `--strided`.)
+* New S3 option to skip completion message for multi-part uploads. (See `--s3nompucompl`.)
 
 ### General Changes
 * Create only a shallow clone of AWS SDK to reduce time to download.

@@ -163,6 +163,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
 #define ARG_S3NOMD5_LONG            "s3nomd5"
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
+#define ARG_S3NOMPUCOMPLETION_LONG  "s3nompucompl"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
 #define ARG_S3OBJLOCKCFG_LONG       "s3olockcfg"
 #define ARG_S3OBJLOCKCFGVERIFY_LONG "s3olockcfgverify"
@@ -465,6 +466,7 @@ class ProgArgs
 		unsigned short s3LogLevel; // log level for AWS SDK
 		bool s3NoCompression; // disable request compression of aws sdk cpp
         bool s3NoMD5Checksum; // set empty md5 checksum for uploads
+        bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
@@ -707,6 +709,7 @@ class ProgArgs
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
         bool getS3NoCompression() const { return s3NoCompression; };
         bool getS3NoMD5Checksum() const { return s3NoMD5Checksum; };
+        bool getS3NoMpuCompletion() const { return s3NoMpuCompletion; };
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
         std::string getS3Region() const { return s3Region; }

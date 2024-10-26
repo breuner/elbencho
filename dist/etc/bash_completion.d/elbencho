@@ -135,6 +135,7 @@ _elbencho_opts()
         --s3multiignore404
         --s3nocompress
         --s3nomd5
+        --s3nompucompl
         --s3objprefix
         --s3olockcfg
         --s3olockcfgverify

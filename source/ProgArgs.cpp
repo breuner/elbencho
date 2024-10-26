@@ -576,6 +576,8 @@ void ProgArgs::defineAllowedArgs()
             "Set empty MD5 checksum for S3 upload requests.")
 /*s3n*/	(ARG_S3NOMPCHECK_LONG, bpo::bool_switch(&this->ignoreS3PartNum),
 			"Don't check for S3 multi-part uploads exceeding 10,000 parts.")
+/*s3n*/ (ARG_S3NOMPUCOMPLETION_LONG, bpo::bool_switch(&this->s3NoMpuCompletion),
+            "Don't send completion message after uploading all parts of a multi-part upload.")
 /*s3o*/	(ARG_S3OBJECTPREFIX_LONG, bpo::value(&this->s3ObjectPrefix),
 			"S3 object prefix. This will be prepended to all object names when the benchmark path "
 			"is a bucket. (A sequence of 3 to 16 \"" RAND_PREFIX_MARKS_SUBSTR "\" chars will be "
@@ -841,6 +843,7 @@ void ProgArgs::defineDefaults()
 	this->useOpsLogLocking = false;
 	this->s3NoCompression = false;
 	this->s3NoMD5Checksum = false;
+	this->s3NoMpuCompletion = false;
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
 }
@@ -3241,6 +3244,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMD5Checksum = tree.get<bool>(ARG_S3NOMD5_LONG);
+    s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
@@ -3389,6 +3393,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
     outTree.put(ARG_S3NOMD5_LONG, s3NoMD5Checksum);
+    outTree.put(ARG_S3NOMPUCOMPLETION_LONG, s3NoMpuCompletion);
     outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);

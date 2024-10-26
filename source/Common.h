@@ -72,7 +72,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.0.20"
+#define HTTP_PROTOCOLVERSION	"3.0.21"
 
 /**
  * Default access mode bits for new files.
