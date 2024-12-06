@@ -119,6 +119,8 @@ Elbencho presents two result columns: One showing the aggregate status at the po
 
 To generate charts from your result series, e.g. based on different block sizes or different thread counts, use elbencho's csv file option (`--csvfile`) and the `elbencho-chart` tool to easily generate a chart from your csv file. Alternatively, spreadsheet tools like Microsoft Excel or Google Sheets can be used for this.
 
+See the [CSV documentation](csv-docs.md) for detailed descriptions of fields.
+
 ### Questions & Comments
 
 In case of questions, comments, if something is missing to make elbencho more useful or if you would just like to share your thoughts, feel free to contact me: sven.breuner[at]gmail.com
