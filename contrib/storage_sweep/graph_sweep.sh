@@ -3,15 +3,16 @@
 # GNU General Public License v3.0; it is intended to be always in sync
 # with the license term employed by the elbencho itself.
 #
-# Name :   graph_sweep.sh - a bash wrapper for mtelbencho.sh and gnuplot
+# Name :   graph_sweep.sh - a bash wrapper for mtelbencho.sh and optionally,
+#                           gnuplot
 #
 # Author : Chin Fang <fangchin@zettar.com>
 #
-# Purpose: Make the graphing of storage sweep results a push-button
-#          operation.
+# Purpose: Make the graphing of storage sweep results simple.
 #
-# Remarks: 0. In the following, it is assumed that both mtelbencho.sh and
-#             gnuplot are in the $PATH.
+# Remarks: 0. In the following, it is assumed that both mtelbencho.sh
+#             and optionally gnuplot are in the $PATH. Nevertheless,
+#             it always generate a gnuplot command file.
 #          1. The wrapper enables you to select
 #             1.0 The range to sweep (LOSF, Medium, Large, or Full. Default
 #                 is a full sweep from 1KiB to 1TiB, as this provides the
@@ -78,13 +79,8 @@ buffered=
 num_sweep=3
 output_dir=/var/tmp
 traditional=
+# Note that the gunplot command file is unconditionally generated.
 push_button_plot=
-#
-# The following should be defined right at the beginning of the script
-# so that for long duration sweeps that cross the midnight, the file
-# names remain correct for post-sweep processing such as graphing.
-# The global variable today is defined here for similar reasons.
-#
 today=$(date +%F)
 out_file_base=$(hostname)_tests_"$today"
 verbose=
@@ -97,6 +93,7 @@ if [[ -z "$mtelbencho" ]]; then
     echo "mtelbencho.sh could not be found. Aborting!"
     exit
 fi
+# gnuplot is optional, unless -p (lower case p) is used
 gnuplot=/usr/bin/gnuplot
 #
 # The sweep data file to be plotted using gnuplot. The CSV format is
@@ -136,13 +133,13 @@ declare -a xlabels=('1048576x1KiB'   '1048576x2KiB'   '1048576x4KiB'
 #
 # The mtelbencho.sh uses individual files for the large-file range
 # sweep. Their corresponding file descriptors could be all opened at
-# the same time. Thus, the system default (often set to a modest 1024)
-# may not be enough.  This can be raised with root privileges. Since
-# this script is supposed to be run under root, so we can and will do
-# it below temporarily - an application should NEVER touch the
-# system's default settings!  In the following, both the hard and soft
-# file descriptor limits are set to the same and adequate value per
-# our experience.
+# the same time. Thus, the system default (often set to a modest 1024
+# - 4096) may not be enough.  This can be raised with root
+# privileges. Since this script is supposed to be run under root, so
+# we can and will do it below temporarily - an application should
+# NEVER touch the system's default settings!  In the following, both
+# the hard and soft file descriptor limits are set to the same and
+# adequate value per our experience.
 #
 set_max_open_file_descriptors()
 {
@@ -184,10 +181,11 @@ help()
 {
     local help_str=''
     read -r -d '' help_str <<'EOF'
-This script is a bash wrapper for mtelbencho.sh and gnuplot.
+This script is a bash wrapper for mtelbencho.sh and optionally, gnuplot.
 
-Its purpose is to make the graphing of storage sweep results a
-push-button operation.
+Its purpose is to make the graphing of storage sweep results simple. Note
+that a storage sweep is best carried out on NVMe-based storage, whether
+local or networked. HDD or SATA SSD-based storage may take too long.
 
 Command line options:
     -h show this help
@@ -207,12 +205,29 @@ Command line options:
     -N number of interations for a sweep (default: 3)
     -o the path to the directory where the results are stored
     -T tranditional output (use GB/s instead of Gbps; default Gbps)
-    -p generate plot directly on the server; this may be not
-       acceptable at some sites which run the Minimal Install OS, or
-       simply prohibited due to policy reasons
-    -v verbose mode; to print out the test dataset, number of threads, and
-       other settings
+    -p optional - generate plot using gnuplot directly on the server;
+       this may be not acceptable at some sites which run the Minimal
+       Install OS, or simply prohibited due to policy reasons. Nevertheless,
+       a gnuplot command file is unconditionally generated. Running gnuplot
+       on a workstation is more appropriate anyway. See also notes below
+    -v verbose mode; to print out the test dataset, number of threads,
+       and other settings
     -n dry-run; to print out tests that would have run
+
+Furthermore, assuming
+
+* The plot command file is named as sweep.gplt
+* The input file (i.e. ifile) is named as sweep.csv
+* The output file (i.e. ofile) is named as sweep.svg
+
+then, if the gnuplot command file (default: sweep.gplt) has been
+retrieved to the local computer, the following command will create
+sweep.svg
+
+$ gnuplot -e "ifile_arg='sweep.csv'; ofile_arg='sweep.svg'" sweep.gplt
+
+Please replace sweep.csv, sweep.svg, and sweep.gplt if you have them
+named differently.
 
 The usage: 
 $ sudo graph_sweep.sh [-h][-r range][-t numthreads][-s dirpath]\
@@ -225,13 +240,15 @@ Examples: 0. $ graph_sweep.sh -r s -t 56 -s /data/zettar/zx/src/sweep -b 16 \
           2. # graph_sweep.sh -r m -s /var/local/zettar/sweep -b 16 -p -v -N 1
           3. # graph_sweep.sh -r l -s /var/local/zettar/sweep -b 16 -p -v -N 1
           4. # graph_sweep.sh -s /var/local/zettar/sweep -b 16 -p -v -N 1
+          5. # graph_sweep.sh -s /var/local/zettar/sweep -b 16 -v -N 1
 
 In the above examples 
-0. shows a dry run
-1. shows to graph a single-run sweep for LOSF in one shot
-2. shows to graph a single-run sweep for medium files in one shot
-3. shows to graph a single-run sweep for large files in one shot
-4. shows to graph a single-run full sweep for the full 1KiB-1TiB range in one shot
+0. A dry run
+1. Graph a single-run sweep for LOSF in one shot
+2. Graph a single-run sweep for medium files in one shot
+3. Graph a single-run sweep for large files in one shot
+4. Graph a single-run full sweep for the full 1KiB-1TiB range in one shot
+5. Generate gnuplot command file only. The rest is the same as 4 above
 EOF
     echo "$help_str"
     exit 0
@@ -398,54 +415,74 @@ run_gnuplot()
     local hn
     hn=$(hostname -s)
     read -r -d '' gnuplot_settings <<EOF
-#set terminal eps          # tested
-#set terminal pdfcairo     # tested
-set terminal svg enhanced background rgb 'white' # look bad if no background
+# The following gnuplot command file content is structured as follows:
+#
+# 1. Define paths and arguments
+# 2. Set output method
+# 3. Define graph content (titles, labels)
+# 4. Set up basic graph structure (axes, grid)
+# 5. Refine visual elements (line styles, grid styles)
+# 6. Position supplementary information (legend)
+# 7. Final visual tweaks (x-axis tics)
+# 8. Plot the data
+#
+# Use default paths unless overridden
+ifile = "/var/tmp/full/sweep.csv"
+ofile = "/var/tmp/full/sweep.svg"
+
+# Allow overriding through command-line arguments using gnuplot -e
+if (exists("ifile_arg")) ifile = ifile_arg
+if (exists("ofile_arg")) ofile = ofile_arg
+
+# Set terminal options
+#set terminal eps          # example. tested
+#set terminal pdfcairo     # example. tested
+set terminal svg enhanced background rgb 'white' # looks bad if no 
+                                                 # background
+# Set output file and data format
+set output ofile
+set datafile separator ',' # so that gnuplot understand we use a csv 
+                           # file
+
+# Set title and labels
 set title "Storage sweep on $hn for $range over $num_sweep runs on $today"
 set title font "Times Bold, 14"
-set xlabel 'Datasets'
-set xlabel font "Times Bold,10"
 set ylabel "Mean throughput ($speed)"
 set ylabel font "Times Bold,10"
-set key autotitle columnhead
+
+# Move up the xlabel by 3 characters to reduce the wasted white spaces
+set xlabel 'Datasets' offset 0,3
+set xlabel font "Times Bold,10"
+
+# Configure axis and grid
 set yrange [0:]
-#
-# Use the line plot and enable grid lines in both X and Y
-# directions.
-#
 set style data line
 set grid ytics xtics
 set grid
-#
-# Set the linestyle (ls) for the grid and enable grid lines with specific
-# linetype (lt) linecolor (lc).
-#
+
+# Set the line style (ls) for the grid
 set style line 100 lt 1 lc rgb "grey" lw 0.5 
 set grid ls 100 
-#
-# Predefine three linewidth (lw) and linetype color, sequentially
-# numbered.  You can add more should you wish. Uncomment one to select, 
-# and set it below in the plot command.
-#
-set style line 101 lw 3 lt rgb "#FF8C00" # line color in drak orange
-#set style line 102 lw 3 lt rgb "#0000FF" # line color in blue
-#set style line 103 lw 4 lt rgb "#228B22" # line color in forestgreen
-#
-# Rotate the xtics 90 degrees to avoid clutter. Also make sure the
-# font choice and size are good for viewing. The same for the legend.
-#
-set xtics rotate # rotate labels on the x axis
-set xtics font "Verdana,8"
 
+# Configure the line styles
+set style line 101 lw 3 lt rgb "#FF8C00"  # line color in drak orange
+#set style line 102 lw 3 lt rgb "#0000FF" # example. line color in blue
+#set style line 103 lw 4 lt rgb "#228B22" # example. line color in forestgreen
+
+# Configure the legend (key)
+set key autotitle columnhead
 set key left top # legend placement
 set key font "Verdana,8"
 set key Left     # note the cap 'L'!  Left justify the key text
 set key width -3 # shift the legend to the left
 
-#
-set output "$sweep_svg"
-set datafile separator ','  # so that gnuplot understand we use a csv file
-plot "$sweep_csv" using 2:xtic(1) ls 101
+# Rotate and configure xtics
+set xtics rotate # rotate labels on the x axis
+set xtics font "Verdana,8"
+
+# Plot the data
+plot ifile using 2:xtic(1) ls 101  # use the line style 101 defined
+                                   # earlier
 EOF
     echo "$gnuplot_settings" > "$sweep_gplt"
     ensure_file_exists "$sweep_gplt" 
@@ -667,6 +704,7 @@ show_test_duration()
                 ;;
         esac
     done
+
     mitigate_human_errors
     sweep_csv="$output_dir"/sweep.csv
     sweep_gplt="$output_dir"/sweep.gplt

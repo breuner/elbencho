@@ -37,8 +37,8 @@ Engineering](https://www.artima.com/intv/garden.html)
 This directory contains three `bash` scripts:
 
 1. **`graph_sweep.sh`** is a wrapper script of `mtelbencho.sh` and
-   [`gnuplot`](http://www.gnuplot.info).  Its main purpose is to make
-   the graphing of storage sweeps a push-button operation.  Once it's
+   optionally, [`gnuplot`](http://www.gnuplot.info).  Its main purpose
+   is to make the graphing of storage sweeps simple. Once it's
    installed, type `graph_sweep.sh -h` for more info.
 2. **`mtelbencho.sh`** (*mt: multiple test*) is a wrapper script for
    `elbencho`. Once it's installed, type `mtelbencho.sh -h` for more
@@ -60,10 +60,10 @@ proficiency to use `elbencho` for real work.  This is how I learned
 Nevertheless, it should be helpful to see how this versatile program
 is used in real production/test environment.  `mtelbencho.sh` provides
 a simple, production grade, useful, and extensible example.
-`graph_sweep.sh` enables you to graph the obtained results in a push
-button manner.  `dgen.sh` enables you to quickly and flexibly generate
-hyperscale test datasets, where the term "hyperscale datasets" is
-defined in [the next section](#requirements).
+`graph_sweep.sh` enables you to graph the obtained results simply.
+`dgen.sh` enables you to quickly and flexibly generate hyperscale test
+datasets, where the term "hyperscale datasets" is defined in [the next
+section](#requirements).
 
 Before proceeding, you may wish to browse the
 **[`QUICKSTART.md`](QUICKSTART.md)** first.
@@ -175,6 +175,13 @@ a storage oriented output unit.
 3. The storage sweep tools are meant to be applied to reasonably fast
    storage. As such, **Gbps** and **GB/s** are used.  No smaller units are
    planned.
+4. On headless servers with a Minimal OS install, running gnuplot on
+   such servers are inappropriate - it has extensive package
+   dependencies and such dependencies usually are irrelevant to the
+   operations of headless servers.  Nevertheless, a gnuplot command
+   file is always generated per sweep. The file can be retrieved to a
+   local workstation. Tools such as ansible makes automating such task
+   simple. Please type `graph_sweep.sh -h` for more details.
    
 The following shows the two sweep plots of using bps and Bps. They
 were generated on [a Zettar
@@ -215,16 +222,20 @@ the following:
    wrappers together with `elbencho`, recalling it's a distributed
    application.
 7. Monitor the characteristics of a batch of SSDs in production over
-   time, either visually or numerically.  Note that SSDs, except
-   [Intel
-   Optane](https://www.intel.com/content/www/us/en/architecture-and-technology/optane-technology/optane-enterprise-storage.html),
-   tend to change their performance characteristics over time.  Please
-   see [The Why and How of SSD Performance
-   Benchmarking](https://www.snia.org/educational-library/why-and-how-ssd-performance-benchmarking-2011)
-   for a more in-depth discussion.  A quick glance of the six full
-   sweep plots ![the six full sweep
-   plots](pics/6_overall_sweep_plots.png) should make it evident that
-   although they are similar, but not identical.
+   time, either visually or numerically. The sweep graph can even help
+   spot overlooked Linux system settings and configure the kernel
+   properly. For example, during one of the Zettar's 2024 projects, we
+   got a sweep plot like below on a HPE DL380 Gen11 server with 8 PCIe
+   Gen5 NVMe SSDs:
+   
+   ![full_sweep conducted on a HPE DL380 Gen11
+   server](pics/hpe_dl380_gen11_pcie_gen5_sweep.svg) 
+   
+   The cusp helped
+   us in enabling the overlooked
+   [fstrim.timer](https://fedoraproject.org/wiki/Changes/EnableFSTrimTimer)
+   and the kernel setting regarding Linux kernel [split lock
+   detection](https://docs.kernel.org/5.19/x86/buslock.html) setting.
 8. Generate various test datasets flexibly.
 
 Many other uses are possible. It's up to one's creativity and
@@ -234,10 +245,12 @@ imagination.
 
 # Motivation
 
-My professional focus and specialty is at-scale data movement, such as
-for large-scale AI/ML/DL training.  Since 2015, my company, [Zettar
-Inc.](https://zettar.com/) has been engaged to support the ambitious
-data movement requirements of [Linac Coherent Light Source II
+My professional focus and specialty is moving hundreds of TBs to many
+PBs of data over distance, such as moving data from edge to computing
+resources for large-scale AI/ML/DL training.  Since 2015, my company,
+[Zettar Inc.](https://zettar.com/) has been engaged to support the
+ambitious data movement requirements of [Linac Coherent Light Source
+II
 (LCLS-II)](https://lcls.slac.stanford.edu/lcls-ii/design-and-performance),
 a premier U.S. Department of Energy (DOE)'s Exascale Computing
 preparation project.  As a result, my team and I have become
