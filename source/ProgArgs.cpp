@@ -534,6 +534,8 @@ void ProgArgs::defineAllowedArgs()
             "\"--" ARG_S3NOMD5_LONG "\", \"--" ARG_S3NOCOMPRESS_LONG "\".")
 /*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
+/*s3h*/	(ARG_S3HIDECREDS_LONG, bpo::bool_switch(&this->hideS3Creds),
+			"Hide S3 credentials from results files.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
 			"S3 access key.")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
@@ -781,6 +783,7 @@ void ProgArgs::defineDefaults()
 	this->treeRoundUpSize = 0;
 	this->treeRoundUpSizeOrigStr = "0";
 	this->useS3FastRead = false;
+	this->hideS3Creds = false;
 	this->ignoreS3Errors = false;
 	this->s3LogLevel = 0;
 	this->s3LogfilePrefix = AWS_SDK_LOGPREFIX_DEFAULT;
@@ -3202,6 +3205,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	ignore0USecErrors = tree.get<bool>(ARG_IGNORE0USECERR_LONG);
 	ignoreDelErrors = tree.get<bool>(ARG_IGNOREDELERR_LONG);
 	ignoreS3Errors = tree.get<bool>(ARG_S3IGNOREERRORS_LONG);
+	hideS3Creds = tree.get<bool>(ARG_S3HIDECREDS_LONG);
 	integrityCheckSalt = tree.get<uint64_t>(ARG_INTEGRITYCHECK_LONG);
 	ioDepth = tree.get<size_t>(ARG_IODEPTH_LONG);
 	limitReadBps = tree.get<uint64_t>(ARG_LIMITREAD_LONG);
@@ -3385,6 +3389,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
+	outTree.put(ARG_S3HIDECREDS_LONG, hideS3Creds);
 	outTree.put(ARG_S3IGNOREERRORS_LONG, ignoreS3Errors);
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);

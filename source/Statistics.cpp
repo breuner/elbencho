@@ -1021,7 +1021,16 @@ void Statistics::printPhaseResultsTableHeader()
 		fileStream << "COMMAND LINE: ";
 
 		for(int i=0; i < progArgs.getProgArgCount(); i++)
-			fileStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+		{
+			if (progArgs.getHideS3Creds() && (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0))
+			{
+				i += 1;
+			}
+			else
+			{
+				fileStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+			}
+		}
 
 		fileStream << std::endl;
 
@@ -1821,7 +1830,16 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 	std::string cmdString;
 
 	for(int i=0; i < progArgs.getProgArgCount(); i++)
-		cmdStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+	{
+		if (progArgs.getHideS3Creds() && (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0))
+		{
+			i += 1;
+		}
+		else
+		{
+			cmdStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+		}
+	}
 
 	cmdString = cmdStream.str();
 	std::replace(cmdString.begin(), cmdString.end(), ',', ' '); // replace all commas with spaces
