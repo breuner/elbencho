@@ -217,7 +217,7 @@ void ProgArgs::defineAllowedArgs()
 /*co*/	(ARG_CPUCORES_LONG, bpo::value(&this->cpuCoresStr),
 			"Comma-separated list of CPU cores to bind this process to. If multiple cores are "
 			"given, then worker threads are bound round-robin to the cores. The special value "
-			"\"" CPUCORES_ALL_ARG "\" is short for the list of all available CPU cores."
+			"\"" CPUCORES_ALL_ARG "\" is short for the list of all available CPU cores. "
 			"(Hint: See 'lscpu' for available CPU cores.)")
 #endif // COREBIND_SUPPORT
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
@@ -535,11 +535,12 @@ void ProgArgs::defineAllowedArgs()
 /*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
-			"S3 access key.")
+			"S3 access key. (AWS_ACCESS_KEY_ID env variable will be used if set but won't "
+			"be passed to elbencho instances running in service mode.)")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
 			"List objects. The given number is the maximum number of objects to retrieve. Use "
 			"\"--" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
-			"threads will only be effecive if multiple buckets are given.)")
+			"threads will only be effective if multiple buckets are given.)")
 /*s3l*/	(ARG_S3LISTOBJPARALLEL_LONG, bpo::bool_switch(&this->runS3ListObjParallel),
 			"List objects in parallel. Requires a dataset created via \"-" ARG_NUMDIRS_SHORT "\" "
 			"and \"-" ARG_NUMFILES_SHORT "\" options and parallelizes by using different S3 "
@@ -598,7 +599,8 @@ void ProgArgs::defineAllowedArgs()
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
-			"S3 access secret.")
+			"S3 access secret. (AWS_SECRET_ACCESS_KEY env variable will be used if set but won't "
+			"be passed to elbencho instances running in service mode.)")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
@@ -617,13 +619,13 @@ void ProgArgs::defineAllowedArgs()
 			"Run as service for distributed mode, waiting for requests from master.")
 /*sh*/	(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
 			"In custom tree mode, this defines the file size as of which files are no longer "
-			"exlusively assigned to a thread. This means multiple threads read/write different "
+			"exclusively assigned to a thread. This means multiple threads read/write different "
 			"parts of files that exceed the given size. "
 			"(Default: 0, which means " FILESHAREBLOCKFACTOR_STR " x blocksize)")
 /*st*/	(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
 			"Run file stat benchmark phase.")
 /*re*/	(ARG_STATFILESINLINE_LONG, bpo::bool_switch(&this->doStatInline),
-			"When benchmark path is a diretory, stat files immediately after open in a write or "
+			"When benchmark path is a directory, stat files immediately after open in a write or "
 			"read phase.")
 /*st*/	(ARG_STARTTIME_LONG, bpo::value(&this->startTime),
 			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
@@ -695,7 +697,7 @@ void ProgArgs::defineAllowedArgs()
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
 			"given, then worker threads are bound round-robin to the zones. The special value "
-			"\"" NUMAZONES_ALL_ARG "\" is short for the list of all available NUMA zones."
+			"\"" NUMAZONES_ALL_ARG "\" is short for the list of all available NUMA zones. "
 			"(Hint: See 'lscpu' for available NUMA zones.)")
 #endif // LIBNUMA_SUPPORT
     ;
