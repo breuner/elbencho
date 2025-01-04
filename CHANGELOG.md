@@ -10,6 +10,7 @@
 ### General Changes
 * Create only a shallow clone of AWS SDK to reduce time to download.
 * Added Dockerfile for Ubuntu 24.04.
+* Updated mimalloc lib for static builds to latest v2.1.9.
 
 ### Fixes
 * Fixed compile error on platforms with CUDA, but no cuFile (GDS) support.
