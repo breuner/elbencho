@@ -49,25 +49,27 @@ docker run --net=host -it breuner/elbencho --quit --hosts HOST1,HOST2,...
 
 ### GPUs & GPUDirect Storage (GDS)
 
-To test GPU storage access performance through Nvidia CUDA or GPUDirect Storage (GDS/cuFile), use the MagnumIO container (tag "master-magnum-io") or the multi-arch Ubuntu container with CUDA installed (tag "master-ubuntu-cuda-multiarch").
+To test GPU storage access performance through Nvidia CUDA or GPUDirect Storage (GDS/cuFile), use the multi-arch Ubuntu container with CUDA installed (tag "master-ubuntu-cuda-multiarch").
 
-Here is an example to read 128 large file via GDS, assuming a DGX-A100 style system with 8 GPUs and 8 NUMA zones:
+Here is an example to write and read 128 large file via GDS, using 256 threads and all available GPUs in the host:
 
 ```bash
-nvidia-docker run --privileged -v /data:/data -it breuner/elbencho:master-magnum-io /data/mylargefile{1..128} -r -t 256 -b 4m --direct --zones "$(echo {0..7},)" --gpuids "$(echo {0..7})" --gds
+nvidia-docker run --privileged -v /data:/data -it breuner/elbencho:master-ubuntu-cuda-multiarch "/data/mylargefile[1..128]" -w -r -t 256 -s 12g -b 4m --direct --gpuids all --gds
 ```
 
 If you don't have `nvidia-docker`, you can alternatively use `docker run --gpus all ...`.
 
 ## Docker Image Flavors
 
-The default image (tagged "latest") is based on Alpine Linux for minimum size and only contains the elbencho main executable, no other tools. 
+The default image (tagged "latest") is based on Ubuntu 24.04. 
 
 The Ubuntu and CentOS based images contain the full `.deb` / `.rpm` package installation. To use e.g. one of the contained elbencho tools, simply specify the tool name as an alternative entrypoint:
 
 ```bash
-docker run -it --entrypoint elbencho-scan-path breuner/elbencho:master-ubuntu2004 --help
+docker run -it --entrypoint elbencho-scan-path breuner/elbencho:master-ubuntu2404 --help
 ```
+
+The Alpine Linux based image is optimized for minimum size and only contains the elbencho main executable, no other tools.
 
 ### S3 Support
 
@@ -75,9 +77,8 @@ Images with stable version tags include S3 support as of elbencho v2.0. Addition
 - latest
 - master-alpine
 - master-centos7, master-centos8, master-rocky9
-- master-magnum-io
 - master-sles15
-- master-ubuntu2004, master-ubuntu2204
+- master-ubuntu2004, master-ubuntu2204, master-ubuntu2404
 - master-ubuntu-cuda-multiarch
 
 ### Local Image Builds
@@ -85,9 +86,9 @@ Images with stable version tags include S3 support as of elbencho v2.0. Addition
 To build docker images from your local elbencho git clone (e.g. because you modified the sources or want to build a particular previous version), you can find the corresponding dockerfiles in the `build_helpers/docker` subdir with a `.local` extension. To build a Ubuntu 22.04 image from your local sources, run this command:
 
 ```bash
-docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2204.local .
+docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2404.local .
 ```
 
 ### ARM64 & Multi-Platform
 
-The image tag "master-ubuntu-cuda-multiarch" support x86_64 and arm64/v8 (aka aarch64) platforms.
+The image tag "master-ubuntu-cuda-multiarch" supports x86_64 and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs.
