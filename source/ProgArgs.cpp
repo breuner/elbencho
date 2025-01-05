@@ -58,6 +58,8 @@
 #define TREESCAN_OUTFILE_DEFAULT    ("/var/tmp/" EXE_NAME "_" + SystemTk::getUsername() + "_" + \
                                     "treescan.txt")
 
+#define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
+#define S3_ENV_SECRET_KEY           "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret
 
 
 /**
@@ -182,13 +184,15 @@ void ProgArgs::defineAllowedArgs()
 /*al*/	(ARG_ALTHTTPSERVER_LONG, bpo::bool_switch(&this->useAlternativeHTTPService),
 			"Use alternative implementation of HTTP service (for testing).")
 #endif // ALTHTTPSVC_SUPPORT
-/*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
-			"Number of bytes to read/write in a single operation. "
+/*b*/   (ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
+            "Number of bytes to read/write in a single operation. Each thread needs to keep "
+            "one block in RAM (or multiple blocks if \"--" ARG_IODEPTH_LONG "\" is used), so "
+            "be careful with large block sizes. "
 #ifdef S3_SUPPORT
-			"For S3, this defines the multipart upload size and the ranged read size. Multipart "
-			"uploads will automatically be used if object size is larger than this block size. "
+            "For S3, this defines the multipart upload size and the ranged read size. Multipart "
+            "uploads will automatically be used if object size is larger than this block size. "
 #endif // S3_SUPPORT
-			"(Default: 1M; supports base2 suffixes, e.g. \"2M\")")
+            "(Default: 1M; supports base2 suffixes, e.g. \"128K\")")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
@@ -535,8 +539,7 @@ void ProgArgs::defineAllowedArgs()
 /*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
-			"S3 access key. (AWS_ACCESS_KEY_ID env variable will be used if set but won't "
-			"be passed to elbencho instances running in service mode.)")
+			"S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
 			"List objects. The given number is the maximum number of objects to retrieve. Use "
 			"\"--" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
@@ -599,8 +602,7 @@ void ProgArgs::defineAllowedArgs()
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
-			"S3 access secret. (AWS_SECRET_ACCESS_KEY env variable will be used if set but won't "
-			"be passed to elbencho instances running in service mode.)")
+			"S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
@@ -892,6 +894,7 @@ void ProgArgs::initImplicitValues()
 	if(useBriefLiveStatsNewLine)
 		useBriefLiveStats = true;
 
+	// service: check for s3 endpoint override
 	if(!s3EndpointsStr.empty() && runAsService)
 	{
 		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
@@ -900,6 +903,19 @@ void ProgArgs::initImplicitValues()
 		s3EndpointsServiceOverrideStr = s3EndpointsStr;
 	}
 
+	// read s3 access key & secret from environment variables (if not running as service)
+    if(!s3EndpointsStr.empty() && !runAsService)
+    {
+        if(s3AccessKey.empty() && (getenv(S3_ENV_ACCESS_KEY) != NULL) )
+            s3AccessKey = getenv(S3_ENV_ACCESS_KEY);
+
+        if(s3AccessSecret.empty() && (getenv(S3_ENV_SECRET_KEY) != NULL) )
+            s3AccessSecret = getenv(S3_ENV_SECRET_KEY);
+
+        s3EndpointsServiceOverrideStr = s3EndpointsStr;
+    }
+
+    // csv file: remove commas from user-defined label
 	benchLabelNoCommas = benchLabel;
 	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
 
@@ -2847,13 +2863,13 @@ void ProgArgs::printHelpS3()
 	bpo::options_description argsS3ServiceArgsDescription(
 		"S3 Service Arguments", TerminalTk::getTerminalLineLength(80) );
 
-	argsS3ServiceArgsDescription.add_options()
-		(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
-			"Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
-		(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
-			"S3 access key.")
-		(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
-			"S3 access secret.")
+    argsS3ServiceArgsDescription.add_options()
+        (ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
+            "Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
+        (ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
+            "S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
+        (ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
+            "S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
     ;
 
     std::cout << argsS3ServiceArgsDescription << std::endl;
@@ -2888,8 +2904,10 @@ void ProgArgs::printHelpS3()
 		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
 			"Object size. (Default: 0)")
 		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
-            "The part size for uploads and the ranged read size for downloads. Multipart upload "
-            "will automatically be used if object size is larger than part size. "
+            "The part block size for uploads and the ranged read size for downloads. Multipart "
+            "upload will automatically be used if object size is larger than part block size. "
+            "Each thread needs to keep one block in RAM (or multiple blocks if "
+            "\"--" ARG_IODEPTH_LONG "\" is used), so be careful with large block sizes. "
 			"(Default: 1M)")
     ;
 

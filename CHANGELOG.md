@@ -12,12 +12,13 @@
 * Added Dockerfile for Ubuntu 24.04.
 * Removed Dockerfile for outdated Nvidia Magnum IO container. (Ubuntu CUDA multiarch container provides modern GDS support.)
 * Updated mimalloc lib for static builds to latest v2.1.9.
+* S3 credentials from environment variables (`AWS_ACCESS_KEY_ID` & `AWS_SECRET_ACCESS_KEY`) now also get forwarded to service instances by the master.
 
 ### Fixes
 * Fixed compile error on platforms with CUDA, but no cuFile (GDS) support.
 
 ### Contributors
-* Thanks to Github user runiq and Scott Howard for helpful comments and suggestions.
+* Thanks to Scott Howard, Casey Peel and Github users runiq, russki for contributions, helpful comments and suggestions.
 
 ## v3.0.19 (Sep 02, 2024)
 

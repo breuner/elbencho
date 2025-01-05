@@ -26,8 +26,6 @@
     Aws::SDKOptions* S3Tk::s3SDKOptions = NULL; // needed for init and again for uninit later
 #endif // S3_SUPPORT
 
-#define S3_ENV_ACCESS_KEY   "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
-#define S3_ENV_SECRET_KEY   "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret key
 
 
 /**
@@ -164,18 +162,11 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     Aws::Auth::AWSCredentials credentials;
 
-    // read access key from command line args or environment variables
     if(!progArgs->getS3AccessKey().empty() )
         credentials.SetAWSAccessKeyId(progArgs->getS3AccessKey() );
-    else
-    if(getenv(S3_ENV_ACCESS_KEY) != NULL)
-        credentials.SetAWSAccessKeyId(getenv(S3_ENV_ACCESS_KEY) );
 
     if(!progArgs->getS3AccessSecret().empty() )
         credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
-    else
-    if(getenv(S3_ENV_SECRET_KEY) != NULL)
-        credentials.SetAWSSecretKey(getenv(S3_ENV_SECRET_KEY) );
 
     // create s3 client for this worker
     std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentials,
@@ -183,7 +174,6 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         false);
 
     return s3Client;
-
 }
 
 #endif // S3_SUPPORT
