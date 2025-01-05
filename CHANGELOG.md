@@ -17,7 +17,7 @@
 * Fixed compile error on platforms with CUDA, but no cuFile (GDS) support.
 
 ### Contributors
-* Thanks to Github user runiq for helpful comments and suggestions.
+* Thanks to Github user runiq and Scott Howard for helpful comments and suggestions.
 
 ## v3.0.19 (Sep 02, 2024)
 

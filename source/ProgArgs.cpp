@@ -1110,58 +1110,63 @@ void ProgArgs::checkArgs()
 		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
 			"Falling back to \"--" ARG_REVERSESEQOFFSETS_LONG "\"." << std::endl);
 
-	if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize &&
-		runCreateFilesPhase && ( (fileSize/blockSize) > 10000) )
-		throw ProgException("Specified multi-part upload would exceed 10,000 parts per object. "
-			"This exceeds the S3 specification and thus is likely to get rejected by the server. "
-			"(\"--" ARG_S3NOMPCHECK_LONG "\" disables this check.)");
+    if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize && runCreateFilesPhase
+        && ( (fileSize / blockSize) > 10000) )
+        throw ProgException("The specified multi-part upload would exceed 10,000 parts per object. "
+            "This exceeds the S3 specification and thus is likely to get rejected by the server. "
+            "Consider a smaller object size (\"-" ARG_FILESIZE_SHORT "\") or a larger part block "
+            "size (\"-" ARG_BLOCK_SHORT "\"). "
+            "The option \"--" ARG_S3NOMPCHECK_LONG "\" disables this check. "
+            "Object size: " +  std::to_string(fileSize) + "; "
+            "Part block size: " + std::to_string(blockSize) + "; "
+            "Resulting number of parts: " + std::to_string(fileSize / blockSize) );
 
-	if(useCuFile && !s3EndpointsStr.empty() )
-		throw ProgException("cuFile API cannot be used with S3");
+    if(useCuFile && !s3EndpointsStr.empty() )
+        throw ProgException("cuFile API cannot be used with S3");
 
-	if(hasUserSetRWMixPercent() && !s3EndpointsStr.empty() )
-		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
-			"Consider \"--" ARG_RWMIXTHREADS_LONG "\" as alternative.");
+    if(hasUserSetRWMixPercent() && !s3EndpointsStr.empty() )
+        throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
+            "Consider \"--" ARG_RWMIXTHREADS_LONG "\" as alternative.");
 
-	if(hasUserSetRWMixPercent() && hasUserSetRWMixReadThreads() )
-		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
-			"\"--" ARG_RWMIXTHREADS_LONG "\"");
+    if(hasUserSetRWMixPercent() && hasUserSetRWMixReadThreads() )
+        throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
+            "\"--" ARG_RWMIXTHREADS_LONG "\"");
 
-	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
-		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
-			"GPU memory copy");
+    if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
+        throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
+            "GPU memory copy");
 
-	if(integrityCheckSalt && rwMixPercent)
-		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
-			"option \"--" ARG_INTEGRITYCHECK_LONG "\"");
+    if(integrityCheckSalt && rwMixPercent)
+        throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
+            "option \"--" ARG_INTEGRITYCHECK_LONG "\"");
 
-	if(integrityCheckSalt && blockVariancePercent && runCreateFilesPhase)
-		throw ProgException("Option \"--" ARG_INTEGRITYCHECK_LONG "\" requires "
-			"\"--" ARG_BLOCKVARIANCE_LONG " 0\"");
+    if(integrityCheckSalt && blockVariancePercent && runCreateFilesPhase)
+        throw ProgException("Option \"--" ARG_INTEGRITYCHECK_LONG "\" requires "
+            "\"--" ARG_BLOCKVARIANCE_LONG " 0\"");
 
-	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
-		throw ProgException("Integrity check writes are not supported in combination with random "
-			"offsets.");
+    if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
+        throw ProgException("Integrity check writes are not supported in combination with random "
+            "offsets.");
 
-	if(doDirectVerify && (!integrityCheckSalt || !runCreateFilesPhase) )
-		throw ProgException("Direct verification requires --" ARG_INTEGRITYCHECK_LONG " and "
-			"--" ARG_CREATEFILES_LONG);
+    if(doDirectVerify && (!integrityCheckSalt || !runCreateFilesPhase) )
+        throw ProgException("Direct verification requires --" ARG_INTEGRITYCHECK_LONG " and "
+            "--" ARG_CREATEFILES_LONG);
 
-	if(doDirectVerify && (ioDepth > 1) )
-		throw ProgException("Direct verification cannot be used together with --" ARG_IODEPTH_LONG);
+    if(doDirectVerify && (ioDepth > 1) )
+        throw ProgException("Direct verification cannot be used together with --" ARG_IODEPTH_LONG);
 
-	if(doReadInline && (ioDepth > 1) )
-		throw ProgException("Inline read cannot be used together with --" ARG_IODEPTH_LONG);
+    if(doReadInline && (ioDepth > 1) )
+        throw ProgException("Inline read cannot be used together with --" ARG_IODEPTH_LONG);
 
-	if( (flockType == ARG_FLOCK_FULL) && (ioDepth > 1) && runCreateFilesPhase)
+    if( (flockType == ARG_FLOCK_FULL) && (ioDepth > 1) && runCreateFilesPhase)
         throw ProgException("Full file write locks cannot be used together with async IO");
 
-	if(!hostsVec.empty() )
-		return;
+    if(!hostsVec.empty() )
+        return;
 
-	///////////// if we get here, we are running in local standalone mode...
+    ///////////// if we get here, we are running in local standalone mode...
 
-	checkPathDependentArgs();
+    checkPathDependentArgs();
 }
 
 /**
