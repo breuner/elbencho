@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.20 (work in progress)
+## v3.0.21 (Jan 05, 2025)
 
 ### New Features & Enhancements
 * New option to use file locks around each read/write. (See `--flock`.)
