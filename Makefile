@@ -82,7 +82,7 @@ ifeq ($(BUILD_STATIC), 1)
     LDFLAGS_S3_STATIC  += -l z
   else
     LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec \
-      -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd -l dl
+      -l brotlicommon -l idn2 -l unistring -l psl -l cares_static -l zstd -l dl
   endif
   
 else # dynamic linking
