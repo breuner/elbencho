@@ -3256,7 +3256,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
-    runS3MultiDelObjNum = tree.get<bool>(ARG_S3MULTI_IGNORE_404);
+	s3IgnoreMultipartUpload404 = tree.get<bool>(ARG_S3MULTI_IGNORE_404);
 	runS3StatDirs = tree.get<bool>(ARG_S3STATDIRS_LONG);
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);

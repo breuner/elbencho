@@ -118,9 +118,10 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
  *
  * @workerRank to select s3 endpoint if multiple endpoints are available in progArgs; otherwise
  *     a clock-based random number will be chosen.
+ * @outS3EndpointStr will be set to the selected s3 endpoint from progArgs vec; can be NULL.
  */
 std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
-    size_t workerRank)
+    size_t workerRank, std::string* outS3EndpointStr)
 {
     if(progArgs->getS3EndpointsVec().empty() )
         throw ProgException(std::string(__func__) + " cannot init S3 client if no S3 endpoints are "
@@ -157,6 +158,9 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     std::string endpoint = endpointsVec[workerRank % numEndpoints];
 
     config.endpointOverride = endpoint;
+
+    if(outS3EndpointStr)
+        *outS3EndpointStr = endpoint;
 
     // set credentials...
 

@@ -425,7 +425,7 @@ void LocalWorker::initS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	s3Client = S3Tk::initS3Client(progArgs, workerRank);
+	s3Client = S3Tk::initS3Client(progArgs, workerRank, &s3EndpointStr);
 
 #endif // S3_SUPPORT
 }
@@ -5637,6 +5637,10 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 					"Message: " + s3Error.GetMessage() + "; " +
 					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
 			}
+
+			// check if we have anything to delete in this round
+			if(!listOutcome.GetResult().GetKeyCount() )
+			    break;
 
 			// send multi-delete request for received batch of objects...
 
