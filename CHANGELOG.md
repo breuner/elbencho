@@ -1,5 +1,17 @@
 # Changelog of elbencho
 
+## v3.0.23 (Jan 11, 2025)
+
+### General Changes
+* Updated Alpine Linux version for static builds to latest v3.21.
+
+### Fixes
+* Fixed S3 multi-delete (`--s3multidel`) not deleting in distributed mode. (Regression from v3.0.17.)
+* S3 endpoint was not shown in some error messages.
+
+### Contributors
+* Thanks to Wong Tran for helpful comments and suggestions.
+
 ## v3.0.21 (Jan 05, 2025)
 
 ### New Features & Enhancements
