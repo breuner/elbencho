@@ -1,5 +1,7 @@
 # Changelog of elbencho
 
+## v3.0.24 (work in progress)
+
 ## v3.0.23 (Jan 11, 2025)
 
 ### General Changes
