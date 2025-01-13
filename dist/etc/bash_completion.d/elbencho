@@ -132,6 +132,7 @@ _elbencho_opts()
         --s3listobjpar
         --s3listverify
         --s3log
+        --s3logprefix
         --s3multidel
         --s3multiignore404
         --s3nocompress
@@ -265,6 +266,10 @@ _elbencho()
         --s3key)
         ;&
         --s3listobj)
+        ;&
+        --s3log)
+        ;&
+        --s3logprefix)
         ;&
         --s3multidel)
         ;&

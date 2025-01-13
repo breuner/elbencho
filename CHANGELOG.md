@@ -2,6 +2,9 @@
 
 ## v3.0.24 (work in progress)
 
+### Fixes
+* Fixed `--s3logprefix` not working correctly.
+
 ## v3.0.23 (Jan 11, 2025)
 
 ### General Changes

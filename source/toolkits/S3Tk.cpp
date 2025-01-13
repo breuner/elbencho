@@ -55,15 +55,17 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 
     s3SDKOptions = new Aws::SDKOptions;
 
-	if(progArgs->getS3LogLevel() > 0)
-	{
-	    s3SDKOptions->loggingOptions.logLevel =
+    if(progArgs->getS3LogLevel() > 0)
+    {
+        s3SDKOptions->loggingOptions.logLevel =
 	        (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel();
 
-		Aws::Utils::Logging::InitializeAWSLogging(
-			Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>("DebugLogging",
-				(Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
-				progArgs->getS3LogfilePrefix() ) );
+        s3SDKOptions->loggingOptions.logger_create_fn = [&]()
+        {
+            return Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>(
+                "CustomLogSystem", (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
+                progArgs->getS3LogfilePrefix() );
+        };
 
         #ifdef S3_AWSCRT
             s3SDKOptions->loggingOptions.crt_logger_create_fn = [&]()
@@ -98,9 +100,6 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
 	LOGGER(Log_DEBUG, "Shutting down S3 SDK." << std::endl);
 
 	Aws::ShutdownAPI(*s3SDKOptions);
-
-	if(progArgs->getS3LogLevel() > 0)
-		Aws::Utils::Logging::ShutdownAWSLogging();
 
 #endif // S3_SUPPORT
 }
