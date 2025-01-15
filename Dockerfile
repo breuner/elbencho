@@ -1,1 +1,1 @@
-build_helpers/docker/Dockerfile.alpine.local
+build_helpers/docker/Dockerfile.ubuntu2404.local

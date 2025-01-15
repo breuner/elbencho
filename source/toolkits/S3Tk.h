@@ -35,7 +35,8 @@ class S3Tk
 #ifdef S3_SUPPORT
         static std::shared_ptr<S3Client> initS3Client(
             const ProgArgs* progArgs, size_t workerRank =
-                std::chrono::system_clock::now().time_since_epoch().count() );
+                std::chrono::system_clock::now().time_since_epoch().count(),
+            std::string* outS3EndpointStr = NULL);
 		static void scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
 		    std::string bucketName, std::string objectPrefix, std::string outTreeFilePath);
 #endif // S3_SUPPORT

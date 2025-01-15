@@ -26,8 +26,6 @@
     Aws::SDKOptions* S3Tk::s3SDKOptions = NULL; // needed for init and again for uninit later
 #endif // S3_SUPPORT
 
-#define S3_ENV_ACCESS_KEY   "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
-#define S3_ENV_SECRET_KEY   "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret key
 
 
 /**
@@ -57,15 +55,17 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 
     s3SDKOptions = new Aws::SDKOptions;
 
-	if(progArgs->getS3LogLevel() > 0)
-	{
-	    s3SDKOptions->loggingOptions.logLevel =
+    if(progArgs->getS3LogLevel() > 0)
+    {
+        s3SDKOptions->loggingOptions.logLevel =
 	        (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel();
 
-		Aws::Utils::Logging::InitializeAWSLogging(
-			Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>("DebugLogging",
-				(Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
-				progArgs->getS3LogfilePrefix() ) );
+        s3SDKOptions->loggingOptions.logger_create_fn = [&]()
+        {
+            return Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>(
+                "CustomLogSystem", (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
+                progArgs->getS3LogfilePrefix() );
+        };
 
         #ifdef S3_AWSCRT
             s3SDKOptions->loggingOptions.crt_logger_create_fn = [&]()
@@ -101,9 +101,6 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
 
 	Aws::ShutdownAPI(*s3SDKOptions);
 
-	if(progArgs->getS3LogLevel() > 0)
-		Aws::Utils::Logging::ShutdownAWSLogging();
-
 #endif // S3_SUPPORT
 }
 
@@ -120,9 +117,10 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
  *
  * @workerRank to select s3 endpoint if multiple endpoints are available in progArgs; otherwise
  *     a clock-based random number will be chosen.
+ * @outS3EndpointStr will be set to the selected s3 endpoint from progArgs vec; can be NULL.
  */
 std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
-    size_t workerRank)
+    size_t workerRank, std::string* outS3EndpointStr)
 {
     if(progArgs->getS3EndpointsVec().empty() )
         throw ProgException(std::string(__func__) + " cannot init S3 client if no S3 endpoints are "
@@ -160,22 +158,18 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     config.endpointOverride = endpoint;
 
+    if(outS3EndpointStr)
+        *outS3EndpointStr = endpoint;
+
     // set credentials...
 
     Aws::Auth::AWSCredentials credentials;
 
-    // read access key from command line args or environment variables
     if(!progArgs->getS3AccessKey().empty() )
         credentials.SetAWSAccessKeyId(progArgs->getS3AccessKey() );
-    else
-    if(getenv(S3_ENV_ACCESS_KEY) != NULL)
-        credentials.SetAWSAccessKeyId(getenv(S3_ENV_ACCESS_KEY) );
 
     if(!progArgs->getS3AccessSecret().empty() )
         credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
-    else
-    if(getenv(S3_ENV_SECRET_KEY) != NULL)
-        credentials.SetAWSSecretKey(getenv(S3_ENV_SECRET_KEY) );
 
     // create s3 client for this worker
     std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentials,
@@ -183,7 +177,6 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         false);
 
     return s3Client;
-
 }
 
 #endif // S3_SUPPORT

@@ -9,7 +9,7 @@
 
 
 CONTAINER_NAME="elbencho-static"
-IMAGE_NAME="alpine:3.20"
+IMAGE_NAME="alpine:3.21"
 ELBENCHO_VERSION=$(make version)
 
 ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-1}"
@@ -28,7 +28,7 @@ docker run --name $CONTAINER_NAME --privileged -i -v $PWD:$PWD -w $PWD $IMAGE_NA
         cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
-        libpsl-static c-ares-static zstd-static && \
+        libpsl-static c-ares-dev zstd-static && \
     apk update && apk upgrade && \
     adduser -u $UID -D builduser && \
     sudo -u builduser make clean-all && \

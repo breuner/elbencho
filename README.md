@@ -161,7 +161,13 @@ To build elbencho with S3 support, just add the `S3_SUPPORT=1` parameter to the 
 
 The S3 support of elbencho is based on Amazon's AWS SDK CPP. Thus, you either need to provide it or elbencho needs to download and build it.
 
-<ins>Option A</ins>: If you prefer to provide your own version of the AWS SDK CPP instead of having elbencho download it, then here is an example of a cmake command to generate an SDK that is compatible with elbencho and the corresponding elbencho build command:
+<ins>Option A</ins>: If you are not sure whether you can provide a compatible build of the SDK or if you just generally prefer to have elbencho take care of the AWS SDK CPP build then use this command:
+
+```bash
+make S3_SUPPORT=1 -j $(nproc)
+```
+
+<ins>Option B</ins>: If you prefer to provide your own version of the AWS SDK CPP instead of having elbencho download it, then here is an example of a cmake command to generate an SDK that is compatible with elbencho and the corresponding elbencho build command:
 
 ```bash
 # In the AWS SDK build dir:
@@ -174,8 +180,3 @@ sudo make install
 make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
 ```
 
-<ins>Option B</ins>: If you are not sure whether you can provide a compatible build of the SDK or if you just generally prefer to have elbencho take care of the AWS SDK CPP build then use this command:
-
-```bash
-make S3_SUPPORT=1 -j $(nproc)
-```

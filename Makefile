@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 3
 EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 20
+EXE_VER_PATCHLEVEL ?= 24
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -82,7 +82,7 @@ ifeq ($(BUILD_STATIC), 1)
     LDFLAGS_S3_STATIC  += -l z
   else
     LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec \
-      -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd -l dl
+      -l brotlicommon -l idn2 -l unistring -l psl -l cares_static -l zstd -l dl
   endif
   
 else # dynamic linking

@@ -21,9 +21,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     echo "Calculated NUM_JOBS: $NUM_JOBS (RAM_GB: $RAM_GB, nproc: $(nproc))" && \
     DOCKER_BUILD_PLATFORM=$(uname -m) && \
     CUDA_SOURCE=$(if [ "$DOCKER_BUILD_PLATFORM" = "aarch64" ]; then \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/sbsa/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb"; \
         else \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb"; \
         fi) && \
     echo "[PLATFORM] CUDA_SOURCE: [$DOCKER_BUILD_PLATFORM] $CUDA_SOURCE" && \
     cd /root && \
@@ -46,9 +46,9 @@ COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 RUN export DEBIAN_FRONTEND=noninteractive && \
     DOCKER_BUILD_PLATFORM=$(uname -m) && \
     CUDA_SOURCE=$(if [ "$DOCKER_BUILD_PLATFORM" = "aarch64" ]; then \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/sbsa/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb"; \
         else \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb"; \
         fi) && \
     echo "[PLATFORM] CUDA_SOURCE: [$DOCKER_BUILD_PLATFORM] $CUDA_SOURCE" && \
     cd /root && \

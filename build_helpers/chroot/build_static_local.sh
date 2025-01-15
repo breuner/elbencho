@@ -1,7 +1,8 @@
 #!/bin/bash
 #
 # Build static arm64 executable in Alpine chroot.
-# Call this script from the repository root dir.
+# This script bind-mounts the current dir into the chroot. Call it from the
+# the repository root dir.
 #
 # For cross-compile on Ubuntu x86_64:
 #  * Install binfmt support and qemu to enable running non-native executables:
@@ -13,7 +14,7 @@
 
 
 CHROOT_PATH=${CHROOT_PATH:="/var/tmp/elbencho_chroot_$(whoami)"}
-CHROOT_VERSION="v3.20"
+CHROOT_VERSION="v3.21"
 ELBENCHO_VERSION=$(make version)
 BUILD_ARCH=${BUILD_ARCH:="$(uname -m)"}                             # e.g. aarch64, x86_64
 ALPINE_SCRIPT_PATH=${ALPINE_SCRIPT_PATH:="external/alpine-chroot-install"}
@@ -86,7 +87,7 @@ sudo "$ALPINE_SCRIPT_PATH" -b "$CHROOT_VERSION" -a "$BUILD_ARCH" \
         cmake curl-dev curl-static openssl-libs-static ncurses-static \
         boost-static ncurses zlib-static libretls-static nghttp2-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
-        libpsl-static c-ares-static zstd-static"
+        libpsl-static c-ares-dev zstd-static"
 
 if [ $? -ne 0 ]; then
   echo "ERROR: Preparation of chroot failed."

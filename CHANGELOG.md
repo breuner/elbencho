@@ -1,6 +1,23 @@
 # Changelog of elbencho
 
-## v3.0.20 (work in progress)
+## v3.0.24 (work in progress)
+
+### Fixes
+* Fixed `--s3logprefix` not working correctly.
+
+## v3.0.23 (Jan 11, 2025)
+
+### General Changes
+* Updated Alpine Linux version for static builds to latest v3.21.
+
+### Fixes
+* Fixed S3 multi-delete (`--s3multidel`) not deleting in distributed mode. (Regression from v3.0.17.)
+* S3 endpoint was not shown in some error messages.
+
+### Contributors
+* Thanks to Wong Tran for helpful comments and suggestions.
+
+## v3.0.21 (Jan 05, 2025)
 
 ### New Features & Enhancements
 * New option to use file locks around each read/write. (See `--flock`.)
@@ -9,12 +26,16 @@
 
 ### General Changes
 * Create only a shallow clone of AWS SDK to reduce time to download.
+* Added Dockerfile for Ubuntu 24.04.
+* Removed Dockerfile for outdated Nvidia Magnum IO container. (Ubuntu CUDA multiarch container provides modern GDS support.)
+* Updated mimalloc lib for static builds to latest v2.1.9.
+* S3 credentials from environment variables (`AWS_ACCESS_KEY_ID` & `AWS_SECRET_ACCESS_KEY`) now also get forwarded to service instances by the master.
 
 ### Fixes
 * Fixed compile error on platforms with CUDA, but no cuFile (GDS) support.
 
 ### Contributors
-* Thanks to Github user runiq for helpful comments and suggestions.
+* Thanks to Scott Howard, Casey Peel and Github users runiq, russki for contributions, helpful comments and suggestions.
 
 ## v3.0.19 (Sep 02, 2024)
 

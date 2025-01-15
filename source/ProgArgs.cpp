@@ -58,6 +58,8 @@
 #define TREESCAN_OUTFILE_DEFAULT    ("/var/tmp/" EXE_NAME "_" + SystemTk::getUsername() + "_" + \
                                     "treescan.txt")
 
+#define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
+#define S3_ENV_SECRET_KEY           "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret
 
 
 /**
@@ -182,13 +184,15 @@ void ProgArgs::defineAllowedArgs()
 /*al*/	(ARG_ALTHTTPSERVER_LONG, bpo::bool_switch(&this->useAlternativeHTTPService),
 			"Use alternative implementation of HTTP service (for testing).")
 #endif // ALTHTTPSVC_SUPPORT
-/*b*/	(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
-			"Number of bytes to read/write in a single operation. "
+/*b*/   (ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSizeOrigStr),
+            "Number of bytes to read/write in a single operation. Each thread needs to keep "
+            "one block in RAM (or multiple blocks if \"--" ARG_IODEPTH_LONG "\" is used), so "
+            "be careful with large block sizes. "
 #ifdef S3_SUPPORT
-			"For S3, this defines the multipart upload size and the ranged read size. Multipart "
-			"uploads will automatically be used if object size is larger than this block size. "
+            "For S3, this defines the multipart upload size and the ranged read size. Multipart "
+            "uploads will automatically be used if object size is larger than this block size. "
 #endif // S3_SUPPORT
-			"(Default: 1M; supports base2 suffixes, e.g. \"2M\")")
+            "(Default: 1M; supports base2 suffixes, e.g. \"128K\")")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
@@ -217,7 +221,7 @@ void ProgArgs::defineAllowedArgs()
 /*co*/	(ARG_CPUCORES_LONG, bpo::value(&this->cpuCoresStr),
 			"Comma-separated list of CPU cores to bind this process to. If multiple cores are "
 			"given, then worker threads are bound round-robin to the cores. The special value "
-			"\"" CPUCORES_ALL_ARG "\" is short for the list of all available CPU cores."
+			"\"" CPUCORES_ALL_ARG "\" is short for the list of all available CPU cores. "
 			"(Hint: See 'lscpu' for available CPU cores.)")
 #endif // COREBIND_SUPPORT
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
@@ -537,11 +541,11 @@ void ProgArgs::defineAllowedArgs()
 /*s3h*/	(ARG_S3HIDECREDS_LONG, bpo::bool_switch(&this->hideS3Creds),
 			"Hide S3 credentials from results files.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
-			"S3 access key.")
+			"S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
 			"List objects. The given number is the maximum number of objects to retrieve. Use "
 			"\"--" ARG_S3OBJECTPREFIX_LONG "\" to start listing with the given prefix. (Multiple "
-			"threads will only be effecive if multiple buckets are given.)")
+			"threads will only be effective if multiple buckets are given.)")
 /*s3l*/	(ARG_S3LISTOBJPARALLEL_LONG, bpo::bool_switch(&this->runS3ListObjParallel),
 			"List objects in parallel. Requires a dataset created via \"-" ARG_NUMDIRS_SHORT "\" "
 			"and \"-" ARG_NUMFILES_SHORT "\" options and parallelizes by using different S3 "
@@ -600,7 +604,7 @@ void ProgArgs::defineAllowedArgs()
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
-			"S3 access secret.")
+			"S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
@@ -619,13 +623,13 @@ void ProgArgs::defineAllowedArgs()
 			"Run as service for distributed mode, waiting for requests from master.")
 /*sh*/	(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
 			"In custom tree mode, this defines the file size as of which files are no longer "
-			"exlusively assigned to a thread. This means multiple threads read/write different "
+			"exclusively assigned to a thread. This means multiple threads read/write different "
 			"parts of files that exceed the given size. "
 			"(Default: 0, which means " FILESHAREBLOCKFACTOR_STR " x blocksize)")
 /*st*/	(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
 			"Run file stat benchmark phase.")
 /*re*/	(ARG_STATFILESINLINE_LONG, bpo::bool_switch(&this->doStatInline),
-			"When benchmark path is a diretory, stat files immediately after open in a write or "
+			"When benchmark path is a directory, stat files immediately after open in a write or "
 			"read phase.")
 /*st*/	(ARG_STARTTIME_LONG, bpo::value(&this->startTime),
 			"Start time of first benchmark in UTC seconds since the epoch. Intended to synchronize "
@@ -697,7 +701,7 @@ void ProgArgs::defineAllowedArgs()
 /*zo*/	(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
 			"given, then worker threads are bound round-robin to the zones. The special value "
-			"\"" NUMAZONES_ALL_ARG "\" is short for the list of all available NUMA zones."
+			"\"" NUMAZONES_ALL_ARG "\" is short for the list of all available NUMA zones. "
 			"(Hint: See 'lscpu' for available NUMA zones.)")
 #endif // LIBNUMA_SUPPORT
     ;
@@ -893,6 +897,7 @@ void ProgArgs::initImplicitValues()
 	if(useBriefLiveStatsNewLine)
 		useBriefLiveStats = true;
 
+	// service: check for s3 endpoint override
 	if(!s3EndpointsStr.empty() && runAsService)
 	{
 		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
@@ -901,6 +906,19 @@ void ProgArgs::initImplicitValues()
 		s3EndpointsServiceOverrideStr = s3EndpointsStr;
 	}
 
+	// read s3 access key & secret from environment variables (if not running as service)
+    if(!s3EndpointsStr.empty() && !runAsService)
+    {
+        if(s3AccessKey.empty() && (getenv(S3_ENV_ACCESS_KEY) != NULL) )
+            s3AccessKey = getenv(S3_ENV_ACCESS_KEY);
+
+        if(s3AccessSecret.empty() && (getenv(S3_ENV_SECRET_KEY) != NULL) )
+            s3AccessSecret = getenv(S3_ENV_SECRET_KEY);
+
+        s3EndpointsServiceOverrideStr = s3EndpointsStr;
+    }
+
+    // csv file: remove commas from user-defined label
 	benchLabelNoCommas = benchLabel;
 	std::replace(benchLabelNoCommas.begin(), benchLabelNoCommas.end(), ',', ' ');
 
@@ -1111,58 +1129,63 @@ void ProgArgs::checkArgs()
 		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
 			"Falling back to \"--" ARG_REVERSESEQOFFSETS_LONG "\"." << std::endl);
 
-	if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize &&
-		runCreateFilesPhase && ( (fileSize/blockSize) > 10000) )
-		throw ProgException("Specified multi-part upload would exceed 10,000 parts per object. "
-			"This exceeds the S3 specification and thus is likely to get rejected by the server. "
-			"(\"--" ARG_S3NOMPCHECK_LONG "\" disables this check.)");
+    if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize && runCreateFilesPhase
+        && ( (fileSize / blockSize) > 10000) )
+        throw ProgException("The specified multi-part upload would exceed 10,000 parts per object. "
+            "This exceeds the S3 specification and thus is likely to get rejected by the server. "
+            "Consider a smaller object size (\"-" ARG_FILESIZE_SHORT "\") or a larger part block "
+            "size (\"-" ARG_BLOCK_SHORT "\"). "
+            "The option \"--" ARG_S3NOMPCHECK_LONG "\" disables this check. "
+            "Object size: " +  std::to_string(fileSize) + "; "
+            "Part block size: " + std::to_string(blockSize) + "; "
+            "Resulting number of parts: " + std::to_string(fileSize / blockSize) );
 
-	if(useCuFile && !s3EndpointsStr.empty() )
-		throw ProgException("cuFile API cannot be used with S3");
+    if(useCuFile && !s3EndpointsStr.empty() )
+        throw ProgException("cuFile API cannot be used with S3");
 
-	if(hasUserSetRWMixPercent() && !s3EndpointsStr.empty() )
-		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
-			"Consider \"--" ARG_RWMIXTHREADS_LONG "\" as alternative.");
+    if(hasUserSetRWMixPercent() && !s3EndpointsStr.empty() )
+        throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
+            "Consider \"--" ARG_RWMIXTHREADS_LONG "\" as alternative.");
 
-	if(hasUserSetRWMixPercent() && hasUserSetRWMixReadThreads() )
-		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
-			"\"--" ARG_RWMIXTHREADS_LONG "\"");
+    if(hasUserSetRWMixPercent() && hasUserSetRWMixReadThreads() )
+        throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
+            "\"--" ARG_RWMIXTHREADS_LONG "\"");
 
-	if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
-		throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
-			"GPU memory copy");
+    if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
+        throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
+            "GPU memory copy");
 
-	if(integrityCheckSalt && rwMixPercent)
-		throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
-			"option \"--" ARG_INTEGRITYCHECK_LONG "\"");
+    if(integrityCheckSalt && rwMixPercent)
+        throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
+            "option \"--" ARG_INTEGRITYCHECK_LONG "\"");
 
-	if(integrityCheckSalt && blockVariancePercent && runCreateFilesPhase)
-		throw ProgException("Option \"--" ARG_INTEGRITYCHECK_LONG "\" requires "
-			"\"--" ARG_BLOCKVARIANCE_LONG " 0\"");
+    if(integrityCheckSalt && blockVariancePercent && runCreateFilesPhase)
+        throw ProgException("Option \"--" ARG_INTEGRITYCHECK_LONG "\" requires "
+            "\"--" ARG_BLOCKVARIANCE_LONG " 0\"");
 
-	if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
-		throw ProgException("Integrity check writes are not supported in combination with random "
-			"offsets.");
+    if(integrityCheckSalt && runCreateFilesPhase && useRandomOffsets)
+        throw ProgException("Integrity check writes are not supported in combination with random "
+            "offsets.");
 
-	if(doDirectVerify && (!integrityCheckSalt || !runCreateFilesPhase) )
-		throw ProgException("Direct verification requires --" ARG_INTEGRITYCHECK_LONG " and "
-			"--" ARG_CREATEFILES_LONG);
+    if(doDirectVerify && (!integrityCheckSalt || !runCreateFilesPhase) )
+        throw ProgException("Direct verification requires --" ARG_INTEGRITYCHECK_LONG " and "
+            "--" ARG_CREATEFILES_LONG);
 
-	if(doDirectVerify && (ioDepth > 1) )
-		throw ProgException("Direct verification cannot be used together with --" ARG_IODEPTH_LONG);
+    if(doDirectVerify && (ioDepth > 1) )
+        throw ProgException("Direct verification cannot be used together with --" ARG_IODEPTH_LONG);
 
-	if(doReadInline && (ioDepth > 1) )
-		throw ProgException("Inline read cannot be used together with --" ARG_IODEPTH_LONG);
+    if(doReadInline && (ioDepth > 1) )
+        throw ProgException("Inline read cannot be used together with --" ARG_IODEPTH_LONG);
 
-	if( (flockType == ARG_FLOCK_FULL) && (ioDepth > 1) && runCreateFilesPhase)
+    if( (flockType == ARG_FLOCK_FULL) && (ioDepth > 1) && runCreateFilesPhase)
         throw ProgException("Full file write locks cannot be used together with async IO");
 
-	if(!hostsVec.empty() )
-		return;
+    if(!hostsVec.empty() )
+        return;
 
-	///////////// if we get here, we are running in local standalone mode...
+    ///////////// if we get here, we are running in local standalone mode...
 
-	checkPathDependentArgs();
+    checkPathDependentArgs();
 }
 
 /**
@@ -2843,13 +2866,13 @@ void ProgArgs::printHelpS3()
 	bpo::options_description argsS3ServiceArgsDescription(
 		"S3 Service Arguments", TerminalTk::getTerminalLineLength(80) );
 
-	argsS3ServiceArgsDescription.add_options()
-		(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
-			"Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
-		(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
-			"S3 access key.")
-		(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
-			"S3 access secret.")
+    argsS3ServiceArgsDescription.add_options()
+        (ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
+            "Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
+        (ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
+            "S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
+        (ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
+            "S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
     ;
 
     std::cout << argsS3ServiceArgsDescription << std::endl;
@@ -2884,8 +2907,10 @@ void ProgArgs::printHelpS3()
 		(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSize),
 			"Object size. (Default: 0)")
 		(ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value(&this->blockSize),
-            "The part size for uploads and the ranged read size for downloads. Multipart upload "
-            "will automatically be used if object size is larger than part size. "
+            "The part block size for uploads and the ranged read size for downloads. Multipart "
+            "upload will automatically be used if object size is larger than part block size. "
+            "Each thread needs to keep one block in RAM (or multiple blocks if "
+            "\"--" ARG_IODEPTH_LONG "\" is used), so be careful with large block sizes. "
 			"(Default: 1M)")
     ;
 
@@ -3235,7 +3260,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
-    runS3MultiDelObjNum = tree.get<bool>(ARG_S3MULTI_IGNORE_404);
+	s3IgnoreMultipartUpload404 = tree.get<bool>(ARG_S3MULTI_IGNORE_404);
 	runS3StatDirs = tree.get<bool>(ARG_S3STATDIRS_LONG);
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);
