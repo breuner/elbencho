@@ -1022,7 +1022,7 @@ void Statistics::printPhaseResultsTableHeader()
 
 		for(int i=0; i < progArgs.getProgArgCount(); i++)
 		{
-			if (progArgs.getHideS3Creds() && (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0))
+			if (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0)
 			{
 				i += 1;
 			}
@@ -1831,7 +1831,7 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 
 	for(int i=0; i < progArgs.getProgArgCount(); i++)
 	{
-		if (progArgs.getHideS3Creds() && (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0))
+		if (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0)
 		{
 			i += 1;
 		}
