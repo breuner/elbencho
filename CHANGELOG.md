@@ -1,9 +1,15 @@
 # Changelog of elbencho
 
-## v3.0.24 (work in progress)
+## v3.0.25 (Jan 24, 2025)
+
+### General Changes
+* S3 secret key will not get printed to result files.
 
 ### Fixes
 * Fixed `--s3logprefix` not working correctly.
+
+### Contributors
+* Thanks to Michael Shustin and Github user russki for contributions, helpful comments and suggestions.
 
 ## v3.0.23 (Jan 11, 2025)
 
