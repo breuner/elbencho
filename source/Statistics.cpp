@@ -1021,16 +1021,15 @@ void Statistics::printPhaseResultsTableHeader()
 		fileStream << "COMMAND LINE: ";
 
 		for(int i=0; i < progArgs.getProgArgCount(); i++)
-		{
-			if (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0)
-			{
-				i += 1;
-			}
-			else
-			{
-				fileStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
-			}
-		}
+        {
+            if(!strcmp(progArgs.getProgArgVec()[i], "--" ARG_S3ACCESSSECRET_LONG) )
+            { // skip parameter for s3 secret
+                i += 1;
+                continue;
+            }
+
+            fileStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+        }
 
 		fileStream << std::endl;
 
@@ -1829,17 +1828,16 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 	std::ostringstream cmdStream;
 	std::string cmdString;
 
-	for(int i=0; i < progArgs.getProgArgCount(); i++)
-	{
-		if (strcmp(progArgs.getProgArgVec()[i], "--s3secret") == 0 || strcmp(progArgs.getProgArgVec()[i], "--s3key") == 0)
-		{
-			i += 1;
-		}
-		else
-		{
-			cmdStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
-		}
-	}
+    for(int i=0; i < progArgs.getProgArgCount(); i++)
+    {
+        if(!strcmp(progArgs.getProgArgVec()[i], "--" ARG_S3ACCESSSECRET_LONG) )
+        { // skip over s3 secret
+            i += 1;
+            continue;
+        }
+
+        cmdStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+    }
 
 	cmdString = cmdStream.str();
 	std::replace(cmdString.begin(), cmdString.end(), ',', ' '); // replace all commas with spaces
