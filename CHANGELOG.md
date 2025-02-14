@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v3.0.26 (work in progress)
+
+### Contributors
+* Thanks to Conor Elrick for contributions, helpful comments and suggestions.
+
 ## v3.0.25 (Jan 24, 2025)
 
 ### General Changes
