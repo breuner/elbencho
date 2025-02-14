@@ -281,7 +281,7 @@ void ProgArgs::defineAllowedArgs()
             "entire file for each IO operation.")
 /*fo*/	(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
-			"detaching from console and daemonizing into backgorund.")
+			"detaching from console and daemonizing into background.")
 #ifdef CUFILE_SUPPORT
 /*gd*/	(ARG_GPUDIRECTSSTORAGE_LONG,
 			"Use Nvidia GPUDirect Storage API. Enables \"--" ARG_DIRECTIO_LONG "\", \"--"
@@ -3031,7 +3031,7 @@ void ProgArgs::printHelpDistributed()
 			"Interrupt current benchmark phase on given service mode hosts.")
 		(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),
 			"When running as service, stay in foreground and connected to console instead of "
-			"detaching from console and daemonizing into backgorund.")
+			"detaching from console and daemonizing into background.")
 	;
 
     std::cout << argsDistributedMiscDescription << std::endl;
