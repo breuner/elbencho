@@ -4103,12 +4103,7 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
         if (s3Error.GetErrorType() != S3Errors::BUCKET_ALREADY_OWNED_BY_YOU &&
             s3Error.GetErrorType() != S3Errors::BUCKET_ALREADY_EXISTS)
         {
-
-            std::stringstream errStr;
-            errStr << "Bucket creation failed: " << s3Error.GetMessage() << std::endl
-                   << "Bucket: " << bucketName << std::endl;
-
-            throw WorkerException(errStr.str());
+            s3ModeThrowOnError(createOutcome, "Bucket creation failed.", bucketName);
         }
     }
 

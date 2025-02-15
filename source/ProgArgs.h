@@ -182,7 +182,7 @@ namespace bpt = boost::property_tree;
 #define ARG_STARTTIME_LONG			"start"
 #define ARG_STATFILES_LONG			"stat"
 #define ARG_STATFILESINLINE_LONG	"statinline"
-#define ARG_STRIDEDACCESS_LONG            "strided"
+#define ARG_STRIDEDACCESS_LONG      "strided"
 #define ARG_SVCPASSWORDFILE_LONG    "svcpwfile"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_SYNCPHASE_LONG			"sync"

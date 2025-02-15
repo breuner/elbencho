@@ -352,51 +352,37 @@ std::string TranslatorTk::intVectoHumanStr(const IntVec& intVec)
  *
  * Examples:
  * * Multiple ranges: "myhost[1-4,6,8-10]-rack[1,2]"; note that only first square brackets pair
- * 		will be expanded.
- * * Zero fill "myhost[001-100]".
+ * 		will be expanded, so caller is responsible for calling this function again with the expanded
+ * 		string to expand further brackets.
+ * * Zero fill is supported: "myhost[001-100]".
  *
  * @inputStr input string that potentially contains square brackets.
  * @outStrVec empty string if nothing found to expand; the contained elements might still contian
- * 		further ranges, so you should call this method again on them.
+ * 		further ranges, so call this method again on returned outStrVec elements.
  *
  * 	@throw ProgException on parsing error, e.g. no matching closing bracket.
  */
 void TranslatorTk::expandSquareBracketsStr(std::string inputStr, StringVec& outStrVec)
 {
-	std::size_t openBracketPos = inputStr.find("[");
-	std::size_t closeBracketPos = inputStr.find("]");
+    /* regex pattern to match square brackets with numbers, commas and dashes.
+       * ignores empty bracket pairs and opening/closing brackets without their counterpart.
+         * uses closest match, e.g. "[[1-3]" will match "[1-3]".
+       * ignores brackets with colons because that could be an IPv6 address.
+         * supports nested brackets within IPv6 addresses, but that would be hex and we use base10
+           only here atm. */
+    std::regex bracketsPattern(R"(\[(?![^]]*:)([0-9,\-]+)\])");
+    std::smatch bracketsMatch;
 
-	// check for square brackets
-	if( (openBracketPos == std::string::npos) && (closeBracketPos == std::string::npos) )
-		return; // no square brackets => nothing to do
+    bool bracketsMatchFound = std::regex_search(inputStr, bracketsMatch, bracketsPattern);
+    if(!bracketsMatchFound)
+        return; // no matching square brackets pair => nothing to do
 
-	// check for existence of open and close square bracket
-	if( ( (openBracketPos != std::string::npos) && (closeBracketPos == std::string::npos) ) ||
-		( (openBracketPos == std::string::npos) && (closeBracketPos != std::string::npos) ) )
-		throw ProgException("Missing matching opening or closing square bracket: " + inputStr);
-
-	// check for right order of open and close square bracket
-	if(closeBracketPos < openBracketPos)
-		throw ProgException("Invalid closing square bracket before opening bracket: " + inputStr);
-
-	// check if we have something between the brackets
-	if(closeBracketPos == (openBracketPos+1) )
-		throw ProgException("Invalid square brackets with empty content: " + inputStr);
-
-	// now we have an opening and a closing square bracket with at least one char in between...
+    // now we have an opening and a closing square bracket with at least one char in between...
 
 	// get the string between the brackets (not including the brackets)
-	std::string bracketContentsStr = inputStr.substr(
-		openBracketPos+1, closeBracketPos - openBracketPos - 1);
+    std::string bracketContentsStr = inputStr.substr(
+        bracketsMatch.position() + 1, bracketsMatch.length() - 2); // ("-2" for '[' and ']')
 
-	std::size_t invalidCharPos = bracketContentsStr.find_first_not_of("0123456789,-");
-	if(invalidCharPos != std::string::npos)
-		throw ProgException("Found invalid character in square brackets: "
-			"Char: '" + std::string().append(&bracketContentsStr[invalidCharPos], 1) + "'; "
-			"Brackets: '" + bracketContentsStr + "'; "
-			"String: '" + inputStr + "'");
-
-	unsigned bracketsLen = closeBracketPos - openBracketPos + 1; // str len of the whole "[...]"
 	StringVec elementsVec;
 
 	boost::split(elementsVec, bracketContentsStr, boost::is_any_of(","), boost::token_compress_on);
@@ -424,7 +410,7 @@ void TranslatorTk::expandSquareBracketsStr(std::string inputStr, StringVec& outS
 
 			std::string newElemStr(inputStr);
 
-			newElemStr.replace(openBracketPos, bracketsLen, currentElem);
+			newElemStr.replace(bracketsMatch.position(), bracketsMatch.length(), currentElem);
 
 			outStrVec.push_back(newElemStr);
 
@@ -480,7 +466,8 @@ void TranslatorTk::expandSquareBracketsStr(std::string inputStr, StringVec& outS
 
 			std::string newElemStr(inputStr);
 
-			newElemStr.replace(openBracketPos, bracketsLen, currentFilledNumStr);
+			newElemStr.replace(bracketsMatch.position(), bracketsMatch.length(),
+			    currentFilledNumStr);
 
 			outStrVec.push_back(newElemStr);
 

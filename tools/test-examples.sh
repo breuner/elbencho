@@ -320,7 +320,7 @@ start_distributed_services()
 # creating 8 dirs per thread, each containing 16 1MiB files.
 test_distributed_master()
 {
-  cmd="${EXE_PATH} --hosts localhost,localhost:1612 "
+  cmd="${EXE_PATH} --hosts localhost:[1611-1612] "
   cmd+="-t 4 -d -n 8 -w -r -N 16 -s 4k -F -D --verify 1 --no0usecerr $BASE_DIR"
   
   echo "Run master to coordinate benchmarks on localhost services, using 4 threads per"
