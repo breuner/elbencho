@@ -16,7 +16,7 @@ NUM_PARALLEL_JOBS=1  # Number of parallel "make -j X" jobs
 # here.
 prepare_webserver_sws()
 {
-	local REQUIRED_TAG="v3.1.1"
+	local REQUIRED_TAG="v3.1.1-49-g4abe349" # need master for ipv6 addr support (commit bab4b309)
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/Simple-Web-Server"
 	

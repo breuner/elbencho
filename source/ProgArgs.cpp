@@ -5,6 +5,7 @@
 #include <iterator>
 #include <libgen.h>
 #include <openssl/sha.h>
+#include <regex>
 #include <string>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -1957,14 +1958,29 @@ void ProgArgs::parseHosts()
 		// delete empty string elements from vec (they come from delimiter use at beginning or end)
 		TranslatorTk::eraseEmptyStringsFromVec(currentHostsVec);
 
-		for(std::string& host : currentHostsVec)
-		{
-			std::size_t findRes = host.find(HOST_PORT_SEPARATOR);
+        // add default port to hosts (if not provided by user)
+        for(std::string& host : currentHostsVec)
+        {
+            // match colons that are not inside square brackets (because of ipv6) in group 1
+            std::regex pattern(R"(\[(?:[^\[\]]*)\]|(:))");
 
-			// add default port to hosts where port is not provided by user
-			if(findRes == std::string::npos)
-				host += HOST_PORT_SEPARATOR + std::to_string(servicePort);
-		}
+            std::sregex_iterator regexIter(host.begin(), host.end(), pattern);
+                std::sregex_iterator end;
+
+                ssize_t lastColonPos = -1;
+
+                // find last colon in host string (ignoring matches within square brackets)
+                for( ; regexIter != end; regexIter++)
+                {
+                    // "[1]": only consider captured colon (group 1), not square brackets (group 0)
+                    if ((*regexIter)[1].matched)
+                        lastColonPos = regexIter->position(1);
+                }
+
+            // append default port (if not specified otherwise)
+            if(lastColonPos == -1)
+                host += HOST_PORT_SEPARATOR + std::to_string(servicePort);
+        }
 
 		if(currentHostsVec.empty() )
 			throw ProgException(
@@ -1992,11 +2008,11 @@ void ProgArgs::parseHosts()
 	if( (numHosts != -1) && (hostsVec.size() > (unsigned)numHosts) )
 		hostsVec.resize(numHosts);
 
-	LOGGER(Log_DEBUG,
-		"Finished parsing hosts list. "
-		"numHosts: " << numHosts << "; "
-		"numNetBenchServers: " << numNetBenchServers << "; "
-		"hostsVec: " << TranslatorTk::stringVecToString(hostsVec, ",") << std::endl);
+    LOGGER(Log_DEBUG, __func__ << ": " <<
+        "Finished parsing hosts list. "
+        "numHosts: " << numHosts << "; "
+        "numNetBenchServers: " << numNetBenchServers << "; "
+        "hostsVec: " << TranslatorTk::stringVecToString(hostsVec, ",") << std::endl);
 }
 
 /**

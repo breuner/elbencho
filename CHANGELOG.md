@@ -2,8 +2,12 @@
 
 ## v3.0.26 (work in progress)
 
+### General Changes
+* Updated version of embedded HTTP lib to master for IPv6 address support.
+
 ### Fixes
 * Modified square brackets parser to enable connection to S3 servers via IPv6 address. (Connection via hostname to an IPv6 server already worked before. Connection via IPv6 address still requires AWS to solve an SDK IPv6 issue to work: https://github.com/aws/aws-sdk-cpp/issues/3244 )
+* Modified parser for elbencho service instance IP addresses to work with IPv6 addresses in square brackets.
 
 ### Contributors
 * Thanks to Conor Elrick for contributions, helpful comments and suggestions.
