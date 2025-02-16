@@ -19,7 +19,15 @@ prepare_webserver_sws()
 	local REQUIRED_TAG="v3.1.1-49-g4abe349" # need master for ipv6 addr support (commit bab4b309)
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/Simple-Web-Server"
-	
+
+	# "v3.1.1-49-g4abe349" does not compile on RHEL 7 because it expects newer BOOST version
+	if [[ -f /etc/redhat-release ]]; then
+		if grep -q "release 7" /etc/redhat-release; then
+			echo "Detected RHEL 7.x or a derivative. Using older SWS ver without IPv6 addr support."
+			REQUIRED_TAG="v3.1.1" # older version supports IPv6 DNS names only, not as IP addrs.
+		fi
+	fi
+
 	# change to external subdir if we were called from somewhere else
 	cd "$EXTERNAL_BASE_DIR" || exit 1
 	

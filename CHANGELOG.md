@@ -3,7 +3,7 @@
 ## v3.0.26 (work in progress)
 
 ### General Changes
-* Updated version of embedded HTTP lib to master for IPv6 address support.
+* Updated version of embedded HTTP lib to master for IPv6 address support. (RHEL 7.x and derivatives continue to use older version without IPv6 address support for compatibility.)
 
 ### Fixes
 * Modified square brackets parser to enable connection to S3 servers via IPv6 address.
