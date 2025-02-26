@@ -600,6 +600,8 @@ void ProgArgs::defineAllowedArgs()
 			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
 			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
 			ARG_RANDOMAMOUNT_LONG "\".")
+/*s3s*/	(ARG_S3SSECKEY_LONG, bpo::value(&this->s3SSECKey),
+            "Base64-encoded AES-256 encryption key for S3 SSE-C")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
@@ -827,6 +829,7 @@ void ProgArgs::defineDefaults()
     this->runS3StatDirs = false;
 	this->disablePathBracketsExpansion = false;
 	this->useS3ObjectPrefixRand = false;
+    this->s3SSECKey = "";
 	this->doReadInline = false;
 	this->doStatInline = false;
 	this->nextPhaseDelaySecs = 0;
@@ -3289,6 +3292,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
+    s3SSECKey = tree.get<std::string>(ARG_S3SSECKEY_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
@@ -3440,6 +3444,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
+    outTree.put(ARG_S3SSECKEY_LONG, s3SSECKey);
 	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);

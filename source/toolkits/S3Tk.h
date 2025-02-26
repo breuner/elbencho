@@ -39,6 +39,11 @@ class S3Tk
             std::string* outS3EndpointStr = NULL);
 		static void scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
 		    std::string bucketName, std::string objectPrefix, std::string outTreeFilePath);
+
+        static Aws::String generateKey(const ProgArgs* progArgs, size_t workerRank);
+
+        static Aws::String computerKeyMD5(const Aws::String& key);
+
 #endif // S3_SUPPORT
 
 	private:
