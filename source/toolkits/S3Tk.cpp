@@ -11,6 +11,9 @@
 #ifdef S3_SUPPORT
     #include <aws/core/auth/AWSCredentialsProvider.h>
     #include <aws/core/Aws.h>
+    #include <aws/core/utils/crypto/Sha256.h>
+    #include <aws/core/utils/crypto/MD5.h>
+    #include <aws/core/utils/HashingUtils.h>
     #include <aws/core/utils/logging/DefaultLogSystem.h>
     #include <aws/core/utils/logging/AWSLogging.h>
     #include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
@@ -177,6 +180,22 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         false);
 
     return s3Client;
+}
+
+Aws::String S3Tk::generateKey(const ProgArgs* progArgs, size_t workerRank) {
+    std::ostringstream inputStream;
+    inputStream << "Worker:" << workerRank << "-Salt:" << progArgs->getIntegrityCheckSalt();
+
+    Aws::Utils::Crypto::Sha256 sha256;
+    Aws::Utils::Crypto::HashResult hashResult = sha256.Calculate(inputStream.str());
+
+    return Aws::Utils::HashingUtils::Base64Encode(hashResult.GetResult());
+}
+
+Aws::String S3Tk::computerKeyMD5(const Aws::String& key) {
+    Aws::Utils::Crypto::MD5 md5;
+    Aws::Utils::Crypto::HashResult md5Hash = md5.Calculate(key);
+    return Aws::Utils::HashingUtils::Base64Encode(md5Hash.GetResult());  // Base64 encode for AWS
 }
 
 #endif // S3_SUPPORT

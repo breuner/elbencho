@@ -2,6 +2,9 @@
 
 ## v3.0.26 (work in progress)
 
+### New Features & Enhancements
+* Added support for S3 SSE-C (enable by passing the `--s3sseckey` parameter to specify AES256 key)
+
 ### General Changes
 * Updated version of embedded HTTP lib to master for IPv6 address support. (RHEL 7.x and derivatives continue to use older version without IPv6 address support for compatibility.)
 
