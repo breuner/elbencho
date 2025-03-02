@@ -146,6 +146,7 @@ _elbencho_opts()
         --s3randobj
         --s3region
         --s3secret
+        --s3sseckey
         --s3statdirs
         --sendbuf
         --servers
