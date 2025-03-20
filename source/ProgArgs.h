@@ -172,6 +172,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
 #define ARG_S3REGION_LONG			"s3region"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
+#define ARG_S3SSECKEY_LONG          "s3sseckey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
@@ -468,6 +469,7 @@ class ProgArgs
         bool s3NoMD5Checksum; // set empty md5 checksum for uploads
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
+        std::string s3SSECKey;  // S3 SSE-C key for encryption
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
 		std::string serversStr; // prepended to hostsStr in netbench mode
@@ -750,6 +752,7 @@ class ProgArgs
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
+        std::string getS3SSECKey() const { return s3SSECKey; }
         bool getUseStridedAccess() const { return useStridedAccess; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		std::string getTreeFilePath() const { return treeFilePath; }
