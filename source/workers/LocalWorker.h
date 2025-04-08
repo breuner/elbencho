@@ -140,6 +140,9 @@ class LocalWorker : public Worker
         std::shared_ptr<S3Client> s3Client; // (shared_ptr expected by some SDK functions)
         std::string s3EndpointStr; // set after s3Client initialized
         static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
+
+        Aws::String encryptionKey;
+        Aws::String encryptionKeyMD5;
 #endif
 
 #ifdef HDFS_SUPPORT

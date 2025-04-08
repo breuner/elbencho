@@ -427,6 +427,13 @@ void LocalWorker::initS3Client()
 
 	s3Client = S3Tk::initS3Client(progArgs, workerRank, &s3EndpointStr);
 
+    encryptionKey = progArgs->getS3SSECKey();
+    if (!encryptionKey.empty())
+    {
+        encryptionKeyMD5 = S3Tk::computeKeyMD5(encryptionKey);
+    }
+
+
 #endif // S3_SUPPORT
 }
 
@@ -4520,6 +4527,13 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	if(doS3AclPutInline)
 	    TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
 
+    if (!encryptionKey.empty())
+    {
+        request.WithSSECustomerAlgorithm("AES256")
+                .WithSSECustomerKey(encryptionKey)
+                .WithSSECustomerKeyMD5(encryptionKeyMD5);
+    }
+
 	request.SetDataSentEventHandler(
 		[&](const Aws::Http::HttpRequest* request, long long numBytes)
 		{ atomicLiveOps.numBytesDone += numBytes; } );
@@ -4595,6 +4609,13 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
+    if (!encryptionKey.empty())
+    {
+        createMultipartUploadRequest.WithSSECustomerAlgorithm("AES256")
+                .WithSSECustomerKey(encryptionKey)
+                .WithSSECustomerKeyMD5(encryptionKeyMD5);
+    }
+
     if(doS3AclPutInline)
         TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
 
@@ -4655,6 +4676,14 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			.WithUploadId(uploadID)
 			.WithPartNumber(currentPartNum)
 			.WithContentLength(blockSize);
+
+        if (!encryptionKey.empty())
+        {
+            uploadPartRequest.WithSSECustomerAlgorithm("AES256")
+                    .WithSSECustomerKey(encryptionKey)
+                    .WithSSECustomerKeyMD5(encryptionKeyMD5);
+        }
+
 
         if(s3NoMD5)
             uploadPartRequest.SetContentMD5("");
@@ -4751,6 +4780,14 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		.WithKey(objectName)
 		.WithUploadId(uploadID)
 		.WithMultipartUpload(completedMultipartUpload);
+
+    if (!encryptionKey.empty())
+    {
+        completionRequest.WithSSECustomerAlgorithm("AES256")
+                .WithSSECustomerKey(encryptionKey)
+                .WithSSECustomerKeyMD5(encryptionKeyMD5);
+    }
+
 
 	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
 		completedMultipartUpload.GetParts().size() );
@@ -5092,6 +5129,13 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		request.WithBucket(bucketName)
 			.WithKey(objectName)
 			.WithRange(objectRange);
+
+        if(!encryptionKey.empty())
+        {
+            request.WithSSECustomerAlgorithm("AES256")
+                    .WithSSECustomerKey(encryptionKey)
+                    .WithSSECustomerKeyMD5(encryptionKeyMD5);
+        }
 
         if(!useS3FastRead)
             request.SetResponseStreamFactory([&]()
@@ -5865,7 +5909,7 @@ void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::
     IF_UNLIKELY(tagSet.empty())
     {
         std::stringstream errStr;
-        errStr << "Object has not tags, but 1 tag was expected"
+        errStr << "Object has no tags, but 1 tag was expected" << std::endl
                << "Bucket: " << bucketName << "; "
                << "Key: " << objectName << std::endl
                << "Tag: " << TAG_KEY_MEDIUM_NAME << std::endl;
