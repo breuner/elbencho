@@ -1013,8 +1013,7 @@ void LocalWorker::initPhaseRWOffsetGen()
 	randBlockVarAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getBlockVarianceAlgo() );
 	randBlockVarReseed = std::make_unique<RandAlgoXoshiro256ss>();
 
-	/* note: randOffsetAlgo is also used to select files, so needs to be initialized indepedent of
-	    OffsetGenRandomAlignedFullCoverage not using it */
+	// init algo for random offsets within files
     randOffsetAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo().empty() ?
         RANDALGO_BALANCED_SEQUENTIAL_STR : progArgs->getRandOffsetAlgo() );
 
@@ -3868,10 +3867,14 @@ void LocalWorker::s3ModeIterateObjectsRand()
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
 	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
 
-	// init random generators for dir & file index selection
+    // init random generators for dir & file index selection
 
-	OffsetGenRandom randDirIndexGen(~(uint64_t)0, *randOffsetAlgo, numDirs, 0, 1);
-	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randOffsetAlgo, numFiles, 0, 1);
+    std::unique_ptr<RandAlgoInterface> randIndexAlgo =
+        RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo().empty() ?
+            RANDALGO_BALANCED_SEQUENTIAL_STR : progArgs->getRandOffsetAlgo() );
+
+	OffsetGenRandom randDirIndexGen(~(uint64_t)0, *randIndexAlgo, numDirs, 0, 1);
+	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randIndexAlgo, numFiles, 0, 1);
 
 	// init random offset gen for one read per file
 

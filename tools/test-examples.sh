@@ -110,31 +110,31 @@ check_basedir_or_exit()
 prep_loopdev()
 {
   for (( i=0; i < ${#LOOP_BACKING_FILES[@]}; i++ )); do
-  
+
     echo "Creating sparse loop device backing file: ${BASE_DIR}/${LOOP_BACKING_FILES[$i]}"
-  
+
     truncate -s ${LOOP_BACKING_FILE_SIZE} ${BASE_DIR}/${LOOP_BACKING_FILES[$i]}
-  
+
     if [ $? -ne 0 ]; then
       echo "ERROR: Creation of loop device backing file failed."
       cleanup_loopdev
       exit 1
     fi
-  
-    echo "Creating loop device based on file: ${BASE_DIR}/${LOOP_BACKING_FILES[$i]}" 
+
+    echo "Creating loop device based on file: ${BASE_DIR}/${LOOP_BACKING_FILES[$i]}"
 
     LOOPDEV_PATH[$i]=$(sudo losetup --show -f ${BASE_DIR}/${LOOP_BACKING_FILES[$i]})
-  
+
     if [ $? -ne 0 ] || [ -z "${LOOPDEV_PATH[$i]}" ]; then
       echo "ERROR: Creation of loop device failed."
       cleanup_loopdev
       exit 1
     fi
-    
+
     echo "Setting permissions for created loop device: ${LOOPDEV_PATH[$i]}"
-    
+
     sudo chmod o+rw ${LOOPDEV_PATH[$i]}
-    
+
   done
 }
 
@@ -142,29 +142,29 @@ prep_loopdev()
 cleanup_loopdev()
 {
   for (( i=0; i < ${#LOOP_BACKING_FILES[@]}; i++ )); do
-  
+
     if [ -z "${LOOPDEV_PATH[$i]}" ]; then
       continue
     fi
-  
+
     echo "Deleting created loop device: ${LOOPDEV_PATH[$i]}"
 
     sudo losetup -d ${LOOPDEV_PATH[$i]}
-  
+
     if [ $? -ne 0 ]; then
       echo "ERROR: Deletion of loop device failed."
       exit 1
     fi
 
     echo "Deleting loop device backing file: ${BASE_DIR}/${LOOP_BACKING_FILES[$i]}"
-  
+
     rm -f  ${BASE_DIR}/${LOOP_BACKING_FILES[$i]}
 
     if [ $? -ne 0 ]; then
       echo "ERROR: Deletion of loop device backing file failed."
       exit 1
     fi
-    
+
   done
 }
 
@@ -172,10 +172,10 @@ cleanup_loopdev()
 test_loopdev_read_lat()
 {
   cmd="${EXE_PATH} -r -b 4K --lat --cpu --direct --rand --no0usecerr ${LOOPDEV_PATH[0]}"
-  
+
   echo "Test 4KiB block random read latency of device ${LOOPDEV_PATH[0]}:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -190,10 +190,10 @@ test_loopdev_write_iops()
 {
   cmd="${EXE_PATH} -w -b 4K -t 16 --iodepth 16 --direct --rand --no0usecerr "
   cmd+="${LOOPDEV_PATH[0]} ${LOOPDEV_PATH[1]}"
-  
+
   echo "Test 4KiB multi-threaded write IOPS of devices ${LOOPDEV_PATH[0]} & ${LOOPDEV_PATH[1]}:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -207,10 +207,10 @@ test_loopdev_write_iops()
 test_loopdev_read_stream()
 {
   cmd="${EXE_PATH} -r -b 1M -t 8 --iodepth 4 --direct --no0usecerr ${LOOPDEV_PATH[0]}"
-  
+
   echo "Test 1MiB multi-threaded read streaming throughput of device ${LOOPDEV_PATH[0]}:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -224,10 +224,10 @@ test_loopdev_read_stream()
 test_multifile_create()
 {
   cmd="${EXE_PATH} -t 2 -d -n 3 -w -N 4 -s 1m -b 1m --lat --verify 1 --no0usecerr $BASE_DIR"
-  
+
   echo "Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -241,10 +241,10 @@ test_multifile_create()
 test_multifile_read()
 {
   cmd="${EXE_PATH} -t 2 -n 3 -r -N 4 -s 1m -b 128k --verify 1 --no0usecerr $BASE_DIR"
-  
+
   echo "Test 2 threads, each creating 3 directories with 4 1MiB files inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -258,10 +258,10 @@ test_multifile_read()
 test_multifile_delete()
 {
   cmd="${EXE_PATH} -t 2 -n 3 -N 4 -F -D --no0usecerr $BASE_DIR"
-  
+
   echo "Delete files and directories created by previous test inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -275,10 +275,10 @@ test_multifile_delete()
 cleanup_multifile()
 {
   cmd="${EXE_PATH} -t 2 -n 3 -N 4 -F -D --no0usecerr --nodelerr $BASE_DIR"
-  
+
   echo "Cleaning up any files and directories left inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -290,11 +290,11 @@ cleanup_multifile()
 # Start services.
 start_distributed_services()
 {
-  cmd="${EXE_PATH} --service --zone 0"
-  
-  echo "Starting local service on default port, bound to NUMA zone 0:"
+  cmd="${EXE_PATH} --service --zone 0 --port 1711"
+
+  echo "Starting local service on port 1711, bound to NUMA zone 0:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -302,11 +302,11 @@ start_distributed_services()
     exit 1
   fi
 
-  cmd="${EXE_PATH} --service --core 0 --port 1612"
-  
-  echo "Starting local service on port 1612 without NUMA binding:"
+  cmd="${EXE_PATH} --service --core 0 --port 1712"
+
+  echo "Starting local service on port 1712 without NUMA binding:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -320,13 +320,13 @@ start_distributed_services()
 # creating 8 dirs per thread, each containing 16 1MiB files.
 test_distributed_master()
 {
-  cmd="${EXE_PATH} --hosts localhost:[1611-1612] "
+  cmd="${EXE_PATH} --hosts localhost:[1711-1712] "
   cmd+="-t 4 -d -n 8 -w -r -N 16 -s 4k -F -D --verify 1 --no0usecerr $BASE_DIR"
-  
+
   echo "Run master to coordinate benchmarks on localhost services, using 4 threads per"
   echo "service and creating 8 dirs per thread, each containing 16 4KiB files:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -339,11 +339,11 @@ test_distributed_master()
 # Stop services.
 stop_distributed_services()
 {
-  cmd="${EXE_PATH} --hosts localhost,localhost:1612 --quit"
-  
-  echo "Stopping local services on default port and on port 1612:"
+  cmd="${EXE_PATH} --hosts localhost:1711,localhost:1712 --quit"
+
+  echo "Stopping local services on ports 1711 and 1712:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   $cmd
 
   if [ $? -ne 0 ]; then
@@ -356,12 +356,12 @@ stop_distributed_services()
 test_random_io_create()
 {
   local num_matching_files=0;
-  
-  cmd="${EXE_PATH} -t 4 -w -s 1m -b 4k --rand --direct --iodepth 2 --no0usecerr $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX'[1-13]'"
-  
+
+  cmd="${EXE_PATH} -t 4 -w -s 1m -b 4k --rand --direct --iodepth 2 --no0usecerr --preallocfile $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX'[1-13]'"
+
   echo "Test 4 threads writing 13 files of 1MiB each using 4KB random IOs with iodepth 2 inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   eval "$cmd"
 
   if [ $? -ne 0 ]; then
@@ -369,31 +369,31 @@ test_random_io_create()
     cleanup_random_io
     exit 1
   fi
-  
+
   num_matching_files=$(du -sh $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX* | grep -e '^1.0M' | wc -l)
   if [ "$num_matching_files" -ne 13 ]; then
     echo "ERROR: File disk usage verification failed."
     cleanup_random_io
     exit 1
   fi
-  
+
   num_matching_files=$(du --apparent-size -s $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX* | grep -e '^1024' | wc -l)
   if [ "$num_matching_files" -ne 13 ]; then
     echo "ERROR: File size verification failed."
     cleanup_random_io
     exit 1
   fi
-  
+
 }
 
 # Test 5 threads reading 13 files of 1MiB each using 8KB random IOs inside $BASE_DIR
 test_random_io_read()
 {
   cmd="${EXE_PATH} -t 5 -r -s 1m -b 8k --rand --no0usecerr $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX'[1-13]'"
-  
+
   echo "Test 5 threads reading 13 files of 1MiB each using 8KB random IOs inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   eval "$cmd"
 
   if [ $? -ne 0 ]; then
@@ -407,10 +407,10 @@ test_random_io_read()
 test_random_io_delete()
 {
   cmd="${EXE_PATH} -t 6 -F --no0usecerr $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX'[1-13]'"
-  
+
   echo "Delete files and directories created by previous test inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   eval "$cmd"
 
   if [ $? -ne 0 ]; then
@@ -424,10 +424,10 @@ test_random_io_delete()
 cleanup_random_io()
 {
   cmd="rm -f $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX*"
-  
+
   echo "Cleaning up any files and directories left inside $BASE_DIR:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
-  
+
   eval "$cmd"
 
   if [ $? -ne 0 ]; then

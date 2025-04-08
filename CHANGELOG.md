@@ -7,6 +7,7 @@
 
 ### General Changes
 * Updated version of embedded HTTP lib to master for IPv6 address support. (RHEL 7.x and derivatives continue to use older version without IPv6 address support for compatibility.)
+* Disabled automatic selection of the new full file offsets coverage linear congruential random algo from v3.0.19, because the access pattern was not random enough in some cases.
 
 ### Fixes
 * Modified square brackets parser to enable connection to S3 servers via IPv6 address.
@@ -14,7 +15,7 @@
 * Modified parser for elbencho service instance IP addresses to work with IPv6 addresses in square brackets.
 
 ### Contributors
-* Thanks to Conor Elrick for contributions, helpful comments and suggestions.
+* Thanks to Conor Elrick, Michael Shustin, Sebastian Thorarensen for contributions, helpful comments and suggestions.
 
 ## v3.0.25 (Jan 24, 2025)
 
@@ -205,7 +206,7 @@ Thanks to Casey Peel, Michael Shustin, Erez Horev and Github user russki for cod
 * Fixed compilation error (missing include directive) when building without S3 support.
 * Fixed check for file slice smaller than block size in situations without direct IO.
 * Fixed missing random IO flag in config file example.
-* Fixed Windows build not listening for TCP/IPv4 connections in service mode. 
+* Fixed Windows build not listening for TCP/IPv4 connections in service mode.
 
 ### Contributors
 * Thanks to Glenn K. Lockwood, Avi Drabkin, Michael Bertelson for reporting issues. Thanks to Jan Heichler, Rob Mallory, Maria Gutierrez for helpful comments and suggestions.
@@ -348,7 +349,7 @@ Blocks now get filled with randomized data before each write ("--blockvarpct 100
 * Label results as "RWMIX0" if "--rwmixpct 0" is given (instead of previously labeling as "WRITE" in this case).
 * When "--rand" is used and multiple files/blockdevs are given directly as parameters then each thread now randomly selects the next file/blockdev.
   * Previously each thread iterated over all files/blockdevs in a round-robin fashion.
-* Block variance percentage (--blockvarpct) now defines the percentage of bytes within each written block to be randomly generated. 
+* Block variance percentage (--blockvarpct) now defines the percentage of bytes within each written block to be randomly generated.
   * Previously this defined the number out of 100 written blocks to be randomly filled. This change is intended to avoid longer sequences of identical blocks, e.g. in case of "--blockvarpct 50". (The result for "--blockvarpct 100" is the same as before.)
 * The option "--s3rwmixthr" has been removed and is now replaced by the new option "--rwmixthr", which also works for S3.
 * In files given as "--hostsfile", lines starting with a "#" character will now be ignored.

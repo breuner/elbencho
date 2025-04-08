@@ -781,7 +781,8 @@ void ProgArgs::defineDefaults()
 	this->rwMixPercent = 0;
 	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
-	this->randOffsetAlgo = ""; // empty means full coverage for writes, balanced_single for reads
+	this->randOffsetAlgo = RANDALGO_BALANCED_SEQUENTIAL_STR; /* empty means full coverage for
+        writes, balanced_single for reads, but we currently don't want to use full coverage algo */
 	this->fileShareSize = 0;
 	this->fileShareSizeOrigStr = "0";
 	this->useCustomTreeRandomize = false;
