@@ -42,7 +42,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 
 The built-in help (`elbencho --help`) provides simple examples to get started.
 
-You can get elbencho pre-built for Linux & Windows from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). 
+You can get elbencho pre-built for Linux & Windows from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho).
 
 ## Build Prerequisites
 
@@ -54,7 +54,7 @@ Building elbencho requires a C++17 compatible compiler, such as gcc version 7.x 
 sudo apt install build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian libssl-dev
 ```
 
-### Dependencies for RHEL/CentOS 
+### Dependencies for RHEL/CentOS
 
 ```bash
 sudo yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel openssl-devel rpm-build
@@ -107,19 +107,19 @@ Now comes the fun part: It's time to find out what your system can deliver.
 
 The built-in help (`elbencho --help`) provides many usage examples. You will be interested in throughput and IOPS, typically for a single client and also for multiple clients. For the latter, see `--hosts` & `--service`.
 
-If your cluster is using Slurm to allocate nodes, you can find examples [here](tools/slurm-examples.md).
+If your cluster is using Slurm to allocate nodes, you can find examples [here](docs/slurm-examples.md).
 
 If GPU data transfer performance is critical for you, e.g. because you are running DeepLearning applications, you will also want to include GPUs in your read/write benchmarks (`--gpuids`).
 
-Instead of giving benchmark parameters on the command line, you can also use a config file (`--configfile myconfig.conf`). You can find an example [here](tools/example_configuration/).
+Instead of giving benchmark parameters on the command line, you can also use a config file (`--configfile myconfig.conf`). You can find an example [here](docs/example_configuration/).
 
 ### Results & Charts
 
-Elbencho presents two [result columns](tools/result-columns-explanation.md): One showing the aggregate status at the point in time when the fastest I/O thread finished its work ("First Done") and one for the aggregate end result at the point in time when the slowest thread finished its work ("Last Done"). Ideally, both are close together.
+Elbencho presents two [result columns](docs/result-columns-explanation.md): One showing the aggregate status at the point in time when the fastest I/O thread finished its work ("First Done") and one for the aggregate end result at the point in time when the slowest thread finished its work ("Last Done"). Ideally, both are close together.
 
 To generate charts from your result series, e.g. based on different block sizes or different thread counts, use elbencho's csv file option (`--csvfile`) and the `elbencho-chart` tool to easily generate a chart from your csv file. Alternatively, spreadsheet tools like Microsoft Excel or Google Sheets can be used for this.
 
-See the [CSV documentation](csv-docs.md) for detailed descriptions of fields.
+See the [CSV documentation](docs/csv-docs.md) for detailed descriptions of fields.
 
 ### Questions & Comments
 

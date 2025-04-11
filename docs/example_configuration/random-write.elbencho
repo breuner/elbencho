@@ -4,7 +4,7 @@
 #
 # This example config is equivalent to the following elbencho arguments:
 # $ elbencho -t 2 --iodepth 4 --timelimit 10 -b 1M --direct -s 1G \
-#   -N 10 -n1 -D -F -d -w --rand
+#   -N 10 -n 1 -D -F -d -w --rand
 #
 # This example doesn't contain a path. You would specify the path and possibly
 # other options on the command line like this:

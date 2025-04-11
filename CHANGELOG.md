@@ -386,7 +386,7 @@ Blocks now get filled with randomized data before each write ("--blockvarpct 100
 * New Dockerfiles to build containers from local source copy.
   * See README on Docker Hub for easy instructions: https://hub.docker.com/r/breuner/elbencho
 * New guide for using elbencho with the Slurm Workload Manager.
-  * See here: https://github.com/breuner/elbencho/blob/master/tools/slurm-examples.md
+  * See here: https://github.com/breuner/elbencho/blob/master/docs/slurm-examples.md
 
 ### General Changes
 * Using "--quit --hosts ..." now shows whether the service instances confirmed the quit command.
