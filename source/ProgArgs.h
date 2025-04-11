@@ -148,7 +148,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETTAG_LONG        "s3btag"
 #define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
 #define ARG_S3BUCKETVER_LONG        "s3bversion"
-#define ARG_S3BUCKETVER_VERIFY_LONG "s3bversionverify"
+#define ARG_S3BUCKETVERVERIFY_LONG  "s3bversionverify"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3FASTPUT_LONG          "s3fastput"
@@ -172,7 +172,9 @@ namespace bpt = boost::property_tree;
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
 #define ARG_S3REGION_LONG			"s3region"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
+#define ARG_S3SSE_LONG              "s3sse"
 #define ARG_S3SSECKEY_LONG          "s3sseckey"
+#define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
@@ -469,7 +471,10 @@ class ProgArgs
         bool s3NoMD5Checksum; // set empty md5 checksum for uploads
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
+		std::string s3Region; // s3 region
+		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
         std::string s3SSECKey;  // S3 SSE-C key for encryption
+        std::string s3SSEKMSKey;  // S3 SSE-KMS key for encryption
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
 		std::string serversStr; // prepended to hostsStr in netbench mode
@@ -517,11 +522,10 @@ class ProgArgs
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		bool useS3RandObjSelect; // random object selection for each read
-		std::string s3Region; // s3 region
-		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
 								via buffer possible, such as GPU copy or data verification) */
-		bool useStridedAccess; // use strided file access pattern for shared files
+        bool useS3SSE; // use SSE-S3 encryption method for S3
+        bool useStridedAccess; // use strided file access pattern for shared files
 
 
 		void defineDefaults();
@@ -715,8 +719,10 @@ class ProgArgs
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
         std::string getS3Region() const { return s3Region; }
-        unsigned short getServicePort() const { return servicePort; }
         unsigned short getS3SignPolicy() const { return s3SignPolicy; }
+        std::string getS3SSECKey() const { return s3SSECKey; }
+        std::string getS3SSEKMSKey() const { return s3SSEKMSKey; }
+        unsigned short getServicePort() const { return servicePort; }
         bool getShowAllElapsed() const { return showAllElapsed; }
         bool getShowCPUUtilization() const { return showCPUUtilization; }
         bool getShowDirStats() const { return showDirStats; }
@@ -752,7 +758,7 @@ class ProgArgs
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
-        std::string getS3SSECKey() const { return s3SSECKey; }
+        bool getUseS3SSE() const { return useS3SSE; }
         bool getUseStridedAccess() const { return useStridedAccess; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		std::string getTreeFilePath() const { return treeFilePath; }

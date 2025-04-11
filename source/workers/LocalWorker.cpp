@@ -427,12 +427,12 @@ void LocalWorker::initS3Client()
 
 	s3Client = S3Tk::initS3Client(progArgs, workerRank, &s3EndpointStr);
 
-    encryptionKey = progArgs->getS3SSECKey();
-    if (!encryptionKey.empty())
-    {
-        encryptionKeyMD5 = S3Tk::computeKeyMD5(encryptionKey);
-    }
+    useS3SSE = progArgs->getUseS3SSE();
+    s3SSECKey = progArgs->getS3SSECKey();
+    if(!s3SSECKey.empty() )
+        s3SSECKeyMD5 = S3Tk::computeKeyMD5(s3SSECKey);
 
+    s3SSEKMSKey = progArgs->getS3SSEKMSKey();
 
 #endif // S3_SUPPORT
 }
@@ -4089,6 +4089,35 @@ void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::stri
 }
 
 /**
+ * Add server-side encryption to s3 request.
+ */
+template <typename REQUESTTYPE>
+void LocalWorker::s3ModeAddServerSideEncryption(REQUESTTYPE& request)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+    if(this->useS3SSE)
+        request.WithServerSideEncryption(Aws::S3::Model::ServerSideEncryption::AES256);
+    else
+    if (!s3SSECKey.empty())
+    {
+        request.WithSSECustomerAlgorithm("AES256")
+            .WithSSECustomerKey(s3SSECKey)
+            .WithSSECustomerKeyMD5(s3SSECKeyMD5);
+    }
+    else
+    if(!s3SSEKMSKey.empty())
+    {
+        request.WithServerSideEncryption(Aws::S3::Model::ServerSideEncryption::aws_kms)
+            .WithSSEKMSKeyId(s3SSEKMSKey);
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
  * Create given S3 bucket.
  *
  * @throw WorkerException on error.
@@ -4259,15 +4288,8 @@ void LocalWorker::s3ModeDeleteBucket(const std::string& bucketName)
 	{
 		auto s3Error = deleteOutcome.GetError();
 
-		if( (s3Error.GetErrorType() != S3Errors::NO_SUCH_BUCKET) ||
-			!ignoreDelErrors)
-		{
-			throw WorkerException(std::string("Bucket deletion failed. ") +
-				"Bucket: " + bucketName + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() + "; " +
-				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-		}
+		if( (s3Error.GetErrorType() != S3Errors::NO_SUCH_BUCKET) || !ignoreDelErrors)
+            s3ModeThrowOnError(deleteOutcome, "Bucket deletion failed.", bucketName);
 	}
 
 #endif // S3_SUPPORT
@@ -4295,17 +4317,7 @@ void LocalWorker::s3ModePutBucketAcl(std::string bucketName)
 
 	OPLOG_POST_OP("S3PutBucketAcl", bucketName, 0, 0, !outcome.IsSuccess() );
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
-	{
-		auto s3Error = outcome.GetError();
-
-		throw WorkerException(std::string("Putting bucket ACL failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-	}
+    s3ModeThrowOnError(outcome, "Putting bucket ACL failed.", bucketName);
 
 #endif // S3_SUPPORT
 }
@@ -4332,17 +4344,7 @@ void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
 
 	OPLOG_POST_OP("S3GetBucketAcl", bucketName, 0, 0, !outcome.IsSuccess() );
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
-	{
-		auto s3Error = outcome.GetError();
-
-		throw WorkerException(std::string("Getting bucket ACL failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-	}
+    s3ModeThrowOnError(outcome, "Getting bucket ACL failed.", bucketName);
 
 	IF_UNLIKELY(doS3AclVerify)
 	{
@@ -4530,12 +4532,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	if(doS3AclPutInline)
 	    TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
 
-    if (!encryptionKey.empty())
-    {
-        request.WithSSECustomerAlgorithm("AES256")
-                .WithSSECustomerKey(encryptionKey)
-                .WithSSECustomerKeyMD5(encryptionKeyMD5);
-    }
+    s3ModeAddServerSideEncryption(request);
 
 	request.SetDataSentEventHandler(
 		[&](const Aws::Http::HttpRequest* request, long long numBytes)
@@ -4553,21 +4550,8 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
-	{
-		auto s3Error = outcome.GetError();
-
-		if (!ignoreS3Errors)
-		{
-			throw WorkerException(std::string("Object upload failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Object: " + objectName + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() + "; " +
-				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-		}
-	}
+	IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
+        s3ModeThrowOnError(outcome, "Object upload failed.", bucketName, objectName);
 
 	if(blockSize)
 	{
@@ -4612,12 +4596,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
-    if (!encryptionKey.empty())
-    {
-        createMultipartUploadRequest.WithSSECustomerAlgorithm("AES256")
-                .WithSSECustomerKey(encryptionKey)
-                .WithSSECustomerKeyMD5(encryptionKeyMD5);
-    }
+    s3ModeAddServerSideEncryption(createMultipartUploadRequest);
 
     if(doS3AclPutInline)
         TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
@@ -4630,20 +4609,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	OPLOG_POST_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0,
 		!createMultipartUploadOutcome.IsSuccess() );
 
-	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() )
-	{
-		auto s3Error = createMultipartUploadOutcome.GetError();
-
-		if (!ignoreS3Errors)
-		{
-			throw WorkerException(std::string("Multipart upload creation failed. ") +
-				"Endpoint: " + s3EndpointStr + "; "
-				"Bucket: " + bucketName + "; "
-				"Exception: " + s3Error.GetExceptionName() + "; " +
-				"Message: " + s3Error.GetMessage() + "; " +
-				"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-		}
-	}
+	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() && !ignoreS3Errors)
+        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.",
+            bucketName, objectName);
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
 
@@ -4680,13 +4648,11 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			.WithPartNumber(currentPartNum)
 			.WithContentLength(blockSize);
 
-        if (!encryptionKey.empty())
-        {
+        // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+        if(!s3SSECKey.empty() )
             uploadPartRequest.WithSSECustomerAlgorithm("AES256")
-                    .WithSSECustomerKey(encryptionKey)
-                    .WithSSECustomerKeyMD5(encryptionKeyMD5);
-        }
-
+                    .WithSSECustomerKey(s3SSECKey)
+                    .WithSSECustomerKeyMD5(s3SSECKeyMD5);
 
         if(s3NoMD5)
             uploadPartRequest.SetContentMD5("");
@@ -4723,11 +4689,11 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		{
 			s3AbortMultipartUpload(bucketName, objectName, uploadID);
 
-			auto s3Error = uploadPartOutcome.GetError();
-
 			if (!ignoreS3Errors)
 			{
-				throw WorkerException(std::string("Multipart part upload failed. ") +
+                auto s3Error = uploadPartOutcome.GetError();
+
+                throw WorkerException(std::string("Multipart part upload failed. ") +
 					"Endpoint: " + s3EndpointStr + "; "
 					"Bucket: " + bucketName + "; "
 					"Object: " + objectName + "; "
@@ -4784,16 +4750,14 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		.WithUploadId(uploadID)
 		.WithMultipartUpload(completedMultipartUpload);
 
-    if (!encryptionKey.empty())
-    {
+    // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+    if(!s3SSECKey.empty() )
         completionRequest.WithSSECustomerAlgorithm("AES256")
-                .WithSSECustomerKey(encryptionKey)
-                .WithSSECustomerKeyMD5(encryptionKeyMD5);
-    }
+                .WithSSECustomerKey(s3SSECKey)
+                .WithSSECustomerKeyMD5(s3SSECKeyMD5);
 
-
-	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
-		completedMultipartUpload.GetParts().size() );
+    OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
+        completedMultipartUpload.GetParts().size() );
 
 	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
 
@@ -5133,12 +5097,11 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			.WithKey(objectName)
 			.WithRange(objectRange);
 
-        if(!encryptionKey.empty())
-        {
+        // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+        if(!s3SSECKey.empty())
             request.WithSSECustomerAlgorithm("AES256")
-                    .WithSSECustomerKey(encryptionKey)
-                    .WithSSECustomerKeyMD5(encryptionKeyMD5);
-        }
+                    .WithSSECustomerKey(s3SSECKey)
+                    .WithSSECustomerKeyMD5(s3SSECKeyMD5);
 
         if(!useS3FastRead)
             request.SetResponseStreamFactory([&]()
@@ -5180,35 +5143,19 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 		checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
 
-		IF_UNLIKELY(!outcome.IsSuccess() )
-		{
-			auto s3Error = outcome.GetError();
+		IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
+            s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
 
-			if (!ignoreS3Errors)
-			{
-				throw WorkerException(std::string("Object download failed. ") +
-					"Endpoint: " + s3EndpointStr + "; "
-					"Bucket: " + bucketName + "; "
-					"Object: " + objectName + "; "
-					"Range: " + objectRange + "; "
-					"Exception: " + s3Error.GetExceptionName() + "; " +
-					"Message: " + s3Error.GetMessage() + "; " +
-					"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-			}
-		}
-
-		IF_UNLIKELY( (size_t)outcome.GetResult().GetContentLength() < blockSize)
+		IF_UNLIKELY( ( (size_t)outcome.GetResult().GetContentLength() < blockSize) &&
+            !ignoreS3Errors)
 		{
-			if (!ignoreS3Errors)
-			{
-				throw WorkerException(std::string("Object too small. ") +
-					"Endpoint: " + s3EndpointStr + "; "
-					"Bucket: " + bucketName + "; "
-					"Object: " + objectName + "; "
-					"Offset: " + std::to_string(currentOffset) + "; "
-					"Requested blocksize: " + std::to_string(blockSize) + "; "
-					"Received length: " + std::to_string(outcome.GetResult().GetContentLength() ) );
-			}
+            throw WorkerException(std::string("Object too small. ") +
+                "Endpoint: " + s3EndpointStr + "; "
+                "Bucket: " + bucketName + "; "
+                "Object: " + objectName + "; "
+                "Offset: " + std::to_string(currentOffset) + "; "
+                "Requested blocksize: " + std::to_string(blockSize) + "; "
+                "Received length: " + std::to_string(outcome.GetResult().GetContentLength() ) );
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
@@ -5260,18 +5207,8 @@ void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectNam
 
     OPLOG_POST_OP("S3HeadObject", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
-	{
-		auto s3Error = outcome.GetError();
-
-		throw WorkerException(std::string("Object metadata retrieval via HeadObject failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-	}
+    s3ModeThrowOnError(outcome, "Object metadata retrieval via HeadObject failed.", bucketName,
+        objectName);
 
 #endif // S3_SUPPORT
 }
@@ -5303,15 +5240,7 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 		(!ignoreDelErrors ||
 			(outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) ) )
 	{
-		auto s3Error = outcome.GetError();
-
-		throw WorkerException(std::string("Object deletion failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+        s3ModeThrowOnError(outcome, "Object deletion failed.", bucketName, objectName);
 	}
 
 #endif // S3_SUPPORT
@@ -5758,18 +5687,7 @@ void LocalWorker::s3ModePutObjectAcl(std::string bucketName, std::string objectN
 
     OPLOG_POST_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
-	{
-		auto s3Error = outcome.GetError();
-
-		throw WorkerException(std::string("Putting object ACL failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-	}
+    s3ModeThrowOnError(outcome, "Putting object ACL failed.", bucketName, objectName);
 
 #endif // S3_SUPPORT
 }
@@ -5797,18 +5715,7 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 
     OPLOG_POST_OP("S3GetObjectAcl", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
-	IF_UNLIKELY(!outcome.IsSuccess() )
-	{
-		auto s3Error = outcome.GetError();
-
-		throw WorkerException(std::string("Getting object ACL failed. ") +
-			"Endpoint: " + s3EndpointStr + "; "
-			"Bucket: " + bucketName + "; "
-			"Object: " + objectName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() + "; " +
-			"HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
-	}
+    s3ModeThrowOnError(outcome, "Getting object ACL failed.", bucketName, objectName);
 
 	IF_UNLIKELY(doS3AclVerify)
 	{

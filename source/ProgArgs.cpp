@@ -521,11 +521,13 @@ void ProgArgs::defineAllowedArgs()
 /*s3b*/	(ARG_S3BUCKETTAG_LONG, bpo::bool_switch(&this->doS3BucketTag),
 			"Activate bucket tagging operations")
 /*s3b*/	(ARG_S3BUCKETTAGVERIFY_LONG, bpo::bool_switch(&this->doS3BucketTagVerify),
-            "Verify the correctness of S3 bucket tagging results (requires \"--" ARG_S3BUCKETTAG_LONG "\")")
+            "Verify the correctness of S3 bucket tagging results. (Requires "
+            "\"--" ARG_S3BUCKETTAG_LONG "\")")
 /*s3b*/	(ARG_S3BUCKETVER_LONG, bpo::bool_switch(&this->doS3BucketVersioning),
             "Activate bucket versioning operations ")
-/*s3b*/	(ARG_S3BUCKETVER_VERIFY_LONG, bpo::bool_switch(&this->doS3BucketVersioningVerify),
-            "Verify the correctness of S3 bucket versioning settings (requires \"--" ARG_S3BUCKETVER_LONG "\")")
+/*s3b*/	(ARG_S3BUCKETVERVERIFY_LONG, bpo::bool_switch(&this->doS3BucketVersioningVerify),
+            "Verify the correctness of S3 bucket versioning settings. (Requires "
+            "\"--" ARG_S3BUCKETVER_LONG "\")")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -571,10 +573,10 @@ void ProgArgs::defineAllowedArgs()
 			"are given.)")
 /*s3m*/	(ARG_S3MULTI_IGNORE_404, bpo::bool_switch(&this->s3IgnoreMultipartUpload404),
             "Ignore 404 HTTP error code for multipart upload completions, which can happen if the "
-            "CompleteMultipartUpload request has to be retried, e.g. because of a connection failure. "
-            "Depending on how the S3 backend handles this, it might return a 404 because the "
-            "upload was already completed beforehand. "
-            "Enabling this will ignore 404 HTTP errors in CompleteMultiPartUpload responses")
+            "CompleteMultipartUpload request has to be retried, e.g. because of a connection "
+            "failure. Depending on how the S3 backend handles this, it might return a 404 because "
+            "the upload was already completed beforehand. "
+            "Enabling this will ignore 404 HTTP errors in CompleteMultiPartUpload responses.")
 /*s3n*/ (ARG_S3NOCOMPRESS_LONG, bpo::bool_switch(&this->s3NoCompression),
             "Disable S3 request compression.")
 /*s3n*/ (ARG_S3NOMD5_LONG, bpo::bool_switch(&this->s3NoMD5Checksum),
@@ -588,20 +590,24 @@ void ProgArgs::defineAllowedArgs()
 			"is a bucket. (A sequence of 3 to 16 \"" RAND_PREFIX_MARKS_SUBSTR "\" chars will be "
 			"replaced by a random hex string of the same length.)")
 /*s3o*/	(ARG_S3OBJLOCKCFG_LONG, bpo::bool_switch(&this->doS3ObjectLockCfg),
-            "Activate object lock configuration creation")
+            "Activate object lock configuration creation.")
 /*s3o*/	(ARG_S3OBJLOCKCFGVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectLockCfgVerify),
-            "Verify the correctness of object lock configurations")
+            "Verify the correctness of object lock configurations.")
 /*s3o*/	(ARG_S3OBJTAG_LONG, bpo::bool_switch(&this->doS3ObjectTag),
-            "Activate S3 object tagging")
+            "Activate S3 object tagging.")
 /*s3o*/	(ARG_S3OBJTAGVERIFY_LONG, bpo::bool_switch(&this->doS3ObjectTagVerify),
-            "Verify the correctness of created S3 object tags")
+            "Verify the correctness of created S3 object tags.")
 /*s3r*/	(ARG_S3RANDOBJ_LONG, bpo::bool_switch(&this->useS3RandObjSelect),
 			"Read at random offsets and randomly select a new object for each S3 block read. Only "
 			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
 			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
 			ARG_RANDOMAMOUNT_LONG "\".")
+/*s3o*/	(ARG_S3SSE_LONG, bpo::bool_switch(&this->useS3SSE),
+            "Server-side encryption of S3 objects using SSE-S3.")
 /*s3s*/	(ARG_S3SSECKEY_LONG, bpo::value(&this->s3SSECKey),
-            "Base64-encoded AES-256 encryption key for S3 SSE-C")
+            "Base64-encoded AES-256 encryption key for S3 SSE-C.")
+/*s3s*/	(ARG_S3SSEKMSKEY_LONG, bpo::value(&this->s3SSEKMSKey),
+            "Key for S3 SSE-KMS.")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
@@ -830,7 +836,7 @@ void ProgArgs::defineDefaults()
     this->runS3StatDirs = false;
 	this->disablePathBracketsExpansion = false;
 	this->useS3ObjectPrefixRand = false;
-    this->s3SSECKey = "";
+    this->useS3SSE = false;
 	this->doReadInline = false;
 	this->doStatInline = false;
 	this->nextPhaseDelaySecs = 0;
@@ -3232,7 +3238,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     doS3BucketTag = tree.get<bool>(ARG_S3BUCKETTAG_LONG);
     doS3BucketTagVerify = tree.get<bool>(ARG_S3BUCKETTAGVERIFY_LONG);
     doS3BucketVersioning = tree.get<bool>(ARG_S3BUCKETVER_LONG);
-    doS3BucketVersioningVerify = tree.get<bool>(ARG_S3BUCKETVER_VERIFY_LONG);
+    doS3BucketVersioningVerify = tree.get<bool>(ARG_S3BUCKETVERVERIFY_LONG);
     doS3ObjectTag = tree.get<bool>(ARG_S3OBJTAG_LONG);
     doS3ObjectTagVerify = tree.get<bool>(ARG_S3OBJTAGVERIFY_LONG);
     doS3ObjectLockCfg = tree.get<bool>(ARG_S3OBJLOCKCFG_LONG);
@@ -3294,6 +3300,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
     s3SSECKey = tree.get<std::string>(ARG_S3SSECKEY_LONG);
+    s3SSEKMSKey = tree.get<std::string>(ARG_S3SSEKMSKEY_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
@@ -3312,6 +3319,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
+    useS3SSE = tree.get<bool>(ARG_S3SSE_LONG);
 	useStridedAccess = tree.get<bool>(ARG_STRIDEDACCESS_LONG);
 
 	// dynamically calculated values for service hosts...
@@ -3445,14 +3453,16 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
+    outTree.put(ARG_S3SSE_LONG, useS3SSE);
     outTree.put(ARG_S3SSECKEY_LONG, s3SSECKey);
+    outTree.put(ARG_S3SSEKMSKEY_LONG, s3SSEKMSKey);
 	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
     outTree.put(ARG_S3BUCKETTAG_LONG, doS3BucketTag);
     outTree.put(ARG_S3BUCKETTAGVERIFY_LONG, doS3BucketTagVerify);
     outTree.put(ARG_S3BUCKETVER_LONG, doS3BucketVersioning);
-    outTree.put(ARG_S3BUCKETVER_VERIFY_LONG, doS3BucketVersioningVerify);
+    outTree.put(ARG_S3BUCKETVERVERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);

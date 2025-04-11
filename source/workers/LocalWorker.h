@@ -141,8 +141,10 @@ class LocalWorker : public Worker
         std::string s3EndpointStr; // set after s3Client initialized
         static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
 
-        Aws::String encryptionKey;
-        Aws::String encryptionKeyMD5;
+        bool useS3SSE{false}; // for plain server-side encryption
+        std::string s3SSECKey; // SSE-C encryption key
+        std::string s3SSECKeyMD5; // SSE-C encryption key MD5 hash
+        std::string s3SSEKMSKey; // SSE-KMS encryption key
 #endif
 
 #ifdef HDFS_SUPPORT
@@ -209,6 +211,8 @@ class LocalWorker : public Worker
 		template <typename OUTCOMETYPE>
 		void s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
 		    const std::string& bucketName, const std::string& objectName="");
+        template <typename REQUESTTYPE>
+            void s3ModeAddServerSideEncryption(REQUESTTYPE& request);
 		void s3ModeCreateBucket(std::string bucketName);
 		void s3ModeHeadBucket(std::string bucketName);
 		void s3ModeCreateBucketTagging(const std::string& bucketName);

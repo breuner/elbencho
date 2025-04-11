@@ -181,16 +181,22 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     return s3Client;
 }
 
-Aws::String S3Tk::computeKeyMD5(const Aws::String& encodedKey) {
+/**
+ * @brief Compute MD5 hash of the given base64 encoded key.
+ * @param encodedKey base64 encoded key.
+ * @return md5 of the given key.
+ */
+Aws::String S3Tk::computeKeyMD5(const Aws::String& encodedKey)
+{
     Aws::Utils::Crypto::MD5 md5;
 
     auto decodedKey = Aws::Utils::HashingUtils::Base64Decode(encodedKey);
 
     Aws::Utils::Crypto::HashResult md5Hash = md5.Calculate(
-            Aws::String(reinterpret_cast<const char*>(decodedKey.GetUnderlyingData()), decodedKey.GetLength())
-    );
+        Aws::String(reinterpret_cast<const char*>(decodedKey.GetUnderlyingData() ),
+        decodedKey.GetLength() ) );
 
-    return Aws::Utils::HashingUtils::Base64Encode(md5Hash.GetResult());
+    return Aws::Utils::HashingUtils::Base64Encode(md5Hash.GetResult() );
 }
 
 #endif // S3_SUPPORT
