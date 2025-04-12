@@ -1,4 +1,4 @@
-# Full CUDA and elbencho deb install of latest github master on Ubuntu 22.04
+# Full CUDA and elbencho deb install of latest github master on Ubuntu 24.04
 #
 # For cross-compile on Ubuntu x86_64 prepare multi-platform builder from repository root dir like this:
 # docker buildx create --use --platform=linux/arm64,linux/amd64 --name multi-platform-builder --config build_helpers/docker/buildkitd.toml
@@ -10,6 +10,9 @@
 
 FROM ubuntu:24.04 as builder
 
+ARG NUM_JOBS
+ENV NUM_JOBS=${NUM_JOBS}
+
 COPY ./ /root/elbencho
 
 # Note: Cross-compile is mem intensive, so limit to one proc per GB RAM
@@ -17,8 +20,10 @@ COPY ./ /root/elbencho
 RUN export DEBIAN_FRONTEND=noninteractive && \
     RAM_GB=$(grep MemTotal /proc/meminfo | awk '{printf "%."d"f\n", $2 / 1024 / 1024}') && \
     RAM_GB=$((RAM_GB > 1 ? RAM_GB : 1)) && \
-    NUM_JOBS=$(( $(nproc) > RAM_GB ? RAM_GB : $(nproc) )) && \
-    echo "Calculated NUM_JOBS: $NUM_JOBS (RAM_GB: $RAM_GB, nproc: $(nproc))" && \
+    NUM_JOBS_CALCULATED=$(( $(nproc) > RAM_GB ? RAM_GB : $(nproc) )) && \
+    : "${NUM_JOBS:=$NUM_JOBS_CALCULATED}" && \
+    echo "NUM_JOBS: $NUM_JOBS." \
+        "(NUM_JOBS_CALCULATED: $NUM_JOBS_CALCULATED, RAM_GB: $RAM_GB, nproc: $(nproc))" && \
     DOCKER_BUILD_PLATFORM=$(uname -m) && \
     CUDA_SOURCE=$(if [ "$DOCKER_BUILD_PLATFORM" = "aarch64" ]; then \
         echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb"; \
