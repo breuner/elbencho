@@ -4099,7 +4099,7 @@ void LocalWorker::s3ModeAddServerSideEncryption(REQUESTTYPE& request)
 #else
 
     if(this->useS3SSE)
-        request.WithServerSideEncryption(Aws::S3::Model::ServerSideEncryption::AES256);
+        request.WithServerSideEncryption(S3::ServerSideEncryption::AES256);
     else
     if (!s3SSECKey.empty())
     {
@@ -4110,7 +4110,7 @@ void LocalWorker::s3ModeAddServerSideEncryption(REQUESTTYPE& request)
     else
     if(!s3SSEKMSKey.empty())
     {
-        request.WithServerSideEncryption(Aws::S3::Model::ServerSideEncryption::aws_kms)
+        request.WithServerSideEncryption(S3::ServerSideEncryption::aws_kms)
             .WithSSEKMSKeyId(s3SSEKMSKey);
     }
 

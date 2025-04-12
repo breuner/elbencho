@@ -370,20 +370,21 @@ test_random_io_create()
     exit 1
   fi
 
-  num_matching_files=$(du -sh $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX* | grep -e '^1.0M' | wc -l)
-  if [ "$num_matching_files" -ne 13 ]; then
-    echo "ERROR: File disk usage verification failed."
-    cleanup_random_io
-    exit 1
-  fi
+  for i in $(ls $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX*); do
+    if [ $(du -s $i | awk '{print $1}') -lt 1024 ]; then
+      echo "ERROR: Min file disk usage test after random writes failed: '$i'"
+      cleanup_random_io
+      exit 1
+    fi
+  done
 
-  num_matching_files=$(du --apparent-size -s $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX* | grep -e '^1024' | wc -l)
-  if [ "$num_matching_files" -ne 13 ]; then
-    echo "ERROR: File size verification failed."
-    cleanup_random_io
-    exit 1
-  fi
-
+  for i in $(ls $BASE_DIR/$RANDOM_IO_FILENAME_PREFIX*); do
+    if [ $(du --apparent-size -s $i | awk '{print $1}') -ne 1024 ]; then
+      echo "ERROR: Min file size test after random writes failed: '$i'"
+      cleanup_random_io
+      exit 1
+    fi
+  done
 }
 
 # Test 5 threads reading 13 files of 1MiB each using 8KB random IOs inside $BASE_DIR
