@@ -40,7 +40,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 
 ## Usage
 
-The built-in help (`elbencho --help`) provides simple examples to get started.
+The [built-in help](docs/usage/help.md) (`elbencho --help`) provides simple examples to get started.
 
 You can get elbencho pre-built for Linux & Windows from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho).
 

@@ -8,6 +8,8 @@
 ### General Changes
 * Updated version of embedded HTTP lib to master for IPv6 address support. (RHEL 7.x and derivatives continue to use older version without IPv6 address support for compatibility.)
 * Disabled automatic selection of the new full file offsets coverage linear congruential random algo from v3.0.19, because the access pattern was not random enough in some cases.
+* Moved markdown docs into new `docs/` dir.
+* Added markdown pages based on built-in usage info. (See `docs/usage/`).
 
 ### Fixes
 * Modified square brackets parser to enable connection to S3 servers via IPv6 address.
@@ -15,7 +17,7 @@
 * Modified parser for elbencho service instance IP addresses to work with IPv6 addresses in square brackets.
 
 ### Contributors
-* Thanks to Conor Elrick, Michael Shustin, Sebastian Thorarensen, Ameena Suhani, Janmejay Singh for contributions, helpful comments and suggestions.
+* Thanks to Conor Elrick, Michael Shustin, Sebastian Thorarensen, Ameena Suhani, Janmejay Singh, Paul Hargreaves for contributions, helpful comments and suggestions.
 
 ## v3.0.25 (Jan 24, 2025)
 
