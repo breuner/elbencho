@@ -230,8 +230,8 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 				elapsedUSecVec.push_back(elapsedUSecItem.second.get_value<uint64_t>() );
 		}
 
-		iopsLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
-		entriesLatHisto.setFromPropertyTree(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
+		iopsLatHisto.setFromPropertyTreeForService(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
+		entriesLatHisto.setFromPropertyTreeForService(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 		liveLatency.setToZero(); // this service is done, so no more latency
 
@@ -246,9 +246,9 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 			atomicLiveOpsReadMix.numIOPSDone =
 					resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
 
-			iopsLatHistoReadMix.setFromPropertyTree(
+			iopsLatHistoReadMix.setFromPropertyTreeForService(
 				resultTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
-			entriesLatHistoReadMix.setFromPropertyTree(
+			entriesLatHistoReadMix.setFromPropertyTreeForService(
 				resultTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
 
 			// (note: liveLatency is nulled via .setToZero() above)

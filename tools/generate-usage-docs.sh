@@ -39,7 +39,7 @@ for i in help $HELP_TOPCIS; do
 
     echo >> $DOCS_DIR/$i.md
 
-    echo '> **_NOTE:_**  This page has been auto-generated from built-in help text ' \
+    echo '> **_NOTE:_**  This page has been auto-generated from built-in help text' \
         'of the `elbencho` executable.' >> $DOCS_DIR/$i.md
 
     echo >> $DOCS_DIR/$i.md

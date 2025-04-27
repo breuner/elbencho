@@ -38,9 +38,9 @@ namespace bpt = boost::property_tree;
 #define ARG_CREATEDIRS_SHORT		"d"
 #define ARG_CREATEFILES_LONG		"write"
 #define ARG_CREATEFILES_SHORT		"w"
-#define ARG_CSVFILE_LONG			"csvfile"
-#define ARG_CSVLIVEEXTENDED_LONG	"livecsvex"
-#define ARG_CSVLIVEFILE_LONG		"livecsv"
+#define ARG_CSVFILE_LONG            "csvfile"
+#define ARG_CSVLIVEFILE_LONG        "livecsv"
+#define ARG_CSVLIVEEXTENDED_LONG    "livecsvex"
 #define ARG_CUFILE_LONG				"cufile"
 #define ARG_CUFILEDRIVEROPEN_LONG	"cufiledriveropen"
 #define ARG_CUHOSTBUFREG_LONG		"cuhostbufreg"
@@ -82,6 +82,9 @@ namespace bpt = boost::property_tree;
 #define ARG_IODEPTH_LONG			"iodepth"
 #define ARG_ITERATIONS_LONG			"iterations"
 #define ARG_ITERATIONS_SHORT		"i"
+#define ARG_JSONFILE_LONG           "jsonfile"
+#define ARG_JSONLIVEEXTENDED_LONG   "livejsonex"
+#define ARG_JSONLIVEFILE_LONG       "livejson"
 #define ARG_LATENCY_LONG			"lat"
 #define ARG_LATENCYHISTOGRAM_LONG	"lathisto"
 #define ARG_LATENCYPERCENT9S_LONG	"latpercent9s"
@@ -395,12 +398,14 @@ class ProgArgs
 		uint64_t integrityCheckSalt; // salt to add to data integrity checksum (0 disables check)
 		bool interruptServices; // send interrupt msg to given hosts to stop current phase
 		size_t iterations; // Number of iterations of the same benchmark
+		std::string jsonFilePath; // phase results file path for json format (or empty for none)
 		unsigned short logLevel; // filter level for log messages (higher will not be logged)
 		uint64_t limitReadBps; // read limit per thread in bytes per sec
 		std::string limitReadBpsOrigStr; // original limitReadBps str from user with unit
 		uint64_t limitWriteBps; // write limit per thread in bytes per sec
 		std::string limitWriteBpsOrigStr; // original limitWriteBps str from user with unit
 		std::string liveCSVFilePath; // live stats file path for csv format (or empty for none)
+		std::string liveJSONFilePath; // live stats file path for json format (or empty for none)
 		size_t liveStatsSleepMS; // interval between live stats console/csv updates
 		unsigned madviseFlags; // flags for madvise() (ARG_MADVISE_FLAG_x)
 		std::string madviseFlagsOrigStr; // flags for madvise() (ARG_MADVISE_FLAG_x_NAME)
@@ -510,6 +515,7 @@ class ProgArgs
 		bool useCustomTreeRandomize; // randomize order of custom tree files
 		bool useDirectIO; // open files with O_DIRECT
 		bool useExtendedLiveCSV; // false for total/aggregate results only, true for per-worker
+		bool useExtendedLiveJSON; // false for total/aggregate results only, true for per-worker
 		bool useGDSBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
 		bool useHDFS; // use Hadoop HDFS
 		bool useMmap; // use memory mapped IO
@@ -651,9 +657,11 @@ class ProgArgs
         bool getInterruptServices() const { return interruptServices; }
 		bool getIsServicePathShared() const { return !noSharedServicePath; }
         size_t getIterations() const { return iterations; }
+        std::string getJSONFilePath() const { return jsonFilePath; }
         uint64_t getLimitReadBps() const { return limitReadBps; }
         uint64_t getLimitWriteBps() const { return limitWriteBps; }
         std::string getLiveCSVFilePath() const { return liveCSVFilePath; }
+        std::string getLiveJSONFilePath() const { return liveJSONFilePath; }
         size_t getLiveStatsSleepMS() const { return liveStatsSleepMS; }
         LogLevel getLogLevel() const { return (LogLevel)logLevel; }
 		unsigned getMadviseFlags() const { return madviseFlags; };
@@ -747,6 +755,7 @@ class ProgArgs
         bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
         bool getUseDirectIO() const { return useDirectIO; }
         bool getUseExtendedLiveCSV() const { return useExtendedLiveCSV; }
+        bool getUseExtendedLiveJSON() const { return useExtendedLiveJSON; }
         bool getUseGPUBufReg() const { return useGDSBufReg; }
         bool getUseHDFS() const { return useHDFS; }
         bool getUseMmap() const { return useMmap; }

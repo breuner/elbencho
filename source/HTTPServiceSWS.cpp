@@ -168,7 +168,7 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 		statistics.updateLiveCPUUtil();
 
-		statistics.getLiveStatsAsPropertyTree(tree);
+		statistics.getLiveStatsAsPropertyTreeForService(tree);
 
 		bpt::write_json(stream, tree, true);
 
@@ -189,7 +189,7 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 			bpt::ptree tree;
 
-			statistics.getBenchResultAsPropertyTree(tree);
+			statistics.getBenchResultAsPropertyTreeForService(tree);
 
 			bpt::write_json(stream, tree, true);
 

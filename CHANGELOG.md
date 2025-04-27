@@ -4,12 +4,14 @@
 
 ### New Features & Enhancements
 * Added support for S3 server-side encryption using SSE-S3, SSE-C, SSE-KMS. (See `--s3sse`, `--s3sseckey`, `--s3ssekmskey`.)
+* Added support for json results output. (See `--jsonfile`.)
 
 ### General Changes
 * Updated version of embedded HTTP lib to master for IPv6 address support. (RHEL 7.x and derivatives continue to use older version without IPv6 address support for compatibility.)
 * Disabled automatic selection of the new full file offsets coverage linear congruential random algo from v3.0.19, because the access pattern was not random enough in some cases.
 * Moved markdown docs into new `docs/` dir.
 * Added markdown pages based on built-in usage info. (See `docs/usage/`).
+* Changed csv results column "ISO date" from phase end date to phase start date for consistency with json output and results text file.
 
 ### Fixes
 * Modified square brackets parser to enable connection to S3 servers via IPv6 address.
@@ -17,7 +19,7 @@
 * Modified parser for elbencho service instance IP addresses to work with IPv6 addresses in square brackets.
 
 ### Contributors
-* Thanks to Conor Elrick, Michael Shustin, Sebastian Thorarensen, Ameena Suhani, Janmejay Singh, Paul Hargreaves for contributions, helpful comments and suggestions.
+* Thanks to Conor Elrick, Michael Shustin, Sebastian Thorarensen, Ameena Suhani, Janmejay Singh, Paul Hargreaves, Brian Radwanski for contributions, helpful comments and suggestions.
 
 ## v3.0.25 (Jan 24, 2025)
 

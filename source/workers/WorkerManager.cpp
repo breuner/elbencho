@@ -144,7 +144,8 @@ void WorkerManager::prepareThreads()
 	workersSharedData.threadGroup = &threadGroup;
 	workersSharedData.progArgs = &progArgs;
 	workersSharedData.workerVec = &workerVec;
-	workersSharedData.phaseStartT = std::chrono::steady_clock::now();
+    workersSharedData.phaseStartT = std::chrono::steady_clock::now();
+	workersSharedData.phaseStartLocalT = std::chrono::system_clock::now();
 	workersSharedData.currentBenchID = buuids::nil_uuid(); // workers expect this as prep phase ID
 
 	workersSharedData.resetNumWorkersDoneUnlocked();
@@ -312,6 +313,7 @@ void WorkerManager::startNextPhase(BenchPhase newBenchPhase, std::string* benchI
 	workersSharedData.cpuUtilFirstDone.update();
 	workersSharedData.cpuUtilLastDone.update();
 	workersSharedData.phaseStartT = std::chrono::steady_clock::now();
+    workersSharedData.phaseStartLocalT = std::chrono::system_clock::now();
 
 	workersSharedData.condition.notify_all();
 }

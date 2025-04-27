@@ -80,8 +80,8 @@ class Statistics
 
 		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
 			LiveLatency& outLiveLatency);
-		void getLiveStatsAsPropertyTree(bpt::ptree& outTree);
-		void getBenchResultAsPropertyTree(bpt::ptree& outTree);
+		void getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree);
+		void getBenchResultAsPropertyTreeForService(bpt::ptree& outTree);
 
 		void printDryRunInfo();
 
@@ -100,7 +100,7 @@ class Statistics
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();
 
-		void printISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec);
+		void printPhaseStartISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec);
 		void printPhaseResultsTableHeaderToStream(std::ostream& outStream);
 		bool generatePhaseResults(PhaseResults& phaseResults);
 		void printPhaseResultsToStream(const PhaseResults& phaseResults, std::ostream& outStream);
@@ -110,6 +110,7 @@ class Statistics
 			std::string latTypeStr, std::ostream& outStream);
 		void printPhaseResultsLatencyToStringVec(const LatencyHistogram& latHisto,
 			std::string latTypeStr, StringVec& outLabelsVec, StringVec& outResultsVec);
+		void printPhaseResultsAsJSON(const PhaseResults& phaseResults);
 
 		void printLiveCountdownLine(unsigned long long waittimeSec);
 

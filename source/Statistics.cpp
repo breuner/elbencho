@@ -927,7 +927,7 @@ void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
 /**
  * @usePerThreadValues true to div numEntriesDone/numBytesDone by number of workers.
  */
-void Statistics::getLiveStatsAsPropertyTree(bpt::ptree& outTree)
+void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
 	LiveOps liveOpsReadMix;
@@ -1069,7 +1069,7 @@ void Statistics::printPhaseResultsTableHeader()
 		StringVec resultsVec;
 		PhaseResults zeroResults = {};
 
-		printISODateToStringVec(labelsVec, resultsVec);
+		printPhaseStartISODateToStringVec(labelsVec, resultsVec);
 		progArgs.getAsStringVec(labelsVec, resultsVec);
 		printPhaseResultsToStringVec(zeroResults, labelsVec, resultsVec);
 
@@ -1090,22 +1090,22 @@ void Statistics::printPhaseResultsTableHeader()
 }
 
 /**
- * Get current ISO date & time to string vector, e.g. to later use it for CSV output.
+ * Get ISO date & time to string vector, e.g. to later use it for CSV output.
  */
-void Statistics::printISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec)
+void Statistics::printPhaseStartISODateToStringVec(StringVec& outLabelsVec,
+    StringVec& outResultsVec)
 {
-	auto now = std::chrono::system_clock::now();
-	time_t time = std::chrono::system_clock::to_time_t(now);
-	auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-		now.time_since_epoch()).count() % 1000;
+    time_t time = std::chrono::system_clock::to_time_t(workersSharedData.phaseStartLocalT);
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        workersSharedData.phaseStartLocalT.time_since_epoch()).count() % 1000;
 
-	std::stringstream dateStream;
-	dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
-		<< std::setfill('0') << std::setw(3) << milliseconds
-		<< std::put_time(std::localtime(&time), "%z");
+    std::stringstream dateStream;
+    dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+        << std::setfill('0') << std::setw(3) << milliseconds
+        << std::put_time(std::localtime(&time), "%z");
 
-	outLabelsVec.push_back("ISO date");
-	outResultsVec.push_back(dateStream.str() );
+    outLabelsVec.push_back("ISO date");
+    outResultsVec.push_back(dateStream.str() );
 }
 
 /**
@@ -1171,7 +1171,7 @@ void Statistics::printPhaseResults()
 	}
 
 	// print to results CSV file (if specified by user)
-	if(!progArgs.getCSVFilePath().empty() )
+	if(genRes && !progArgs.getCSVFilePath().empty() )
 	{
 		std::ofstream fileStream;
 
@@ -1179,29 +1179,27 @@ void Statistics::printPhaseResults()
 
 		if(!fileStream)
 		{
-			std::cerr << "ERROR: Opening results CSV file failed: " << progArgs.getResFilePath() <<
+			std::cerr << "ERROR: Opening results CSV file failed: " << progArgs.getCSVFilePath() <<
 				std::endl;
 
 			return;
 		}
 
-		if(!genRes)
-			fileStream << "Skipping stats print due to unavailable worker results." << std::endl;
-		else
-		{
-			StringVec labelsVec;
-			StringVec resultsVec;
+        StringVec labelsVec;
+        StringVec resultsVec;
 
-			printISODateToStringVec(labelsVec, resultsVec);
-			progArgs.getAsStringVec(labelsVec, resultsVec);
-			printPhaseResultsToStringVec(phaseResults, labelsVec, resultsVec);
+        printPhaseStartISODateToStringVec(labelsVec, resultsVec);
+        progArgs.getAsStringVec(labelsVec, resultsVec);
+        printPhaseResultsToStringVec(phaseResults, labelsVec, resultsVec);
 
-			std::string resultsCSVStr = TranslatorTk::stringVecToString(resultsVec, ",");
+        std::string resultsCSVStr = TranslatorTk::stringVecToString(resultsVec, ",");
 
-			fileStream << resultsCSVStr << std::endl;
-		}
+        fileStream << resultsCSVStr << std::endl;
 	}
 
+    // print to results JSON file (if specified by user)
+    if(genRes && !progArgs.getJSONFilePath().empty() )
+        printPhaseResultsAsJSON(phaseResults);
 }
 
 /**
@@ -1957,10 +1955,253 @@ void Statistics::printPhaseResultsLatencyToStringVec(const LatencyHistogram& lat
 		"" : std::to_string(latHisto.getMaxMicroSecLat() ) );
 }
 
+void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
+{
+    bpt::ptree ptree;
+
+    bpt::ptree firstDoneSubtree;
+    bpt::ptree firstDoneSubtreeReadMix;
+    bpt::ptree lastDoneSubtree;
+    bpt::ptree lastDoneSubtreeReadMix;
+
+    bpt::ptree lastDoneLatencySubtree;
+    bpt::ptree entriesLatencySubtree;
+    bpt::ptree entriesLatencySubtreeReadMix;
+    bpt::ptree iopsLatencySubtree;
+    bpt::ptree iopsLatencySubtreeReadMix;
+
+    std::string phaseName =
+        TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs);
+
+    // phase name
+
+    ptree.put("phase_type", phaseName);
+
+    // bench ID
+
+    ptree.put("phase_id", workersSharedData.currentBenchID);
+
+    // label
+
+    if(!progArgs.getBenchLabel().empty() )
+        ptree.put("label", progArgs.getBenchLabel() );
+
+    // start time
+
+    time_t time = std::chrono::system_clock::to_time_t(workersSharedData.phaseStartLocalT);
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        workersSharedData.phaseStartLocalT.time_since_epoch()).count() % 1000;
+
+    std::stringstream dateStream;
+    dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+        << std::setfill('0') << std::setw(3) << milliseconds
+        << std::put_time(std::localtime(&time), "%z");
+
+    ptree.put("iso_start_date", dateStream.str() );
+
+    // elapsed time
+
+    firstDoneSubtree.put("elapsed_time_ms", phaseResults.firstFinishUSec / 1000);
+    lastDoneSubtree.put("elapsed_time_ms", phaseResults.lastFinishUSec / 1000);
+
+
+    // fist done subtree
+
+    // lambda to fill first done & last done subtrees with per-second values
+    std::function addPerSecResultsToSubtree = [](const LiveOps& opsTotal,
+        const LiveOps& inOpsPerSec, bpt::ptree& outTree)
+    {
+        // entries per second
+
+        if(opsTotal.numEntriesDone)
+            outTree.put("entries/s", inOpsPerSec.numEntriesDone);
+
+        // IOPS
+
+        if(opsTotal.numIOPSDone)
+            outTree.put("iops", inOpsPerSec.numIOPSDone);
+
+        // Bytes/s
+
+        if(opsTotal.numBytesDone)
+            outTree.put("bytes/s", inOpsPerSec.numBytesDone);
+
+    }; // end of addPerSecResultsToSubtree lambda
+
+    // lambda to fill first done & last done subtrees with absolute/total values
+    std::function addTotalResultsToSubtree = [](const LiveOps& opsTotal,
+        const LiveOps& inOpsTotal, bpt::ptree& outTree)
+    {
+        // entries
+
+        if(opsTotal.numEntriesDone)
+            outTree.put("entries", inOpsTotal.numEntriesDone);
+
+        // Bytes transferred
+
+        if(opsTotal.numBytesDone)
+            outTree.put("bytes", inOpsTotal.numBytesDone);
+
+    }; // end of addTotalResultsToSubtree lambda
+
+    // first done subtree per-sec counters
+
+    addPerSecResultsToSubtree(phaseResults.opsTotal,
+        phaseResults.opsStoneWallPerSec, firstDoneSubtree);
+    addPerSecResultsToSubtree(phaseResults.opsTotalReadMix,
+        phaseResults.opsStoneWallPerSecReadMix, firstDoneSubtreeReadMix);
+
+    // first done subtree total counters
+
+    addTotalResultsToSubtree(phaseResults.opsTotal,
+        phaseResults.opsStoneWallTotal, firstDoneSubtree);
+    addTotalResultsToSubtree(phaseResults.opsTotalReadMix,
+        phaseResults.opsStoneWallTotalReadMix, firstDoneSubtreeReadMix);
+
+    // last done subtree per-sec counters
+
+    addPerSecResultsToSubtree(phaseResults.opsTotal,
+        phaseResults.opsPerSec, lastDoneSubtree);
+    addPerSecResultsToSubtree(phaseResults.opsTotalReadMix,
+        phaseResults.opsPerSecReadMix, lastDoneSubtreeReadMix);
+
+    // last done subtree total counters
+
+    addTotalResultsToSubtree(phaseResults.opsTotal,
+        phaseResults.opsTotal, lastDoneSubtree);
+    addTotalResultsToSubtree(phaseResults.opsTotalReadMix,
+        phaseResults.opsTotalReadMix, lastDoneSubtreeReadMix);
+
+	// copy rwmix read subtrees into first & last done subtrees
+
+    if(firstDoneSubtreeReadMix.size() )
+        firstDoneSubtree.put_child("rwmix_read", firstDoneSubtreeReadMix);
+
+    if(lastDoneSubtreeReadMix.size() )
+        lastDoneSubtree.put_child("rwmix_read", lastDoneSubtreeReadMix);
+
+    // cpu utilization
+
+    firstDoneSubtree.put("cpu%", (unsigned)phaseResults.cpuUtilStoneWallPercent);
+    lastDoneSubtree.put("cpu%", (unsigned)phaseResults.cpuUtilPercent);
+
+    // entries & iops latency results
+
+    // lambda to fill latency
+    std::function addLatencyResultsToSubtree = [&progArgs = progArgs](
+        const LatencyHistogram& latHisto, bpt::ptree& outTree)
+    {
+        if(!progArgs.getShowLatency() || !latHisto.getNumStoredValues() )
+            return;
+
+        outTree.put("min_us", latHisto.getMinMicroSecLat() );
+        outTree.put("avg_us", latHisto.getAverageMicroSec() );
+        outTree.put("max_us", latHisto.getMaxMicroSecLat() );
+    }; // end of addLatencyResultsToSubtree lambda
+
+    addLatencyResultsToSubtree(phaseResults.entriesLatHisto, entriesLatencySubtree);
+    addLatencyResultsToSubtree(phaseResults.entriesLatHistoReadMix, entriesLatencySubtreeReadMix);
+    addLatencyResultsToSubtree(phaseResults.iopsLatHisto, iopsLatencySubtree);
+    addLatencyResultsToSubtree(phaseResults.iopsLatHistoReadMix, iopsLatencySubtreeReadMix);
+
+    // copy latency subtrees into main tree
+
+    if(entriesLatencySubtreeReadMix.size() )
+        entriesLatencySubtree.put_child("rwmix_read", entriesLatencySubtreeReadMix);
+
+    if(iopsLatencySubtreeReadMix.size() )
+        iopsLatencySubtree.put_child("rwmix_read", iopsLatencySubtreeReadMix);
+
+    if(entriesLatencySubtree.size() )
+        lastDoneLatencySubtree.put_child("entries", entriesLatencySubtree);
+
+    if(iopsLatencySubtree.size() )
+        lastDoneLatencySubtree.put_child("IO", iopsLatencySubtree);
+
+    // latency histograms
+
+    if(progArgs.getShowLatencyHistogram() )
+    {
+        if(phaseResults.entriesLatHisto.getNumStoredValues() )
+            phaseResults.entriesLatHisto.getAsPropertyTreeForJSONFile(lastDoneLatencySubtree,
+                "entries.histogram");
+
+        if(phaseResults.entriesLatHistoReadMix.getNumStoredValues() )
+            phaseResults.entriesLatHistoReadMix.getAsPropertyTreeForJSONFile(lastDoneLatencySubtree,
+                "entries.histogram.rwmix_read");
+
+        if(phaseResults.iopsLatHisto.getNumStoredValues() )
+            phaseResults.iopsLatHisto.getAsPropertyTreeForJSONFile(lastDoneLatencySubtree,
+                "IO.histogram");
+
+        if(phaseResults.iopsLatHistoReadMix.getNumStoredValues() )
+            phaseResults.iopsLatHistoReadMix.getAsPropertyTreeForJSONFile(lastDoneLatencySubtree,
+                "IO.histogram.rwmix_read");
+    }
+
+    if(lastDoneLatencySubtree.size() )
+        lastDoneSubtree.put_child("latency", lastDoneLatencySubtree);
+
+    // copy first done & last done subtrees into main tree
+
+    ptree.put_child("first_done", firstDoneSubtree);
+    ptree.put_child("last_done", lastDoneSubtree);
+
+    // elbencho version
+
+    ptree.put("version", EXE_VERSION);
+
+    // command line
+
+    std::ostringstream cmdStream;
+    std::string cmdString;
+
+    for(int i=0; i < progArgs.getProgArgCount(); i++)
+    {
+        if(!strcmp(progArgs.getProgArgVec()[i], "--" ARG_S3ACCESSSECRET_LONG) )
+        { // skip over s3 secret
+            i += 1;
+            continue;
+        }
+
+        cmdStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+    }
+
+    cmdString = cmdStream.str();
+    std::replace(cmdString.begin(), cmdString.end(), ',', ' '); // replace all commas with spaces
+
+    ptree.put("command", cmdString);
+
+    // print json
+
+    try
+    {
+        std::ofstream fileStream;
+
+        fileStream.open(progArgs.getJSONFilePath(), std::ofstream::app);
+
+        if(!fileStream)
+        {
+            std::cerr << "ERROR: Opening results JSON file failed: " << progArgs.getJSONFilePath() <<
+                std::endl;
+
+            return;
+        }
+
+        bpt::json_parser::write_json(fileStream, ptree, false); // throws on error
+    }
+    catch(const std::exception& e)
+    {
+        throw ProgException("Error writing JSON result file. "
+            "File: " + progArgs.getJSONFilePath() + "; " +
+            "Error: " + e.what() );
+    }
+}
+
 /**
  * Get results of a completed benchmark phase.
  */
-void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
+void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
 {
 	LiveOps liveOps;
 	LiveOps liveOpsReadMix;
@@ -2015,8 +2256,8 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 
 	outTree.put(XFER_STATS_TRIGGERSTONEWALL, triggerStonewall);
 
-	iopsLatHisto.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_IOPS);
-	entriesLatHisto.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_ENTRIES);
+	iopsLatHisto.getAsPropertyTreeForService(outTree, XFER_STATS_LAT_PREFIX_IOPS);
+	entriesLatHisto.getAsPropertyTreeForService(outTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
 		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ||
@@ -2026,8 +2267,8 @@ void Statistics::getBenchResultAsPropertyTree(bpt::ptree& outTree)
 		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveOpsReadMix.numBytesDone);
 		outTree.put(XFER_STATS_NUMIOPSDONE_RWMIXREAD, liveOpsReadMix.numIOPSDone);
 
-		iopsLatHistoReadMix.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
-		entriesLatHistoReadMix.getAsPropertyTree(outTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
+		iopsLatHistoReadMix.getAsPropertyTreeForService(outTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
+		entriesLatHistoReadMix.getAsPropertyTreeForService(outTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
 	}
 
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );

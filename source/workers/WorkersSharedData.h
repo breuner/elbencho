@@ -38,6 +38,8 @@ class WorkersSharedData
 		WorkerVec* workerVec;
 
 		std::chrono::steady_clock::time_point phaseStartT; // time when main thread starts phase
+        std::chrono::system_clock::time_point phaseStartLocalT; /* local time. not steady! only
+            for phase start time in results. for time measurements use monotonic phaseStartT. */
 
 		std::mutex mutex; // also protects console err logs to not mix lines
 		std::condition_variable condition;

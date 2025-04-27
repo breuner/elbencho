@@ -114,7 +114,7 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 
 			statistics.updateLiveCPUUtil();
 
-			statistics.getLiveStatsAsPropertyTree(tree);
+			statistics.getLiveStatsAsPropertyTreeForService(tree);
 
 			bpt::write_json(stream, tree, true);
 
@@ -134,7 +134,7 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 
 			bpt::ptree tree;
 
-			statistics.getBenchResultAsPropertyTree(tree);
+			statistics.getBenchResultAsPropertyTreeForService(tree);
 
 			bpt::write_json(stream, tree, true);
 

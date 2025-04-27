@@ -332,7 +332,11 @@ void ProgArgs::defineAllowedArgs()
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
 			"Depth of I/O queue per thread for asynchronous I/O. Setting this to 2 or higher "
 			"turns on async I/O. (Default: 1)")
-/*cs*/	(ARG_BENCHLABEL_LONG, bpo::value(&this->benchLabel),
+/*jso*/ (ARG_JSONFILE_LONG, bpo::value(&this->jsonFilePath),
+            "Path to file for end results in json format. If the file exists, results will be "
+            "appended. (See also \"--" ARG_JSONLIVEFILE_LONG "\" for progress results in json "
+            "format.) (EXPERIMENTAL: Output format can still change.)")
+/*la*/	(ARG_BENCHLABEL_LONG, bpo::value(&this->benchLabel),
 			"Custom label to identify benchmark run in result files.")
 /*la*/	(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
 			"Show minimum, average and maximum latency for read/write operations and entries. "
@@ -368,6 +372,15 @@ void ProgArgs::defineAllowedArgs()
 /*liv*/	(ARG_LIVEINTERVAL_LONG, bpo::value(&this->liveStatsSleepMS),
 			"Update interval for console and csv file live statistics in milliseconds. "
 			"(Default: 2000)")
+//  live json not implemented yet:
+// /*liv*/	(ARG_JSONLIVEFILE_LONG, bpo::value(&this->liveJSONFilePath),
+//             "Path to file for live progress results in json format. If the file exists, results "
+//             "will be appended. This must not be the same file that is given as \"--"
+//             ARG_JSONFILE_LONG "\".")
+// /*liv*/	(ARG_JSONLIVEEXTENDED_LONG, bpo::bool_switch(&this->useExtendedLiveJSON),
+//             "Use extended live results json file. By default, only aggregate results of all worker "
+//             "threads will be added. This option also adds results of individual threads in "
+//             "standalone mode or results of individual services in distributed mode.")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*ma*/	(ARG_MADVISE_LONG, bpo::value(&this->madviseFlagsOrigStr),
@@ -767,6 +780,7 @@ void ProgArgs::defineDefaults()
 	this->doTruncate = false;
 	this->timeLimitSecs = 0;
 	this->useExtendedLiveCSV = false;
+	this->useExtendedLiveJSON = false;
 	this->noCSVLabels = false;
 	this->assignGPUPerService = false;
 	this->useCuFile = false;
