@@ -616,11 +616,11 @@ void ProgArgs::defineAllowedArgs()
 			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
 			ARG_RANDOMAMOUNT_LONG "\".")
 /*s3o*/	(ARG_S3SSE_LONG, bpo::bool_switch(&this->useS3SSE),
-            "Server-side encryption of S3 objects using SSE-S3.")
+            "Server-side encryption of S3 objects using SSE-S3. (EXPERIMENTAL)")
 /*s3s*/	(ARG_S3SSECKEY_LONG, bpo::value(&this->s3SSECKey),
             "Base64-encoded AES-256 encryption key for S3 SSE-C.")
 /*s3s*/	(ARG_S3SSEKMSKEY_LONG, bpo::value(&this->s3SSEKMSKey),
-            "Key for S3 SSE-KMS.")
+            "Key for S3 SSE-KMS. (EXPERIMENTAL)")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
