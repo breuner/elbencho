@@ -61,7 +61,7 @@ If you don't have `nvidia-docker`, you can alternatively use `docker run --gpus 
 
 ## Docker Image Flavors
 
-The default image (tagged "latest") is based on Ubuntu 24.04. 
+The default image (tagged "latest") is based on Ubuntu 24.04.
 
 The Ubuntu and CentOS based images contain the full `.deb` / `.rpm` package installation. To use e.g. one of the contained elbencho tools, simply specify the tool name as an alternative entrypoint:
 
@@ -91,4 +91,4 @@ docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2404.loc
 
 ### ARM64 & Multi-Platform
 
-The image tag "master-ubuntu-cuda-multiarch" supports x86_64 and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs.
+The image tags "latest" and "master-ubuntu-cuda-multiarch" support amd64 (aka x86_64) and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs.
