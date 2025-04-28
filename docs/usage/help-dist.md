@@ -1,6 +1,6 @@
 ## elbencho --help-dist
 
-> **_NOTE:_**  This page has been auto-generated from built-in help text  of the `elbencho` executable.
+> **_NOTE:_**  This page has been auto-generated from built-in help text of the `elbencho` executable.
 
 <pre><code>
 Distributed benchmarking with multiple clients.

@@ -1,6 +1,6 @@
 ## elbencho --help-s3
 
-> **_NOTE:_**  This page has been auto-generated from built-in help text  of the `elbencho` executable.
+> **_NOTE:_**  This page has been auto-generated from built-in help text of the `elbencho` executable.
 
 <pre><code>
 S3 object storage testing. (The options here are intentionally similar to

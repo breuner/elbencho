@@ -1,6 +1,6 @@
 ## elbencho --help-multi
 
-> **_NOTE:_**  This page has been auto-generated from built-in help text  of the `elbencho` executable.
+> **_NOTE:_**  This page has been auto-generated from built-in help text of the `elbencho` executable.
 
 <pre><code>
 Multi-file / multi-directory testing.

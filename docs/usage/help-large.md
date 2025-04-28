@@ -1,6 +1,6 @@
 ## elbencho --help-large
 
-> **_NOTE:_**  This page has been auto-generated from built-in help text  of the `elbencho` executable.
+> **_NOTE:_**  This page has been auto-generated from built-in help text of the `elbencho` executable.
 
 <pre><code>
 Block device & large shared file testing.

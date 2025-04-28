@@ -1,6 +1,6 @@
 ## elbencho --help-all
 
-> **_NOTE:_**  This page has been auto-generated from built-in help text  of the `elbencho` executable.
+> **_NOTE:_**  This page has been auto-generated from built-in help text of the `elbencho` executable.
 
 <pre><code>
 Overview of all available options.
@@ -139,6 +139,10 @@ All options in alphabetical order:
   --iodepth arg           Depth of I/O queue per thread for asynchronous I/O. 
                           Setting this to 2 or higher turns on async I/O. 
                           (Default: 1)
+  --jsonfile arg          Path to file for end results in json format. If the 
+                          file exists, results will be appended. (See also 
+                          "--livejson" for progress results in json format.) 
+                          (EXPERIMENTAL: Output format can still change.)
   --label arg             Custom label to identify benchmark run in result 
                           files.
   --lat                   Show minimum, average and maximum latency for 
@@ -387,9 +391,10 @@ All options in alphabetical order:
                           object for each S3 block read. Only effective in read
                           phase and in combination with "-n" & "-N". Read limit
                           for all threads is defined by "--randamount".
-  --s3sse                 Server-side encryption of S3 objects using SSE-S3.
+  --s3sse                 Server-side encryption of S3 objects using SSE-S3. 
+                          (EXPERIMENTAL)
   --s3sseckey arg         Base64-encoded AES-256 encryption key for S3 SSE-C.
-  --s3ssekmskey arg       Key for S3 SSE-KMS.
+  --s3ssekmskey arg       Key for S3 SSE-KMS. (EXPERIMENTAL)
   --s3region arg          S3 region.
   --s3secret arg          S3 access secret. (This can also be set via the 
                           AWS_SECRET_ACCESS_KEY env variable.)
