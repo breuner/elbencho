@@ -13,6 +13,7 @@
 * Moved markdown docs into new `docs/` dir.
 * Added markdown pages based on built-in usage info. (See `docs/usage/`).
 * Changed csv results column "ISO date" from phase end date to phase start date for consistency with json output and results text file.
+* For read and write mix workloads, console output now also contains lines for "total" (read + write) throughput.
 
 ### Fixes
 * Modified square brackets parser to enable connection to S3 servers via IPv6 address.
@@ -20,7 +21,7 @@
 * Modified parser for elbencho service instance IP addresses to work with IPv6 addresses in square brackets.
 
 ### Contributors
-* Thanks to Conor Elrick, Michael Shustin, Sebastian Thorarensen, Ameena Suhani, Janmejay Singh, Paul Hargreaves, Brian Radwanski, Maroun Issa, Dan Reichhardt for contributions, helpful comments and suggestions.
+* Thanks to Conor Elrick, Michael Shustin, Sebastian Thorarensen, Ameena Suhani, Janmejay Singh, Paul Hargreaves, Brian Radwanski, Maroun Issa, Dan Reichhardt, Jan Heichler for contributions, helpful comments and suggestions.
 
 ## v3.0.25 (Jan 24, 2025)
 

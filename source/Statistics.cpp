@@ -1393,17 +1393,30 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
-	// rwmix read entries (dirs/files) per second
-	if(phaseResults.opsTotalReadMix.numEntriesDone)
-	{
-		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% ""
-			% (entryTypeUpperCase + "/s read")
-			% ":"
-			% phaseResults.opsStoneWallPerSecReadMix.numEntriesDone
-			% phaseResults.opsPerSecReadMix.numEntriesDone
-			<< std::endl;
-	}
+    // rwmix read entries (dirs/files) per second
+    if(phaseResults.opsTotalReadMix.numEntriesDone)
+    {
+        outStream << boost::format(Statistics::phaseResultsFormatStr)
+            % ""
+            % (entryTypeUpperCase + "/s read")
+            % ":"
+            % phaseResults.opsStoneWallPerSecReadMix.numEntriesDone
+            % phaseResults.opsPerSecReadMix.numEntriesDone
+            << std::endl;
+
+        uint64_t entriesPerSecTotalFirstDone = phaseResults.opsStoneWallPerSec.numEntriesDone +
+            phaseResults.opsStoneWallPerSecReadMix.numEntriesDone;
+        uint64_t entriesPerSecTotalLastDone = phaseResults.opsPerSec.numEntriesDone +
+            phaseResults.opsPerSecReadMix.numEntriesDone;
+
+        outStream << boost::format(Statistics::phaseResultsFormatStr)
+            % ""
+            % (entryTypeUpperCase + "/s total")
+            % ":"
+            % entriesPerSecTotalFirstDone
+            % entriesPerSecTotalLastDone
+            << std::endl;
+    }
 
 	// dirs per second in rwmix file read phase of dir mode
 	if(showDirStats && phaseResults.opsTotalReadMix.numEntriesDone)
@@ -1417,63 +1430,91 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
-	// IOPS
-	if(phaseResults.opsTotal.numIOPSDone)
-	{
-		/* print iops only if path is bdev/file; or in dir mode when each file consists of more than
-		   one block read/write (because otherwise iops is equal to files/s) */
-		if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
-			(progArgs.getBlockSize() != progArgs.getFileSize() ) ||
-			(!phaseResults.opsTotal.numEntriesDone) )
-		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% ""
-			% (isRWMixPhase ? "IOPS write" : "IOPS")
-			% ":"
-			% phaseResults.opsStoneWallPerSec.numIOPSDone
-			% phaseResults.opsPerSec.numIOPSDone
-			<< std::endl;
-	}
+    // IOPS
+    if(phaseResults.opsTotal.numIOPSDone)
+    {
+        /* print iops only if path is bdev/file; or in dir mode when each file consists of more than
+            one block read/write (because otherwise iops is equal to files/s) */
+        if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
+            (progArgs.getBlockSize() != progArgs.getFileSize() ) ||
+            (!phaseResults.opsTotal.numEntriesDone) )
+            outStream << boost::format(Statistics::phaseResultsFormatStr)
+                % ""
+                % (isRWMixPhase ? "IOPS write" : "IOPS")
+                % ":"
+                % phaseResults.opsStoneWallPerSec.numIOPSDone
+                % phaseResults.opsPerSec.numIOPSDone
+                << std::endl;
+    }
 
-	// IOPS rwmix read
-	if(phaseResults.opsTotalReadMix.numIOPSDone)
-	{
-		/* print iops only if path is bdev/file; or in dir mode when each file consists of more than
-		   one block read/write (because otherwise iops is equal to files/s) */
-		if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
-			(progArgs.getBlockSize() != progArgs.getFileSize() ) ||
-			(!phaseResults.opsTotalReadMix.numEntriesDone) )
-		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% ""
-			% "IOPS read"
-			% ":"
-			% phaseResults.opsStoneWallPerSecReadMix.numIOPSDone
-			% phaseResults.opsPerSecReadMix.numIOPSDone
-			<< std::endl;
-	}
+    // IOPS rwmix read
+    if(phaseResults.opsTotalReadMix.numIOPSDone)
+    {
+        /* print iops only if path is bdev/file; or in dir mode when each file consists of more than
+            one block read/write (because otherwise iops is equal to files/s) */
+        if( (progArgs.getBenchPathType() != BenchPathType_DIR) ||
+            (progArgs.getBlockSize() != progArgs.getFileSize() ) ||
+            (!phaseResults.opsTotalReadMix.numEntriesDone) )
+        {
+            outStream << boost::format(Statistics::phaseResultsFormatStr)
+                % ""
+                % "IOPS read"
+                % ":"
+                % phaseResults.opsStoneWallPerSecReadMix.numIOPSDone
+                % phaseResults.opsPerSecReadMix.numIOPSDone
+                << std::endl;
 
-	// bytes per second total for all workers
-	if(phaseResults.opsTotal.numBytesDone)
-	{
-		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% ""
-			% (isRWMixPhase ? "MiB/s write" : "Throughput MiB/s")
-			% ":"
-			% (phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) )
-			% (phaseResults.opsPerSec.numBytesDone / (1024*1024) )
-			<< std::endl;
-	}
+            uint64_t iopsTotalFirstDone = phaseResults.opsStoneWallPerSec.numIOPSDone +
+                phaseResults.opsStoneWallPerSecReadMix.numIOPSDone;
+            uint64_t iopsTotalLastDone = phaseResults.opsPerSec.numIOPSDone +
+                phaseResults.opsPerSecReadMix.numIOPSDone;
 
-	// rwmix read bytes per second total for all workers
-	if(phaseResults.opsTotalReadMix.numBytesDone)
-	{
-		outStream << boost::format(Statistics::phaseResultsFormatStr)
-			% ""
-			% "MiB/s read"
-			% ":"
-			% (phaseResults.opsStoneWallPerSecReadMix.numBytesDone / (1024*1024) )
-			% (phaseResults.opsPerSecReadMix.numBytesDone / (1024*1024) )
-			<< std::endl;
-	}
+            outStream << boost::format(Statistics::phaseResultsFormatStr)
+                % ""
+                % "IOPS total"
+                % ":"
+                % iopsTotalFirstDone
+                % iopsTotalLastDone
+                << std::endl;
+        }
+    }
+
+    // bytes per second total for all workers
+    if(phaseResults.opsTotal.numBytesDone)
+    {
+        outStream << boost::format(Statistics::phaseResultsFormatStr)
+            % ""
+            % (isRWMixPhase ? "MiB/s write" : "Throughput MiB/s")
+            % ":"
+            % (phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) )
+            % (phaseResults.opsPerSec.numBytesDone / (1024*1024) )
+            << std::endl;
+    }
+
+    // rwmix read bytes per second total for all workers
+    if(phaseResults.opsTotalReadMix.numBytesDone)
+    {
+        outStream << boost::format(Statistics::phaseResultsFormatStr)
+            % ""
+            % "MiB/s read"
+            % ":"
+            % (phaseResults.opsStoneWallPerSecReadMix.numBytesDone / (1024*1024) )
+            % (phaseResults.opsPerSecReadMix.numBytesDone / (1024*1024) )
+            << std::endl;
+
+        uint64_t totalBytesPerSecFirstDone = phaseResults.opsStoneWallPerSec.numBytesDone +
+            phaseResults.opsStoneWallPerSecReadMix.numBytesDone;
+        uint64_t totalBytesPerSecLastDone = phaseResults.opsPerSec.numBytesDone +
+            phaseResults.opsPerSecReadMix.numBytesDone;
+
+        outStream << boost::format(Statistics::phaseResultsFormatStr)
+            % ""
+            % "MiB/s total"
+            % ":"
+            % (totalBytesPerSecFirstDone / (1024*1024) )
+            % (totalBytesPerSecLastDone / (1024*1024) )
+            << std::endl;
+    }
 
 	// sum of bytes read/written
 	if(phaseResults.opsTotal.numBytesDone)
