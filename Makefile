@@ -1,4 +1,4 @@
-# 
+#
 # Use "make help" to find out about configuration options.
 #
 
@@ -69,7 +69,7 @@ LDFLAGS  = $(LDFLAGS_COMMON) $(LDFLAGS_RELASE) $(LDFLAGS_EXTRA)
   # This is to enable gcc's automatic SIMD vectorization for RandAlgoXoshiro256ppSIMD.
   # ("-fopt-info-vec" can be used to confirm that all loops in nextInternalNway() get vectorized.)
   # For background see https://prng.di.unimi.it/ section "Vectorization".
-  CXXFLAGS_SPECIAL_SIMD += -fdisable-tree-cunrolli 
+  CXXFLAGS_SPECIAL_SIMD += -fdisable-tree-cunrolli
   endif
 endif
 
@@ -82,9 +82,9 @@ ifeq ($(BUILD_STATIC), 1)
     LDFLAGS_S3_STATIC  += -l z
   else
     LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec \
-      -l brotlicommon -l idn2 -l unistring -l psl -l cares_static -l zstd -l dl
+      -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd -l dl
   endif
-  
+
 else # dynamic linking
 
   ifeq ($(S3_AWSCRT), 1)
@@ -92,7 +92,7 @@ else # dynamic linking
   else
     LDFLAGS_S3_DYNAMIC += -l crypto -l ssl -l curl -l z -l dl
   endif
-  
+
 endif
 
 # Compiler and linker flags for S3 support
@@ -152,7 +152,7 @@ endif
 
 # Support build in Cygwin environment
 ifeq ($(CYGWIN_SUPPORT), 1)
-# EXE_UNSTRIPPED includes EXE in definition, so must be updated first 
+# EXE_UNSTRIPPED includes EXE in definition, so must be updated first
 EXE_UNSTRIPPED     := $(EXE_UNSTRIPPED).exe
 EXE                := $(EXE).exe
 
@@ -215,7 +215,7 @@ $(EXE): $(EXE_UNSTRIPPED)
 ifdef BUILD_VERBOSE
 	$(STRIP) --strip-debug $(EXE_UNSTRIPPED) -o $(EXE)
 else
-	@echo [STRIP] $@ 
+	@echo [STRIP] $@
 	@$(STRIP) --strip-debug $(EXE_UNSTRIPPED) -o $(EXE)
 endif
 
@@ -336,15 +336,15 @@ endif
 clean-externals:
 ifdef BUILD_VERBOSE
 	rm -f $(EXTERNAL_PATH)/alpine-chroot-install
-	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server 
-	rm -rf $(EXTERNAL_PATH)/uWebSockets 
+	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
+	rm -rf $(EXTERNAL_PATH)/uWebSockets
 	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	rm -rf $(EXTERNAL_PATH)/mimalloc
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -f $(EXTERNAL_PATH)/alpine-chroot-install
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
-	@rm -rf $(EXTERNAL_PATH)/uWebSockets 
+	@rm -rf $(EXTERNAL_PATH)/uWebSockets
 	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	@rm -rf $(EXTERNAL_PATH)/mimalloc
 endif
@@ -373,11 +373,11 @@ clean-all: clean clean-externals clean-packaging clean-buildhelpers
 
 install: all
 	@echo "Installing elbencho..."
-	
+
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-chart $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx dist/usr/bin/$(EXE_NAME)-scan-path $(INST_PATH)/
-	
+
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME) \
 		/etc/bash_completion.d/$(EXE_NAME)
 	install -p -m u=rwx,g=rx,o=rx -D dist/etc/bash_completion.d/$(EXE_NAME)-chart \
@@ -385,10 +385,10 @@ install: all
 
 	@echo
 	@echo "Installing contributed tools..."
-	
+
 	install -p -m u=rwx,g=rx,o=rx contrib/storage_sweep/mtelbencho.sh $(INST_PATH)/
 	install -p -m u=rwx,g=rx,o=rx contrib/storage_sweep/graph_sweep.sh $(INST_PATH)/
-	
+
 	@echo
 	@echo "NOTE: The $(EXE_NAME) executable was installed to $(INST_PATH). The sudo"
 	@echo "  command might drop $(INST_PATH) from PATH. In case sudo is needed, the"
@@ -420,7 +420,7 @@ prepare-buildroot: | all clean-packaging
 	for file in $(shell find dist/ -mindepth 1 -type f -printf "%P\n"); do \
 		cp --preserve dist/$$file $(PACKAGING_PATH)/BUILDROOT/$$file; \
 	done
-	
+
 	# copy contents of contrib subdir
 	cp --preserve contrib/storage_sweep/mtelbencho.sh $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 	cp --preserve contrib/storage_sweep/graph_sweep.sh $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
@@ -432,10 +432,10 @@ rpm: | prepare-buildroot
 	sed -i "s/__NAME__/$(EXE_NAME)/" $(PACKAGING_PATH)/SPECS/rpm.spec
 	sed -i "s/__VERSION__/$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)/" \
 		$(PACKAGING_PATH)/SPECS/rpm.spec
-	
+
 	rpmbuild $(PACKAGING_PATH)/SPECS/rpm.spec --bb --define "_topdir $(PWD)/$(PACKAGING_PATH)" \
 		--define "__spec_install_pre /bin/true" --buildroot=$(PWD)/$(PACKAGING_PATH)/BUILDROOT
-	
+
 	@echo
 	@echo "All done. Your package is here:"
 	@find $(PACKAGING_PATH)/RPMS -name $(EXE_NAME)*.rpm
@@ -444,21 +444,21 @@ deb: | prepare-buildroot
 	@echo "[PACKAGING] PREPARE DEB PACKAGE"
 
 	cp -r $(PACKAGING_PATH)/debian $(PACKAGING_PATH)/BUILDROOT
-	
+
 	cp $(PACKAGING_PATH)/BUILDROOT/debian/control.template \
 		$(PACKAGING_PATH)/BUILDROOT/debian/control
 
 	sed -i "s/__NAME__/$(EXE_NAME)/" $(PACKAGING_PATH)/BUILDROOT/debian/control
-	
+
 	cd $(PACKAGING_PATH)/BUILDROOT && \
 	EDITOR=/bin/true VISUAL=/bin/true DEBEMAIL=elbencho@localhost.localdomain debchange --create \
 		--package elbencho --urgency low --noquery \
 		--newversion "$(EXE_VER_MAJOR).$(EXE_VER_MINOR).$(EXE_VER_PATCHLEVEL)" \
 		"Custom package build."
-	
+
 	cd $(PACKAGING_PATH)/BUILDROOT && \
 		debuild -b -us -uc
-	
+
 	@echo
 	@echo "All done. Your package is here:"
 	@find $(PACKAGING_PATH) -name $(EXE_NAME)*.deb
