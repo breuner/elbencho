@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.26 (work in progress)
+## v3.0.27 (May 6, 2025)
 
 ### New Features & Enhancements
 * Added support for S3 server-side encryption using SSE-S3, SSE-C, SSE-KMS. (See `--s3sse`, `--s3sseckey`, `--s3ssekmskey`.)
