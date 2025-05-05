@@ -285,11 +285,22 @@ All options in alphabetical order:
   --rwmixpct arg          Percentage of blocks that should be read in a write 
                           phase. (Default: 0; Max: 100)
   --rwmixthr arg          Number of threads that should do reads in a write 
-                          phase for mixed read/write. The given number is out 
-                          of the total number of threads per host ("-t"). This 
-                          assumes that the full dataset has been precreated via
-                          normal write. In S3 mode, this only works in 
-                          combination with "-n" and "-N".
+                          phase for mixed read/write. The number given here 
+                          defines the subset of readers out of the total number
+                          of threads per host ("-t"). This assumes that the 
+                          full dataset has been precreated via normal write. In
+                          S3 mode, this only works in combination with "-n" and
+                          "-N". Read/write rate balance can be defined via 
+                          "--rwmixthrpct".
+  --rwmixthrpct arg       Percentage of reads in a write phase when using 
+                          "--rwmixthr". This implies frequent sleep and wakeup 
+                          of reader and writer threads to maintain the given 
+                          balance ratio and thus might impact the achievable 
+                          maximum performance of a host in some scenarios. This
+                          needs to be used together with "--infloop" to prevent
+                          starvation of the I/O threads that run at the lower 
+                          rate. Consider adding "--timelimit") for termination.
+                          (Value range: 1..99)
   -s [ --size ] arg       File size. (Default: 0; supports base2 suffixes, e.g.
                           "2M")
   --s3aclget              Get S3 object ACLs.
@@ -317,10 +328,10 @@ All options in alphabetical order:
   --s3baclget             Get S3 bucket ACLs.
   --s3baclput             Put S3 bucket ACLs. This requires definition of 
                           grantee, grantee type and permissions.
-  --s3btag                Activate bucket tagging operations
+  --s3btag                Activate bucket tagging operations.
   --s3btagverify          Verify the correctness of S3 bucket tagging results. 
                           (Requires "--s3btag")
-  --s3bversion            Activate bucket versioning operations 
+  --s3bversion            Activate bucket versioning operations.
   --s3bversionverify      Verify the correctness of S3 bucket versioning 
                           settings. (Requires "--s3bversion")
   --s3endpoints arg       Comma-separated list of S3 endpoints. When this 

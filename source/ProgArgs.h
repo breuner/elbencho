@@ -137,6 +137,7 @@ namespace bpt = boost::property_tree;
 #define ARG_RUNASSERVICE_LONG		"service"
 #define ARG_RWMIXPERCENT_LONG		"rwmixpct"
 #define ARG_RWMIXTHREADS_LONG		"rwmixthr"
+#define ARG_RWMIXTHREADSPCT_LONG    "rwmixthrpct"
 #define ARG_S3ACCESSKEY_LONG		"s3key"
 #define ARG_S3ACCESSSECRET_LONG		"s3secret"
 #define ARG_S3ACLGET_LONG			"s3aclget"
@@ -460,7 +461,8 @@ class ProgArgs
 		bool runServiceInForeground; // true to not daemonize service process into background
 		bool runStatFilesPhase; // stat files
 		bool runSyncPhase; // run the sync() phase to commit all dirty page cache buffers
-		unsigned rwMixPercent; // % of blocks that should be read (the rest will be written)
+		unsigned rwMixReadPercent; // % of blocks that should be read (the rest will be written)
+		unsigned rwMixThreadsReadPercent; // % of blocks to be read (the rest will be written)
 		std::string s3AccessKey; // s3 access key
 		std::string s3AccessSecret; // s3 access secret
 		std::string s3AclGrantee; // s3 acl grantee
@@ -708,7 +710,8 @@ class ProgArgs
         bool getRunServiceInForeground() const { return runServiceInForeground; }
         bool getRunStatFilesPhase() const { return runStatFilesPhase; }
         bool getRunSyncPhase() const { return runSyncPhase; }
-        unsigned getRWMixPercent() const { return rwMixPercent; }
+        unsigned getRWMixReadPercent() const { return rwMixReadPercent; }
+        unsigned getRWMixThreadsReadPercent() const { return rwMixThreadsReadPercent; }
         std::string getS3AccessKey() const { return s3AccessKey; }
         std::string getS3AccessSecret() const { return s3AccessSecret; }
         std::string getS3AclGrantee() const { return s3AclGrantee; }

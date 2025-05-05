@@ -15,6 +15,7 @@
 #include "toolkits/OpsLogger.h"
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
+#include "toolkits/RateLimiterRWMixThreads.h"
 #include "toolkits/S3Tk.h"
 #include "S3UploadStore.h"
 #include "Worker.h"
@@ -62,7 +63,8 @@ typedef void (LocalWorker::*BLOCK_MODIFIER)(char* hostIOBuf, char* gpuIOBuf, siz
 	off_t fileOffset);
 
 // preRWRateLimiter
-typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize);
+typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
+    std::atomic_bool& isInterruptionRequested);
 
 
 /**
@@ -106,6 +108,7 @@ class LocalWorker : public Worker
 		} fileHandles;
 
 		RateLimiter rateLimiter; // for r/w rate limit per sec if set by user
+		RateLimiterRWMixThreads rateLimiterRWMixThreads; // for r/w threads rate balance if set
 
 		uint64_t numIOPSSubmitted{0}; // internal sequential counter, not reset between phases
 
@@ -303,8 +306,14 @@ class LocalWorker : public Worker
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 
-		void noOpRateLimiter(size_t rwSize);
-		void preRWRateLimiter(size_t rwSize);
+        void noOpRateLimiter(size_t rwSize,
+            std::atomic_bool& isInterruptionRequested);
+        void preRWRateLimiter(size_t rwSize,
+            std::atomic_bool& isInterruptionRequested);
+        void preRWRateBalanceLimiterForReaders(size_t rwSize,
+            std::atomic_bool& isInterruptionRequested);
+        void preRWRateBalanceLimiterForWriters(size_t rwSize,
+            std::atomic_bool& isInterruptionRequested);
 };
 
 

@@ -1,6 +1,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
+
 #include "LocalWorker.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
@@ -911,15 +912,17 @@ void LocalWorker::uninitThreadMmapVec()
  */
 void LocalWorker::initThreadPhaseVars()
 {
-	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
-	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
-	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
-		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+    const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+    const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
+    const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
+        (localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 
-	if(isRWMixedReader)
-		benchPhase = BenchPhase_READFILES;
-	else
-		benchPhase = globalBenchPhase;
+    /* in rwmix threads mode, we set benchPhase to BenchPhase_READFILES, because the corresponding
+       workers will only be reading */
+    if(isRWMixedReader)
+        benchPhase = BenchPhase_READFILES;
+    else
+        benchPhase = globalBenchPhase;
 }
 
 /**
@@ -1069,21 +1072,23 @@ void LocalWorker::nullifyPhaseFunctionPointers()
  */
 void LocalWorker::initPhaseFunctionPointers()
 {
-	const size_t ioDepth = progArgs->getIODepth();
-	const bool useHDFS = progArgs->getUseHDFS();
-	const bool useMmap = progArgs->getUseMmap();
-	const bool useCuFileAPI = progArgs->getUseCuFile();
-	const BenchPathType benchPathType = progArgs->getBenchPathType();
-	const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
-	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
-	const bool doDirectVerify = progArgs->getDoDirectVerify();
-	const bool doReadInline = progArgs->getDoReadInline();
-	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
-	const unsigned rwMixPercent = progArgs->getRWMixPercent();
-	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
-	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
-	const bool isRWMixedReader = ( (globalBenchPhase == BenchPhase_CREATEFILES) &&
-		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
+    const size_t ioDepth = progArgs->getIODepth();
+    const bool useHDFS = progArgs->getUseHDFS();
+    const bool useMmap = progArgs->getUseMmap();
+    const bool useCuFileAPI = progArgs->getUseCuFile();
+    const BenchPathType benchPathType = progArgs->getBenchPathType();
+    const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
+    const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
+    const bool doDirectVerify = progArgs->getDoDirectVerify();
+    const bool doReadInline = progArgs->getDoReadInline();
+    const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
+    const unsigned rwMixReadPercent = progArgs->getRWMixReadPercent();
+    const uint64_t perThreadWriteRateLimitBps = progArgs->getLimitWriteBps();
+    const uint64_t perThreadReadRateLimitBps = progArgs->getLimitReadBps();
+    const size_t numRWMixReadThreads = progArgs->getNumRWMixReadThreads();
+    const size_t numRWMixWriteThreads = progArgs->getNumThreads() - numRWMixReadThreads;
+    const unsigned rwMixThreadsReadPercent = progArgs->getRWMixThreadsReadPercent();
+    const size_t blockSize = progArgs->getBlockSize();
 
 	nullifyPhaseFunctionPointers(); // set all function pointers to NULL
 
@@ -1123,7 +1128,7 @@ void LocalWorker::initPhaseFunctionPointers()
 
 		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioWritePrepper;
 
-		if(rwMixPercent && funcAioRwPrepper)
+		if(rwMixReadPercent && funcAioRwPrepper)
 			funcAioRwPrepper = &LocalWorker::aioRWMixPrepper;
 
 		funcPreWriteCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
@@ -1160,19 +1165,28 @@ void LocalWorker::initPhaseFunctionPointers()
 				funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
 		}
 
-		uint64_t rateLimitMiBps = isRWMixedReader ?
-			progArgs->getLimitReadBps() : progArgs->getLimitWriteBps();
+	    // rate limiter / balancer
 
-		if(!rateLimitMiBps)
-			funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
-		else
-		{
-			funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
-			rateLimiter.initStart(rateLimitMiBps);
-		}
+        if(numRWMixReadThreads && rwMixThreadsReadPercent)
+        { // rate balancer between reader and writer threads
+            rateLimiterRWMixThreads.initStart(
+                rwMixThreadsReadPercent, numRWMixReadThreads, numRWMixWriteThreads, blockSize);
+
+            funcRWRateLimiter = &LocalWorker::preRWRateBalanceLimiterForWriters;
+        }
+        else
+        if(perThreadWriteRateLimitBps)
+        { // plain per-thread rate limiter
+            funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
+            rateLimiter.initStart(perThreadWriteRateLimitBps);
+        }
+        else // no rate limit
+            funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
 	}
 	else // BenchPhase_READFILES (and others which don't use these function pointers)
 	{
+        // (note: this also applies to rwmixthreads readers in a write phase)
+
 		funcRWBlockSized = (ioDepth == 1) ?
 			&LocalWorker::rwBlockSized : &LocalWorker::aioBlockSized;
 
@@ -1189,13 +1203,23 @@ void LocalWorker::initPhaseFunctionPointers()
 		funcPostReadBlockChecker = integrityCheckEnabled ?
 			&LocalWorker::postReadIntegrityCheckVerifyBuf : &LocalWorker::noOpIntegrityCheck;
 
-		if(!progArgs->getLimitReadBps() )
-			funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
-		else
-		{
-			funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
-			rateLimiter.initStart(progArgs->getLimitReadBps() );
-		}
+        // rate limiter / balancer
+
+        if(numRWMixReadThreads && rwMixThreadsReadPercent)
+        { // rate balancer between reader and writer threads
+            rateLimiterRWMixThreads.initStart(
+                rwMixThreadsReadPercent, numRWMixReadThreads, numRWMixWriteThreads, blockSize);
+
+            funcRWRateLimiter = &LocalWorker::preRWRateBalanceLimiterForReaders;
+        }
+        else
+        if(perThreadReadRateLimitBps)
+        { // plain per-thread rate limiter
+            funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
+            rateLimiter.initStart(perThreadReadRateLimitBps);
+        }
+        else // no rate limit
+            funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
 	}
 
 	// independent of whether current phase is read or write...
@@ -1521,7 +1545,7 @@ void LocalWorker::cleanupAfterPhaseDone()
 int64_t LocalWorker::rwBlockSized()
 {
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
-	const unsigned rwMixPercent = progArgs->getRWMixPercent();
+	const unsigned rwMixReadPercent = progArgs->getRWMixReadPercent();
     const uint64_t fileSize = progArgs->getFileSize();
     const bool isSingleFile = (fileHandles.fdVecPtr->size() == 1);
     const unsigned short fileLockType = progArgs->getFLockType();
@@ -1538,7 +1562,7 @@ int64_t LocalWorker::rwBlockSized()
         calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile,
             fileHandleIdx, currentOffset);
 
-		((*this).*funcRWRateLimiter)(currentBlockSize);
+		((*this).*funcRWRateLimiter)(currentBlockSize, isInterruptionRequested);
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -1557,8 +1581,8 @@ int64_t LocalWorker::rwBlockSized()
 				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 		}
 		else // this is a write or rwmixpct read
-		if(rwMixPercent &&
-			( ( (workerRank + numIOPSSubmitted) % 100) < rwMixPercent) )
+		if(rwMixReadPercent &&
+			( ( (workerRank + numIOPSSubmitted) % 100) < rwMixReadPercent) )
 		{ // this is a rwmix read
 			isRWMixRead = true;
 
@@ -1699,7 +1723,7 @@ int64_t LocalWorker::aioBlockSized()
 		iocbVec[ioVecIdx].data = (void*)ioVecIdx; /* the vec index of this request; ioctl.data
 						is caller's private data returned after io_getevents as ioEvents[].data */
 
-		((*this).*funcRWRateLimiter)(blockSize);
+		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
 		ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
@@ -1853,7 +1877,7 @@ int64_t LocalWorker::aioBlockSized()
 				currentOffset);
 			ioEvents[eventIdx].obj->data = (void*)ioVecIdx; // caller's private data
 
-			((*this).*funcRWRateLimiter)(blockSize);
+			((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
 			ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
@@ -2064,7 +2088,7 @@ void LocalWorker::preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t 
 	off_t fileOffset)
 {
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
-	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
+	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixReadPercent() )
 		return; // this is a read in rwmix mode, so no need for refill in this round
 
 	// refill buffer with random data
@@ -2098,7 +2122,7 @@ void LocalWorker::preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, siz
 #else // CUDA_SUPPORT
 
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
-	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixPercent() )
+	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixReadPercent() )
 		return; // this is a read in rwmix mode, so no need for refill in this round
 
 	// refill buffer with random data
@@ -2190,7 +2214,7 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 
 	// note: workerRank is used to have skew between different worker threads
 	// note: this same logic is used in preWriteBufRandRefill/preWriteBufRandRefillFast
-	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixReadPercent() )
 		io_prep_pwrite(iocb, fd, buf, count, offset);
 	else
 		io_prep_pread(iocb, fd, buf, count, offset);
@@ -2201,7 +2225,7 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 /**
  * Noop for cases where no rate limit selected by user.
  */
-void LocalWorker::noOpRateLimiter(size_t rwSize)
+void LocalWorker::noOpRateLimiter(size_t rwSize, std::atomic_bool& isInterruptionRequested)
 {
 	return; // noop
 }
@@ -2209,9 +2233,27 @@ void LocalWorker::noOpRateLimiter(size_t rwSize)
 /**
  * Rate limiter before writes/reads in case rate limit was selected by user.
  */
-void LocalWorker::preRWRateLimiter(size_t rwSize)
+void LocalWorker::preRWRateLimiter(size_t rwSize, std::atomic_bool& isInterruptionRequested)
 {
 	rateLimiter.wait(rwSize);
+}
+
+/**
+ * Rate limiter before reads in case rwmix threads rate balance was selected by user.
+ */
+void LocalWorker::preRWRateBalanceLimiterForReaders(size_t rwSize,
+    std::atomic_bool& isInterruptionRequested)
+{
+    rateLimiterRWMixThreads.waitRead(rwSize, isInterruptionRequested);
+}
+
+/**
+ * Rate limiter before writes in case rwmix threads rate balance was selected by user.
+ */
+void LocalWorker::preRWRateBalanceLimiterForWriters(size_t rwSize,
+    std::atomic_bool& isInterruptionRequested)
+{
+    rateLimiterRWMixThreads.waitWrite(rwSize, isInterruptionRequested);
 }
 
 /**
@@ -2387,7 +2429,7 @@ ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 	ssize_t ioRes;
 
 	// note: workerRank is used to have skew between different worker threads
-	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixReadPercent() )
 	{
 		OPLOG_PRE_OP("pwrite", std::to_string(fd), offset, nbytes);
 
@@ -2505,7 +2547,7 @@ ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 	ssize_t ioRes;
 
 	// note: workerRank is used to have skew between different worker threads
-	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixPercent() )
+	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixReadPercent() )
 	{
 		OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
 
@@ -4507,7 +4549,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	{
 		s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
 
-		((*this).*funcRWRateLimiter)(blockSize);
+		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 	}
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
@@ -4632,7 +4674,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			(unsigned char*) ioBufVec[0], blockSize);
 		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
 
-		((*this).*funcRWRateLimiter)(blockSize);
+		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -4826,7 +4868,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			(unsigned char*) ioBufVec[0], blockSize);
 		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
 
-		((*this).*funcRWRateLimiter)(blockSize);
+		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -5085,7 +5127,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[0];
 		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf( (unsigned char*)ioBuf, blockSize);
 
-		((*this).*funcRWRateLimiter)(blockSize);
+		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -6646,7 +6688,7 @@ void LocalWorker::netbenchDoTransferClient()
 			const size_t currentBlockSize = (bytesLeft < blockSize) ?
 				bytesLeft : blockSize;
 
-			((*this).*funcRWRateLimiter)(currentBlockSize);
+			((*this).*funcRWRateLimiter)(currentBlockSize, isInterruptionRequested);
 
 			std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 

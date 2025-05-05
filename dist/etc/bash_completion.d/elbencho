@@ -114,6 +114,7 @@ _elbencho_opts()
         --rotatehosts
         --rwmixpct
         --rwmixthr
+        --rwmixthrpct
         --s3aclget
         --s3aclgrantee
         --s3aclgrants
@@ -256,6 +257,8 @@ _elbencho()
         --rwmixpct)
         ;&
         --rwmixthr)
+        ;&
+        --rwmixthrpct)
         ;&
         -s)
         ;&

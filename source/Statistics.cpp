@@ -959,7 +959,7 @@ void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_LAT_SUM_ENTRIES, liveLatency.avgEntriesLatMicroSecsSum);
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
-		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ||
+		(progArgs.getRWMixReadPercent() || progArgs.getNumRWMixReadThreads() ||
 			progArgs.getUseNetBench() ) )
 	{
 		outTree.put(XFER_STATS_NUMENTRIESDONE_RWMIXREAD, liveOpsReadMix.numEntriesDone);
@@ -2246,7 +2246,7 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
 		entriesLatHisto += worker->getEntriesLatencyHistogram();
 
 		if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ||
+			(progArgs.getRWMixReadPercent() || progArgs.getNumRWMixReadThreads() ||
 				progArgs.getUseNetBench() ) )
 		{
 			iopsLatHistoReadMix += worker->getIOPSLatencyHistogramReadMix();
@@ -2260,7 +2260,7 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
 	entriesLatHisto.getAsPropertyTreeForService(outTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
-		(progArgs.getRWMixPercent() || progArgs.getNumRWMixReadThreads() ||
+		(progArgs.getRWMixReadPercent() || progArgs.getNumRWMixReadThreads() ||
 			progArgs.getUseNetBench() ) )
 	{
 		outTree.put(XFER_STATS_NUMENTRIESDONE_RWMIXREAD, liveOpsReadMix.numEntriesDone);

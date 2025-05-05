@@ -236,7 +236,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		liveLatency.setToZero(); // this service is done, so no more latency
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ||
+			(progArgs->getRWMixReadPercent() || progArgs->getNumRWMixReadThreads() ||
 				progArgs->getUseNetBench() ) )
 		{
 			atomicLiveOpsReadMix.numEntriesDone =
@@ -483,7 +483,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES);
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixPercent() || progArgs->getNumRWMixReadThreads() ||
+				(progArgs->getRWMixReadPercent() || progArgs->getNumRWMixReadThreads() ||
 					progArgs->getUseNetBench() ) )
 			{
 				atomicLiveOpsReadMix.numEntriesDone =

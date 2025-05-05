@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "toolkits/FileTk.h"
@@ -489,14 +490,23 @@ void ProgArgs::defineAllowedArgs()
 			"exists, new results will be appended.")
 /*ro*/	(ARG_ROTATEHOSTS_LONG, bpo::value(&this->rotateHostsNum),
 			"Number by which to rotate hosts between phases to avoid caching effects. (Default: 0)")
-/*rw*/	(ARG_RWMIXPERCENT_LONG, bpo::value(&this->rwMixPercent),
+/*rw*/	(ARG_RWMIXPERCENT_LONG, bpo::value(&this->rwMixReadPercent),
 			"Percentage of blocks that should be read in a write phase. (Default: 0; Max: 100)")
 /*rw*/	(ARG_RWMIXTHREADS_LONG, bpo::value(&this->numRWMixReadThreads),
-			"Number of threads that should do reads in a write phase for mixed read/write. The "
-			"given number is out of the total number of threads per host (\"-" ARG_NUMTHREADS_SHORT
-			"\"). This assumes that the full dataset has been precreated via normal write. "
-			"In S3 mode, this only works in combination with \"-" ARG_NUMDIRS_SHORT "\" and \"-"
-			ARG_NUMFILES_SHORT "\".")
+            "Number of threads that should do reads in a write phase for mixed read/write. The "
+            "number given here defines the subset of readers out of the total number of threads "
+            "per host (\"-" ARG_NUMTHREADS_SHORT "\"). This assumes that the full dataset has been "
+            "precreated via normal write. In S3 mode, this only works in combination with "
+            "\"-" ARG_NUMDIRS_SHORT "\" and \"-" ARG_NUMFILES_SHORT "\". Read/write rate balance "
+            "can be defined via \"--" ARG_RWMIXTHREADSPCT_LONG "\".")
+/*rw*/	(ARG_RWMIXTHREADSPCT_LONG, bpo::value(&this->rwMixThreadsReadPercent),
+            "Percentage of reads in a write phase when using \"--" ARG_RWMIXTHREADS_LONG "\". "
+            "This implies frequent sleep and wakeup of reader and writer threads to maintain "
+            "the given balance ratio and thus might impact the achievable maximum "
+            "performance of a host in some scenarios. This needs to be used together with "
+            "\"--" ARG_INFINITEIOLOOP_LONG "\" to prevent starvation of the I/O threads that run "
+            "at the lower rate. Consider adding \"--" ARG_TIMELIMITSECS_LONG "\") for termination. "
+            "(Value range: 1..99)")
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0; supports base2 suffixes, e.g. \"2M\")")
 #ifdef S3_SUPPORT
@@ -532,12 +542,12 @@ void ProgArgs::defineAllowedArgs()
 			"Put S3 bucket ACLs. This requires definition of grantee, grantee type and "
 			"permissions.")
 /*s3b*/	(ARG_S3BUCKETTAG_LONG, bpo::bool_switch(&this->doS3BucketTag),
-			"Activate bucket tagging operations")
+			"Activate bucket tagging operations.")
 /*s3b*/	(ARG_S3BUCKETTAGVERIFY_LONG, bpo::bool_switch(&this->doS3BucketTagVerify),
             "Verify the correctness of S3 bucket tagging results. (Requires "
             "\"--" ARG_S3BUCKETTAG_LONG "\")")
 /*s3b*/	(ARG_S3BUCKETVER_LONG, bpo::bool_switch(&this->doS3BucketVersioning),
-            "Activate bucket versioning operations ")
+            "Activate bucket versioning operations.")
 /*s3b*/	(ARG_S3BUCKETVERVERIFY_LONG, bpo::bool_switch(&this->doS3BucketVersioningVerify),
             "Verify the correctness of S3 bucket versioning settings. (Requires "
             "\"--" ARG_S3BUCKETVER_LONG "\")")
@@ -798,7 +808,7 @@ void ProgArgs::defineDefaults()
 	this->doDirSharing = false;
 	this->doDirectVerify = false;
 	this->blockVariancePercent = 100;
-	this->rwMixPercent = 0;
+	this->rwMixReadPercent = 0;
 	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
 	this->randOffsetAlgo = RANDALGO_BALANCED_SEQUENTIAL_STR; /* empty means full coverage for
@@ -822,6 +832,7 @@ void ProgArgs::defineDefaults()
 	this->useS3RandObjSelect = false;
 	this->numRWMixReadThreads = 0;
 	this->useRWMixReadThreads = false;
+    this->rwMixThreadsReadPercent = 0;
 	this->useBriefLiveStats = false;
 	this->useBriefLiveStatsNewLine = false;
 	this->useNoFDSharing = false;
@@ -1132,7 +1143,7 @@ void ProgArgs::checkArgs()
 	if(!gpuIDsStr.empty() && useHDFS)
 		throw ProgException("HDFS mode does not support GPUs.");
 
-	if(rwMixPercent && useHDFS)
+	if(rwMixReadPercent && useHDFS)
 		throw ProgException("HDFS does not support rwmix.");
 
 	if( (ioDepth > 1) && useHDFS)
@@ -1173,11 +1184,15 @@ void ProgArgs::checkArgs()
         throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
             "\"--" ARG_RWMIXTHREADS_LONG "\"");
 
-    if(rwMixPercent && !gpuIDsVec.empty() && !useCuFile)
+    if(rwMixThreadsReadPercent && (limitReadBps || limitWriteBps) )
+    throw ProgException("Option \"--" ARG_RWMIXTHREADSPCT_LONG "\" cannot be used together with "
+        "\"--" ARG_LIMITREAD_LONG "\" or \"--" ARG_LIMITWRITE_LONG "\"");
+
+    if(rwMixReadPercent && !gpuIDsVec.empty() && !useCuFile)
         throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
             "GPU memory copy");
 
-    if(integrityCheckSalt && rwMixPercent)
+    if(integrityCheckSalt && rwMixReadPercent)
         throw ProgException("Option --" ARG_RWMIXPERCENT_LONG " cannot be used together with "
             "option \"--" ARG_INTEGRITYCHECK_LONG "\"");
 
@@ -3300,7 +3315,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3StatDirs = tree.get<bool>(ARG_S3STATDIRS_LONG);
 	runStatFilesPhase = tree.get<bool>(ARG_STATFILES_LONG);
 	runSyncPhase = tree.get<bool>(ARG_SYNCPHASE_LONG);
-	rwMixPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);
+    rwMixReadPercent = tree.get<unsigned>(ARG_RWMIXPERCENT_LONG);
+    rwMixThreadsReadPercent = tree.get<unsigned>(ARG_RWMIXTHREADSPCT_LONG);
 	s3AccessKey = tree.get<std::string>(ARG_S3ACCESSKEY_LONG);
 	s3AccessSecret = tree.get<std::string>(ARG_S3ACCESSSECRET_LONG);
 	s3AclGrantee = tree.get<std::string>(ARG_S3ACLGRANTEE_LONG);
@@ -3438,8 +3454,9 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_RECVBUFSIZE_LONG, sockRecvBufSize);
 	outTree.put(ARG_RESPSIZE_LONG, netBenchRespSize);
 	outTree.put(ARG_REVERSESEQOFFSETS_LONG, doReverseSeqOffsets);
-	outTree.put(ARG_RWMIXPERCENT_LONG, rwMixPercent);
+	outTree.put(ARG_RWMIXPERCENT_LONG, rwMixReadPercent);
 	outTree.put(ARG_RWMIXTHREADS_LONG, numRWMixReadThreads);
+	outTree.put(ARG_RWMIXTHREADSPCT_LONG, rwMixThreadsReadPercent);
 	outTree.put(ARG_S3ACCESSKEY_LONG, s3AccessKey);
 	outTree.put(ARG_S3ACCESSSECRET_LONG, s3AccessSecret);
 	outTree.put(ARG_S3ACLGET_LONG, runS3AclGet);

@@ -36,7 +36,7 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 			else
 			if(progArgs->hasUserSetRWMixPercent() )
 				phaseName = TRANSLATORTK_PHASENAME_RWMIXPCT +
-					std::to_string(progArgs->getRWMixPercent() );
+					std::to_string(progArgs->getRWMixReadPercent() );
 			else
 				phaseName = PHASENAME_CREATEFILES;
 
