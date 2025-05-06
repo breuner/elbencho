@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 3
 EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 27
+EXE_VER_PATCHLEVEL ?= 28
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -353,7 +353,7 @@ clean-packaging:
 ifdef BUILD_VERBOSE
 	rm -rf \
 		$(EXE)-*-static-* \
-		$(PACKAGING_PATH)/$(EXE_NAME)-*-static-*.tar.* \
+		$(PACKAGING_PATH)/$(EXE_NAME)-*static-*.tar.* \
 	rm -rf \
 		$(PACKAGING_PATH)/BUILDROOT \
 		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
@@ -362,7 +362,7 @@ else
 	@echo "[DELETE] PACKAGING_FILES"
 	@rm -rf \
 		$(EXE)-*-static-* \
-		$(PACKAGING_PATH)/$(EXE_NAME)-*-static-*.tar.* \
+		$(PACKAGING_PATH)/$(EXE_NAME)-*static-*.tar.* \
 	@rm -rf \
 		$(PACKAGING_PATH)/BUILDROOT \
 		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
