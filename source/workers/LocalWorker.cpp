@@ -4103,9 +4103,12 @@ void LocalWorker::s3ModeIterateCustomObjects()
  * @objectName name of object to which this error applies, can be empty.
  * @throw WorkerException on error.
  */
-template <typename OUTCOMETYPE>
-void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
-    const std::string& bucketName, const std::string& objectName)
+template <typename R>
+void LocalWorker::s3ModeThrowOnError(
+        const Aws::Utils::Outcome<R, Aws::S3::S3Error>& outcome,
+        const std::string& failMessage,
+        const std::string& bucketName,
+        const std::string& objectName)
 {
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
@@ -4117,15 +4120,16 @@ void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::stri
     const auto s3Error = outcome.GetError();
 
     std::stringstream errStr;
-        errStr << failMessage << " " <<
-        "Endpoint: " << s3EndpointStr << "; " <<
-        "Bucket: " << bucketName << "; " <<
-        (objectName.empty() ? std::string("") : ("Object: " + objectName + "; ") ) <<
-        "Exception: " << s3Error.GetExceptionName() << "; " <<
-        "Message: " << s3Error.GetMessage() << "; " <<
-        "HTTP Error Code: " << (int)s3Error.GetResponseCode();
+        errStr << failMessage << std::endl <<
+        "Endpoint: " << s3EndpointStr << std::endl <<
+        "Bucket: " << bucketName << std::endl <<
+        (objectName.empty() ? std::string("") : ("Object: " + objectName + "\n" )) <<
+        "Exception: " << s3Error.GetExceptionName() << std::endl <<
+        "Message: " << s3Error.GetMessage() << std::endl <<
+        "HTTP Error Code: " << (int)s3Error.GetResponseCode() << std::endl <<
+        "Request ID: " << s3Error.GetRequestId() << std::endl;
 
-    throw WorkerException(errStr.str() );
+    throw WorkerException(errStr.str());
 
 #endif // S3_SUPPORT
 }
@@ -4652,8 +4656,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		!createMultipartUploadOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() && !ignoreS3Errors)
-        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.",
-            bucketName, objectName);
+        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.", bucketName, objectName);
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
 
@@ -5893,12 +5896,12 @@ void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::
 
     OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
 
-    const auto putTagOutcome = s3Client->PutObjectTagging(
-        S3::PutObjectTaggingRequest()
+    auto putTagRequest = S3::PutObjectTaggingRequest()
             .WithBucket(bucketName)
             .WithKey(objectName)
-            .WithTagging(S3::Tagging().AddTagSet(tag))
-    );
+            .WithTagging(S3::Tagging().AddTagSet(tag));
+
+    const auto putTagOutcome = s3Client->PutObjectTagging(putTagRequest);
 
     OPLOG_POST_OP("PutObjectTagging", bucketName + "/" + objectName,
                   0, TAG_VALUE_MEDIUM_LEN, !putTagOutcome.IsSuccess());
