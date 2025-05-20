@@ -10,7 +10,10 @@
 
 FROM alpine:3 AS builder
 
+ARG ELBENCHO_MARCH
 ARG NUM_JOBS
+
+ENV ELBENCHO_MARCH=${ELBENCHO_MARCH}
 ENV NUM_JOBS=${NUM_JOBS}
 
 RUN apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
@@ -32,6 +35,13 @@ RUN cd /root/elbencho && \
     DOCKER_BUILD_PLATFORM=$(uname -m) && \
     echo "[PLATFORM] $DOCKER_BUILD_PLATFORM" && \
     make clean-all && \
+    if [ ! -z "${ELBENCHO_MARCH}" ]; then \
+        echo "[ELBENCHO_MARCH] ${ELBENCHO_MARCH}"; \
+        echo -e "#!/bin/sh\n$(which gcc) \"\$@\" -march=${ELBENCHO_MARCH}" > ./gcc-custom; \
+        echo -e "#!/bin/sh\n$(which g++) \"\$@\" -march=${ELBENCHO_MARCH}" > ./g++-custom; \
+        chmod +x ./gcc-custom ./g++-custom; \
+        export CC="$(pwd)/gcc-custom" CXX="$(pwd)/g++-custom"; \
+    fi && \
     make -j $(nproc) \
         BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=0 S3_SUPPORT=1 \
         S3_AWSCRT=0 USE_MIMALLOC=1 BUILD_STATIC=1 && \
