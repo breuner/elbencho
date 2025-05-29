@@ -557,6 +557,11 @@ void ProgArgs::defineAllowedArgs()
 /*s3c*/	(ARG_S3CHECKSUM_ALGO_LONG, bpo::value(&this->s3ChecksumAlgoStr),
             "S3 checksum algorithm to use (CRC32, CRC32C, SHA1, SHA256). This sets the "
             "x-amz-sdk-checksum-algorithm header for S3 operations. (EXPERIMENTAL)")
+/*s3c*/	(ARG_S3CREDFILE_LONG, bpo::value(&this->s3CredentialsFile),
+			"Path to file containing multiple S3 credentials. Each line in format: "
+			"access_key:secret_key. Lines starting with # are treated as comments.")
+/*s3c*/	(ARG_S3CREDLIST_LONG, bpo::value(&this->s3CredentialsList),
+			"Comma-separated list of S3 credentials. Each credential in format: access_key:secret_key")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -899,6 +904,8 @@ void ProgArgs::defineDefaults()
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
     this->s3ChecksumAlgoStr = "";  // Default to empty string (resolved as NOT_SET)
+	this->s3CredentialsFile = "";
+	this->s3CredentialsList = "";
 }
 
 /**
@@ -1268,6 +1275,16 @@ void ProgArgs::checkArgs()
     ///////////// if we get here, we are running in local standalone mode...
 
     checkPathDependentArgs();
+
+    // Check that only one credential source is specified
+    if(!s3CredentialsFile.empty() && !s3CredentialsList.empty())
+        throw ProgException("Only one of --" ARG_S3CREDFILE_LONG " or --" 
+            ARG_S3CREDLIST_LONG " may be specified.");
+
+    // If using multi-credentials, s3AccessKey and s3AccessSecret must be empty
+    if((!s3CredentialsFile.empty() || !s3CredentialsList.empty()) && 
+        (!s3AccessKey.empty() || !s3AccessSecret.empty()))
+        throw ProgException("Cannot specify both multi-credentials and single credential options.");
 }
 
 /**
@@ -2979,6 +2996,11 @@ void ProgArgs::printHelpS3()
 		"S3 Service Arguments", TerminalTk::getTerminalLineLength(80) );
 
     argsS3ServiceArgsDescription.add_options()
+        (ARG_S3CREDFILE_LONG, bpo::value(&this->s3CredentialsFile),
+            "Path to file containing multiple S3 credentials. Each line in format: "
+            "access_key:secret_key. Lines starting with # are treated as comments.")
+        (ARG_S3CREDLIST_LONG, bpo::value(&this->s3CredentialsList),
+            "Comma-separated list of S3 credentials. Each credential in format: access_key:secret_key")
         (ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
             "Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
         (ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
@@ -3384,6 +3406,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3AclGrantee = tree.get<std::string>(ARG_S3ACLGRANTEE_LONG);
 	s3AclGranteePermissions = tree.get<std::string>(ARG_S3ACLGRANTS_LONG);
 	s3AclGranteeType = tree.get<std::string>(ARG_S3ACLGRANTEETYPE_LONG);
+	s3CredentialsFile = tree.get<std::string>(ARG_S3CREDFILE_LONG);
+    s3CredentialsList = tree.get<std::string>(ARG_S3CREDLIST_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
@@ -3531,6 +3555,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3BUCKETACLGET_LONG, runS3BucketAclGet);
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
     outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
+	outTree.put(ARG_S3CREDFILE_LONG, s3CredentialsFile);
+    outTree.put(ARG_S3CREDLIST_LONG, s3CredentialsList);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
 	outTree.put(ARG_S3IGNOREERRORS_LONG, ignoreS3Errors);

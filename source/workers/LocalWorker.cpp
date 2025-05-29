@@ -4281,7 +4281,17 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 
     OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
 
-    const auto createOutcome = s3Client->CreateBucket(S3::CreateBucketRequest().WithBucket(bucketName));
+    S3::CreateBucketRequest createRequest;
+    createRequest.SetBucket(bucketName);
+
+    // Check if multi-credentials are being used and set ACL to public-read-write
+    if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty())
+    {
+        createRequest.SetACL(S3::BucketCannedACL::public_read_write);
+        LOGGER(Log_DEBUG, "Setting bucket ACL to public-read-write for multi-credentials job" << std::endl);
+    }
+
+    const auto createOutcome = s3Client->CreateBucket(createRequest);
 
     OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess());
 
