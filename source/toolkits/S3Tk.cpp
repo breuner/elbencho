@@ -141,6 +141,9 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     config.requestCompressionConfig.requestMinCompressionSizeBytes = 1;
     config.requestCompressionConfig.useRequestCompression = (progArgs->getS3NoCompression() ?
         Aws::Client::UseRequestCompression::DISABLE : Aws::Client::UseRequestCompression::ENABLE);
+    config.checksumConfig.requestChecksumCalculation =
+        Aws::Client::RequestChecksumCalculation::WHEN_REQUIRED;
+
 
 #ifdef S3_AWSCRT
     config.useVirtualAddressing = false; /* only exists in config of s3-crt and not effective in
