@@ -5,6 +5,9 @@
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.580.
 
+### Fixes
+* Fixed override of S3 credentials with given credential parameters if a aws profile exists in user home dir.
+
 ## v3.0.27 (May 6, 2025)
 
 ### New Features & Enhancements

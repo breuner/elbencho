@@ -10,6 +10,7 @@
 
 #ifdef S3_SUPPORT
     #include <aws/core/auth/AWSCredentialsProvider.h>
+    #include <aws/core/auth/AWSCredentialsProviderChain.h>
     #include <aws/core/Aws.h>
     #include <aws/core/utils/crypto/MD5.h>
     #include <aws/core/utils/HashingUtils.h>
@@ -168,16 +169,19 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     // set credentials...
 
-    Aws::Auth::AWSCredentials credentials;
+    /* note: just passing Aws::Auth::AWSCredentials to the s3client constructor doesn't override
+        credentials from profiles in home directory, so we need to pass a CredentialsProvider. */
 
-    if(!progArgs->getS3AccessKey().empty() )
-        credentials.SetAWSAccessKeyId(progArgs->getS3AccessKey() );
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentialsProviderPtr =
+        std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
+            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret() );
 
-    if(!progArgs->getS3AccessSecret().empty() )
-        credentials.SetAWSSecretKey(progArgs->getS3AccessSecret() );
+    // if creds not given via config then use aws default way of loading them from profile config
+    if(progArgs->getS3AccessKey().empty() )
+        credentialsProviderPtr = std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 
     // create s3 client for this worker
-    std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentials,
+    std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentialsProviderPtr,
         config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(),
         false);
 
