@@ -30,7 +30,7 @@ prepare_webserver_sws()
 
 	# change to external subdir if we were called from somewhere else
 	cd "$EXTERNAL_BASE_DIR" || exit 1
-	
+
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
 		echo "Cloning SWS HTTP server git repo..."
@@ -39,7 +39,7 @@ prepare_webserver_sws()
 			exit 1
 		fi
 	fi
-	
+
 	# directory exists, check if we already have the right tag.
 	# (this is the fast path for dependency calls from Makefile)
 	cd "$CLONE_DIR" && \
@@ -49,18 +49,18 @@ prepare_webserver_sws()
 			return 0;
 		fi && \
 		cd "$EXTERNAL_BASE_DIR"
-	
+
 	# we are not at the right tag, so try to check it out.
 	# (fetching is relevant in case we update to a new required tag.)
 	echo "Checking out HTTP server tag ${REQUIRED_TAG}..."
-	
+
 	cd "$CLONE_DIR" && \
 		git fetch -q --all && \
 		git checkout -q ${REQUIRED_TAG} && \
 		echo "DONE: SWS HTTP server sources prepared." && \
 		cd "$EXTERNAL_BASE_DIR" && \
 		return 0
-	
+
 	# something went wrong if we got here
 	echo "ERROR: SWS HTTP server source preparation failed."
 	exit 1
@@ -72,13 +72,13 @@ prepare_webserver_uws()
 	local REQUIRED_TAG="v20.16.0"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/uWebSockets"
-	
+
 	# change to external subdir if we were called from somewhere else
 	cd "$EXTERNAL_BASE_DIR" || exit 1
-	
+
 	# check if directory exists and contains right version
 	if [ -f "$CLONE_DIR/uSockets/uSockets.a" ]; then
-		
+
 		# static lib exists, check if we already have the right git tag.
 		# (this is the fast path for dependency calls from Makefile)
 		cd "$CLONE_DIR" && \
@@ -94,10 +94,10 @@ prepare_webserver_uws()
 	# unnecessarily complicated, so we just erase and start from scratch.)
 	echo "Cleaning up old uWS HTTP server git repo..."
 	rm -rf "$CLONE_DIR"
-	
+
 	# check existence of special flags in given git version to speed up git clone
 	local CLONE_SPECIAL_FLAGS=""
-	
+
 	git clone --help | grep shallow-submodules >/dev/null
 	if [ "$?" -eq 0 ]; then
 		CLONE_SPECIAL_FLAGS+="--shallow-submodules "
@@ -112,16 +112,16 @@ prepare_webserver_uws()
 	echo "Cloning uWS HTTP server git repo..."
 	git clone $CLONE_SPECIAL_FLAGS --depth 1 --branch "$REQUIRED_TAG" --recursive \
 		https://github.com/uNetworking/uWebSockets.git $CLONE_DIR
-		
+
 	[ $? -ne 0 ] && exit 1
-	
+
 	echo "Building uSockets lib for uWS HTTP server... (parallel jobs: $NUM_PARALLEL_JOBS)"
 	cd "$CLONE_DIR/uSockets" && \
 		make -j "$NUM_PARALLEL_JOBS" && \
 		cd "$EXTERNAL_BASE_DIR"
 
 	[ $? -ne 0 ] && exit 1
-	
+
 	# something went wrong if we got here
 	echo "DONE: uWS HTTP server preparation complete."
 }
@@ -139,16 +139,16 @@ prepare_awssdk_prebuilt_libs()
 		libaws-cpp-sdk-transfer.a libaws-c-sdkutils.a"
 
 	echo "Resolving given AWS SDK libs path: $AWS_LIB_DIR"
-	
+
 	# Temporarily move to build root
-	
+
 	cd "${EXTERNAL_BASE_DIR}/.."
 	AWS_LIB_DIR=$(realpath -e "$AWS_LIB_DIR")
 
 	[ $? -ne 0 ] && exit 1
 
 	echo "Resolved AWS SDK libs path: $AWS_LIB_DIR"
-	
+
 	# Simple sanity check for provided AWS_LIB_DIR
 	if [ ! -e "${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a" ]; then
 		echo "AWS_LIB_DIR invalid. File not found: ${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a"
@@ -182,7 +182,7 @@ prepare_awssdk_prebuilt_libs()
 
 	# create mri file for "ar"
 	echo "create $LIB_FILE" > "$MRI_FILE"
-	for lib in $AWS_LIBS; do 
+	for lib in $AWS_LIBS; do
 		echo addlib ${AWS_LIB_DIR}/${lib} >> "$MRI_FILE"
 	done
 	echo "save" >> "$MRI_FILE"
@@ -198,8 +198,8 @@ prepare_awssdk_prebuilt_libs()
 }
 
 # If user did not provide pre-built AWS SDK libs, then prepare git clone and required tag. If clone
-# didn't exist yet or if tag changed then configure build, install libs and build a single static 
-# lib containing all static AWS SDK libs. If clone exitsted and tag changed, then clean/uninstall 
+# didn't exist yet or if tag changed then configure build, install libs and build a single static
+# lib containing all static AWS SDK libs. If clone exitsted and tag changed, then clean/uninstall
 # previous build before switching tag.
 prepare_awssdk()
 {
@@ -214,15 +214,15 @@ prepare_awssdk()
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
 	local LIB_FILE_NAME="libaws-sdk-all.a"
-	
+
 	# fast path: check if lib file exists, in which case previous build completed
 	if [ -e "$INSTALL_DIR"/lib*/"$LIB_FILE_NAME" ]; then
 	  return 0
 	fi
-	
+
 	# change to external subdir if we were called from somewhere else
 	cd "$EXTERNAL_BASE_DIR" || exit 1
-	
+
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
 		echo "Cloning AWS SDK git repo..."
@@ -235,19 +235,19 @@ prepare_awssdk()
 			exit 1
 		fi
 	fi
-	
+
 	# configure, build and install
-	
+
 	echo "Configure, build and install...  (parallel jobs: $NUM_PARALLEL_JOBS)"
-	
+
 	if [ "$S3_AWSCRT" -eq 1 ]; then
-	  local cmake_build_opts=(-DBUILD_ONLY="s3-crt" "-DBYO_CRYPTO=OFF" "-DUSE_OPENSSL=OFF" \
+	  local cmake_build_opts=(-DBUILD_ONLY="s3-crt" "-DUSE_OPENSSL=OFF" \
 	      "-DUSE_CRT_HTTP_CLIENT=ON")
 	else
-	  local cmake_build_opts=(-DBUILD_ONLY="s3" "-DBYO_CRYPTO=ON" "-DUSE_OPENSSL=ON" \
+	  local cmake_build_opts=(-DBUILD_ONLY="s3" "-DUSE_OPENSSL=ON" \
 	      "-DUSE_CRT_HTTP_CLIENT=OFF")
 	fi
-	
+
 	cd "$CLONE_DIR" && \
 		cmake . "${cmake_build_opts[@]}" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=17 \
 			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
@@ -257,31 +257,31 @@ prepare_awssdk()
 		cd "$EXTERNAL_BASE_DIR"
 
 	[ $? -ne 0 ] && exit 1
-	
+
 	echo "Preparing static AWS SDK lib..."
-	
+
 	# (note: path vars declared down here because "lib*" might not exist before "make install")
 	local AWS_LIB_DIR="$(echo ${INSTALL_DIR}/lib*)"
 	local MRI_FILE="${AWS_LIB_DIR}/libaws-sdk-all.mri"
 	local LIB_FILE="${AWS_LIB_DIR}/$LIB_FILE_NAME"
-	
+
 	# delete old mri file and old lib
 	rm -f "$LIB_FILE" "$MRI_FILE"
-	
+
 	# create mri file for "ar"
 	echo "create $LIB_FILE" > "$MRI_FILE"
-	for lib in $(ls ${AWS_LIB_DIR}/*.a); do 
+	for lib in $(ls ${AWS_LIB_DIR}/*.a); do
 		echo addlib $lib >> "$MRI_FILE"
 	done
 	echo "save" >> "$MRI_FILE"
 	echo "end" >> "$MRI_FILE"
-	
+
 	# create static lib containing all AWS SDK static libs
 	ar -M < "$MRI_FILE" && \
 		echo "Created $(basename "${LIB_FILE}")" && \
 		echo "DONE: AWS SDK prepared." && \
 		return 0
-	
+
 	[ $? -ne 0 ] && exit 1
 }
 
@@ -292,10 +292,10 @@ prepare_mimalloc()
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/mimalloc"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/mimalloc/build"
-	
+
 	# change to external subdir if we were called from somewhere else
 	cd "$EXTERNAL_BASE_DIR" || exit 1
-	
+
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
 		echo "Cloning mimalloc git repo..."
@@ -304,7 +304,7 @@ prepare_mimalloc()
 			exit 1
 		fi
 	fi
-	
+
 	# directory exists, check if we already have the right tag.
 	# (this is the fast path for dependency calls from Makefile)
 	cd "$CLONE_DIR" && \
@@ -316,28 +316,28 @@ prepare_mimalloc()
 		cd "$EXTERNAL_BASE_DIR"
 
 	# we need to change tag...
-	
+
 	# clean up and uninstall any previous build before we switch to new tag
 	if [ -f "$INSTALL_DIR/Makefile" ]; then
 		echo "Cleaning up previous build..."
 		cd "$INSTALL_DIR" && \
 		make clean
-		
+
 		[ $? -ne 0 ] && exit 1
 	fi
-	
+
 	# check out required tag
 	# (fetching is relevant in case we update to a new required tag.)
 	echo "Checking out mimalloc tag ${REQUIRED_TAG}..."
-	
+
 	cd "$CLONE_DIR" && \
 		git fetch --recurse-submodules -q --all && \
 		git checkout -q ${REQUIRED_TAG} && \
 		git submodule -q update --recursive && \
 		cd "$EXTERNAL_BASE_DIR"
-	
+
 	[ $? -ne 0 ] && exit 1
-	
+
 	echo "Configure, build and install... (parallel jobs: $NUM_PARALLEL_JOBS)"
 	mkdir -p "$INSTALL_DIR" && \
 		cd "$INSTALL_DIR" && \
@@ -355,8 +355,8 @@ prepare_mimalloc()
 # Get number of parallel jobs from "make" environment variables
 NUM_PARALLEL_JOBS=$(echo " $MAKEFLAGS" | grep -o -e "-j[[:digit:]]\+" | sed s/-j//g)
 
-if [ -z "$NUM_PARALLEL_JOBS" ]; then 
-	NUM_PARALLEL_JOBS=$(nproc); 
+if [ -z "$NUM_PARALLEL_JOBS" ]; then
+	NUM_PARALLEL_JOBS=$(nproc);
 fi
 
 prepare_webserver_sws
