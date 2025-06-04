@@ -17,6 +17,7 @@
     namespace S3 = Aws::S3::Model;
     using S3Client = Aws::S3::S3Client;
     using S3Errors = Aws::S3::S3Errors;
+    using S3ErrorType = Aws::S3::S3Error;
     using S3ClientConfiguration = Aws::Client::ClientConfiguration;
 #endif // S3_AWSCRT
 
