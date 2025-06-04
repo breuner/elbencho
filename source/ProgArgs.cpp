@@ -62,6 +62,7 @@
 
 #define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
 #define S3_ENV_SECRET_KEY           "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret
+#define S3_ENV_SESSION_TOKEN        "AWS_SESSION_TOKEN" // environment variable for s3 session token
 
 
 /**
@@ -635,6 +636,8 @@ void ProgArgs::defineAllowedArgs()
 			"S3 region.")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
 			"S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
+/*s3s*/	(ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
+             "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN " env variable.)")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
@@ -828,6 +831,7 @@ void ProgArgs::defineDefaults()
 	this->doS3ListObjVerify = false;
 	this->doReverseSeqOffsets = false;
 	this->doInfiniteIOLoop = false;
+    this->s3SessionToken = "";
 	this->s3SignPolicy = 0;
 	this->useS3RandObjSelect = false;
 	this->numRWMixReadThreads = 0;
@@ -947,6 +951,9 @@ void ProgArgs::initImplicitValues()
 
         if(s3AccessSecret.empty() && (getenv(S3_ENV_SECRET_KEY) != NULL) )
             s3AccessSecret = getenv(S3_ENV_SECRET_KEY);
+
+        if(s3SessionToken.empty() && (getenv(S3_ENV_SESSION_TOKEN) != NULL) )
+            s3SessionToken = getenv(S3_ENV_SESSION_TOKEN);
 
         s3EndpointsServiceOverrideStr = s3EndpointsStr;
     }
@@ -2925,6 +2932,8 @@ void ProgArgs::printHelpS3()
             "S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
         (ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
             "S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
+        (ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
+             "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN " env variable.)")
     ;
 
     std::cout << argsS3ServiceArgsDescription << std::endl;
@@ -3328,6 +3337,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
+    s3SessionToken = tree.get<std::string>(ARG_S3SESSION_TOKEN_LONG);
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
     s3SSECKey = tree.get<std::string>(ARG_S3SSECKEY_LONG);
     s3SSEKMSKey = tree.get<std::string>(ARG_S3SSEKMSKEY_LONG);
@@ -3483,6 +3493,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
+    outTree.put(ARG_S3SESSION_TOKEN_LONG, s3SessionToken);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);
     outTree.put(ARG_S3SSE_LONG, useS3SSE);
     outTree.put(ARG_S3SSECKEY_LONG, s3SSECKey);
