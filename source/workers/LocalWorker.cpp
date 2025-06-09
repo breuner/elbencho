@@ -4095,6 +4095,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 #endif // S3_SUPPORT
 }
 
+#ifdef S3_SUPPORT
 /**
  * Throw an informative WorkerException if the s3 request outcome has the error flag set.
  *
@@ -4103,13 +4104,10 @@ void LocalWorker::s3ModeIterateCustomObjects()
  * @objectName name of object to which this error applies, can be empty.
  * @throw WorkerException on error.
  */
-template <typename OUTCOMETYPE>
-void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
+template <typename R>
+void LocalWorker::s3ModeThrowOnError(const Aws::Utils::Outcome<R, Aws::S3::S3Error>& outcome, const std::string& failMessage,
     const std::string& bucketName, const std::string& objectName)
 {
-#ifndef S3_SUPPORT
-    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
-#else
 
     IF_LIKELY(outcome.IsSuccess() )
         return;
@@ -4127,8 +4125,8 @@ void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::stri
 
     throw WorkerException(errStr.str() );
 
-#endif // S3_SUPPORT
 }
+#endif // S3_SUPPORT
 
 /**
  * Add server-side encryption to s3 request.
