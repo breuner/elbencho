@@ -174,7 +174,7 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentialsProviderPtr =
         std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
-            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret() );
+            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret(), progArgs->getS3SessionToken());
 
     // if creds not given via config then use aws default way of loading them from profile config
     if(progArgs->getS3AccessKey().empty() )
