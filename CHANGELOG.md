@@ -4,9 +4,13 @@
 
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.580.
+* Moved libaio init from per-file init to general thread preparation phase to avoid init overhead for small file tests.
 
 ### Fixes
 * Fixed override of S3 credentials with given credential parameters if a aws profile exists in user home dir.
+
+### Contributors
+* Thanks to Avi Drabkin for contributions, helpful comments and suggestions.
 
 ## v3.0.27 (May 6, 2025)
 

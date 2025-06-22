@@ -25,6 +25,10 @@
 	#include <curand.h>
 #endif
 
+#ifdef LIBAIO_SUPPORT
+	#include <libaio.h>
+#endif
+
 #ifdef HDFS_SUPPORT
 	#include <hdfs.h>
 #endif
@@ -155,6 +159,16 @@ class LocalWorker : public Worker
 		hdfsFile hdfsFileHandle{NULL}; // currently open file on hdfs
 #endif
 
+#ifdef LIBAIO_SUPPORT
+        struct
+        { // init in initLibAio()
+            io_context_t ioContext = {};
+            std::vector<struct iocb> iocbVec;
+            std::vector<struct iocb*> iocbPointerVec;
+            std::vector<std::chrono::steady_clock::time_point> ioStartTimeVec;
+        } libaioContext;
+#endif // LIBAIO_SUPPORT
+
 		static SocketVec serverSocketVec; // singleton netbench server sockets for all local threads
 		BasicSocket* clientSocket{NULL}; // netbench socket for client
 
@@ -166,6 +180,8 @@ class LocalWorker : public Worker
 		void preparePhase();
 		void finishPhase();
 
+        void initLibAio();
+        void uninitLibAio();
 		void initS3Client();
 		void uninitS3Client();
 		void initHDFS();
