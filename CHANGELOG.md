@@ -2,6 +2,9 @@
 
 ## v3.0.28 (work in progress)
 
+### New Features & Enhancements
+* Experimental: Added support for S3 checksum algorithm selection. (See `--s3checksumalgo`.)
+
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.580.
 
