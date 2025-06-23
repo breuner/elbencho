@@ -179,6 +179,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3SSE_LONG              "s3sse"
 #define ARG_S3SSECKEY_LONG          "s3sseckey"
+#define ARG_S3CHECKSUM_ALGO_LONG   "s3checksumalgo"  // Parameter for x-amz-sdk-checksum-algorithm
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
@@ -536,6 +537,7 @@ class ProgArgs
 								via buffer possible, such as GPU copy or data verification) */
         bool useS3SSE; // use SSE-S3 encryption method for S3
         bool useStridedAccess; // use strided file access pattern for shared files
+		std::string s3ChecksumAlgoStr;  // Stores the S3 checksum algorithm value (e.g. "CRC32", "CRC32C", "SHA1", "SHA256")
 
 
 		void defineDefaults();
@@ -780,6 +782,7 @@ class ProgArgs
         uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }
         bool hasUserSetRWMixPercent() const { return useRWMixPercent; }
         bool hasUserSetRWMixReadThreads() const { return useRWMixReadThreads; }
+        std::string getS3ChecksumAlgo() const { return s3ChecksumAlgoStr; }
 
 		// setters for config options in alphabetic order...
 

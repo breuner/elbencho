@@ -152,6 +152,7 @@ class LocalWorker : public Worker
         std::string s3SSECKey; // SSE-C encryption key
         std::string s3SSECKeyMD5; // SSE-C encryption key MD5 hash
         std::string s3SSEKMSKey; // SSE-KMS encryption key
+		S3ChecksumAlgorithm s3ChecksumAlgorithm; // S3 checksum algorithm for x-amz-sdk-checksum-algorithm heade
 #endif
 
 #ifdef HDFS_SUPPORT
@@ -236,6 +237,8 @@ class LocalWorker : public Worker
 
         template <typename REQUESTTYPE>
             void s3ModeAddServerSideEncryption(REQUESTTYPE& request);
+        template <typename REQUESTTYPE>
+			inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request);
 		void s3ModeCreateBucket(std::string bucketName);
 		void s3ModeHeadBucket(std::string bucketName);
 		void s3ModeCreateBucketTagging(const std::string& bucketName);

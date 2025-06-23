@@ -468,6 +468,8 @@ void LocalWorker::initS3Client()
         s3SSECKeyMD5 = S3Tk::computeKeyMD5(s3SSECKey);
 
     s3SSEKMSKey = progArgs->getS3SSEKMSKey();
+    s3ChecksumAlgorithm = S3ChecksumAlgorithmMapper::GetChecksumAlgorithmForName(
+		progArgs->getS3ChecksumAlgo());
 
 #endif // S3_SUPPORT
 }
@@ -4179,6 +4181,17 @@ void LocalWorker::s3ModeAddServerSideEncryption(REQUESTTYPE& request)
 #endif // S3_SUPPORT
 }
 
+template <typename REQUESTTYPE>
+void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+    if(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+        request.WithChecksumAlgorithm(s3ChecksumAlgorithm);
+#endif // S3_SUPPORT
+}
+
 /**
  * Create given S3 bucket.
  *
@@ -4251,11 +4264,14 @@ void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
         }
     );
 
+    S3::PutBucketTaggingRequest taggingRequest;
+    taggingRequest.WithBucket(bucketName).WithTagging(tagging);
+
+    s3ModeAddChecksumAlgorithm(taggingRequest);
+
     OPLOG_PRE_OP("PutBucketTagging", bucketName, 0, 0);
 
-    const auto taggingOutcome = s3Client->PutBucketTagging(
-        S3::PutBucketTaggingRequest().WithBucket(bucketName).WithTagging(tagging)
-    );
+    const auto taggingOutcome = s3Client->PutBucketTagging(taggingRequest);
 
     OPLOG_POST_OP("PutBucketTagging", bucketName, 0, 0, !taggingOutcome.IsSuccess());
 
@@ -4595,6 +4611,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	    TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
 
     s3ModeAddServerSideEncryption(request);
+    s3ModeAddChecksumAlgorithm(request);
 
 	request.SetDataSentEventHandler(
 		[&](const Aws::Http::HttpRequest* request, long long numBytes)
@@ -4659,6 +4676,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	createMultipartUploadRequest.SetKey(objectName);
 
     s3ModeAddServerSideEncryption(createMultipartUploadRequest);
+    s3ModeAddChecksumAlgorithm(createMultipartUploadRequest);
 
     if(doS3AclPutInline)
         TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
@@ -4717,6 +4735,8 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
         if(s3NoMD5)
             uploadPartRequest.SetContentMD5("");
+
+        s3ModeAddChecksumAlgorithm(uploadPartRequest);
 
 		uploadPartRequest.SetBody(s3MemStream);
 
@@ -4905,6 +4925,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
         if(s3NoMD5)
             uploadPartRequest.SetContentMD5("");
+
+        s3ModeAddChecksumAlgorithm(uploadPartRequest);
 
 		uploadPartRequest.SetBody(s3MemStream);
 
@@ -5910,14 +5932,16 @@ void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::
         .WithKey(TAG_KEY_MEDIUM_NAME)
         .WithValue(StringTk::generateRandomS3TagValue(objectName, TAG_VALUE_MEDIUM_LEN));
 
+    S3::PutObjectTaggingRequest request;
+    request.WithBucket(bucketName)
+          .WithKey(objectName)
+          .WithTagging(S3::Tagging().AddTagSet(tag));
+
+    s3ModeAddChecksumAlgorithm(request);
+
     OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
 
-    auto putTagRequest = S3::PutObjectTaggingRequest()
-            .WithBucket(bucketName)
-            .WithKey(objectName)
-            .WithTagging(S3::Tagging().AddTagSet(tag));
-
-    const auto putTagOutcome = s3Client->PutObjectTagging(putTagRequest);
+    const auto putTagOutcome = s3Client->PutObjectTagging(request);
 
     OPLOG_POST_OP("PutObjectTagging", bucketName + "/" + objectName,
                   0, TAG_VALUE_MEDIUM_LEN, !putTagOutcome.IsSuccess());

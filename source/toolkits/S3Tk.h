@@ -12,6 +12,8 @@
     using S3Errors = Aws::S3Crt::S3CrtErrors;
     using S3ErrorType = Aws::S3Crt::S3CrtError;
     using S3ClientConfiguration = Aws::S3Crt::ClientConfiguration;
+    using S3ChecksumAlgorithm = Aws::S3Crt::Model::ChecksumAlgorithm;
+    namespace S3ChecksumAlgorithmMapper = Aws::S3Crt::Model::ChecksumAlgorithmMapper;
 #else
     #include INCLUDE_AWS_S3(S3Client.h)
 
@@ -20,6 +22,8 @@
     using S3Errors = Aws::S3::S3Errors;
     using S3ErrorType = Aws::S3::S3Error;
     using S3ClientConfiguration = Aws::Client::ClientConfiguration;
+    using S3ChecksumAlgorithm = Aws::S3::Model::ChecksumAlgorithm;
+    namespace S3ChecksumAlgorithmMapper = Aws::S3::Model::ChecksumAlgorithmMapper;
 #endif // S3_AWSCRT
 
 #endif // S3_SUPPORT

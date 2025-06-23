@@ -552,6 +552,9 @@ void ProgArgs::defineAllowedArgs()
 /*s3b*/	(ARG_S3BUCKETVERVERIFY_LONG, bpo::bool_switch(&this->doS3BucketVersioningVerify),
             "Verify the correctness of S3 bucket versioning settings. (Requires "
             "\"--" ARG_S3BUCKETVER_LONG "\")")
+/*s3c*/	(ARG_S3CHECKSUM_ALGO_LONG, bpo::value(&this->s3ChecksumAlgoStr),
+            "S3 checksum algorithm to use (CRC32, CRC32C, SHA1, SHA256). This sets the "
+            "x-amz-sdk-checksum-algorithm header for S3 operations. (EXPERIMENTAL)")
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -890,6 +893,7 @@ void ProgArgs::defineDefaults()
 	this->s3NoMpuCompletion = false;
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
+    this->s3ChecksumAlgoStr = "";  // Default to empty string (resolved as NOT_SET)
 }
 
 /**
@@ -3478,6 +3482,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3ACLVERIFY_LONG, doS3AclVerify);
 	outTree.put(ARG_S3BUCKETACLGET_LONG, runS3BucketAclGet);
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
+    outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
 	outTree.put(ARG_S3FASTGET_LONG, useS3FastRead);
 	outTree.put(ARG_S3IGNOREERRORS_LONG, ignoreS3Errors);
