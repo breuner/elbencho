@@ -2,6 +2,9 @@
 
 ## v3.0.28 (work in progress)
 
+### New Features & Enhancements
+* Added support for temporary credentials using AWS Session Tokens (See `--s3sessiontoken`.)
+
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.580.
 
