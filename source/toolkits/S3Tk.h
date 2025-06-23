@@ -10,6 +10,7 @@
     namespace S3 = Aws::S3Crt::Model;
     using S3Client = Aws::S3Crt::S3CrtClient;
     using S3Errors = Aws::S3Crt::S3CrtErrors;
+    using S3ErrorType = Aws::S3Crt::S3CrtError;
     using S3ClientConfiguration = Aws::S3Crt::ClientConfiguration;
 #else
     #include INCLUDE_AWS_S3(S3Client.h)

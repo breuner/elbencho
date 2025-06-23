@@ -214,7 +214,7 @@ class LocalWorker : public Worker
 
 #ifdef S3_SUPPORT
         template <typename R>
-        void s3ModeThrowOnError(const Aws::Utils::Outcome<R, Aws::S3::S3Error>& outcome, const std::string& failMessage,
+        void s3ModeThrowOnError(const Aws::Utils::Outcome<R, S3ErrorType>& outcome, const std::string& failMessage,
                                 const std::string& bucketName, const std::string& objectName="");
 #endif // S3_SUPPORT
 

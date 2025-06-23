@@ -4106,7 +4106,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
  */
 template <typename R>
 void LocalWorker::s3ModeThrowOnError(
-        const Aws::Utils::Outcome<R, Aws::S3::S3Error>& outcome,
+        const Aws::Utils::Outcome<R, S3ErrorType>& outcome,
         const std::string& failMessage,
         const std::string& bucketName,
         const std::string& objectName)
