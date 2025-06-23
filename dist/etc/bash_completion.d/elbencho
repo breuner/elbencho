@@ -151,6 +151,7 @@ _elbencho_opts()
         --s3randobj
         --s3region
         --s3secret
+        --s3sessiontoken
         --s3sseckey
         --s3statdirs
         --sendbuf
@@ -288,6 +289,8 @@ _elbencho()
         --s3region)
         ;&
         --s3secret)
+        ;&
+        --s3sessiontoken)
         ;&
         --s3sseckey)
         ;&

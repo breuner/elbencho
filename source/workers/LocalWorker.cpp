@@ -15,10 +15,6 @@
 	#include <cuda_runtime.h>
 #endif
 
-#ifdef LIBAIO_SUPPORT
-	#include <libaio.h>
-#endif
-
 #ifdef S3_SUPPORT
 	#include <aws/core/auth/AWSCredentialsProvider.h>
 	#include <aws/core/utils/HashingUtils.h>
@@ -380,6 +376,7 @@ void LocalWorker::preparePhase()
 
     prepareCustomTreePathStores();
 
+    initLibAio();
     initS3Client();
     initHDFS();
     initNetBench();
@@ -411,6 +408,43 @@ void LocalWorker::finishPhase()
 	phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
 
 	incNumWorkersDone();
+}
+
+void LocalWorker::initLibAio()
+{
+#ifdef LIBAIO_SUPPORT
+
+    const size_t maxIODepth = progArgs->getIODepth();
+
+    if(maxIODepth < 2)
+        return; // no libaio needed
+
+    libaioContext.ioContext = (io_context_t)0; // zeroing required by io_queue_init
+    libaioContext.iocbVec.resize(maxIODepth);
+    libaioContext.iocbPointerVec.resize(maxIODepth);
+    libaioContext.ioStartTimeVec.resize(maxIODepth);
+
+    int initRes = io_queue_init(maxIODepth, &libaioContext.ioContext);
+    IF_UNLIKELY(initRes)
+        throw WorkerException(std::string("Initializing async IO (io_queue_init) failed. ") +
+            "SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
+
+#endif // LIBAIO_SUPPORT
+}
+
+void LocalWorker::uninitLibAio()
+{
+#ifdef LIBAIO_SUPPORT
+
+    const size_t maxIODepth = progArgs->getIODepth();
+
+    if(maxIODepth < 2)
+        return; // no libaio needed
+
+    if(libaioContext.ioContext != NULL)
+	    io_queue_release(libaioContext.ioContext);
+
+#endif // LIBAIO_SUPPORT
 }
 
 /**
@@ -1454,6 +1488,7 @@ void LocalWorker::cleanup()
 	uninitNetBench();
 	uninitHDFS();
 	uninitS3Client();
+    uninitLibAio();
 
 	// reset custom tree mode path store
 	customTreeFiles.clear();
@@ -1689,18 +1724,8 @@ int64_t LocalWorker::aioBlockSized()
 	size_t numPending = 0; // num requests submitted and pending for completion
 	size_t numBytesDone = 0; // after successfully completed requests
 
-	io_context_t ioContext = {}; // zeroing required by io_queue_init
-	std::vector<struct iocb> iocbVec(maxIODepth);
-	std::vector<struct iocb*> iocbPointerVec(maxIODepth);
-	std::vector<std::chrono::steady_clock::time_point> ioStartTimeVec(maxIODepth);
 	struct io_event ioEvents[AIO_MAX_EVENTS];
 	struct timespec ioTimeout;
-
-	int initRes = io_queue_init(maxIODepth, &ioContext);
-	IF_UNLIKELY(initRes)
-		throw WorkerException(std::string("Initializing async IO (io_queue_init) failed. ") +
-			"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
-
 
 	// P H A S E 1: initial seed of io submissions up to full ioDepth
 
@@ -1718,38 +1743,37 @@ int64_t LocalWorker::aioBlockSized()
 
         const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
-		iocbPointerVec[ioVecIdx] = &iocbVec[ioVecIdx];
+		libaioContext.iocbPointerVec[ioVecIdx] = &libaioContext.iocbVec[ioVecIdx];
 
-		((*this).*funcAioRwPrepper)(&iocbVec[ioVecIdx], fd, ioBufVec[ioVecIdx], blockSize,
-			currentOffset);
-		iocbVec[ioVecIdx].data = (void*)ioVecIdx; /* the vec index of this request; ioctl.data
-						is caller's private data returned after io_getevents as ioEvents[].data */
+        ((*this).*funcAioRwPrepper)(&libaioContext.iocbVec[ioVecIdx], fd, ioBufVec[ioVecIdx],
+            blockSize, currentOffset);
+        libaioContext.iocbVec[ioVecIdx].data = (void*)ioVecIdx; /* the vec index of this request;
+            ioctl.data is caller's private data returned after io_getevents as ioEvents[].data */
 
 		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
-		ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
+		libaioContext.ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize,
 			currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
         FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
-            currentOffset, blockSize, iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
+            currentOffset, blockSize, libaioContext.iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
             false /*isUnlock*/, NULL);
 
-		int submitRes = io_submit(ioContext, 1, &iocbPointerVec[ioVecIdx] );
-		IF_UNLIKELY(submitRes != 1)
-		{
-	        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
-	            currentOffset, blockSize, true /*ignored*/, true /*isUnlock*/, NULL);
+        int submitRes = io_submit(libaioContext.ioContext, 1,
+            &libaioContext.iocbPointerVec[ioVecIdx] );
+        IF_UNLIKELY(submitRes != 1)
+        {
+            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+                currentOffset, blockSize, true /*ignored*/, true /*isUnlock*/, NULL);
 
-	        io_queue_release(ioContext);
-
-			throw WorkerException(std::string("Async IO submission (io_submit) failed. ") +
-				"NumRequests: " + std::to_string(numPending) + "; "
-				"ReturnCode: " + std::to_string(submitRes) + "; "
-				"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
-		}
+            throw WorkerException(std::string("Async IO submission (io_submit) failed. ") +
+                "NumRequests: " + std::to_string(numPending) + "; "
+                "ReturnCode: " + std::to_string(submitRes) + "; "
+                "SysErr: " + strerror(-submitRes) ); // (io_submit returns negative errno)
+        }
 
 		numPending++;
 		numIOPSSubmitted++;
@@ -1764,23 +1788,22 @@ int64_t LocalWorker::aioBlockSized()
 		ioTimeout.tv_sec = AIO_MAX_WAIT_SEC;
 		ioTimeout.tv_nsec = 0;
 
-		int eventsRes = io_getevents(ioContext, 1, AIO_MAX_EVENTS, ioEvents, &ioTimeout);
+        int eventsRes = io_getevents(libaioContext.ioContext, 1, AIO_MAX_EVENTS, ioEvents,
+            &ioTimeout);
 		IF_UNLIKELY(!eventsRes)
 		{ // timeout expired; that's ok, as we set a short timeout to check interruptions
-			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
+			checkInterruptionRequest();
 			continue;
 		}
 		else
 		IF_UNLIKELY(eventsRes < 0)
 		{
-			io_queue_release(ioContext);
-
 			throw WorkerException(std::string("Getting async IO events (io_getevents) failed. ") +
 				"NumPending: " + std::to_string(numPending) + "; "
 				"ReturnCode: " + std::to_string(eventsRes) + "; "
 				"Wait time: " + std::to_string(AIO_MAX_WAIT_SEC) + "; "
 				"Wait time left: " + std::to_string(ioTimeout.tv_sec) + "; "
-				"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
+				"SysErr: " + strerror(-eventsRes) ); // (io_getevents returns negative errno)
 		}
 
 		// check result of completed iocbs and reuse them if any blocks left to submit
@@ -1795,8 +1818,6 @@ int64_t LocalWorker::aioBlockSized()
 			IF_UNLIKELY(ioEvents[eventIdx].res2 ||
 				(ioEvents[eventIdx].res != ioEvents[eventIdx].obj->u.c.nbytes) )
 			{ // unexpected result
-	            io_queue_release(ioContext);
-
 				if(ioEvents[eventIdx].res2)
 					throw WorkerException(std::string("Async IO framework error. ") +
 						"NumPending: " + std::to_string(numPending) + "; "
@@ -1835,7 +1856,7 @@ int64_t LocalWorker::aioBlockSized()
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
 			std::chrono::microseconds ioElapsedMicroSec =
 				std::chrono::duration_cast<std::chrono::microseconds>
-				(ioEndT - ioStartTimeVec[ioVecIdx] );
+				(ioEndT - libaioContext.ioStartTimeVec[ioVecIdx] );
 
 			numBytesDone += ioEvents[eventIdx].res;
 
@@ -1854,7 +1875,7 @@ int64_t LocalWorker::aioBlockSized()
 				atomicLiveOps.numIOPSDone++;
 			}
 
-			checkInterruptionRequest( [&]() {io_queue_release(ioContext); } );
+			checkInterruptionRequest();
 
 			if(!rwOffsetGen->getNumBytesLeftToSubmit() )
 			{
@@ -1881,26 +1902,25 @@ int64_t LocalWorker::aioBlockSized()
 
 			((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
-			ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
+			libaioContext.ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
 			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
 				blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
-	        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
-	            currentOffset, blockSize, iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
-	            false /*isUnlock*/, NULL);
+            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+                currentOffset, blockSize,
+                libaioContext.iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
+                false /*isUnlock*/, NULL);
 
 			int submitRes = io_submit(
-				ioContext, 1, &iocbPointerVec[ioVecIdx] );
+				libaioContext.ioContext, 1, &libaioContext.iocbPointerVec[ioVecIdx] );
 			IF_UNLIKELY(submitRes != 1)
 			{
-				io_queue_release(ioContext);
-
 				throw WorkerException(std::string("Async IO resubmission (io_submit) failed. ") +
 					"NumRequests: " + std::to_string(numPending) + "; "
 					"ReturnCode: " + std::to_string(submitRes) + "; "
-					"SysErr: " + strerror(-initRes) ); // (io_queue_init returns negative errno)
+					"SysErr: " + strerror(-submitRes) ); // (io_submit returns negative errno)
 			}
 
 			numIOPSSubmitted++;
@@ -1909,8 +1929,6 @@ int64_t LocalWorker::aioBlockSized()
 		} // end of for loop to resubmit completed iocbs
 
 	} // end of while loop until all blocks completed
-
-	io_queue_release(ioContext);
 
 	return rwOffsetGen->getNumBytesTotal();
 
@@ -4097,6 +4115,7 @@ void LocalWorker::s3ModeIterateCustomObjects()
 #endif // S3_SUPPORT
 }
 
+#ifdef S3_SUPPORT
 /**
  * Throw an informative WorkerException if the s3 request outcome has the error flag set.
  *
@@ -4105,13 +4124,13 @@ void LocalWorker::s3ModeIterateCustomObjects()
  * @objectName name of object to which this error applies, can be empty.
  * @throw WorkerException on error.
  */
-template <typename OUTCOMETYPE>
-void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::string& failMessage,
-    const std::string& bucketName, const std::string& objectName)
+template <typename R>
+void LocalWorker::s3ModeThrowOnError(
+        const Aws::Utils::Outcome<R, S3ErrorType>& outcome,
+        const std::string& failMessage,
+        const std::string& bucketName,
+        const std::string& objectName)
 {
-#ifndef S3_SUPPORT
-    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
-#else
 
     IF_LIKELY(outcome.IsSuccess() )
         return;
@@ -4119,18 +4138,19 @@ void LocalWorker::s3ModeThrowOnError(const OUTCOMETYPE& outcome, const std::stri
     const auto s3Error = outcome.GetError();
 
     std::stringstream errStr;
-        errStr << failMessage << " " <<
-        "Endpoint: " << s3EndpointStr << "; " <<
-        "Bucket: " << bucketName << "; " <<
-        (objectName.empty() ? std::string("") : ("Object: " + objectName + "; ") ) <<
-        "Exception: " << s3Error.GetExceptionName() << "; " <<
-        "Message: " << s3Error.GetMessage() << "; " <<
-        "HTTP Error Code: " << (int)s3Error.GetResponseCode();
+        errStr << failMessage << std::endl <<
+        "Endpoint: " << s3EndpointStr << std::endl <<
+        "Bucket: " << bucketName << std::endl <<
+        (objectName.empty() ? std::string("") : ("Object: " + objectName + "\n" )) <<
+        "Exception: " << s3Error.GetExceptionName() << std::endl <<
+        "Message: " << s3Error.GetMessage() << std::endl <<
+        "HTTP Error Code: " << (int)s3Error.GetResponseCode() << std::endl <<
+        "Request ID: " << s3Error.GetRequestId() << std::endl;
 
-    throw WorkerException(errStr.str() );
+    throw WorkerException(errStr.str());
 
-#endif // S3_SUPPORT
 }
+#endif // S3_SUPPORT
 
 /**
  * Add server-side encryption to s3 request.
@@ -4670,8 +4690,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		!createMultipartUploadOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() && !ignoreS3Errors)
-        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.",
-            bucketName, objectName);
+        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.", bucketName, objectName);
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
 

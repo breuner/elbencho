@@ -175,6 +175,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3OBJTAGVERIFY_LONG     "s3otagverify"
 #define ARG_S3RANDOBJ_LONG			"s3randobj"
 #define ARG_S3REGION_LONG			"s3region"
+#define ARG_S3SESSION_TOKEN_LONG	"s3sessiontoken"
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3SSE_LONG              "s3sse"
 #define ARG_S3SSECKEY_LONG          "s3sseckey"
@@ -480,6 +481,7 @@ class ProgArgs
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
 		std::string s3Region; // s3 region
+        std::string s3SessionToken; // s3 session token (same as secret token)
 		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
         std::string s3SSECKey;  // S3 SSE-C key for encryption
         std::string s3SSEKMSKey;  // S3 SSE-KMS key for encryption
@@ -732,6 +734,7 @@ class ProgArgs
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
         std::string getS3Region() const { return s3Region; }
+        std::string getS3SessionToken() const { return s3SessionToken; }
         unsigned short getS3SignPolicy() const { return s3SignPolicy; }
         std::string getS3SSECKey() const { return s3SSECKey; }
         std::string getS3SSEKMSKey() const { return s3SSEKMSKey; }
