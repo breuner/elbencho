@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.28 (work in progress)
+## v3.0.29 (July 5, 2025)
 
 ### New Features & Enhancements
 * Added support for temporary credentials using AWS Session Tokens (See `--s3sessiontoken`.)
