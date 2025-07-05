@@ -165,7 +165,6 @@ namespace bpt = boost::property_tree;
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
 #define ARG_S3MULTI_IGNORE_404      "s3multiignore404"
 #define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
-#define ARG_S3NOMD5_LONG            "s3nomd5"
 #define ARG_S3NOMPCHECK_LONG		"s3nompcheck"
 #define ARG_S3NOMPUCOMPLETION_LONG  "s3nompucompl"
 #define ARG_S3OBJECTPREFIX_LONG		"s3objprefix"
@@ -477,12 +476,12 @@ class ProgArgs
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
 		bool s3NoCompression; // disable request compression of aws sdk cpp
-        bool s3NoMD5Checksum; // set empty md5 checksum for uploads
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
 		std::string s3Region; // s3 region
         std::string s3SessionToken; // s3 session token (same as secret token)
-		unsigned short s3SignPolicy; // Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy
+		unsigned short s3SignPolicy; /* Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy; note:
+			"2=never" is ignored, because as of aws sdk cpp v1.11.486 signing is always done. */
         std::string s3SSECKey;  // S3 SSE-C key for encryption
         std::string s3SSEKMSKey;  // S3 SSE-KMS key for encryption
 		unsigned short servicePort; // HTTP/TCP port for service
@@ -729,7 +728,6 @@ class ProgArgs
         unsigned short getS3LogLevel() const { return s3LogLevel; }
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
         bool getS3NoCompression() const { return s3NoCompression; };
-        bool getS3NoMD5Checksum() const { return s3NoMD5Checksum; };
         bool getS3NoMpuCompletion() const { return s3NoMpuCompletion; };
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }

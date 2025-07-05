@@ -380,9 +380,9 @@ void ProgArgs::defineAllowedArgs()
 //             "will be appended. This must not be the same file that is given as \"--"
 //             ARG_JSONFILE_LONG "\".")
 // /*liv*/	(ARG_JSONLIVEEXTENDED_LONG, bpo::bool_switch(&this->useExtendedLiveJSON),
-//             "Use extended live results json file. By default, only aggregate results of all worker "
-//             "threads will be added. This option also adds results of individual threads in "
-//             "standalone mode or results of individual services in distributed mode.")
+//             "Use extended live results json file. By default, only aggregate results of all "
+//             "worker threads will be added. This option also adds results of individual threads "
+//             "in standalone mode or results of individual services in distributed mode.")
 /*lo*/	(ARG_LOGLEVEL_LONG, bpo::value(&this->logLevel),
 			"Log level. (Default: 0; Verbose: 1; Debug: 2)")
 /*ma*/	(ARG_MADVISE_LONG, bpo::value(&this->madviseFlagsOrigStr),
@@ -564,8 +564,8 @@ void ProgArgs::defineAllowedArgs()
 			"is incompatible with any buffer post-processing options like data verification or "
 			"GPU data transfer.")
 /*s3f*/ (ARG_S3FASTPUT_LONG,
-            "Reduce CPU overhead on uploads. Enables \"--" ARG_S3SIGNPAYLOAD_LONG "=2 (never)\", "
-            "\"--" ARG_S3NOMD5_LONG "\", \"--" ARG_S3NOCOMPRESS_LONG "\".")
+            "Reduce CPU overhead for uploads. Enables \"--" ARG_S3SIGNPAYLOAD_LONG "=2 (never)\", "
+            "\"--" ARG_S3NOCOMPRESS_LONG "\".")
 /*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
@@ -606,8 +606,6 @@ void ProgArgs::defineAllowedArgs()
             "Enabling this will ignore 404 HTTP errors in CompleteMultiPartUpload responses.")
 /*s3n*/ (ARG_S3NOCOMPRESS_LONG, bpo::bool_switch(&this->s3NoCompression),
             "Disable S3 request compression.")
-/*s3n*/ (ARG_S3NOMD5_LONG, bpo::bool_switch(&this->s3NoMD5Checksum),
-            "Set empty MD5 checksum for S3 upload requests.")
 /*s3n*/	(ARG_S3NOMPCHECK_LONG, bpo::bool_switch(&this->ignoreS3PartNum),
 			"Don't check for S3 multi-part uploads exceeding 10,000 parts.")
 /*s3n*/ (ARG_S3NOMPUCOMPLETION_LONG, bpo::bool_switch(&this->s3NoMpuCompletion),
@@ -640,9 +638,12 @@ void ProgArgs::defineAllowedArgs()
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
 			"S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
 /*s3s*/	(ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
-             "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN " env variable.)")
+             "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN
+			 " env variable.)")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
-			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Default: 0.")
+			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Changing this to "
+			"'Never' has no effect with current S3 SDK as described in Github issue 3297. "
+			"(Default: 0)")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
             "Do bucket Stats.")
 #endif // S3_SUPPORT
@@ -889,7 +890,6 @@ void ProgArgs::defineDefaults()
     this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
 	this->s3NoCompression = false;
-	this->s3NoMD5Checksum = false;
 	this->s3NoMpuCompletion = false;
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
@@ -997,7 +997,6 @@ void ProgArgs::initImplicitValues()
     {
         s3SignPolicy = 2; /* Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never */
         s3NoCompression = true;
-        s3NoMD5Checksum = true;
     }
 
     if(!treeScanPath.empty() && treeFilePath.empty() )
@@ -3337,7 +3336,6 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3AclGranteeType = tree.get<std::string>(ARG_S3ACLGRANTEETYPE_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
-    s3NoMD5Checksum = tree.get<bool>(ARG_S3NOMD5_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
@@ -3492,7 +3490,6 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
     outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
-    outTree.put(ARG_S3NOMD5_LONG, s3NoMD5Checksum);
     outTree.put(ARG_S3NOMPUCOMPLETION_LONG, s3NoMpuCompletion);
     outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);

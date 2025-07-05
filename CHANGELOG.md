@@ -9,6 +9,7 @@
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.580.
 * Moved libaio init from per-file init to general thread preparation phase to avoid init overhead for small file tests.
+* Removed "--s3nomd5" option. Not setting MD5 checksum is the default now with the latest AWS SDK CPP, which always signs requests as described here: https://github.com/aws/aws-sdk-cpp/blob/main/docs/MD5ChecksumFallback.md
 
 ### Fixes
 * Fixed override of S3 credentials with given credential parameters if a aws profile exists in user home dir.

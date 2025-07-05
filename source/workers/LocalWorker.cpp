@@ -4575,7 +4575,6 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
-    const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
 
 	std::shared_ptr<Aws::IOStream> s3MemStream;
 	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
@@ -4600,9 +4599,6 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	request.WithBucket(bucketName)
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
-
-	if(s3NoMD5)
-	    request.SetContentMD5("");
 
 	if(blockSize)
 		request.SetBody(s3MemStream);
@@ -4666,7 +4662,6 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
-    const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
 
 	// S T E P 1: retrieve multipart upload ID from server
@@ -4732,9 +4727,6 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
             uploadPartRequest.WithSSECustomerAlgorithm("AES256")
                     .WithSSECustomerKey(s3SSECKey)
                     .WithSSECustomerKeyMD5(s3SSECKeyMD5);
-
-        if(s3NoMD5)
-            uploadPartRequest.SetContentMD5("");
 
         s3ModeAddChecksumAlgorithm(uploadPartRequest);
 
@@ -4882,7 +4874,6 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-    const bool s3NoMD5 = progArgs->getS3NoMD5Checksum();
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
 
 	// S T E P 1: retrieve multipart upload ID from server
@@ -4922,9 +4913,6 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			.WithUploadId(uploadID)
 			.WithPartNumber(currentPartNum)
 			.WithContentLength(blockSize);
-
-        if(s3NoMD5)
-            uploadPartRequest.SetContentMD5("");
 
         s3ModeAddChecksumAlgorithm(uploadPartRequest);
 
