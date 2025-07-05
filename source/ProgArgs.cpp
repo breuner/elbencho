@@ -316,10 +316,10 @@ void ProgArgs::defineAllowedArgs()
 			"LIBHDFS_OPTS=\"-Xrs -Xms20g\".)")
 #endif
 /*ho*/	(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
-			"Comma-separated list of hosts in service mode for coordinated benchmark. When this "
-			"argument is used, this program instance runs in master mode to coordinate the given "
-			"service mode hosts. The given number of threads, dirs and files is per-host then. "
-			"(Format: hostname[:port])")
+			"List of hosts in service mode (separated by comma, space, or newline) for coordinated "
+			"benchmark. When this argument is used, this program instance runs in master mode to "
+			"coordinate the given service mode hosts. The given number of threads, dirs and files "
+			"is per-service then. (Format: hostname[:port])")
 /*ho*/	(ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
 			"Path to file containing line-separated service hosts to use for benchmark. Lines "
 			"starting with \"#\" will be ignored. (Format: hostname[:port])")
@@ -818,7 +818,7 @@ void ProgArgs::defineDefaults()
 	this->rwMixReadPercent = 0;
 	this->useRWMixPercent = false;
 	this->blockVarianceAlgo = RANDALGO_FAST_STR;
-	this->randOffsetAlgo = RANDALGO_BALANCED_SEQUENTIAL_STR; /* empty means full coverage for
+	this->randOffsetAlgo = ""; /* empty means full coverage for
         writes, balanced_single for reads, but we currently don't want to use full coverage algo */
 	this->fileShareSize = 0;
 	this->fileShareSizeOrigStr = "0";
@@ -2785,9 +2785,9 @@ void ProgArgs::printHelpBlockDev()
     std::cout <<
     	"Examples:" ENDL
 		"  Sequentially write 4 large files and test random read IOPS for max 20 seconds:" ENDL
-		"    $ " EXE_NAME " -w -b 4M -t 16 --direct -s 20g /mnt/myfs/file{1..4}" ENDL
+		"    $ " EXE_NAME " -w -b 4M -t 16 --direct -s 20g \"/mnt/myfs/file[1-4]\"" ENDL
 		"    $ " EXE_NAME " -r -b 4k -t 16 --iodepth 16 --direct --rand --timelimit 20 \\" ENDL
-		"        /mnt/myfs/file{1..4}" ENDL
+		"        \"/mnt/myfs/file[1-4]\"" ENDL
 		std::endl <<
 		"  Test 4KiB multi-threaded write IOPS of devices /dev/nvme0n1 & /dev/nvme1n1:" ENDL
 		"    $ " EXE_NAME " -w -b 4K -t 16 --iodepth 16 --direct --rand \\" ENDL
@@ -3032,7 +3032,7 @@ void ProgArgs::printHelpS3()
 		std::endl <<
 		"  Shared upload of 4 1GiB objects via 8 threads in 16MiB blocks:" ENDL
 		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
-		"        -w -t 8 -s 1g -b 16m mybucket/myobject{1..4}" <<
+		"        -w -t 8 -s 1g -b 16m \"mybucket/myobject[1-4]\"" <<
 		std::endl;
 }
 
@@ -3057,10 +3057,10 @@ void ProgArgs::printHelpDistributed()
 
 	argsDistributedBasicDescription.add_options()
 		(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
-			"Comma-separated list of hosts in service mode for coordinated benchmark. When this "
-			"argument is used, this program instance runs in master mode to coordinate the given "
-			"service mode hosts. The given number of threads, dirs and files is per-service then. "
-			"(Format: hostname[:port])")
+			"List of hosts in service mode (separated by comma, space, or newline) for coordinated "
+			"benchmark. When this argument is used, this program instance runs in master mode to "
+			"coordinate the given service mode hosts. The given number of threads, dirs and files "
+			"is per-service then. (Format: hostname[:port])")
 		(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
 			"Run as service for distributed mode, waiting for requests from master.")
 		(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
@@ -3111,11 +3111,11 @@ void ProgArgs::printHelpDistributed()
 		std::endl <<
 		"  Run distributed test on node001 and node002, using 4 threads per service" ENDL
 		"  instance and creating 8 dirs per thread, each containing 16 1MiB files:" ENDL
-		"    $ " EXE_NAME " --hosts node001,node002 \\" ENDL
+		"    $ " EXE_NAME " --hosts \"node00[1-2]\" \\" ENDL
 		"        -t 4 -d -n 8 -w -N 16 -s 1M /data/testdir" ENDL
 		std::endl <<
-		"  Quit services on host node001 and node002:" ENDL
-		"    $ " EXE_NAME " --hosts node001,node002 --quit" <<
+		"  Quit services on host IPs 192.168.0.1 and 192.168.0.3:" ENDL
+		"    $ " EXE_NAME " --hosts \"192.168.0.[1,3]\" --quit" <<
 		std::endl;
 }
 

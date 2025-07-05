@@ -1078,7 +1078,7 @@ void LocalWorker::initPhaseRWOffsetGen()
 	            fileSize, 0, blockSize);
 	    else
 	    { // random aligned writes without explicit algo selection => use full coverage algo
-	        rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverage>(
+	        rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverageV2>(
 	            randomAmount, fileSize, 0, blockSize);
 	    }
 	} // end of random aligned
@@ -3385,7 +3385,7 @@ void LocalWorker::fileModeIterateFilesRand()
             rangeLen, rangeOffset, blockSize);
     else
     { // random aligned writes without explicit algo selection => use full coverage algo
-        rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverage>(
+        rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverageV2>(
             randomAmount, rangeLen, rangeOffset, blockSize);
     }
 
@@ -4188,7 +4188,7 @@ void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request)
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
     if(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
-        request.WithChecksumAlgorithm(s3ChecksumAlgorithm);
+        request.SetChecksumAlgorithm(s3ChecksumAlgorithm);
 #endif // S3_SUPPORT
 }
 
@@ -4741,16 +4741,11 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize);
 
-		/* start part upload (note: "callable" returns a future to the op so that it can be executed
-			in parallel to other requests) */
-		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
+		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
 
 		/* note: there is no way to tell the server about the offset of a part within an object, so
 			concurrent part uploads might add overhead on completion for the S3 server to assemble
 			the full object in correct parts order. */
-
-		// wait for part upload to finish
-		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
 
 		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize,
 			!uploadPartOutcome.IsSuccess() );
@@ -4927,16 +4922,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
-		/* start part upload (note: "callable" returns a future to the op so that it can be executed
-			in parallel to other requests) */
-		auto uploadPartOutcomeCallable = s3Client->UploadPartCallable(uploadPartRequest);
+		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
 
 		/* note: there is no way to tell the server about the offset of a part within an object, so
 			concurrent part uploads might add overhead on completion for the S3 server to assemble
 			the full object in correct parts order. */
-
-		// wait for part upload to finish
-		S3::UploadPartOutcome uploadPartOutcome = uploadPartOutcomeCallable.get();
 
 		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
 			!uploadPartOutcome.IsSuccess() );

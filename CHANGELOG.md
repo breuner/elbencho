@@ -15,7 +15,7 @@
 * Fixed override of S3 credentials with given credential parameters if a aws profile exists in user home dir.
 
 ### Contributors
-* Thanks to Avi Drabkin for contributions, helpful comments and suggestions.
+* Thanks to Avi Drabkin, Michael Shustin for contributions, helpful comments and suggestions.
 
 ## v3.0.27 (May 6, 2025)
 

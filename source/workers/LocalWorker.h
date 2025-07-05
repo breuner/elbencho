@@ -10,8 +10,9 @@
 #include <unistd.h>
 
 #include "CuFileHandleData.h"
-#include "OffsetGenerator.h"
 #include "toolkits/net/BasicSocket.h"
+#include "toolkits/offsetgen/OffsetGenerator.h"
+#include "toolkits/offsetgen/OffsetGenRandomAlignedFullCoverageV2.h"
 #include "toolkits/OpsLogger.h"
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
