@@ -39,9 +39,9 @@ Miscellaneous Options:
 
 Examples:
   Sequentially write 4 large files and test random read IOPS for max 20 seconds:
-    $ elbencho -w -b 4M -t 16 --direct -s 20g /mnt/myfs/file{1..4}
+    $ elbencho -w -b 4M -t 16 --direct -s 20g "/mnt/myfs/file[1-4]"
     $ elbencho -r -b 4k -t 16 --iodepth 16 --direct --rand --timelimit 20 \
-        /mnt/myfs/file{1..4}
+        "/mnt/myfs/file[1-4]"
 
   Test 4KiB multi-threaded write IOPS of devices /dev/nvme0n1 & /dev/nvme1n1:
     $ elbencho -w -b 4K -t 16 --iodepth 16 --direct --rand \

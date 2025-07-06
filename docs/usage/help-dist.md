@@ -16,12 +16,12 @@ Usage:
   $ elbencho --hosts HOST_1,...,HOST_N --quit
 
 Basic Options:
-  --hosts arg           Comma-separated list of hosts in service mode for 
-                        coordinated benchmark. When this argument is used, this
-                        program instance runs in master mode to coordinate the 
-                        given service mode hosts. The given number of threads, 
-                        dirs and files is per-service then. (Format: 
-                        hostname[:port])
+  --hosts arg           List of hosts in service mode (separated by comma, 
+                        space, or newline) for coordinated benchmark. When this
+                        argument is used, this program instance runs in master 
+                        mode to coordinate the given service mode hosts. The 
+                        given number of threads, dirs and files is per-service 
+                        then. (Format: hostname[:port])
   --service             Run as service for distributed mode, waiting for 
                         requests from master.
   --quit                Quit services on given service mode hosts.
@@ -54,9 +54,9 @@ Examples:
 
   Run distributed test on node001 and node002, using 4 threads per service
   instance and creating 8 dirs per thread, each containing 16 1MiB files:
-    $ elbencho --hosts node001,node002 \
+    $ elbencho --hosts "node00[1-2]" \
         -t 4 -d -n 8 -w -N 16 -s 1M /data/testdir
 
-  Quit services on host node001 and node002:
-    $ elbencho --hosts node001,node002 --quit
+  Quit services on host IPs 192.168.0.1 and 192.168.0.3:
+    $ elbencho --hosts "192.168.0.[1,3]" --quit
 </code></pre>

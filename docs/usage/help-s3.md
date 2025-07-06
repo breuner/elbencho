@@ -15,6 +15,8 @@ S3 Service Arguments:
                         AWS_ACCESS_KEY_ID env variable.)
   --s3secret arg        S3 access secret. (This can also be set via the 
                         AWS_SECRET_ACCESS_KEY env variable.)
+  --s3sessiontoken arg  S3 session token. (Optional. This can also be set via 
+                        the AWS_SESSION_TOKEN env variable.)
 
 Basic Options:
   -d [ --mkdirs ]       Create buckets. (Already existing buckets are not 
@@ -77,5 +79,5 @@ Examples:
 
   Shared upload of 4 1GiB objects via 8 threads in 16MiB blocks:
     $ elbencho --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \
-        -w -t 8 -s 1g -b 16m mybucket/myobject{1..4}
+        -w -t 8 -s 1g -b 16m "mybucket/myobject[1-4]"
 </code></pre>

@@ -119,12 +119,12 @@ All options in alphabetical order:
                           one GPU per service) instead of default round robin 
                           to threads (i.e. multiple GPUs per service, if 
                           multiple given).
-  --hosts arg             Comma-separated list of hosts in service mode for 
-                          coordinated benchmark. When this argument is used, 
-                          this program instance runs in master mode to 
-                          coordinate the given service mode hosts. The given 
-                          number of threads, dirs and files is per-host then. 
-                          (Format: hostname[:port])
+  --hosts arg             List of hosts in service mode (separated by comma, 
+                          space, or newline) for coordinated benchmark. When 
+                          this argument is used, this program instance runs in 
+                          master mode to coordinate the given service mode 
+                          hosts. The given number of threads, dirs and files is
+                          per-service then. (Format: hostname[:port])
   --hostsfile arg         Path to file containing line-separated service hosts 
                           to use for benchmark. Lines starting with "#" will be
                           ignored. (Format: hostname[:port])
@@ -334,6 +334,9 @@ All options in alphabetical order:
   --s3bversion            Activate bucket versioning operations.
   --s3bversionverify      Verify the correctness of S3 bucket versioning 
                           settings. (Requires "--s3bversion")
+  --s3checksumalgo arg    S3 checksum algorithm to use (CRC32, CRC32C, SHA1, 
+                          SHA256). This sets the x-amz-sdk-checksum-algorithm 
+                          header for S3 operations. (EXPERIMENTAL)
   --s3endpoints arg       Comma-separated list of S3 endpoints. When this 
                           argument is used, the given benchmark paths are used 
                           as bucket names. Also see "--s3key" & "--s3secret". 
@@ -342,8 +345,8 @@ All options in alphabetical order:
                           of a memory buffer. This option is incompatible with 
                           any buffer post-processing options like data 
                           verification or GPU data transfer.
-  --s3fastput             Reduce CPU overhead on uploads. Enables "--s3sign=2 
-                          (never)", "--s3nomd5", "--s3nocompress".
+  --s3fastput             Reduce CPU overhead for uploads. Enables "--s3sign=2 
+                          (never)", "--s3nocompress".
   --s3ignoreerrors        Ignore any S3 upload/download errors. Useful for 
                           stress-testing.
   --s3key arg             S3 access key. (This can also be set via the 
@@ -385,7 +388,6 @@ All options in alphabetical order:
                           beforehand. Enabling this will ignore 404 HTTP errors
                           in CompleteMultiPartUpload responses.
   --s3nocompress          Disable S3 request compression.
-  --s3nomd5               Set empty MD5 checksum for S3 upload requests.
   --s3nompcheck           Don't check for S3 multi-part uploads exceeding 
                           10,000 parts.
   --s3nompucompl          Don't send completion message after uploading all 
@@ -409,8 +411,12 @@ All options in alphabetical order:
   --s3region arg          S3 region.
   --s3secret arg          S3 access secret. (This can also be set via the 
                           AWS_SECRET_ACCESS_KEY env variable.)
+  --s3sessiontoken arg    S3 session token. (Optional. This can also be set via
+                          the AWS_SESSION_TOKEN env variable.)
   --s3sign arg            S3 payload signing policy. 0=RequestDependent, 
-                          1=Always, 2=Never. Default: 0.
+                          1=Always, 2=Never. Changing this to 'Never' has no 
+                          effect with current S3 SDK as described in Github 
+                          issue 3297. (Default: 0)
   --s3statdirs            Do bucket Stats.
   --sendbuf arg           In netbench mode, this sets the send buffer size of 
                           sockets in bytes. (Supports base2 suffixes, e.g. 

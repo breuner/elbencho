@@ -5,14 +5,15 @@
 ### New Features & Enhancements
 * Added support for temporary credentials using AWS Session Tokens (See `--s3sessiontoken`.)
 * Experimental: Added support for S3 checksum algorithm selection. (See `--s3checksumalgo`.)
+* Random writes now use a new LCG-based algorithm by default to achieve maximum coverage of block offsets in a single pass. This is a much improved version in comparison to the previous LCG algo that was introduced in v3.0.19 and got removed in v3.0.27 because of corner cases that lead to sequences not being random enough. (`--randalgo balanced_single` can be used to select the old random number generator from before v3.0.19, which is still the default for read offsets.)
 
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.580.
-* Moved libaio init from per-file init to general thread preparation phase to avoid init overhead for small file tests.
+* Moved libaio init code to not be called for each new file, but rather only once per thread during preparation phase. This avoids init overhead when using `--iopdepth` in tests with lots of small files.
 * Removed "--s3nomd5" option. Not setting MD5 checksum is the default now with the latest AWS SDK CPP, which always signs requests as described here: https://github.com/aws/aws-sdk-cpp/blob/main/docs/MD5ChecksumFallback.md
 
 ### Fixes
-* Fixed override of S3 credentials with given credential parameters if a aws profile exists in user home dir.
+* Fixed override of S3 credentials with given credential parameters if a AWS profile exists in user home dir.
 
 ### Contributors
 * Thanks to Avi Drabkin, Michael Shustin for contributions, helpful comments and suggestions.
