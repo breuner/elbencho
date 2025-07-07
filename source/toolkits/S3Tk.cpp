@@ -13,7 +13,6 @@
     #include <aws/core/auth/AWSCredentialsProviderChain.h>
     #include <aws/core/Aws.h>
     #include <aws/core/utils/crypto/MD5.h>
-    #include <aws/core/utils/HashingUtils.h>
     #include <aws/core/utils/logging/DefaultLogSystem.h>
     #include <aws/core/utils/logging/AWSLogging.h>
     #include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
@@ -205,10 +204,6 @@ Aws::String S3Tk::computeKeyMD5(const Aws::String& encodedKey)
 
     return Aws::Utils::HashingUtils::Base64Encode(md5Hash.GetResult() );
 }
-
-#endif // S3_SUPPORT
-
-#ifdef S3_SUPPORT
 
 /**
  *  List all entries under the given S3 path and write them to the given file in custom tree file

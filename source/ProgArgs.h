@@ -17,9 +17,9 @@ namespace bpo = boost::program_options;
 namespace bpt = boost::property_tree;
 
 /* command line args and config file options (sorted alphabetically by "ARG_..." column).
-	note: keep length of "_LONG" argument names without parameters within a max length of 16 chars
-		and "_LONG" arguments with parameters to a max of 12 chars, as the description column
-		in the help output otherwise gets too small. */
+    note: keep length of "_LONG" argument names without parameters within a max length of 16 chars
+        and "_LONG" arguments with parameters to a max of 12 chars, as the description column
+        in the help output otherwise gets too small. */
 #define ARG_ALTHTTPSERVER_LONG		"althttpsvc"
 #define ARG_BENCHLABEL_LONG			"label"
 #define ARG_BENCHPATHS_LONG			"path"
@@ -178,7 +178,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3SIGNPAYLOAD_LONG		"s3sign"
 #define ARG_S3SSE_LONG              "s3sse"
 #define ARG_S3SSECKEY_LONG          "s3sseckey"
-#define ARG_S3CHECKSUM_ALGO_LONG   "s3checksumalgo"  // Parameter for x-amz-sdk-checksum-algorithm
+#define ARG_S3CHECKSUM_ALGO_2_LONG  "s3checksumalgo"  // compat alias (too long name)
+#define ARG_S3CHECKSUM_ALGO_LONG    "s3chksumalgo"  // parameter for x-amz-sdk-checksum-algorithm
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"

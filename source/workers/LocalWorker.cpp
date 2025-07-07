@@ -19,9 +19,6 @@
 	#include <aws/core/auth/AWSCredentialsProvider.h>
 	#include <aws/core/utils/HashingUtils.h>
 	#include <aws/core/utils/memory/stl/AWSString.h>
-	#include <aws/core/utils/memory/AWSMemory.h>
-	#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
-	#include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 	#include <aws/core/utils/StringUtils.h>
 	#include <aws/core/utils/threading/Executor.h>
 	#include <aws/core/utils/UUID.h>
@@ -84,20 +81,6 @@
     #endif
 
     S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
-
-	/**
-	 * Aws::IOStream derived in-memory stream implementation for S3 object upload/download. The
-	 * actual in-memory part comes from the streambuf that gets provided to the constructor.
-	 */
-	class S3MemoryStream : public Aws::IOStream
-	{
-		public:
-			using Base = Aws::IOStream;
-
-			S3MemoryStream(std::streambuf *buf) : Base(buf) {}
-
-			virtual ~S3MemoryStream() = default;
-	};
 #endif // S3_SUPPORT
 
 
@@ -463,13 +446,38 @@ void LocalWorker::initS3Client()
 	s3Client = S3Tk::initS3Client(progArgs, workerRank, &s3EndpointStr);
 
     useS3SSE = progArgs->getUseS3SSE();
+
     s3SSECKey = progArgs->getS3SSECKey();
     if(!s3SSECKey.empty() )
         s3SSECKeyMD5 = S3Tk::computeKeyMD5(s3SSECKey);
 
     s3SSEKMSKey = progArgs->getS3SSEKMSKey();
-    s3ChecksumAlgorithm = S3ChecksumAlgorithmMapper::GetChecksumAlgorithmForName(
-		progArgs->getS3ChecksumAlgo());
+
+    if(progArgs->getS3ChecksumAlgo().empty() )
+        s3ChecksumAlgorithm = S3ChecksumAlgorithm::NOT_SET;
+    else
+    {
+        /* GetChecksumAlgorithmForName returns hash value for invalid algo names, so we need to
+            confirm the algo by checking the valid algo enum values. */
+
+        s3ChecksumAlgorithm = S3ChecksumAlgorithmMapper::GetChecksumAlgorithmForName(
+            progArgs->getS3ChecksumAlgo() );
+
+        switch(s3ChecksumAlgorithm)
+        {
+            case S3ChecksumAlgorithm::CRC32:
+            case S3ChecksumAlgorithm::CRC32C:
+            case S3ChecksumAlgorithm::SHA1:
+            case S3ChecksumAlgorithm::SHA256:
+            //case S3ChecksumAlgorithm::CRC64NVME: // crc64nvme not supported by aws sdk currently
+                // because of missing uploadPartRequest.SetChecksumCRC64NVME for
+                // S3Tk::addUploadPartRequestChecksum()
+                break;
+            default:
+                throw WorkerException(std::string("Invalid S3 checksum algorithm: ") +
+                    progArgs->getS3ChecksumAlgo() );
+        }
+    }
 
 #endif // S3_SUPPORT
 }
@@ -4187,7 +4195,7 @@ void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request)
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
-    if(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+    IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
         request.SetChecksumAlgorithm(s3ChecksumAlgorithm);
 #endif // S3_SUPPORT
 }
@@ -4600,21 +4608,24 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
 
-	if(blockSize)
-		request.SetBody(s3MemStream);
+    if(blockSize)
+        request.SetBody(s3MemStream);
 
-	if(doS3AclPutInline)
-	    TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
+    if(doS3AclPutInline)
+        TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
 
     s3ModeAddServerSideEncryption(request);
-    s3ModeAddChecksumAlgorithm(request);
 
-	request.SetDataSentEventHandler(
-		[&](const Aws::Http::HttpRequest* request, long long numBytes)
-		{ atomicLiveOps.numBytesDone += numBytes; } );
+    IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+        S3Tk::addUploadPartRequestChecksum(request, NULL,
+            s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
 
-	request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-		{ return !isInterruptionRequested.load(); } );
+    request.SetDataSentEventHandler(
+        [&](const Aws::Http::HttpRequest* request, long long numBytes)
+        { atomicLiveOps.numBytesDone += numBytes; } );
+
+    request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+        { return !isInterruptionRequested.load(); } );
 
 	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -4715,6 +4726,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		// prepare part upload
 
+		S3::CompletedPart completedPart;
 		S3::UploadPartRequest uploadPartRequest;
 		uploadPartRequest.WithBucket(bucketName)
 			.WithKey(objectName)
@@ -4728,7 +4740,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
                     .WithSSECustomerKey(s3SSECKey)
                     .WithSSECustomerKeyMD5(s3SSECKeyMD5);
 
-        s3ModeAddChecksumAlgorithm(uploadPartRequest);
+        IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+            S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
+                s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
 
 		uploadPartRequest.SetBody(s3MemStream);
 
@@ -4773,7 +4787,6 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		// mark part as completed
 
-		S3::CompletedPart completedPart;
 		completedPart.SetPartNumber(currentPartNum);
 		auto partETag = uploadPartOutcome.GetResult().GetETag();
 		completedPart.SetETag(partETag);
@@ -4902,6 +4915,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		// prepare part upload
 
+		S3::CompletedPart completedPart;
 		S3::UploadPartRequest uploadPartRequest;
 		uploadPartRequest.WithBucket(bucketName)
 			.WithKey(objectName)
@@ -4909,7 +4923,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			.WithPartNumber(currentPartNum)
 			.WithContentLength(blockSize);
 
-        s3ModeAddChecksumAlgorithm(uploadPartRequest);
+        IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+            S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
+                s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
 
 		uploadPartRequest.SetBody(s3MemStream);
 
@@ -4954,7 +4970,6 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		// mark part as completed
 
-		S3::CompletedPart completedPart;
 		completedPart.SetPartNumber(currentPartNum);
 		auto partETag = uploadPartOutcome.GetResult().GetETag();
 		completedPart.SetETag(partETag);

@@ -128,7 +128,7 @@ _elbencho_opts()
         --s3btagverify
         --s3bversion
         --s3bversionverify
-        --s3checksumalgo
+        --s3chksumalgo
         --s3endpoints
         --s3fastget
         --s3fastput
@@ -270,7 +270,7 @@ _elbencho()
         ;&
         --s3aclgtype)
         ;&
-        --s3checksumalgo)
+        --s3chksumalgo)
         ;&
         --s3endpoints)
         ;&

@@ -165,19 +165,21 @@ ProgArgs::~ProgArgs()
  */
 void ProgArgs::defineAllowedArgs()
 {
-	// paths arg is hidden, because they are set as positional arg
+    // paths arg is hidden, because they are set as positional arg
     argsHiddenDescription.add_options()
-		(ARG_BENCHPATHS_LONG, bpo::value<StringVec>(),
-			"Comma-separated list of either directories, files or block devices to use for "
-			"benchmark.")
-		(ARG_HELP_LONG "," ARG_HELP_SHORT, "Print this help message.")
-		(ARG_HELPBLOCKDEV_LONG, "Print block device & large shared file help message.")
-		(ARG_HELPLARGE_LONG, "Print block device & large shared file help message.")
-		(ARG_HELPMULTIFILE_LONG, "Print multi-file / multi-directory help message.")
-		(ARG_HELPS3_LONG, "Print S3 object storage help message.")
-		(ARG_HELPDISTRIBUTED_LONG, "Print distributed benchmark help message.")
-		(ARG_HELPALLOPTIONS_LONG, "Print all available options help message.")
-	;
+        (ARG_BENCHPATHS_LONG, bpo::value<StringVec>(),
+            "Comma-separated list of either directories, files or block devices to use for "
+            "benchmark.")
+        (ARG_HELP_LONG "," ARG_HELP_SHORT, "Print this help message.")
+        (ARG_HELPBLOCKDEV_LONG, "Print block device & large shared file help message.")
+        (ARG_HELPLARGE_LONG, "Print block device & large shared file help message.")
+        (ARG_HELPMULTIFILE_LONG, "Print multi-file / multi-directory help message.")
+        (ARG_HELPS3_LONG, "Print S3 object storage help message.")
+        (ARG_HELPDISTRIBUTED_LONG, "Print distributed benchmark help message.")
+        (ARG_HELPALLOPTIONS_LONG, "Print all available options help message.")
+        (ARG_S3CHECKSUM_ALGO_2_LONG, bpo::value<std::string>(),
+            "Hidden compat alias for \"--" ARG_S3CHECKSUM_ALGO_LONG "\".")
+    ;
 
     // ordered by user option strings to print user help in alphabetical order
     argsGenericDescription.add_options()
@@ -997,6 +999,11 @@ void ProgArgs::initImplicitValues()
     {
         s3SignPolicy = 2; /* Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never */
         s3NoCompression = true;
+    }
+
+    if(argsVariablesMap.count(ARG_S3CHECKSUM_ALGO_2_LONG) )
+    { // this is just an old compat alias
+        s3ChecksumAlgoStr = argsVariablesMap[ARG_S3CHECKSUM_ALGO_2_LONG].as<std::string>();
     }
 
     if(!treeScanPath.empty() && treeFilePath.empty() )

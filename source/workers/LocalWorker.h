@@ -153,7 +153,7 @@ class LocalWorker : public Worker
         std::string s3SSECKey; // SSE-C encryption key
         std::string s3SSECKeyMD5; // SSE-C encryption key MD5 hash
         std::string s3SSEKMSKey; // SSE-KMS encryption key
-		S3ChecksumAlgorithm s3ChecksumAlgorithm; // S3 checksum algorithm for x-amz-sdk-checksum-algorithm heade
+		S3ChecksumAlgorithm s3ChecksumAlgorithm; // for x-amz-sdk-checksum-algorithm header
 #endif
 
 #ifdef HDFS_SUPPORT
