@@ -327,10 +327,10 @@ void ProgArgs::defineAllowedArgs()
 			"starting with \"#\" will be ignored. (Format: hostname[:port])")
 /*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterations),
 			"Number of iterations to run the benchmark. (Default: 1)")
-/*in*/	(ARG_INFINITEIOLOOP_LONG, bpo::bool_switch(&this->doInfiniteIOLoop),
-			"Let I/O threads run in an infinite loop, i.e. they restart from the beginning when "
-			"the reach the end of the specified workload. Terminate this via ctrl+c or by using "
-			"\"--" ARG_TIMELIMITSECS_LONG "\"")
+/*in*/  (ARG_INFINITEIOLOOP_LONG, bpo::bool_switch(&this->doInfiniteIOLoop),
+            "Let I/O threads run in an infinite repeat loop, i.e. each thread individually "
+            "restarts its work from the beginning when it reaches the end of its specified "
+            "workload. Terminate this via ctrl+c or by using \"--" ARG_TIMELIMITSECS_LONG "\".")
 /*in*/	(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
@@ -1104,6 +1104,7 @@ void ProgArgs::checkArgs()
 
 	if(!numThreads)
 		throw ProgException("Number of threads may not be zero.");
+
 	if(!iterations)
 		throw ProgException("Number of iterations may not be zero.");
 
@@ -1112,6 +1113,20 @@ void ProgArgs::checkArgs()
 
 	if(!fileShareSize)
 		fileShareSize = FILESHAREBLOCKFACTOR * blockSize;
+
+    /* note: this check/update is here because it has to be after convertS3ParthsToCustomTree()
+        (called from parseAndCheckPaths() ) and before loadCustomTreeFile(), so that the update to
+        fileShareSize is still effective. */
+    if(doInfiniteIOLoop && (fileShareSize != ~0ULL) && (numThreads > 1) && !treeFilePath.empty() &&
+        !s3EndpointsStr.empty() && runCreateFilesPhase)
+    {
+        LOGGER(Log_NORMAL, "NOTE: Infinite loop cannot be used with S3 shared object "
+            "write/upload. Disabling object sharing (\"--" ARG_FILESHARESIZE_LONG "=-1\"). "
+            "Consider object-per-thread mode as an alternative "
+            "(e.g. \"--" ARG_NUMFILES_LONG "=1\")." << std::endl);
+
+        fileShareSize = ~0ULL;
+    }
 
 	scanCustomTree();
 
@@ -1178,6 +1193,16 @@ void ProgArgs::checkArgs()
 	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
 		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
 			"Falling back to \"--" ARG_REVERSESEQOFFSETS_LONG "\"." << std::endl);
+
+    if(doInfiniteIOLoop && (numThreads > 1) &&
+        customTree.filesShared.getNumPaths() &&
+        !s3EndpointsStr.empty() && runCreateFilesPhase)
+    {
+        /* note: just an additional sanity check after customTree.filesShared has been generated.
+            the actual note and auto-disable of object sharing is done in another check before
+            customTree.filesShared is generated. */
+        throw ProgException("S3 write/upload cannot be used with infinite loop for shared objects.");
+    }
 
     if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize && runCreateFilesPhase
         && ( (fileSize / blockSize) > 10000) )

@@ -4,6 +4,10 @@
 
 ### Fixes
 * Added missing calculation of checksum for S3 uploads with custom checksum algorithm via `--s3chksumalgo`.
+* Added check to prevent infinite loop usage (`--infloop`) in S3 mode with shared object uploads.
+
+### Contributors
+* Thanks to Chuck Cancilla for helpful comments and suggestions.
 
 ## v3.0.29 (July 5, 2025)
 
