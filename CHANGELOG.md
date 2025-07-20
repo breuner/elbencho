@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.30 (work in progress)
+## v3.0.31 (July 20, 2025)
 
 ### Fixes
 * Added missing calculation of checksum for S3 uploads with custom checksum algorithm via `--s3chksumalgo`.
