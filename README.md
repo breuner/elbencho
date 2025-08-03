@@ -51,23 +51,23 @@ Building elbencho requires a C++17 compatible compiler, such as gcc version 7.x 
 ### Dependencies for Debian/Ubuntu
 
 ```bash
-sudo apt install build-essential debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev lintian libssl-dev
+sudo apt -y install build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev lintian libssl-dev uuid-dev zlib1g-dev
 ```
 
-### Dependencies for RHEL/CentOS
+### Dependencies for RHEL/CentOS/Rocky
 
 ```bash
-sudo yum install boost-devel gcc-c++ git libaio-devel make ncurses-devel numactl-devel openssl-devel rpm-build
+sudo yum -y install boost-devel cmake gcc-c++ git libaio-devel libarchive libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build zlib zlib-devel
 ```
 
 #### On RHEL / CentOS 7.x: Prepare Environment with newer gcc Version
 
-Skip these steps on RHEL / CentOS 8.0 or newer.
+Skip these steps on RHEL/CentOS/Rocky 8.0 or newer.
 
 ```bash
-sudo yum install centos-release-scl # for CentOS
+sudo yum -y install centos-release-scl # for CentOS
 # ...or alternatively for RHEL: yum-config-manager --enable rhel-server-rhscl-7-rpms
-sudo yum install devtoolset-8
+sudo yum -y install devtoolset-8
 scl enable devtoolset-8 bash # alternatively: source /opt/rh/devtoolset-8/enable
 ```
 
@@ -141,18 +141,6 @@ GPUDirect Storage (GDS) support through the cuFile API will automatically be ena
 
 Enabling S3 Object Storage support will automatically download a AWS SDK git repository of over 1GB size and increases build time from a few seconds to a few minutes. Thus, S3 support is not enabled by default, but it can easily be enabled as described below.
 
-##### S3 Dependencies for RHEL/CentOS 8.0 or newer
-
-```bash
-sudo yum install cmake libarchive libcurl-devel libuuid-devel zlib zlib-devel
-```
-
-##### S3 Dependencies for Ubuntu 20.04 or newer
-
-```bash
-sudo apt install cmake libcurl4-openssl-dev uuid-dev zlib1g-dev
-```
-
 ##### Build elbencho with S3 Support
 
 The static Linux executable in the [Releases section](https://github.com/breuner/elbencho/releases) includes S3 support, in case you prefer to use this instead of building your own version.
@@ -180,3 +168,33 @@ sudo make install
 make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
 ```
 
+#### macOS Support
+
+Building elbencho on macOS requires homebrew. Run the following steps in a terminal.
+
+Install Xcode command line tools:
+```bash
+xcode-select --install
+```
+
+Run the homebrew installation script:
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Install the boost.org libraries through homebrew:
+```bash
+brew install boost
+```
+
+Clone the git repo and build elbencho with S3 support:
+```bash
+git clone https://github.com/breuner/elbencho ~/elbencho
+cd ~/elbencho
+make S3_SUPPORT=1 -j $(sysctl -n hw.ncpu)
+```
+
+That's it already.
+```bash
+bin/elbencho --help
+```

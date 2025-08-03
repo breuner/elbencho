@@ -72,7 +72,7 @@ class Worker
 			{ return workerRank; }
 		bool getStoneWallTriggered() const
 			{ return stoneWallTriggered; }
-		const SizeTVec& getElapsedUSecVec() const
+		const UInt64Vec& getElapsedUSecVec() const
 			{ return elapsedUSecVec; }
 		const LatencyHistogram& getIOPSLatencyHistogram() const
 			{ return iopsLatHisto; }

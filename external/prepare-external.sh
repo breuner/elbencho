@@ -16,7 +16,7 @@ NUM_PARALLEL_JOBS=1  # Number of parallel "make -j X" jobs
 # here.
 prepare_webserver_sws()
 {
-	local REQUIRED_TAG="v3.1.1-49-g4abe349" # need master for ipv6 addr support (commit bab4b309)
+	local REQUIRED_TAG="v3.1.1-52-g187f798" # need master for ipv6 addr support (commit bab4b309)
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/Simple-Web-Server"
 
@@ -180,21 +180,36 @@ prepare_awssdk_prebuilt_libs()
 	# delete old mri file and old lib
 	rm -f "$LIB_FILE" "$MRI_FILE"
 
-	# create mri file for "ar"
-	echo "create $LIB_FILE" > "$MRI_FILE"
-	for lib in $AWS_LIBS; do
-		echo addlib ${AWS_LIB_DIR}/${lib} >> "$MRI_FILE"
-	done
-	echo "save" >> "$MRI_FILE"
-	echo "end" >> "$MRI_FILE"
-
 	# create static lib containing all AWS SDK static libs
-	ar -M < "$MRI_FILE" && \
-		echo "Created $(basename "${LIB_FILE}")" && \
-		echo "DONE: AWS SDK prepared." && \
-		return 0
+
+	if [ "$(uname)" == "Darwin" ]; then # macOS
+		local LIB_FILE_ELEMS=()
+
+		# create list for "ar" & "libtool"
+		for lib in $AWS_LIBS; do
+			LIB_FILE_ELEMS+=("${AWS_LIB_DIR}/${lib}")
+		done
+
+		libtool -static -o "${LIB_FILE}" "${LIB_FILE_ELEMS[@]}"
+	else # linux
+		# create mri file for "ar"
+		echo "create $LIB_FILE" > "$MRI_FILE"
+		for lib in $AWS_LIBS; do
+			echo addlib ${AWS_LIB_DIR}/${lib} >> "$MRI_FILE"
+		done
+		echo "save" >> "$MRI_FILE"
+		echo "end" >> "$MRI_FILE"
+
+		# create static lib containing all AWS SDK static libs
+		ar -M < "$MRI_FILE"
+	fi
 
 	[ $? -ne 0 ] && exit 1
+
+	echo "Created $(basename "${LIB_FILE}")" && \
+	echo "DONE: AWS SDK prepared." && \
+
+	return 0
 }
 
 # If user did not provide pre-built AWS SDK libs, then prepare git clone and required tag. If clone
@@ -268,21 +283,37 @@ prepare_awssdk()
 	# delete old mri file and old lib
 	rm -f "$LIB_FILE" "$MRI_FILE"
 
-	# create mri file for "ar"
-	echo "create $LIB_FILE" > "$MRI_FILE"
-	for lib in $(ls ${AWS_LIB_DIR}/*.a); do
-		echo addlib $lib >> "$MRI_FILE"
-	done
-	echo "save" >> "$MRI_FILE"
-	echo "end" >> "$MRI_FILE"
-
 	# create static lib containing all AWS SDK static libs
-	ar -M < "$MRI_FILE" && \
-		echo "Created $(basename "${LIB_FILE}")" && \
-		echo "DONE: AWS SDK prepared." && \
-		return 0
+
+	if [ "$(uname)" == "Darwin" ]; then # macOS
+		local LIB_FILE_ELEMS=()
+
+		# create list for "ar" & "libtool"
+		for lib in $(ls ${AWS_LIB_DIR}/*.a); do
+			LIB_FILE_ELEMS+=("$lib")
+		done
+
+		libtool -static -o "${LIB_FILE}" "${LIB_FILE_ELEMS[@]}"
+	else # linux
+		# create mri file for "ar"
+		echo "create $LIB_FILE" > "$MRI_FILE"
+		for lib in $(ls ${AWS_LIB_DIR}/*.a); do
+			echo addlib $lib >> "$MRI_FILE"
+		done
+		echo "save" >> "$MRI_FILE"
+		echo "end" >> "$MRI_FILE"
+
+		# create static lib from script
+		# note: script is important to avoid the need for "ar x" with intermediate .o files
+		ar -M < "$MRI_FILE"
+	fi
 
 	[ $? -ne 0 ] && exit 1
+
+	echo "Created $(basename "${LIB_FILE}")" && \
+	echo "DONE: AWS SDK prepared." && \
+
+	return 0
 }
 
 # Prepare git clone and required tag.
@@ -356,7 +387,7 @@ prepare_mimalloc()
 NUM_PARALLEL_JOBS=$(echo " $MAKEFLAGS" | grep -o -e "-j[[:digit:]]\+" | sed s/-j//g)
 
 if [ -z "$NUM_PARALLEL_JOBS" ]; then
-	NUM_PARALLEL_JOBS=$(nproc);
+	NUM_PARALLEL_JOBS="$(uname | grep -q Darwin && sysctl -n hw.ncpu || nproc || echo 1)";
 fi
 
 prepare_webserver_sws

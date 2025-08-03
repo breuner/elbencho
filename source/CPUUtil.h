@@ -26,6 +26,10 @@ class CPUUtil
 		 */
 		float getCPUUtilPercent() const
 		{
+            #if defined(__APPLE__)
+                return 0; // not supported on macOS (no "/proc/stat" file)
+            #endif // apple
+
 			const float idleCPUTimeDelta = currentIdleCPUTime - lastIdleCPUTime;
 			const float totalCPUTimeDelta = currentTotalCPUTime - lastTotalCPUTime;
 

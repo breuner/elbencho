@@ -109,7 +109,7 @@ void Statistics::printLiveCountdownLine(unsigned long long waittimeSec)
 	// "\r" moves cursor to beginning of line.
 
 	printf(CONTROLCHARS_CLEARLINE_AND_CARRIAGERETURN
-		"Waiting for start time: %Lus", (unsigned long long)waittimeSec);
+		"Waiting for start time: %llus", (unsigned long long)waittimeSec);
 }
 
 /**

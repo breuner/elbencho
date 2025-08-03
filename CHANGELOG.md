@@ -1,5 +1,13 @@
 # Changelog of elbencho
 
+## v3.0.32 (work in progress)
+
+### New Features & Enhancements
+* Experimental: Added support for macOS.
+
+### Contributors
+* Thanks to Christopher Koay for helpful comments and suggestions.
+
 ## v3.0.31 (July 20, 2025)
 
 ### Fixes

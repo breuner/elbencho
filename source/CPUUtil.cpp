@@ -26,6 +26,10 @@
  */
 void CPUUtil::update()
 {
+    #if defined(__APPLE__)
+        return; // not supported on macOS (no "/proc/stat" file)
+    #endif // apple
+
 	SizeTVec cpuTimesVec;
 
 	/* (we have to read all fields to add them up and don't know how many fields the current

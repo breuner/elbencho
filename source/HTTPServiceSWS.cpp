@@ -145,7 +145,7 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 	// get http service protocol version
 	server.resource[HTTPSERVERPATH_PROTOCOLVERSION]["GET"] =
-		[&, this](std::shared_ptr<HttpServer::Response> response,
+		[&](std::shared_ptr<HttpServer::Response> response,
 			std::shared_ptr<HttpServer::Request> request)
 	{
 		Logger(Log_VERBOSE) << "HTTP: " << request->path << "?" <<

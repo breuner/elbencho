@@ -82,7 +82,7 @@ class OffsetGenSequential : public OffsetGenerator
 			{ return blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
-			{ return std::min(numBytesLeft, blockSize); }
+			{ return std::min(numBytesLeft, (uint64_t)blockSize); }
 
 		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
@@ -158,7 +158,7 @@ class OffsetGenReverseSeq : public OffsetGenerator
 			{ return blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
-			{ return std::min(startOffset + numBytesTotal - currentOffset, blockSize); }
+			{ return std::min(startOffset + numBytesTotal - currentOffset, (uint64_t)blockSize); }
 
 		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
@@ -184,7 +184,7 @@ class OffsetGenRandom : public OffsetGenerator
 	public:
 		OffsetGenRandom(uint64_t numBytesTotal, RandAlgoInterface& randAlgo, uint64_t len,
 			uint64_t offset, size_t blockSize) :
-			randRange(randAlgo, offset, offset + len - std::min(blockSize, len) ),
+			randRange(randAlgo, offset, offset + len - std::min( (uint64_t)blockSize, len) ),
 			numBytesTotal(numBytesTotal), numBytesLeft(numBytesTotal),
 			blockSize(blockSize)
 		{
@@ -206,16 +206,17 @@ class OffsetGenRandom : public OffsetGenerator
 		virtual void reset() override
 			{ numBytesLeft = numBytesTotal; }
 
-		virtual void reset(uint64_t len, uint64_t offset) override
-		{
-			size_t minLenAndBlockSize = std::min(blockSize, len); /* usually blockSize, but there
-				are cases where we have custom tree slices that are smaller than blockSize */
+        virtual void reset(uint64_t len, uint64_t offset) override
+        {
+            size_t minLenAndBlockSize = std::min( (uint64_t)blockSize, len); /* usually blockSize,
+                but there are cases where we have custom tree slices that are smaller than
+                blockSize */
 
-			numBytesTotal = len;
-			numBytesLeft = len;
+            numBytesTotal = len;
+            numBytesLeft = len;
 
-			randRange.reset(offset, offset + len - minLenAndBlockSize);
-		}
+            randRange.reset(offset, offset + len - minLenAndBlockSize);
+        }
 
 		virtual uint64_t getNextOffset() override
 			{ return randRange.next(); }
@@ -224,7 +225,7 @@ class OffsetGenRandom : public OffsetGenerator
 			{ return blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
-			{ return std::min(numBytesLeft, blockSize); }
+			{ return std::min(numBytesLeft, (uint64_t)blockSize); }
 
 		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
@@ -247,21 +248,22 @@ class OffsetGenRandom : public OffsetGenerator
  */
 class OffsetGenRandomAligned : public OffsetGenerator
 {
-	public:
-		OffsetGenRandomAligned(uint64_t numBytesTotal, RandAlgoInterface& randAlgo, uint64_t len,
-			uint64_t offset, size_t blockSize) :
-			randRange(randAlgo, 0,
-			    !std::min(blockSize, len) ? 0 : /* avoid div by zero */
-			        (len - std::min(blockSize, len) ) / std::min(blockSize, len) ),
-			numBytesTotal(numBytesTotal), numBytesLeft(numBytesTotal),
-			offset(offset),
-			blockSize(blockSize)
-		{
-			/* note on "std::min(blockSize, len)": usually blockSize, but there are cases where we
-				have custom tree slices that are smaller than blockSize */
-		}
+    public:
+        OffsetGenRandomAligned(uint64_t numBytesTotal, RandAlgoInterface& randAlgo, uint64_t len,
+            uint64_t offset, size_t blockSize) :
+            randRange(randAlgo, 0,
+                !std::min( (uint64_t)blockSize, len) ? 0 : /* avoid div by zero */
+                    (len - std::min( (uint64_t)blockSize, len) ) /
+                        std::min( (uint64_t)blockSize, len) ),
+            numBytesTotal(numBytesTotal), numBytesLeft(numBytesTotal),
+            offset(offset),
+            blockSize(blockSize)
+        {
+            /* note on "std::min(blockSize, len)": usually blockSize, but there are cases where we
+                have custom tree slices that are smaller than blockSize */
+        }
 
-		virtual ~OffsetGenRandomAligned() {}
+        virtual ~OffsetGenRandomAligned() {}
 
 	protected:
 		RandAlgoRange randRange;
@@ -276,20 +278,21 @@ class OffsetGenRandomAligned : public OffsetGenerator
 		virtual void reset() override
 			{ numBytesLeft = numBytesTotal; }
 
-		virtual void reset(uint64_t len, uint64_t offset) override
-		{
-			size_t minLenAndBlockSize = std::min(blockSize, len); /* usually blockSize, but there
-				are cases where we have custom tree slices that are smaller than blockSize */
+        virtual void reset(uint64_t len, uint64_t offset) override
+        {
+            size_t minLenAndBlockSize = std::min( (uint64_t)blockSize, len); /* usually blockSize,
+                but there are cases where we have custom tree slices that are smaller than
+                blockSize */
 
-			this->numBytesTotal = len;
-			this->numBytesLeft = len;
-			this->offset = offset;
+            this->numBytesTotal = len;
+            this->numBytesLeft = len;
+            this->offset = offset;
 
-			if(minLenAndBlockSize)
-			    randRange.reset(0, (len - minLenAndBlockSize) / minLenAndBlockSize);
-			else
-			    randRange.reset(0, 0); // avoid div by zero
-		}
+            if(minLenAndBlockSize)
+                randRange.reset(0, (len - minLenAndBlockSize) / minLenAndBlockSize);
+            else
+                randRange.reset(0, 0); // avoid div by zero
+        }
 
 		virtual uint64_t getNextOffset() override
 			{ return offset + (randRange.next() * blockSize); }
@@ -298,7 +301,7 @@ class OffsetGenRandomAligned : public OffsetGenerator
 			{ return blockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
-			{ return std::min(numBytesLeft, blockSize); }
+			{ return std::min(numBytesLeft, (uint64_t)blockSize); }
 
 		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
@@ -356,7 +359,7 @@ class OffsetGenStrided : public OffsetGenerator
             { return blockSize; }
 
         virtual size_t getNextBlockSizeToSubmit() const override
-            { return std::min(numBytesLeft, blockSize); }
+            { return std::min(numBytesLeft, (uint64_t)blockSize); }
 
         virtual uint64_t getNumBytesTotal() const override
             { return numBytesTotal; }

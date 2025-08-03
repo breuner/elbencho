@@ -1276,6 +1276,13 @@ void ProgArgs::checkArgs()
  */
 void ProgArgs::checkPathDependentArgs()
 {
+    #if defined(__APPLE__)
+        // we have this here because this needs to run on service hosts, but not on master
+        if(useDirectIO)
+            throw ProgException("Direct IO is not supported on macOS. "
+                "Consider using \"--" ARG_FADVISE_LONG "=" ARG_FADVISE_FLAG_DONTNEED_NAME "\".");
+    #endif // apple
+
 	if( ( (benchPathType != BenchPathType_DIR) || !treeFilePath.empty() ) &&
 		(argsVariablesMap.count(ARG_NUMDIRS_LONG) || argsVariablesMap.count(ARG_NUMDIRS_SHORT) ) )
 		LOGGER(Log_NORMAL, "NOTE: \"--" ARG_NUMDIRS_LONG "\" is only effective when benchmark "
@@ -1700,8 +1707,10 @@ void ProgArgs::prepareBenchPathFDsVec()
 			else
 				openFlags |= O_RDONLY;
 
-			if(useDirectIO)
-				openFlags |= O_DIRECT;
+#if !defined(__APPLE__)
+            if(useDirectIO)
+                openFlags |= O_DIRECT;
+#endif // !apple
 
 			// note: no O_TRUNC here, because prepareFileSize() later needs original size
 			if( (pathType == BenchPathType_FILE) && runCreateFilesPhase)
@@ -1896,22 +1905,28 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			}
 
 			// preallocate file blocks if set by user
-			if(doPreallocFile)
-			{
-				LOGGER(Log_DEBUG,
-					"Preallocating file blocks. "
-					"Path: " << path << "; "
-					"Size: " << currentFileSize << std::endl);
+            if(doPreallocFile)
+            {
+                #if defined(__APPLE__)
+                        throw ProgException("posix_fallocate is not supported on macOS. "
+                            "Path: " + path + "; "
+                            "Size: " + std::to_string(currentFileSize) );
+                #else // linux
+                    LOGGER(Log_DEBUG,
+                        "Preallocating file blocks. "
+                        "Path: " << path << "; "
+                        "Size: " << currentFileSize << std::endl);
 
-				// (note: posix_fallocate does not set errno.)
-				int preallocRes = posix_fallocate(fd, 0, fileSize);
-				if(preallocRes != 0)
-					throw ProgException(
-						"Unable to preallocate file disk space through posix_fallocate. "
-						"File: " + path + "; "
-						"Size: " + std::to_string(fileSize) + "; "
-						"SysErr: " + strerror(preallocRes) );
-			}
+                    // (note: posix_fallocate does not set errno.)
+                    int preallocRes = posix_fallocate(fd, 0, fileSize);
+                    if(preallocRes != 0)
+                        throw ProgException(
+                            "Unable to preallocate file disk space through posix_fallocate. "
+                            "File: " + path + "; "
+                            "Size: " + std::to_string(fileSize) + "; "
+                            "SysErr: " + strerror(preallocRes) );
+                #endif // linux
+            }
 		} // end of runCreateFilesPhase
 
 		// warn when reading sparse (or compressed) files

@@ -370,7 +370,15 @@ void TranslatorTk::expandSquareBracketsStr(std::string inputStr, StringVec& outS
        * ignores brackets with colons because that could be an IPv6 address.
          * supports nested brackets within IPv6 addresses, but that would be hex and we use base10
            only here atm. */
-    std::regex bracketsPattern(R"(\[(?![^]]*:)([0-9,\-]+)\])");
+    #if defined(__APPLE__)
+        // Apple Clang libc++ is buggy for regex with lookaheads like (?!...), so we use a version
+        // without that on macOS. Otherwise this throws an exception:
+        // "The expression contained mismatched ( and )."
+        std::regex bracketsPattern(R"(\[([0-9,\-]+)\])");
+    #else // linux
+        std::regex bracketsPattern(R"(\[(?![^]]*:)([0-9,\-]+)\])");
+    #endif // linux
+
     std::smatch bracketsMatch;
 
     bool bracketsMatchFound = std::regex_search(inputStr, bracketsMatch, bracketsPattern);
@@ -378,6 +386,13 @@ void TranslatorTk::expandSquareBracketsStr(std::string inputStr, StringVec& outS
         return; // no matching square brackets pair => nothing to do
 
     // now we have an opening and a closing square bracket with at least one char in between...
+
+    #if defined(__APPLE__)
+        // because of buggy Apple Clang libc++ regex with lookaheads, we have to check here if we
+        // have a colon between the square brackets so that this is an IPv6 address.
+        if(bracketsMatch[1].str().find(':') != std::string::npos)
+            return; // colon found, so we assume this as an IPv6 address => nothing to do
+    #endif // linux
 
 	// get the string between the brackets (not including the brackets)
     std::string bracketContentsStr = inputStr.substr(

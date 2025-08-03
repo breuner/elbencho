@@ -142,7 +142,11 @@ void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
 
 	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_SEQ)
 	{
-		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+        #if defined(__APPLE__)
+            fadviseRes = fcntl(fd, F_RDAHEAD, 1); // enable read-ahead
+        #else // linux
+            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+        #endif
 
 		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
 			throw EXCEPTION(
@@ -154,7 +158,11 @@ void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
 
 	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_RAND)
 	{
-		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
+        #if defined(__APPLE__)
+            fadviseRes = fcntl(fd, F_RDAHEAD, 0); // disable read-ahead
+        #else // linux
+            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
+        #endif
 
 		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
 			throw EXCEPTION(
@@ -166,7 +174,14 @@ void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
 
 	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_WILLNEED)
 	{
-		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED);
+        #if defined(__APPLE__)
+            throw EXCEPTION(
+                std::string("The given POSIX fadvise is not available on this platform. ") +
+                "Advise: POSIX_FADV_WILLNEED; "
+                "File: " + path);
+        #else // linux
+            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED);
+        #endif
 
 		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
 			throw EXCEPTION(
@@ -178,7 +193,11 @@ void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
 
 	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_DONTNEED)
 	{
-		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+        #if defined(__APPLE__)
+            fadviseRes = fcntl(fd, F_NOCACHE, 1); // disable caching
+        #else // linux
+            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+        #endif
 
 		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
 			throw EXCEPTION(
@@ -190,7 +209,14 @@ void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
 
 	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_NOREUSE)
 	{
-		fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_NOREUSE);
+        #if defined(__APPLE__)
+            throw EXCEPTION(
+                std::string("The given POSIX fadvise is not available on this platform. ") +
+                "Advise: POSIX_FADV_NOREUSE; "
+                "File: " + path);
+        #else // linux
+            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_NOREUSE);
+        #endif
 
 		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
 			throw EXCEPTION(

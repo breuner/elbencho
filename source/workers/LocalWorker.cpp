@@ -822,8 +822,10 @@ void LocalWorker::initThreadFDVec()
 		else
 			openFlags |= O_RDONLY;
 
-		if(progArgs->getUseDirectIO() )
-			openFlags |= O_DIRECT;
+#if !defined(__APPLE__)
+        if(progArgs->getUseDirectIO() )
+            openFlags |= O_DIRECT;
+#endif // !apple
 
 		if(progArgs->getRunCreateFilesPhase() )
 			openFlags |= O_CREAT;
@@ -2023,7 +2025,8 @@ void LocalWorker::preWriteIntegrityCheckFillBuf(char* hostIOBuf, char* gpuIOBuf,
 
 		char* checkSumArray = (char*)&checkSum; // byte-addressable array for checksum value
 		off_t checkSumArrayStartIdx = currentOffset - checkSumStartOffset;
-		size_t checkSumCopyLen = std::min(numBytesLeft, checkSumLen - checkSumArrayStartIdx);
+		size_t checkSumCopyLen = std::min(
+			(uint64_t)numBytesLeft, (uint64_t)checkSumLen - checkSumArrayStartIdx);
 
 		memcpy(&hostIOBuf[numBytesDone], &checkSumArray[checkSumArrayStartIdx], checkSumCopyLen);
 
@@ -6121,8 +6124,10 @@ int LocalWorker::getDirModeOpenFlags(BenchPhase benchPhase)
 	else
 		openFlags = O_RDONLY;
 
-	if(progArgs->getUseDirectIO() )
-		openFlags |= O_DIRECT;
+#if !defined(__APPLE__)
+    if(progArgs->getUseDirectIO() )
+        openFlags |= O_DIRECT;
+#endif // !apple
 
 	return openFlags;
 }
@@ -6172,17 +6177,23 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 						"SysErr: " + strerror(errno) );
 			}
 
-			if(progArgs->getDoPreallocFile() )
-			{
-				// (note: posix_fallocate does not set errno.)
-				int preallocRes = posix_fallocate(fd, 0, fileSize);
-				if(preallocRes != 0)
-					throw WorkerException(
-						"Unable to preallocate file size through posix_fallocate. "
-						"File: " + currentPath + "; "
-						"Size: " + std::to_string(fileSize) + "; "
-						"SysErr: " + strerror(preallocRes) );
-			}
+            if(progArgs->getDoPreallocFile() )
+            {
+                #if defined(__APPLE__)
+                    throw WorkerException("posix_fallocate is not supported on macOS. "
+                        "Path: " + currentPath + "; "
+                        "Size: " + std::to_string(fileSize) );
+                #else // linux
+                    // (note: posix_fallocate does not set errno.)
+                    int preallocRes = posix_fallocate(fd, 0, fileSize);
+                    if(preallocRes != 0)
+                        throw WorkerException(
+                            "Unable to preallocate file size through posix_fallocate. "
+                            "File: " + currentPath + "; "
+                            "Size: " + std::to_string(fileSize) + "; "
+                            "SysErr: " + strerror(preallocRes) );
+                #endif // linux
+            }
 		}
 
 		FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(), currentPath.c_str() );

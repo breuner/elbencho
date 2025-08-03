@@ -278,7 +278,7 @@ class OffsetGenRandomAlignedFullCoverageV2 : public OffsetGenerator
             { return blockSize; }
 
         virtual size_t getNextBlockSizeToSubmit() const override
-            { return std::min(numBytesLeft, blockSize); }
+            { return std::min(numBytesLeft, (uint64_t)blockSize); }
 
         virtual uint64_t getNumBytesTotal() const override
             { return numBytesTotal; }

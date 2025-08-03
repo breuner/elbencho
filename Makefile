@@ -5,7 +5,7 @@
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 3
 EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 31
+EXE_VER_PATCHLEVEL ?= 32
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 EXE_UNSTRIPPED     ?= $(EXE)-unstripped
@@ -24,8 +24,10 @@ STRIP              ?= strip
 CXX_FLAVOR         ?= c++17
 
 CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE -DBOOST_BIND_GLOBAL_PLACEHOLDERS
+
 LDFLAGS_AIO        ?= -laio
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
+LDFLAGS_LINUX      ?= -l rt -l stdc++fs
 LDFLAGS_NUMA       ?= -lnuma
 
 ALTHTTPSVC_SUPPORT ?= 0
@@ -47,10 +49,9 @@ CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOS
 CXXFLAGS_RELEASE  = -O3 -Wuninitialized
 CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON    = -rdynamic -pthread -l rt -l stdc++fs $(LDFLAGS_NUMA) \
-	$(LDFLAGS_AIO) $(LDFLAGS_BOOST)
-LDFLAGS_RELASE    = -O3
-LDFLAGS_DEBUG     = -O0
+LDFLAGS_COMMON       = -rdynamic -pthread $(LDFLAGS_BOOST)
+LDFLAGS_RELASE       = -O3
+LDFLAGS_DEBUG        = -O0
 
 SOURCES          := $(shell find $(SOURCE_PATH) -name '*.cpp')
 OBJECTS          := $(SOURCES:.cpp=.o)
@@ -99,8 +100,8 @@ endif
 # "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
 ifeq ($(S3_SUPPORT), 1)
 CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
-LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l:libaws-sdk-all.a \
-	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
+LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l aws-sdk-all \
+	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC) \
 
   ifeq ($(S3_AWSCRT), 1)
     CXXFLAGS += -DS3_AWSCRT
@@ -165,8 +166,26 @@ SYSCALLH_SUPPORT   := 0
 
 CXX_FLAVOR         := gnu++17
 CXXFLAGS           += -DCYGWIN_SUPPORT
-LDFLAGS_AIO        :=
-LDFLAGS_NUMA       :=
+endif
+
+# Support build on macOS
+ifeq ($(shell uname -s),Darwin)
+  ifeq ($(S3_SUPPORT), 1)
+    LDFLAGS += -framework CoreFoundation -framework Security -framework Network
+  endif
+
+LIBAIO_SUPPORT   := 0
+SYNCFS_SUPPORT   := 0
+LIBNUMA_SUPPORT  := 0
+COREBIND_SUPPORT := 0
+
+CXXFLAGS_EXTRA   += -I/opt/homebrew/include
+LDFLAGS          += -L/opt/homebrew/lib
+endif
+
+# Extra flags for Linux & Cygwin, but not for macOS
+ifneq ($(shell uname -s),Darwin)
+LDFLAGS += $(LDFLAGS_LINUX)
 endif
 
 # Backtrace support
@@ -179,6 +198,7 @@ endif
 # Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
 ifeq ($(LIBAIO_SUPPORT), 1)
 CXXFLAGS += -DLIBAIO_SUPPORT
+LDFLAGS  += $(LDFLAGS_AIO)
 endif
 
 # syncfs() call support
@@ -191,6 +211,7 @@ endif
 # Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
 ifeq ($(LIBNUMA_SUPPORT), 1)
 CXXFLAGS += -DLIBNUMA_SUPPORT
+LDFLAGS  += $(LDFLAGS_NUMA)
 endif
 
 # CPU core binding support
@@ -213,10 +234,10 @@ all: $(SOURCES) $(EXE)
 
 $(EXE): $(EXE_UNSTRIPPED)
 ifdef BUILD_VERBOSE
-	$(STRIP) --strip-debug $(EXE_UNSTRIPPED) -o $(EXE)
+	$(STRIP) -S $(EXE_UNSTRIPPED) -o $(EXE)
 else
 	@echo [STRIP] $@
-	@$(STRIP) --strip-debug $(EXE_UNSTRIPPED) -o $(EXE)
+	@$(STRIP) -S $(EXE_UNSTRIPPED) -o $(EXE)
 endif
 
 $(EXE_UNSTRIPPED): $(OBJECTS)

@@ -91,7 +91,6 @@ class LocalWorker : public Worker
 		BufferVec ioBufVec; // host buffers used for block-sized read/write (count matches iodepth)
 
 		BufferVec gpuIOBufVec; // gpu memory buffers for read/write via cuda (count matches iodepth)
-		int gpuID{-1}; // GPU ID for this worker, initialized in allocGPUIOBuffer
 
 		struct
 		{
@@ -141,6 +140,7 @@ class LocalWorker : public Worker
 		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
 
 #ifdef CUDA_SUPPORT
+		int gpuID{-1}; // GPU ID for this worker, initialized in allocGPUIOBuffer
 		curandGenerator_t gpuRandGen{NULL};
 #endif
 
