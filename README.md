@@ -184,7 +184,7 @@ Run the homebrew installation script:
 
 Install the boost.org libraries through homebrew:
 ```bash
-brew install boost
+brew install boost cmake openssl
 ```
 
 Clone the git repo and build elbencho with S3 support:
