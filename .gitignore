@@ -25,3 +25,6 @@
 # Misc
 excluded/
 todo.txt
+
+# Misc (Mac)
+.DS_Store

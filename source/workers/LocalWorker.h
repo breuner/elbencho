@@ -72,6 +72,14 @@ typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
     std::atomic_bool& isInterruptionRequested);
 
 
+enum class CorsResult 
+{
+	NOT_SET,
+	OK,
+	MISSING,
+	MISMATCH,	
+};
+
 /**
  * Each worker represents a single thread performing local I/O.
  */
@@ -154,6 +162,11 @@ class LocalWorker : public Worker
         std::string s3SSECKeyMD5; // SSE-C encryption key MD5 hash
         std::string s3SSEKMSKey; // SSE-KMS encryption key
 		S3ChecksumAlgorithm s3ChecksumAlgorithm; // for x-amz-sdk-checksum-algorithm header
+
+        // Stores the CorsResult for the latest response, assuming it ran with s3ModeAddCorsHeader
+        CorsResult lastCorsResult{CorsResult::NOT_SET};
+        // Stores the last value of the 'access-control-allow-origin' header (only if there's a mismatch)
+        Aws::String lastMismatchedOriginHeader;
 #endif
 
 #ifdef HDFS_SUPPORT
@@ -234,10 +247,15 @@ class LocalWorker : public Worker
         template <typename R>
         void s3ModeThrowOnError(const Aws::Utils::Outcome<R, S3ErrorType>& outcome, const std::string& failMessage,
                                 const std::string& bucketName, const std::string& objectName="");
+        template <typename R>
+        void s3ModeThrowOnCorsError(const Aws::Utils::Outcome<R, S3ErrorType>& outcome,
+                                   const std::string& bucketName, const std::string& objectName="");
 #endif // S3_SUPPORT
 
         template <typename REQUESTTYPE>
             void s3ModeAddServerSideEncryption(REQUESTTYPE& request);
+        template <typename REQUESTTYPE>
+        void s3ModeAddCorsHeader(REQUESTTYPE& request);
         template <typename REQUESTTYPE>
 			inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request);
 		void s3ModeCreateBucket(std::string bucketName);

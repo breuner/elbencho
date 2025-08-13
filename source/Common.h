@@ -61,6 +61,8 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_PUTBUCKETMETADATA     "PUTBUCKETMD"
 #define PHASENAME_DELBUCKETMETADATA     "DELBUCKETMD"
 
+#define REQUEST_ORIGIN_HEADER   "Origin"
+#define RESPONSE_ORIGIN_HEADER  "Access-Control-Allow-Origin"
 
 // human-readable entry type in current benchmark phase
 
