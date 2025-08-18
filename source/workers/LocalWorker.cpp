@@ -4161,6 +4161,52 @@ void LocalWorker::s3ModeThrowOnError(
     throw WorkerException(errStr.str());
 
 }
+
+/**
+ * Throw a WorkerException if the s3 response header does not match the expected value.
+ * 
+ * @outcome s3 request outcome.
+ * @bucketName name of bucket to which this error applies, can be empty.
+ * @objectName name of object to which this error applies, can be empty.
+ * @throw WorkerException on error.
+ */
+template <typename R>
+void LocalWorker::s3ModeThrowOnCorsError(
+    const Aws::Utils::Outcome<R, S3ErrorType>& outcome, 
+    const std::string& bucketName, 
+    const std::string& objectName)
+{
+    std::stringstream errStr;
+
+    switch (lastCorsResult) 
+    {
+        case CorsResult::OK:
+            // Set the lastCorsResult to NOT_SET, this marks that the result was checked
+            lastCorsResult = CorsResult::NOT_SET;
+            return;
+        case CorsResult::MISSING:
+            errStr << "CORS header missing: '" RESPONSE_ORIGIN_HEADER "'" << std::endl;
+            break;
+        case CorsResult::MISMATCH:
+            errStr << "CORS Mismatch in '" RESPONSE_ORIGIN_HEADER "' header" << std::endl 
+                   << "Expected: " << progArgs->getS3CorsOrigin() << std::endl
+                   << "Received: " << lastMismatchedOriginHeader << std::endl;
+            break;
+        case CorsResult::NOT_SET:
+            errStr << "Runtime error, cors result is NOT_SET" << std::endl;
+            break;
+    }
+    errStr << "Object: " << bucketName;
+
+    if (objectName.length())
+        errStr << "/" << objectName;
+
+
+    errStr << std::endl 
+           << "During phase: " << TranslatorTk::benchPhaseToPhaseName(workersSharedData->currentBenchPhase, progArgs) << std::endl;
+
+    throw WorkerException(errStr.str());
+}
 #endif // S3_SUPPORT
 
 /**
@@ -4203,6 +4249,48 @@ void LocalWorker::s3ModeAddChecksumAlgorithm(REQUESTTYPE& request)
 #endif // S3_SUPPORT
 }
 
+template <typename REQUESTTYPE>
+void LocalWorker::s3ModeAddCorsHeader(REQUESTTYPE& request)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
+#else
+
+    if (!progArgs->getDoS3CorsTest()) return;
+
+    // Make sure that the lastCorsResult is NOT_SET, that means it was checked (or on first run)
+    IF_UNLIKELY(lastCorsResult != CorsResult::NOT_SET)
+        throw WorkerException("Elbencho runtime error: lastCorsResult is discarded at " 
+            + std::string(__func__));
+    
+    request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
+    
+    request.SetHeadersReceivedEventHandler(
+        [&](const Aws::Http::HttpRequest *request, Aws::Http::HttpResponse *response)
+        {
+            const auto &cors_header = response->GetHeader(RESPONSE_ORIGIN_HEADER);
+
+            IF_UNLIKELY(cors_header.empty())
+            {
+                lastCorsResult = CorsResult::MISSING;
+                return;
+            }
+
+            const Aws::String expected_origin = progArgs->getS3CorsOrigin().c_str();
+
+            IF_UNLIKELY(cors_header != "*" && cors_header != expected_origin)
+            {
+                lastCorsResult = CorsResult::MISMATCH;
+                lastMismatchedOriginHeader = cors_header;
+                return;
+            }
+
+            lastCorsResult = CorsResult::OK;
+        });
+
+#endif // S3_SUPPORT
+}
+
 /**
  * Create given S3 bucket.
  *
@@ -4214,9 +4302,13 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
 
+	auto request = S3::CreateBucketRequest().WithBucket(bucketName);
+
+	// s3ModeAddCorsHeader(request);
+
     OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
 
-    const auto createOutcome = s3Client->CreateBucket(S3::CreateBucketRequest().WithBucket(bucketName));
+    const auto createOutcome = s3Client->CreateBucket(request);
 
     OPLOG_POST_OP("S3CreateBucket", bucketName, 0, 0, !createOutcome.IsSuccess());
 
@@ -4245,9 +4337,15 @@ void LocalWorker::s3ModeHeadBucket(std::string bucketName)
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
+
+    auto request = S3::HeadBucketRequest().WithBucket(bucketName);
+
+    if (progArgs->getDoS3CorsTest())
+        request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
+
     OPLOG_PRE_OP("HeadBucket", bucketName, 0, 0);
 
-	const auto outcome = s3Client->HeadBucket(S3::HeadBucketRequest().WithBucket(bucketName));
+	const auto outcome = s3Client->HeadBucket(request);
 
     OPLOG_POST_OP("HeadBucket", bucketName, 0, 0, !outcome.IsSuccess());
 
@@ -4278,6 +4376,9 @@ void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
     S3::PutBucketTaggingRequest taggingRequest;
     taggingRequest.WithBucket(bucketName).WithTagging(tagging);
 
+    if (progArgs->getDoS3CorsTest())
+        taggingRequest.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
+
     s3ModeAddChecksumAlgorithm(taggingRequest);
 
     OPLOG_PRE_OP("PutBucketTagging", bucketName, 0, 0);
@@ -4301,12 +4402,17 @@ void LocalWorker::s3ModeGetBucketTagging(const std::string& bucketName)
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
+
+    auto request = S3::GetBucketTaggingRequest().WithBucket(bucketName);
+
+    s3ModeAddCorsHeader(request);
     OPLOG_PRE_OP("GetBucketTagging", bucketName, 0, 0);
 
-    const auto outcome = s3Client->GetBucketTagging(S3::GetBucketTaggingRequest().WithBucket(bucketName));
+    const auto outcome = s3Client->GetBucketTagging(request);
 
     OPLOG_POST_OP("GetBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
 
+    s3ModeThrowOnCorsError(outcome, bucketName);
     s3ModeThrowOnError(outcome, "Get bucket tagging failed.", bucketName);
 
     if (!progArgs->getDoS3BucketTaggingVerify())
@@ -4338,11 +4444,14 @@ void LocalWorker::s3ModeDeleteBucketTagging(const std::string& bucketName)
 	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
 
+    auto request = S3::DeleteBucketTaggingRequest().WithBucket(bucketName);
+
+    if (progArgs->getDoS3CorsTest())
+        request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
+
     OPLOG_PRE_OP("DeleteBucketTagging", bucketName, 0, 0);
 
-    const auto outcome = s3Client->DeleteBucketTagging(
-        S3::DeleteBucketTaggingRequest().WithBucket(bucketName)
-    );
+    const auto outcome = s3Client->DeleteBucketTagging(request);
 
     OPLOG_POST_OP("DeleteBucketTagging", bucketName, 0, 0, !outcome.IsSuccess());
 
@@ -4362,24 +4471,27 @@ void LocalWorker::s3ModeDeleteBucket(const std::string& bucketName)
 	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
 
-	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+    const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
 
-	S3::DeleteBucketRequest request;
-	request.SetBucket(bucketName);
+    S3::DeleteBucketRequest request;
+    request.SetBucket(bucketName);
 
-	OPLOG_PRE_OP("S3DeleteBucket", bucketName, 0, 0);
+    if (progArgs->getDoS3CorsTest())
+        request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
 
-	S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
+    OPLOG_PRE_OP("S3DeleteBucket", bucketName, 0, 0);
 
-	OPLOG_POST_OP("S3DeleteBucket", bucketName, 0, 0, !deleteOutcome.IsSuccess() );
+    S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
 
-	if(!deleteOutcome.IsSuccess() )
-	{
-		auto s3Error = deleteOutcome.GetError();
+    OPLOG_POST_OP("S3DeleteBucket", bucketName, 0, 0, !deleteOutcome.IsSuccess() );
 
-		if( (s3Error.GetErrorType() != S3Errors::NO_SUCH_BUCKET) || !ignoreDelErrors)
+    if(!deleteOutcome.IsSuccess() )
+    {
+        auto s3Error = deleteOutcome.GetError();
+
+        if( (s3Error.GetErrorType() != S3Errors::NO_SUCH_BUCKET) || !ignoreDelErrors)
             s3ModeThrowOnError(deleteOutcome, "Bucket deletion failed.", bucketName);
-	}
+    }
 
 #endif // S3_SUPPORT
 }
@@ -4630,35 +4742,38 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
     request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
         { return !isInterruptionRequested.load(); } );
 
-	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
+    s3ModeAddCorsHeader(request);
 
-	S3::PutObjectOutcome outcome = s3Client->PutObject(request);
+    OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
-	OPLOG_POST_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize,
-		!outcome.IsSuccess() );
+    S3::PutObjectOutcome outcome = s3Client->PutObject(request);
 
-	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+    OPLOG_POST_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize,
+        !outcome.IsSuccess() );
 
-	IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
+    checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+    s3ModeThrowOnCorsError(outcome, bucketName, objectName);
+    IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
         s3ModeThrowOnError(outcome, "Object upload failed.", bucketName, objectName);
 
-	if(blockSize)
-	{
-		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
-	}
+    if(blockSize)
+    {
+        ((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+        ((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
+    }
 
-	// calc io operation latency
-	std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
-	std::chrono::microseconds ioElapsedMicroSec =
-		std::chrono::duration_cast<std::chrono::microseconds>
-		(ioEndT - ioStartT);
+    // calc io operation latency
+    std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+    std::chrono::microseconds ioElapsedMicroSec =
+        std::chrono::duration_cast<std::chrono::microseconds>
+        (ioEndT - ioStartT);
 
-	iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+    iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
 
-	numIOPSSubmitted++;
-	rwOffsetGen->addBytesSubmitted(blockSize);
-	atomicLiveOps.numIOPSDone++;
+    numIOPSSubmitted++;
+    rwOffsetGen->addBytesSubmitted(blockSize);
+    atomicLiveOps.numIOPSDone++;
 
 #endif // S3_SUPPORT
 }
@@ -4689,6 +4804,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
     if(doS3AclPutInline)
         TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
+
+    if (progArgs->getDoS3CorsTest())
+        createMultipartUploadRequest.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
 
     OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
 
@@ -4755,6 +4873,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
+
+        if (progArgs->getDoS3CorsTest())
+            uploadPartRequest.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize);
 
@@ -4839,6 +4960,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         completionRequest.WithSSECustomerAlgorithm("AES256")
                 .WithSSECustomerKey(s3SSECKey)
                 .WithSSECustomerKeyMD5(s3SSECKeyMD5);
+
+    if (progArgs->getDoS3CorsTest())
+        completionRequest.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
 
     OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
         completedMultipartUpload.GetParts().size() );
@@ -5176,6 +5300,8 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 			.WithKey(objectName)
 			.WithRange(objectRange);
 
+        s3ModeAddCorsHeader(request);
+
         // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
         if(!s3SSECKey.empty())
             request.WithSSECustomerAlgorithm("AES256")
@@ -5221,6 +5347,8 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		    !outcome.IsSuccess() );
 
 		checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+        s3ModeThrowOnCorsError(outcome, bucketName, objectName);
 
 		IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
             s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
@@ -5303,24 +5431,27 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
-	const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
+    const bool ignoreDelErrors = progArgs->getIgnoreDelErrors();
 
-	S3::DeleteObjectRequest request;
-	request.WithBucket(bucketName)
-		.WithKey(objectName);
+    S3::DeleteObjectRequest request;
+    request.WithBucket(bucketName)
+        .WithKey(objectName);
 
-	OPLOG_PRE_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0);
+    if (progArgs->getDoS3CorsTest())
+        request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
 
-	S3::DeleteObjectOutcome outcome = s3Client->DeleteObject(request);
+    OPLOG_PRE_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0);
+
+    S3::DeleteObjectOutcome outcome = s3Client->DeleteObject(request);
 
     OPLOG_POST_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0, !outcome.IsSuccess() );
 
-	IF_UNLIKELY(!outcome.IsSuccess() &&
-		(!ignoreDelErrors ||
-			(outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) ) )
-	{
+    IF_UNLIKELY(!outcome.IsSuccess() &&
+        (!ignoreDelErrors ||
+            (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) ) )
+    {
         s3ModeThrowOnError(outcome, "Object deletion failed.", bucketName, objectName);
-	}
+    }
 
 #endif // S3_SUPPORT
 }
@@ -5877,16 +6008,20 @@ void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::
 #ifndef S3_SUPPORT
     throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
-    OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
 
-    const auto getTagOutcome = s3Client->GetObjectTagging(
-        S3::GetObjectTaggingRequest()
-            .WithBucket(bucketName)
-            .WithKey(objectName)
-    );
+    auto request = S3::GetObjectTaggingRequest()
+                       .WithBucket(bucketName)
+                       .WithKey(objectName);
+
+    s3ModeAddCorsHeader(request);
+
+   OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
+
+    const auto getTagOutcome = s3Client->GetObjectTagging(request);
 
     OPLOG_POST_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0, !getTagOutcome.IsSuccess());
 
+    s3ModeThrowOnCorsError(getTagOutcome, bucketName, objectName);
     s3ModeThrowOnError(getTagOutcome, "Get object tagging failed.", bucketName, objectName);
 
     // Continue only if we need to verify
@@ -5928,10 +6063,14 @@ void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::
         .WithKey(TAG_KEY_MEDIUM_NAME)
         .WithValue(StringTk::generateRandomS3TagValue(objectName, TAG_VALUE_MEDIUM_LEN));
 
-    S3::PutObjectTaggingRequest request;
-    request.WithBucket(bucketName)
-          .WithKey(objectName)
-          .WithTagging(S3::Tagging().AddTagSet(tag));
+    auto request = S3::PutObjectTaggingRequest()
+                       .WithBucket(bucketName)
+                       .WithKey(objectName)
+                       .WithTagging(
+                           S3::Tagging().AddTagSet(tag));
+
+    if (progArgs->getDoS3CorsTest())
+        request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
 
     s3ModeAddChecksumAlgorithm(request);
 
@@ -5953,13 +6092,16 @@ void LocalWorker::s3ModeDeleteObjectTags(const std::string& bucketName, const st
     throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+    auto request = S3::DeleteObjectTaggingRequest()
+                       .WithBucket(bucketName)
+                       .WithKey(objectName);
+
+   if (progArgs->getDoS3CorsTest())
+       request.SetAdditionalCustomHeaderValue(REQUEST_ORIGIN_HEADER, progArgs->getS3CorsOrigin());
+               
     OPLOG_PRE_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0);
 
-    const auto delTagOutcome = s3Client->DeleteObjectTagging(
-        S3::DeleteObjectTaggingRequest()
-            .WithBucket(bucketName)
-            .WithKey(objectName)
-    );
+    const auto delTagOutcome = s3Client->DeleteObjectTagging(request);
 
     OPLOG_POST_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0, !delTagOutcome.IsSuccess());
 
