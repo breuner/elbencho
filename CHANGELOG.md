@@ -3,7 +3,11 @@
 ## v3.0.32 (work in progress)
 
 ### New Features & Enhancements
+* Added support for S3 async PUT/GET via `--iodepth`.
 * Experimental: Added support for macOS.
+
+### General Changes
+* Updated S3 to latest AWS SDK CPP v1.11.628.
 
 ### Contributors
 * Thanks to Christopher Koay for helpful comments and suggestions.

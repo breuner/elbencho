@@ -9,41 +9,52 @@
 	#include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 	#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
 
-#ifdef S3_AWSCRT
-    #include INCLUDE_AWS_S3(S3CrtClient.h)
+    #ifdef S3_AWSCRT
+        #include INCLUDE_AWS_S3(S3CrtClient.h)
 
-    namespace S3 = Aws::S3Crt::Model;
-    using S3Client = Aws::S3Crt::S3CrtClient;
-    using S3Errors = Aws::S3Crt::S3CrtErrors;
-    using S3ErrorType = Aws::S3Crt::S3CrtError;
-    using S3ClientConfiguration = Aws::S3Crt::ClientConfiguration;
-    using S3ChecksumAlgorithm = S3::ChecksumAlgorithm;
-    namespace S3ChecksumAlgorithmMapper = S3::ChecksumAlgorithmMapper;
-#else
-    #include INCLUDE_AWS_S3(S3Client.h)
+        namespace S3 = Aws::S3Crt::Model;
+        using S3Client = Aws::S3Crt::S3CrtClient;
+        using S3Errors = Aws::S3Crt::S3CrtErrors;
+        using S3ErrorType = Aws::S3Crt::S3CrtError;
+        using S3ClientConfiguration = Aws::S3Crt::ClientConfiguration;
+        using S3ChecksumAlgorithm = S3::ChecksumAlgorithm;
+        namespace S3ChecksumAlgorithmMapper = S3::ChecksumAlgorithmMapper;
+    #else
+        #include INCLUDE_AWS_S3(S3Client.h)
 
-    namespace S3 = Aws::S3::Model;
-    using S3Client = Aws::S3::S3Client;
-    using S3Errors = Aws::S3::S3Errors;
-    using S3ErrorType = Aws::S3::S3Error;
-    using S3ClientConfiguration = Aws::Client::ClientConfiguration;
-    using S3ChecksumAlgorithm = S3::ChecksumAlgorithm;
-    namespace S3ChecksumAlgorithmMapper = S3::ChecksumAlgorithmMapper;
-#endif // S3_AWSCRT
+        namespace S3 = Aws::S3::Model;
+        using S3Client = Aws::S3::S3Client;
+        using S3Errors = Aws::S3::S3Errors;
+        using S3ErrorType = Aws::S3::S3Error;
+        using S3ClientConfiguration = Aws::Client::ClientConfiguration;
+        using S3ChecksumAlgorithm = S3::ChecksumAlgorithm;
+        namespace S3ChecksumAlgorithmMapper = S3::ChecksumAlgorithmMapper;
+    #endif // S3_AWSCRT
 
-	/**
-	 * Aws::IOStream derived in-memory stream implementation for S3 object upload/download. The
-	 * actual in-memory part comes from the streambuf that gets provided to the constructor.
-	 */
-	class S3MemoryStream : public Aws::IOStream
-	{
-		public:
-			using Base = Aws::IOStream;
+    /**
+     * Aws::IOStream derived in-memory stream implementation for S3 object upload/download. The
+     * actual in-memory part comes from the streambuf that gets provided to the constructor.
+     */
+    class S3MemoryStream : public Aws::IOStream
+    {
+        public:
+            S3MemoryStream(unsigned char* buf, uint64_t bufLen) :
+                Aws::IOStream(&staticZeroStreamBuf), streamBuf(buf, bufLen)
+            {
+                /* staticZeroStreamBuf was only because base class needs to be init'ed before our
+                    streamBuf, so immediately replace with actual streamBuf now that it's ready */
+                rdbuf(&streamBuf);
+            }
 
-			S3MemoryStream(std::streambuf *buf) : Base(buf) {}
+            virtual ~S3MemoryStream() = default;
 
-			virtual ~S3MemoryStream() = default;
-	};
+        private:
+            static std::stringbuf staticZeroStreamBuf; /* only for first
+                init of std::iostream because that needs to be done before streamBuf init, but
+                will be replaced immediately after streamBuf is initialized */
+
+            Aws::Utils::Stream::PreallocatedStreamBuf streamBuf;
+    };
 
 #endif // S3_SUPPORT
 
@@ -99,8 +110,7 @@ class S3Tk
             if(s3ChecksumAlgorithm == S3ChecksumAlgorithm::NOT_SET)
                 return; // nothing to do
 
-            Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(buf, bufLen);
-            S3MemoryStream memStream(&streamBuf);
+            S3MemoryStream memStream(buf, bufLen);
 
             switch(s3ChecksumAlgorithm)
             {

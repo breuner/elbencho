@@ -15,15 +15,16 @@
     #include <aws/core/utils/crypto/MD5.h>
     #include <aws/core/utils/logging/DefaultLogSystem.h>
     #include <aws/core/utils/logging/AWSLogging.h>
+    #include <aws/core/utils/threading/SameThreadExecutor.h>
     #include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
 
     #ifdef S3_AWSCRT
         #include <aws/core/utils/logging/CRTLogSystem.h>
     #endif
 
-#endif // S3_SUPPORT
 
-#ifdef S3_SUPPORT
+    std::stringbuf S3MemoryStream::staticZeroStreamBuf;
+
     bool S3Tk::globalInitCalled = false;
     Aws::SDKOptions* S3Tk::s3SDKOptions = NULL; // needed for init and again for uninit later
 #endif // S3_SUPPORT
@@ -130,12 +131,22 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     S3ClientConfiguration config;
 
+    /* note: DefaultExecutor creates a new temporary thread for each async request, so is unbounded
+        and has overhead for thread creation. Thus, we only use it for zero I/O depth (i.e. no async
+        I/O) to avoid creation of a separate thread. PooledThreadExecutor has a fixed pool of
+        threads. */
+    size_t ioDepth = progArgs->getIODepth();
+    config.executor = ioDepth ?
+        (std::shared_ptr<Aws::Utils::Threading::Executor>)
+            std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(ioDepth) :
+        (std::shared_ptr<Aws::Utils::Threading::Executor>)
+            std::make_shared<Aws::Utils::Threading::DefaultExecutor>();
+
     config.verifySSL = false; // to avoid self-signed certificate errors
     config.enableEndpointDiscovery = false; // to avoid delays for discovery
     config.maxConnections = progArgs->getIODepth();
     config.connectTimeoutMs = 5000;
     config.requestTimeoutMs = 300000;
-    config.executor = std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(1);
     config.disableExpectHeader = true;
     config.enableTcpKeepAlive = true;
     config.requestCompressionConfig.requestMinCompressionSizeBytes = 1;
@@ -148,8 +159,9 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 #ifdef S3_AWSCRT
     config.useVirtualAddressing = false; /* only exists in config of s3-crt and not effective in
         client constructor (but effective there for non-crt s3 client) */
-    config.partSize = progArgs->getBlockSize(); // partSize is used to auto-parallelize large GETs.
-    //config.throughputTargetGbps = 100; // not clear what the effect of setting this is.
+    config.partSize = progArgs->getBlockSize() ? progArgs->getBlockSize() : 5 * 1024 * 1024; /* not
+        clear what the effect of setting this is, given that we don't submit more than blockSize. */
+    config.throughputTargetGbps = 100; // not clear what the effect of setting this is.
 #endif // S3_AWSCRT
 
     if(!progArgs->getS3Region().empty() )

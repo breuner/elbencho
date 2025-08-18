@@ -78,9 +78,66 @@
     #else
         namespace S3 = Aws::S3::Model;
         using S3Errors = Aws::S3::S3Errors;
-    #endif
+    #endif // !S3_AWSCRT
 
     S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
+
+    /**
+     * Context variables for asynchronous GetObject requests.
+     */
+    class S3AsyncDownloadContext
+    {
+        public:
+
+        /**
+         * Note that this does not init all members - some need to be set later (because the
+         * values are not ready yet at the time of object creation).
+         */
+        S3AsyncDownloadContext(uint64_t currentOffset, size_t blockSize) :
+            currentOffset(currentOffset), blockSize(blockSize),
+            partCompleteFuture(partCompletePromise.get_future() )
+        {}
+
+        uint64_t currentOffset;
+        size_t blockSize;
+
+        std::chrono::steady_clock::time_point ioStartT;
+
+        S3::GetObjectRequest request;
+        std::promise<S3::GetObjectOutcome> partCompletePromise;
+        std::future<S3::GetObjectOutcome> partCompleteFuture;
+    };
+
+    /**
+     * Context variables for parts of a asynchronous multipart upload.
+     */
+    class S3AsyncUploadPartContext
+    {
+        public:
+
+        /**
+         * Note that this does not init all members - some need to be set later (because the
+         * values are not ready yet at the time of object creation).
+         */
+        S3AsyncUploadPartContext(uint64_t currentOffset, size_t blockSize, size_t partNum) :
+            currentOffset(currentOffset), blockSize(blockSize), partNum(partNum),
+            partCompleteFuture(partCompletePromise.get_future() )
+        {
+            completedPart.SetPartNumber(partNum);
+        }
+
+        uint64_t currentOffset;
+        size_t blockSize;
+        size_t partNum;
+
+        std::chrono::steady_clock::time_point ioStartT;
+
+        S3::UploadPartRequest uploadPartRequest;
+        std::promise<S3::UploadPartOutcome> partCompletePromise;
+        std::future<S3::UploadPartOutcome> partCompleteFuture;
+        S3::CompletedPart completedPart;
+    };
+
 #endif // S3_SUPPORT
 
 
@@ -1320,6 +1377,10 @@ void LocalWorker::allocIOBuffer()
 		RandAlgoXoshiro256ss randGen;
 		randGen.fillBuf(ioBuf, progArgs->getBlockSize() );
 	}
+
+    LOGGER(Log_DEBUG, "Allocated IO buffers for ioBufVec. "
+        "Rank: " << workerRank << "; "
+        "Number of buffers: " << ioBufVec.size() << std::endl);
 }
 
 /**
@@ -1406,6 +1467,10 @@ void LocalWorker::allocGPUIOBuffer()
 				"GPU ID: " + std::to_string(gpuID) + "; "
 				"CUDA Error: " + cudaGetErrorString(copyRes) );
 	}
+
+    LOGGER(Log_DEBUG, "Allocated GPU buffers for gpuIOBufVec. "
+        "Rank: " << workerRank << "; "
+        "Number of buffers: " << gpuIOBufVec.size() << std::endl);
 
 #endif // CUDA_SUPPORT
 
@@ -4588,15 +4653,14 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
 	std::shared_ptr<Aws::IOStream> s3MemStream;
-	Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
-		(unsigned char*) (blockSize ? ioBufVec[0] : NULL), blockSize);
 
-	if(blockSize)
-	{
-		s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+    if(blockSize)
+    {
+        s3MemStream = std::make_shared<S3MemoryStream>(
+            (unsigned char*) (blockSize ? ioBufVec[0] : NULL), blockSize);
 
-		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
-	}
+        ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+    }
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -4666,6 +4730,8 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 /**
  * Block-sized multipart upload of an S3 object to an existing bucket.
  *
+ * This will delegate to s3ModeUploadObjectMultiPartAsync() if iodepth > 1.
+ *
  * @throw WorkerException on error.
  */
 void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName)
@@ -4677,6 +4743,14 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
+
+    // S T E P 0: hand over to async function if iodepth is given
+
+    if(progArgs->getIODepth() > 1)
+    {
+        s3ModeUploadObjectMultiPartAsync(bucketName, objectName);
+        return;
+    }
 
 	// S T E P 1: retrieve multipart upload ID from server
 
@@ -4699,7 +4773,8 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		!createMultipartUploadOutcome.IsSuccess() );
 
 	IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() && !ignoreS3Errors)
-        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.", bucketName, objectName);
+		s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.",
+			bucketName, objectName);
 
 	Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
 
@@ -4714,11 +4789,11 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		const uint64_t currentPartNum =
 			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
 
-		/* note: streamBuf needs to be initialized in loop to have the exact remaining blockSize.
-		 	 otherwise the AWS SDK will sent full streamBuf len despite smaller contentLength */
-		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
-			(unsigned char*) ioBufVec[0], blockSize);
-		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+        /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
+            have the exact remaining blockSize as len. otherwise the AWS SDK will send full
+            streamBuf len despite smaller contentLength in UploadPartRequest. */
+        std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
+            (unsigned char*) ioBufVec[0], blockSize);
 
 		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
@@ -4756,7 +4831,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
 			{ return !isInterruptionRequested.load(); } );
 
-		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize);
+		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
 		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
 
@@ -4764,7 +4839,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			concurrent part uploads might add overhead on completion for the S3 server to assemble
 			the full object in correct parts order. */
 
-		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentPartNum, blockSize,
+		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
 			!uploadPartOutcome.IsSuccess() );
 
 		checkInterruptionRequest( // (placed here to avoid outcome check on interruption)
@@ -4874,7 +4949,295 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 }
 
 /**
+ * Async block-sized multipart upload of an S3 object to an existing bucket.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::string objectName)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+    const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+    const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+    const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
+    const unsigned ioDepth = progArgs->getIODepth();
+
+    // S T E P 1: retrieve multipart upload ID from server
+
+    S3::CreateMultipartUploadRequest createMultipartUploadRequest;
+    createMultipartUploadRequest.SetBucket(bucketName);
+    createMultipartUploadRequest.SetKey(objectName);
+
+    s3ModeAddServerSideEncryption(createMultipartUploadRequest);
+    s3ModeAddChecksumAlgorithm(createMultipartUploadRequest);
+
+    if(doS3AclPutInline)
+        TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
+
+    OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
+
+    auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
+        createMultipartUploadRequest);
+
+    OPLOG_POST_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0,
+        !createMultipartUploadOutcome.IsSuccess() );
+
+    IF_UNLIKELY(!createMultipartUploadOutcome.IsSuccess() && !ignoreS3Errors)
+        s3ModeThrowOnError(createMultipartUploadOutcome, "Multipart upload creation failed.",
+            bucketName, objectName);
+
+    Aws::String uploadID = createMultipartUploadOutcome.GetResult().GetUploadId();
+
+
+    // S T E P 2: upload parts
+
+    S3::CompletedMultipartUpload completedMultipartUpload;
+    std::vector<S3AsyncUploadPartContext> partCompletionsVec;
+
+    partCompletionsVec.reserve(ioDepth); /* (reserve is important to not invalidate pointers for
+        async callbacks on vector grow) */
+
+    /* NOTE on try-catch: before we can exit this function we need to wait for all async tasks to
+        complete because they might still be accessing members of partCompletionsVec. */
+    try
+    {
+        while(rwOffsetGen->getNumBytesLeftToSubmit() )
+        {
+            // S T E P 2.1: submit parts asynchronously up to iodepth
+
+            for(unsigned currentIODepth = 0;
+                (currentIODepth < ioDepth) && rwOffsetGen->getNumBytesLeftToSubmit();
+                currentIODepth++)
+            {
+                const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+                const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+                const uint64_t currentPartNum =
+                    1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 for 1-based part range
+
+                S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec.emplace_back(
+                    currentOffset, blockSize, currentPartNum);
+
+                /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
+                    have the exact remaining blockSize as len. otherwise the AWS SDK will send full
+                    streamBuf len despite smaller contentLength in UploadPartRequest. */
+                std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
+                    (unsigned char*) ioBufVec[currentIODepth], blockSize);
+
+                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+                asyncPartContext.ioStartT = std::chrono::steady_clock::now();
+
+                ((*this).*funcPreWriteBlockModifier)(ioBufVec[currentIODepth],
+                    gpuIOBufVec[currentIODepth], blockSize, currentOffset);
+                ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[currentIODepth],
+                    gpuIOBufVec[currentIODepth], blockSize);
+
+                // prepare part upload
+
+                S3::UploadPartRequest& uploadPartRequest = asyncPartContext.uploadPartRequest;
+                uploadPartRequest.WithBucket(bucketName)
+                    .WithKey(objectName)
+                    .WithUploadId(uploadID)
+                    .WithPartNumber(currentPartNum)
+                    .WithContentLength(blockSize);
+
+                // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+                if(!s3SSECKey.empty() )
+                    uploadPartRequest.WithSSECustomerAlgorithm("AES256")
+                            .WithSSECustomerKey(s3SSECKey)
+                            .WithSSECustomerKeyMD5(s3SSECKeyMD5);
+
+                IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+                    S3Tk::addUploadPartRequestChecksum(uploadPartRequest,
+                        &asyncPartContext.completedPart, s3ChecksumAlgorithm,
+                        (unsigned char*) ioBufVec[currentIODepth], blockSize);
+
+                uploadPartRequest.SetBody(s3MemStream);
+
+                uploadPartRequest.SetDataSentEventHandler(
+                    [&atomicLiveOps = atomicLiveOps]
+                    (const Aws::Http::HttpRequest* request, long long numBytes)
+                    { atomicLiveOps.numBytesDone += numBytes; } );
+
+                uploadPartRequest.SetContinueRequestHandler(
+                    [&isInterruptionRequested = isInterruptionRequested]
+                    (const Aws::Http::HttpRequest* request)
+                    { return !isInterruptionRequested.load(); } );
+
+                OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
+                    blockSize);
+
+                s3Client->UploadPartAsync(uploadPartRequest,
+                    [partCompletePromise = &asyncPartContext.partCompletePromise]
+                    (const S3Client*, const S3::UploadPartRequest&,
+                    S3::UploadPartOutcome outcome,
+                    const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
+                    { partCompletePromise->set_value(std::move(outcome) ); });
+
+                numIOPSSubmitted++;
+                rwOffsetGen->addBytesSubmitted(asyncPartContext.blockSize);
+
+            } // enf of step 2.1: async submit for-loop
+
+            // S T E P 2.2: handle completion of submitted parts
+
+            for(unsigned currentIODepth = 0;
+                currentIODepth < partCompletionsVec.size();
+                currentIODepth++)
+            {
+                S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec[currentIODepth];
+
+                // wait for part upload to complete ("future.get()" blocks)
+                S3::UploadPartOutcome uploadPartOutcome = asyncPartContext.partCompleteFuture.get();
+
+                OPLOG_POST_OP("S3UploadPartAsync", bucketName + "/" + objectName,
+                    asyncPartContext.currentOffset, asyncPartContext.blockSize,
+                    !uploadPartOutcome.IsSuccess() );
+
+                // (interrupt check placed here to avoid outcome check on interruption)
+                checkInterruptionRequest([this, &bucketName, &objectName, &uploadID]
+                    { s3AbortMultipartUpload(bucketName, objectName, uploadID); } );
+
+                IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
+                {
+                    s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+                    if (!ignoreS3Errors)
+                    {
+                        auto s3Error = uploadPartOutcome.GetError();
+
+                        throw WorkerException(std::string("Multipart part upload failed. ") +
+                            "Endpoint: " + s3EndpointStr + "; "
+                            "Bucket: " + bucketName + "; "
+                            "Object: " + objectName + "; "
+                            "Part: " + std::to_string(asyncPartContext.partNum) + "; "
+                            "Exception: " + s3Error.GetExceptionName() + "; " +
+                            "Message: " + s3Error.GetMessage() );
+                    }
+                }
+
+                // mark part as completed
+
+                auto partETag = uploadPartOutcome.GetResult().GetETag();
+                asyncPartContext.completedPart.SetETag(partETag);
+
+                completedMultipartUpload.AddParts(asyncPartContext.completedPart);
+
+                ((*this).*funcPostReadCudaMemcpy)(
+                    ioBufVec[currentIODepth], gpuIOBufVec[currentIODepth],
+                    asyncPartContext.blockSize);
+                ((*this).*funcPostReadBlockChecker)(
+                    ioBufVec[currentIODepth], gpuIOBufVec[currentIODepth],
+                    asyncPartContext.blockSize, asyncPartContext.currentOffset);
+
+                // calc io operation latency
+                std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+                std::chrono::microseconds ioElapsedMicroSec =
+                    std::chrono::duration_cast<std::chrono::microseconds>
+                    (ioEndT - asyncPartContext.ioStartT);
+
+                iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+                atomicLiveOps.numIOPSDone++;
+            } // end of step 2.2: wait for part batch completion for-loop
+
+            checkInterruptionRequest([this, &bucketName, &objectName, &uploadID]
+                { s3AbortMultipartUpload(bucketName, objectName, uploadID); } );
+
+            // reset completions vec for next round
+            partCompletionsVec.clear();
+
+        } // end of step 2 loop: submit parts + wait for completions
+    }
+    catch(...)
+    {
+        isInterruptionRequested = true; // for SetContinueRequestHandler()
+
+        // wait for all parts to complete ("future.get()" blocks)
+        for(unsigned i = 0; i < partCompletionsVec.size(); i++)
+        {
+            /* ignore errors because we're already handling an error (and ".get()" will also throw
+                an exception if value has already been retrieved) */
+            try { partCompletionsVec[i].partCompleteFuture.get(); }
+            catch(...) {}
+        }
+
+        /* ignore errors because we're already handling an error (and ".get()" will also throw
+            an exception if value has already been retrieved) */
+        try { s3AbortMultipartUpload(bucketName, objectName, uploadID); }
+        catch(...) {}
+
+        throw;
+    }
+
+    // S T E P 3: submit upload completion
+
+    IF_UNLIKELY(s3NoMpuCompletion)
+        return; // user-defined skip of completion message
+
+    if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() )
+    { // we need to reverse the parts vector for ascending order
+        const Aws::Vector<S3::CompletedPart>& reversePartsVec = completedMultipartUpload.GetParts();
+        Aws::Vector<S3::CompletedPart> forwardPartsVec(reversePartsVec.size() );
+
+        std::reverse_copy(std::begin(reversePartsVec), std::end(reversePartsVec),
+            std::begin(forwardPartsVec) );
+
+        completedMultipartUpload.SetParts(forwardPartsVec);
+    }
+
+    S3::CompleteMultipartUploadRequest completionRequest;
+    completionRequest.WithBucket(bucketName)
+        .WithKey(objectName)
+        .WithUploadId(uploadID)
+        .WithMultipartUpload(completedMultipartUpload);
+
+    // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+    if(!s3SSECKey.empty() )
+        completionRequest.WithSSECustomerAlgorithm("AES256")
+                .WithSSECustomerKey(s3SSECKey)
+                .WithSSECustomerKeyMD5(s3SSECKeyMD5);
+
+    OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
+        completedMultipartUpload.GetParts().size() );
+
+    auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
+
+    OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
+        completedMultipartUpload.GetParts().size(), !completionOutcome.IsSuccess() );
+
+    IF_UNLIKELY(!completionOutcome.IsSuccess())
+    {
+        auto s3Error = completionOutcome.GetError();
+
+        if (!(progArgs->getS3IgnoreMultipartUpload404() &&
+              s3Error.GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND))
+        {
+            s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+            if (!ignoreS3Errors)
+            {
+                throw WorkerException(std::string("Multipart upload completion failed. ") +
+                    "Endpoint: " + s3EndpointStr + "; "
+                    "Bucket: " + bucketName + "; "
+                    "Object: " + objectName + "; "
+                    "NumParts: " + std::to_string(
+                        completedMultipartUpload.GetParts().size() ) + "; "
+                    "Exception: " + s3Error.GetExceptionName() + "; " +
+                    "Message: " + s3Error.GetMessage() );
+            }
+        }
+	}
+
+#endif // S3_SUPPORT
+}
+
+/**
  * Block-sized multipart upload of an S3 object to an existing bucket, shared by multiple workers.
+ *
+ * This will delegate to s3ModeUploadObjectMultiPartSharedAsync() if iodepth > 1.
  *
  * @throw WorkerException on error.
  */
@@ -4886,6 +5249,14 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 #else
 
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
+
+    // S T E P 0: hand over to async function if iodepth is given
+
+    if(progArgs->getIODepth() > 1)
+    {
+        s3ModeUploadObjectMultiPartSharedAsync(bucketName, objectName, objectTotalSize);
+        return;
+    }
 
 	// S T E P 1: retrieve multipart upload ID from server
 
@@ -4903,11 +5274,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		const uint64_t currentPartNum =
 			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
 
-		/* note: streamBuf needs to be initialized in loop to have the exact remaining blockSize.
-		 	 otherwise the AWS SDK will sent full streamBuf len despite smaller contentLength */
-		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf(
-			(unsigned char*) ioBufVec[0], blockSize);
-		std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(&streamBuf);
+        /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
+            have the exact remaining blockSize as len. otherwise the AWS SDK will send full
+            streamBuf len despite smaller contentLength in UploadPartRequest. */
+        std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
+            (unsigned char*) ioBufVec[0], blockSize);
 
 		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
@@ -4942,10 +5313,6 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
 		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
-
-		/* note: there is no way to tell the server about the offset of a part within an object, so
-			concurrent part uploads might add overhead on completion for the S3 server to assemble
-			the full object in correct parts order. */
 
 		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
 			!uploadPartOutcome.IsSuccess() );
@@ -5006,6 +5373,271 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 				"BytesLeft: " + std::to_string(rwOffsetGen->getNumBytesLeftToSubmit() ) + "; " +
 				"ObjectSize: " + std::to_string(objectTotalSize) );
 	}
+
+	// S T E P 3: submit upload completion
+
+	IF_UNLIKELY(s3NoMpuCompletion)
+	    return; // user-defined skip of completion message
+
+	if(!allCompletedParts)
+		return; // another worker still needs to upload parts, so no completion yet
+
+	// (note: part vec must be in ascending order)
+	std::sort(allCompletedParts->begin(), allCompletedParts->end(),
+		[](const S3::CompletedPart& a, const S3::CompletedPart& b) -> bool
+		{ return a.GetPartNumber() < b.GetPartNumber(); } );
+
+	S3::CompletedMultipartUpload completedMultipartUpload;
+	completedMultipartUpload.SetParts(*allCompletedParts);
+
+	S3::CompleteMultipartUploadRequest completionRequest;
+	completionRequest.WithBucket(bucketName)
+		.WithKey(objectName)
+		.WithUploadId(uploadID)
+		.WithMultipartUpload(completedMultipartUpload);
+
+	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize);
+
+	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
+
+	OPLOG_POST_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize,
+		!completionOutcome.IsSuccess() );
+
+
+    IF_UNLIKELY(!completionOutcome.IsSuccess() )
+    {
+        auto s3Error = completionOutcome.GetError();
+
+        if (!(progArgs->getS3IgnoreMultipartUpload404() &&
+              s3Error.GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND))
+        {
+            s3AbortMultipartUpload(bucketName, objectName, uploadID);
+
+            throw WorkerException(std::string("Shared multipart upload completion failed. ") +
+                "Endpoint: " + s3EndpointStr + "; "
+                "Bucket: " + bucketName + "; "
+                "Object: " + objectName + "; "
+                "NumParts: " + std::to_string(completedMultipartUpload.GetParts().size() ) + "; "
+                "Exception: " + s3Error.GetExceptionName() + "; " +
+                "Message: " + s3Error.GetMessage() );
+        }
+    }
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Async block-sized multipart upload of an S3 object to an existing bucket, shared by multiple
+ * workers.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
+    std::string objectName, uint64_t objectTotalSize)
+{
+#ifndef S3_SUPPORT
+	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+    const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
+    const unsigned ioDepth = progArgs->getIODepth();
+
+	// S T E P 1: retrieve multipart upload ID from server
+
+	Aws::String uploadID = s3SharedUploadStore.getMultipartUploadID(
+		bucketName, objectName, s3Client, opsLog);
+
+	std::unique_ptr<Aws::Vector<S3::CompletedPart>> allCompletedParts; // need sort before send
+
+	// S T E P 2: upload parts
+
+    std::vector<S3AsyncUploadPartContext> partCompletionsVec;
+
+    partCompletionsVec.reserve(ioDepth); /* (reserve is important to not invalidate pointers for
+        async callbacks on vector grow) */
+
+    /* NOTE on try-catch: before we can exit this function we need to wait for all async tasks to
+        complete because they might still be accessing members of partCompletionsVec. */
+    try
+    {
+        while(rwOffsetGen->getNumBytesLeftToSubmit() )
+        {
+            // S T E P 2.1: submit parts asynchronously up to iodepth
+
+            for(unsigned currentIODepth = 0;
+                (currentIODepth < ioDepth) && rwOffsetGen->getNumBytesLeftToSubmit();
+                currentIODepth++)
+            {
+                const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+                const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+                const uint64_t currentPartNum =
+                    1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 for 1-based part range
+
+                S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec.emplace_back(
+                    currentOffset, blockSize, currentPartNum);
+
+                /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
+                    have the exact remaining blockSize as len. otherwise the AWS SDK will send full
+                    streamBuf len despite smaller contentLength in UploadPartRequest. */
+                std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
+                    (unsigned char*) ioBufVec[currentIODepth], blockSize);
+
+                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+                asyncPartContext.ioStartT = std::chrono::steady_clock::now();
+
+                ((*this).*funcPreWriteBlockModifier)(ioBufVec[currentIODepth],
+                    gpuIOBufVec[currentIODepth], blockSize, currentOffset);
+                ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[currentIODepth],
+                    gpuIOBufVec[currentIODepth], blockSize);
+
+                // prepare part upload
+
+                S3::UploadPartRequest& uploadPartRequest = asyncPartContext.uploadPartRequest;
+                uploadPartRequest.WithBucket(bucketName)
+                    .WithKey(objectName)
+                    .WithUploadId(uploadID)
+                    .WithPartNumber(currentPartNum)
+                    .WithContentLength(blockSize);
+
+                // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+                if(!s3SSECKey.empty() )
+                    uploadPartRequest.WithSSECustomerAlgorithm("AES256")
+                            .WithSSECustomerKey(s3SSECKey)
+                            .WithSSECustomerKeyMD5(s3SSECKeyMD5);
+
+                IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+                    S3Tk::addUploadPartRequestChecksum(uploadPartRequest,
+                        &asyncPartContext.completedPart, s3ChecksumAlgorithm,
+                        (unsigned char*) ioBufVec[currentIODepth], blockSize);
+
+                uploadPartRequest.SetBody(s3MemStream);
+
+                uploadPartRequest.SetDataSentEventHandler(
+                    [&atomicLiveOps = atomicLiveOps]
+                    (const Aws::Http::HttpRequest* request, long long numBytes)
+                    { atomicLiveOps.numBytesDone += numBytes; } );
+
+                uploadPartRequest.SetContinueRequestHandler(
+                    [&isInterruptionRequested = isInterruptionRequested]
+                    (const Aws::Http::HttpRequest* request)
+                    { return !isInterruptionRequested.load(); } );
+
+                OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
+                    blockSize);
+
+                s3Client->UploadPartAsync(uploadPartRequest,
+                    [partCompletePromise = &asyncPartContext.partCompletePromise]
+                    (const S3Client*, const S3::UploadPartRequest&,
+                    S3::UploadPartOutcome outcome,
+                    const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
+                    { partCompletePromise->set_value(std::move(outcome) ); });
+
+                numIOPSSubmitted++;
+                rwOffsetGen->addBytesSubmitted(asyncPartContext.blockSize);
+
+            } // enf of step 2.1: async submit for-loop
+
+            // S T E P 2.2: handle completion of submitted parts
+
+            for(unsigned currentIODepth = 0;
+                currentIODepth < partCompletionsVec.size();
+                currentIODepth++)
+            {
+                S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec[currentIODepth];
+
+                // wait for part upload to complete ("future.get()" blocks)
+                S3::UploadPartOutcome uploadPartOutcome = asyncPartContext.partCompleteFuture.get();
+
+                OPLOG_POST_OP("S3UploadPartAsync", bucketName + "/" + objectName,
+                    asyncPartContext.currentOffset, asyncPartContext.blockSize,
+                    !uploadPartOutcome.IsSuccess() );
+
+                checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption;
+                    abort message will be sent during s3SharedUploadStore cleanup) */
+
+                IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
+                {
+                    // (note: abort message will be sent during s3SharedUploadStore cleanup)
+
+                    auto s3Error = uploadPartOutcome.GetError();
+
+                    throw WorkerException(std::string("Shared multipart part upload failed. ") +
+                        "Endpoint: " + s3EndpointStr + "; "
+                        "Bucket: " + bucketName + "; "
+                        "Object: " + objectName + "; "
+                        "Part: " + std::to_string(asyncPartContext.partNum) + "; "
+                        "UploadID: " + uploadID + "; "
+                        "Rank: " + std::to_string(workerRank) + "; "
+                        "Exception: " + s3Error.GetExceptionName() + "; " +
+                        "Message: " + s3Error.GetMessage() + "; " +
+                        "HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) );
+                }
+
+                // mark part as completed
+
+                auto partETag = uploadPartOutcome.GetResult().GetETag();
+                asyncPartContext.completedPart.SetETag(partETag);
+
+                allCompletedParts = s3SharedUploadStore.addCompletedPart(bucketName, objectName,
+                    asyncPartContext.blockSize, objectTotalSize, asyncPartContext.completedPart);
+
+                ((*this).*funcPostReadCudaMemcpy)(
+                    ioBufVec[currentIODepth], gpuIOBufVec[currentIODepth],
+                    asyncPartContext.blockSize);
+                ((*this).*funcPostReadBlockChecker)(
+                    ioBufVec[currentIODepth], gpuIOBufVec[currentIODepth],
+                    asyncPartContext.blockSize, asyncPartContext.currentOffset);
+
+                // calc io operation latency
+                std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+                std::chrono::microseconds ioElapsedMicroSec =
+                    std::chrono::duration_cast<std::chrono::microseconds>
+                    (ioEndT - asyncPartContext.ioStartT);
+
+                iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+                atomicLiveOps.numIOPSDone++;
+
+                // sanity check afer rwOffsetGen update
+                IF_UNLIKELY(allCompletedParts && rwOffsetGen->getNumBytesLeftToSubmit() )
+                    throw WorkerException(std::string("Shared multipart upload logic error. ") +
+                        "Completion returned by upload store, but bytes left to submit. "
+                        "Endpoint: " + s3EndpointStr + "; "
+                        "Bucket: " + bucketName + "; "
+                        "Object: " + objectName + "; "
+                        "Part: " + std::to_string(asyncPartContext.partNum) + "; "
+                        "BytesLeft: " + std::to_string(rwOffsetGen->getNumBytesLeftToSubmit() ) +
+                            "; " +
+                        "ObjectSize: " + std::to_string(objectTotalSize) );
+            } // end of step 2.2: wait for part batch completion for-loop
+
+            checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption;
+                abort message will be sent during s3SharedUploadStore cleanup) */
+
+            // reset completions vec for next round
+            partCompletionsVec.clear();
+
+        } // end of step 2 loop: submit parts + wait for completions
+    }
+    catch(...)
+    {
+        isInterruptionRequested = true; // for SetContinueRequestHandler()
+
+        // wait for all parts to complete ("future.get()" blocks)
+        for(unsigned i = 0; i < partCompletionsVec.size(); i++)
+        {
+            /* ignore errors because we're already handling an error (and ".get()" will also throw
+                an exception if value has already been retrieved) */
+            try { partCompletionsVec[i].partCompleteFuture.get(); }
+            catch(...) {}
+        }
+
+        /* note: no s3AbortMultipartUpload() here, abort message will be sent during
+            s3SharedUploadStore cleanup */
+
+        throw;
+    }
 
 	// S T E P 3: submit upload completion
 
@@ -5136,6 +5768,8 @@ void LocalWorker::s3ModeAbortUnfinishedSharedUploads()
 /**
  * Block-sized download of an S3 object.
  *
+ * This will delegate to s3ModeDownloadObjectAsync() if iodepth > 1.
+ *
  * @isRWMixedReader true if this is a reader of a mixed read/write phase, so that the corresponding
  * 		statistics get increased.
  *
@@ -5151,6 +5785,13 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 	const bool useS3FastRead = progArgs->getUseS3FastRead();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
+    // async delegation: hand over to async function if iodepth is given
+    if(progArgs->getIODepth() > 1)
+    {
+        s3ModeDownloadObjectAsync(bucketName, objectName, isRWMixedReader);
+        return;
+    }
+
 	// download one block-sized chunk in each loop pass
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
@@ -5162,7 +5803,6 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 		char* ioBuf = useS3FastRead ? NULL : ioBufVec[0];
 		char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[0];
-		Aws::Utils::Stream::PreallocatedStreamBuf streamBuf( (unsigned char*)ioBuf, blockSize);
 
 		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
@@ -5184,11 +5824,15 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
         if(!useS3FastRead)
             request.SetResponseStreamFactory([&]()
-            {
-                S3MemoryStream* s3MemStream = new S3MemoryStream(&streamBuf);
+            { /* note: this lambda will be called async after additional for-loop passes, so
+                we can't rely on stack values from current loop pass to exist and thus need
+                to pass vars by value instead of by reference. */
 
-                /* note on seek: this factory will also get called in case of failures/retries, so
-                   we need to reset to beginning of buffer. */
+                S3MemoryStream* s3MemStream = new S3MemoryStream(
+                    (unsigned char*)ioBuf, blockSize);
+
+                /* note on seek: this factory will also get called in case of retries,
+                    so we need to reset streamBuf position to beginning of buffer. */
                 s3MemStream->seekp(0);
                 s3MemStream->seekg(0);
 
@@ -5260,6 +5904,217 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		numIOPSSubmitted++;
 		rwOffsetGen->addBytesSubmitted(blockSize);
 	}
+
+#endif // S3_SUPPORT
+}
+
+/**
+ * Async block-sized download of an S3 object.
+ *
+ * @isRWMixedReader true if this is a reader of a mixed read/write phase, so that the corresponding
+ * 		statistics get increased.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string objectName,
+    const bool isRWMixedReader)
+{
+#ifndef S3_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
+#else
+
+    const bool useS3FastRead = progArgs->getUseS3FastRead();
+    const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+    const unsigned ioDepth = progArgs->getIODepth();
+
+    std::vector<S3AsyncDownloadContext> partCompletionsVec;
+
+    partCompletionsVec.reserve(ioDepth); /* (reserve is important to not invalidate pointers for
+        async callbacks on vector grow) */
+
+
+    /* NOTE on try-catch: before we can exit this function we need to wait for all async tasks to
+        complete because they might still be accessing members of partCompletionsVec. */
+    try
+    {
+        // download block-sized chunks async up to iodepth in each loop pass
+        while(rwOffsetGen->getNumBytesLeftToSubmit() )
+        {
+            // S T E P 1: submit parts asynchronously up to iodepth
+
+            for(unsigned currentIODepth = 0;
+                (currentIODepth < ioDepth) && rwOffsetGen->getNumBytesLeftToSubmit();
+                currentIODepth++)
+            {
+                const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+                const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+                S3AsyncDownloadContext& asyncPartContext = partCompletionsVec.emplace_back(
+                    currentOffset, blockSize);
+
+                std::string objectRange = "bytes=" + std::to_string(currentOffset) + "-" +
+                    std::to_string(currentOffset+blockSize-1);
+
+                char* ioBuf = useS3FastRead ? NULL : ioBufVec[currentIODepth];
+                char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[currentIODepth];
+
+                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+                asyncPartContext.ioStartT = std::chrono::steady_clock::now();
+
+                ((*this).*funcPreWriteBlockModifier)(ioBuf, gpuIOBuf, blockSize, currentOffset);
+                ((*this).*funcPreWriteCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
+
+                S3::GetObjectRequest& request = asyncPartContext.request;
+                request.WithBucket(bucketName)
+                    .WithKey(objectName)
+                    .WithRange(objectRange);
+
+                // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+                if(!s3SSECKey.empty())
+                    request.WithSSECustomerAlgorithm("AES256")
+                            .WithSSECustomerKey(s3SSECKey)
+                            .WithSSECustomerKeyMD5(s3SSECKeyMD5);
+
+                if(!useS3FastRead)
+                    request.SetResponseStreamFactory([ioBuf, blockSize]()
+                    { /* note: this lambda will be called async after additional for-loop passes, so
+                        we can't rely on stack values from current loop pass to exist and thus need
+                        to pass vars by value instead of by reference. */
+
+                        S3MemoryStream* s3MemStream = new S3MemoryStream(
+                            (unsigned char*)ioBuf, blockSize);
+
+                        /* note on seek: this factory will also get called in case of retries,
+                            so we need to reset streamBuf position to beginning of buffer. */
+                        s3MemStream->seekp(0);
+                        s3MemStream->seekg(0);
+
+                        return s3MemStream;
+                    } );
+                else
+                    request.SetResponseStreamFactory([]()
+                    {
+                        return new Aws::FStream("/dev/null",
+                            std::ios_base::out | std::ios_base::binary);
+                    });
+
+                request.SetDataReceivedEventHandler(
+                    [&isRWMixedReader, &atomicLiveOpsReadMix = atomicLiveOpsReadMix,
+                        &atomicLiveOps = atomicLiveOps]
+                    (const Aws::Http::HttpRequest* request, Aws::Http::HttpResponse* response,
+                        long long numBytes)
+                    {
+                        if(isRWMixedReader)
+                            atomicLiveOpsReadMix.numBytesDone += numBytes;
+                        else
+                            atomicLiveOps.numBytesDone += numBytes;
+                    } );
+
+                request.SetContinueRequestHandler(
+                    [&isInterruptionRequested = isInterruptionRequested]
+                    (const Aws::Http::HttpRequest* request)
+                    { return !isInterruptionRequested.load(); } );
+
+                OPLOG_PRE_OP("S3GetObjectAsync", bucketName + "/" + objectName, currentOffset,
+                    blockSize);
+
+                s3Client->GetObjectAsync(request,
+                    [partCompletePromise = &asyncPartContext.partCompletePromise]
+                    (const S3Client*, const S3::GetObjectRequest&, S3::GetObjectOutcome outcome,
+                        const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
+                    { partCompletePromise->set_value(std::move(outcome)); });
+
+                numIOPSSubmitted++;
+                rwOffsetGen->addBytesSubmitted(blockSize);
+
+            } // end of step 1: async submission loop
+
+
+            // S T E P 2: handle completion of submitted part downloads
+
+            for(unsigned currentIODepth = 0;
+                currentIODepth < partCompletionsVec.size();
+                currentIODepth++)
+            {
+                S3AsyncDownloadContext& asyncPartContext = partCompletionsVec[currentIODepth];
+
+                // wait for this part to complete ("future.get()" blocks)
+                S3::GetObjectOutcome outcome = asyncPartContext.partCompleteFuture.get();
+
+                OPLOG_POST_OP("S3GetObjectAsync", bucketName + "/" + objectName,
+                    asyncPartContext.currentOffset, asyncPartContext.blockSize,
+                    !outcome.IsSuccess() );
+
+                checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+                IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
+                    s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
+
+                IF_UNLIKELY(
+                    ( (size_t)outcome.GetResult().GetContentLength() <
+                        asyncPartContext.blockSize) &&
+                    !ignoreS3Errors)
+                {
+                    throw WorkerException(std::string("Object too small. ") +
+                        "Endpoint: " + s3EndpointStr + "; "
+                        "Bucket: " + bucketName + "; "
+                        "Object: " + objectName + "; "
+                        "Offset: " + std::to_string(asyncPartContext.currentOffset) + "; "
+                        "Requested blocksize: " + std::to_string(asyncPartContext.blockSize) + "; "
+                        "Received length: " + std::to_string(
+                            outcome.GetResult().GetContentLength() ) );
+                }
+
+                char* ioBuf = useS3FastRead ? NULL : ioBufVec[currentIODepth];
+                char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[currentIODepth];
+
+                ((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, asyncPartContext.blockSize);
+                ((*this).*funcPostReadBlockChecker)(ioBuf, gpuIOBuf, asyncPartContext.blockSize,
+                    asyncPartContext.currentOffset);
+
+                // calc io operation latency
+                std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+                std::chrono::microseconds ioElapsedMicroSec =
+                    std::chrono::duration_cast<std::chrono::microseconds>
+                    (ioEndT - asyncPartContext.ioStartT);
+
+                if(isRWMixedReader)
+                {
+                    iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+                    atomicLiveOpsReadMix.numIOPSDone++;
+                }
+                else
+                {
+                    iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+                    atomicLiveOps.numIOPSDone++;
+                }
+
+            } // end of step 2: for-loop: async completion
+
+            checkInterruptionRequest();
+
+            // reset completions vec for next round
+            partCompletionsVec.clear();
+
+        } // end of while-loop
+
+    }
+    catch(...)
+    {
+        isInterruptionRequested = true;
+
+        // wait for all parts to complete ("future.get()" blocks)
+        for(unsigned i = 0; i < partCompletionsVec.size(); i++)
+        {
+            /* ignore errors because we're already handling an error (and ".get()" will also throw
+                an exception if value has already been retrieved) */
+            try { partCompletionsVec[i].partCompleteFuture.get(); }
+            catch(...) {}
+        }
+
+        throw;
+    }
 
 #endif // S3_SUPPORT
 }

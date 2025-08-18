@@ -986,7 +986,7 @@ void ProgArgs::initImplicitValues()
 	if(integrityCheckSalt && blockVariancePercent)
 	{
 		if(runCreateFilesPhase)
-			LOGGER(Log_NORMAL, "NOTE: Integrity check disables block variance." << std::endl);
+			LOGGER(Log_VERBOSE, "NOTE: Integrity check disables block variance." << std::endl);
 
 		blockVariancePercent = 0;
 	}
