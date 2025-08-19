@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * Added support for S3 async PUT/GET via `--iodepth`.
+* Added automatic wait for service instances to become ready instead of failing immediately for a failed connection attempt. Defaults to 5s. (See `--svcwait`.)
 * Experimental: Added support for macOS.
 
 ### General Changes

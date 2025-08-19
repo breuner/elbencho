@@ -164,6 +164,7 @@ _elbencho_opts()
         --stat
         --svcpwfile
         --svcupint
+        --svcwait
         --sync
         --threads
         --timelimit
@@ -303,6 +304,8 @@ _elbencho()
         --start)
         ;&
         --svcupint)
+        ;&
+        --svcwait)
         ;&
         -t)
         ;&

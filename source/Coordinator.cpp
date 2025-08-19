@@ -1,5 +1,9 @@
+#include <chrono>
+#include <client_http.hpp> // todo move to actual test place
 #include <csignal>
 #include <iostream>
+#include <thread>
+
 #include "Coordinator.h"
 #include "HTTPServiceSWS.h"
 #include "HTTPServiceUWS.h"
@@ -49,7 +53,10 @@ int Coordinator::main()
 		}
 
 		S3Tk::initS3Global(&progArgs); // inits threads and thus after potential service daemonize
-		workerManager.prepareThreads();
+
+        waitForServicesReady(); // wait for service instances to become reachable
+
+        workerManager.prepareThreads();
 
 		/* register signal handlers for clean worker stop and stats print after ctrl+c. This is not
 			done in service mode, because a service shall just quit on an interrupt signal. */
@@ -138,6 +145,69 @@ void Coordinator::waitForUserDefinedStartTime()
 
 	while(time(NULL) < progArgs.getStartTime() )
 		usleep(1000);
+}
+
+/**
+ * Wait for all given services to be reachable.
+ * This is a no-op if service interrupt or service quit commands are given.
+ */
+void Coordinator::waitForServicesReady()
+{
+    const size_t maxWaitSecs = progArgs.getSvcReadyWaitSec();
+    const size_t retryWaitMS = 1000; // 1 sec
+    const std::chrono::steady_clock::time_point endWaitT =
+        std::chrono::steady_clock::now() + std::chrono::seconds(maxWaitSecs);
+
+    bool waitMsgLogged = false;
+    std::string notReadyServiceHost; // hostname of a service that is not ready yet
+
+    // check if we have to wait
+    if(progArgs.getHostsVec().empty() || progArgs.getInterruptServices() ||
+        progArgs.getQuitServices() || !progArgs.getSvcReadyWaitSec() )
+        return;
+
+    // loop until either all services are reachable or until max wait time exceeded
+    for( ; ; )
+    {
+        notReadyServiceHost = ""; // will be set for logging when we encounter an unreachable svc
+
+        for(const std::string& host : progArgs.getHostsVec() )
+        {
+            try
+            {
+                SimpleWeb::Client<SimpleWeb::HTTP> httpClient(host);
+                auto response = httpClient.request("GET", HTTPCLIENTPATH_STATUS);
+
+                if(response->status_code == SimpleWeb::status_code(
+                    SimpleWeb::StatusCode::success_ok) )
+                    continue;
+            }
+            catch(std::exception& e) { }
+
+            // this service is not yet ready
+            notReadyServiceHost = host;
+            break;
+        }
+
+        // check if all services are ready
+        if(notReadyServiceHost.empty() )
+            return;
+
+        // check if max wait time exceeded
+        if(std::chrono::steady_clock::now() >= endWaitT)
+            throw ProgException("Timed out waiting for services to become ready. "
+                "Unreachable service: " + notReadyServiceHost);
+
+        if(!waitMsgLogged)
+        {
+            waitMsgLogged = true;
+            LOGGER(Log_NORMAL, "NOTE: Waiting for services to become reachable... "
+                "(Max wait time: " << maxWaitSecs << "s)" << std::endl);
+        }
+
+        // sleep before retry
+        std::this_thread::sleep_for(std::chrono::milliseconds(retryWaitMS) );
+    }
 }
 
 /**
@@ -259,7 +329,7 @@ void Coordinator::runBenchmarks()
 
 
 	for(size_t iterationIndex = 0; iterationIndex < progArgs.getIterations(); iterationIndex++)
-	{	
+	{
 		statistics.printPhaseResultsTableHeader();
 
 		runSyncAndDropCaches();

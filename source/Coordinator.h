@@ -24,6 +24,7 @@ class Coordinator
 		static void handleInterruptSignal(int signal);
 
 		void waitForUserDefinedStartTime();
+		void waitForServicesReady();
 		void checkInterruptionBetweenPhases();
 		void runBenchmarkPhase(BenchPhase newBenchPhase);
 		void runSyncAndDropCaches();

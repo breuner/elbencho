@@ -194,6 +194,7 @@ namespace bpt = boost::property_tree;
 #define ARG_STRIDEDACCESS_LONG      "strided"
 #define ARG_SVCPASSWORDFILE_LONG    "svcpwfile"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
+#define ARG_SVCREADYWAITSECS_LONG   "svcwait"
 #define ARG_SYNCPHASE_LONG			"sync"
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
 #define ARG_TREEFILE_LONG			"treefile"
@@ -503,6 +504,7 @@ class ProgArgs
                             epoch. 0 means immediate start. */
         std::string svcPasswordFile; // protect against unauthorized service commands
         std::string svcPasswordHash; // implicitly set if svcPasswordFile is given, empty otherwise
+        size_t svcReadyWaitSec; // startup wait time for services to be ready in seconds
         size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
 		std::string treeFilePath; // path to file containing custom tree (list of dirs and files)
 		uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
@@ -747,10 +749,11 @@ class ProgArgs
         bool getShowServicesElapsed() const { return showServicesElapsed; }
         int getSockRecvBufSize() const { return sockRecvBufSize; }
         int getSockSendBufSize() const { return sockSendBufSize; }
-		time_t getStartTime() const { return startTime; }
-        size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
         std::string getSvcPasswordFile() const { return svcPasswordFile; }
         std::string getSvcPasswordHash() const { return svcPasswordHash; }
+        size_t getSvcReadyWaitSec() const { return svcReadyWaitSec; }
+        size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
+        time_t getStartTime() const { return startTime; }
         int getStdoutDupFD() const { return stdoutDupFD; }
         std::string getTreeScanPath() const { return treeScanPath; }
         bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }

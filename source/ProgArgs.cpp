@@ -684,6 +684,8 @@ void ProgArgs::defineAllowedArgs()
             "instances and master. This is to prevent unauthorized requests to service instances.")
 /*sv*/	(ARG_SVCUPDATEINTERVAL_LONG, bpo::value(&this->svcUpdateIntervalMS),
 			"Update retrieval interval for service hosts in milliseconds. (Default: 500)")
+/*sv*/	(ARG_SVCREADYWAITSECS_LONG, bpo::value(&this->svcReadyWaitSec),
+			"Wait time (in seconds) for service instances to become ready. (Default: 5)")
 /*sy*/	(ARG_SYNCPHASE_LONG, bpo::bool_switch(&this->runSyncPhase),
 			"Sync Linux kernel page cache to stable storage before/after each phase.")
 /*t*/	(ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value(&this->numThreads),
@@ -811,6 +813,7 @@ void ProgArgs::defineDefaults()
 	this->runDropCachesPhase = false;
 	this->runStatFilesPhase = false;
 	this->showCPUUtilization = false;
+    this->svcReadyWaitSec = 5;
 	this->svcUpdateIntervalMS = 500;
 	this->doTruncToSize = false;
 	this->doPreallocFile = false;
