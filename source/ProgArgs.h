@@ -182,6 +182,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3CHECKSUM_ALGO_LONG    "s3chksumalgo"  // parameter for x-amz-sdk-checksum-algorithm
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
+#define ARG_S3CORSORIGIN_LONG       "s3corsorigin"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -485,6 +486,7 @@ class ProgArgs
 			"2=never" is ignored, because as of aws sdk cpp v1.11.486 signing is always done. */
         std::string s3SSECKey;  // S3 SSE-C key for encryption
         std::string s3SSEKMSKey;  // S3 SSE-KMS key for encryption
+        std::string s3CorsOrigin;  // S3 CORS Origin header for testing
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
 		std::string serversStr; // prepended to hostsStr in netbench mode
@@ -737,6 +739,8 @@ class ProgArgs
         unsigned short getS3SignPolicy() const { return s3SignPolicy; }
         std::string getS3SSECKey() const { return s3SSECKey; }
         std::string getS3SSEKMSKey() const { return s3SSEKMSKey; }
+        const std::string& getS3CorsOrigin() const { return s3CorsOrigin; }
+        bool getDoS3CorsTest() const { return !s3CorsOrigin.empty(); }
         unsigned short getServicePort() const { return servicePort; }
         bool getShowAllElapsed() const { return showAllElapsed; }
         bool getShowCPUUtilization() const { return showCPUUtilization; }

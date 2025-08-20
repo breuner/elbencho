@@ -129,6 +129,7 @@ _elbencho_opts()
         --s3bversion
         --s3bversionverify
         --s3chksumalgo
+        --s3corsorigin
         --s3endpoints
         --s3fastget
         --s3fastput
@@ -271,6 +272,8 @@ _elbencho()
         --s3aclgtype)
         ;&
         --s3chksumalgo)
+        ;&
+        --s3corsorigin)
         ;&
         --s3endpoints)
         ;&

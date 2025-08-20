@@ -557,6 +557,10 @@ void ProgArgs::defineAllowedArgs()
 /*s3c*/	(ARG_S3CHECKSUM_ALGO_LONG, bpo::value(&this->s3ChecksumAlgoStr),
             "S3 checksum algorithm to use (CRC32, CRC32C, SHA1, SHA256). This sets the "
             "x-amz-sdk-checksum-algorithm header for S3 operations. (EXPERIMENTAL)")
+/*s3c*/	(ARG_S3CORSORIGIN_LONG, bpo::value(&this->s3CorsOrigin),
+            "S3 CORS origin header value. When provided, elbencho will add the '" REQUEST_ORIGIN_HEADER 
+            "' header to S3 requests and validate the '" RESPONSE_ORIGIN_HEADER "' response header.")
+
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
@@ -896,6 +900,7 @@ void ProgArgs::defineDefaults()
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
     this->s3ChecksumAlgoStr = "";  // Default to empty string (resolved as NOT_SET)
+    this->s3CorsOrigin = "";  // Default to empty string (CORS testing disabled)
 }
 
 /**
@@ -3375,6 +3380,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
     s3SSECKey = tree.get<std::string>(ARG_S3SSECKEY_LONG);
     s3SSEKMSKey = tree.get<std::string>(ARG_S3SSEKMSKEY_LONG);
+    s3CorsOrigin = tree.get<std::string>(ARG_S3CORSORIGIN_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
@@ -3532,6 +3538,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3SSE_LONG, useS3SSE);
     outTree.put(ARG_S3SSECKEY_LONG, s3SSECKey);
     outTree.put(ARG_S3SSEKMSKEY_LONG, s3SSEKMSKey);
+    outTree.put(ARG_S3CORSORIGIN_LONG, s3CorsOrigin);
 	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
 	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
 	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
