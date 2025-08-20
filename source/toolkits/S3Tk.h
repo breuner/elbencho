@@ -3,6 +3,7 @@
 
 #ifdef S3_SUPPORT
 	#include <aws/core/Aws.h>
+    #include <aws/core/client/DefaultRetryStrategy.h>
     #include <aws/core/utils/HashingUtils.h>
 	#include <aws/core/utils/memory/AWSMemory.h>
 	#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
@@ -56,6 +57,32 @@
             Aws::Utils::Stream::PreallocatedStreamBuf streamBuf;
     };
 
+    /**
+     * A S3 retry strategy that delegates all decisions to DefaultRetryStrategy with its exponential
+     * backoff, but checks for the interrupt flag being set before it delegates.
+     */
+    class InterruptibleRetryStrategy : public Aws::Client::DefaultRetryStrategy
+    {
+        public:
+            InterruptibleRetryStrategy(std::atomic_bool* isInterruptionRequestedPtr) :
+                Aws::Client::DefaultRetryStrategy(),
+                isInterruptionRequestedPtr(isInterruptionRequestedPtr)
+            { }
+
+            bool ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
+                            long attemptedRetries) const override
+            {
+                if(isInterruptionRequestedPtr && isInterruptionRequestedPtr->load() )
+                    return false; // stop retrying if interruption was requested
+
+                // delegate to DefaultRetryStrategy
+                return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
+            }
+
+        private:
+            std::atomic_bool* isInterruptionRequestedPtr; // can be NULL
+    };
+
 #endif // S3_SUPPORT
 
 
@@ -72,10 +99,11 @@ class S3Tk
         static std::shared_ptr<S3Client> initS3Client(
             const ProgArgs* progArgs, size_t workerRank =
                 std::chrono::system_clock::now().time_since_epoch().count(),
-            std::string* outS3EndpointStr = NULL);
+                std::atomic_bool* isInterruptionRequested = NULL,
+                std::string* outS3EndpointStr = NULL);
         static Aws::String computeKeyMD5(const Aws::String& key);
-		static void scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
-		    std::string bucketName, std::string objectPrefix, std::string outTreeFilePath);
+        static void scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
+            std::string bucketName, std::string objectPrefix, std::string outTreeFilePath);
 
 #endif // S3_SUPPORT
 

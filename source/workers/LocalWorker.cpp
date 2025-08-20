@@ -500,7 +500,7 @@ void LocalWorker::initS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	s3Client = S3Tk::initS3Client(progArgs, workerRank, &s3EndpointStr);
+	s3Client = S3Tk::initS3Client(progArgs, workerRank, &isInterruptionRequested, &s3EndpointStr);
 
     useS3SSE = progArgs->getUseS3SSE();
 

@@ -120,10 +120,12 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
  *
  * @workerRank to select s3 endpoint if multiple endpoints are available in progArgs; otherwise
  *     a clock-based random number will be chosen.
+ * * @isInterruptionRequested will be given to S3 retry strategy object to stop retries if
+ *     interruption was requested; can be NULL.
  * @outS3EndpointStr will be set to the selected s3 endpoint from progArgs vec; can be NULL.
  */
 std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
-    size_t workerRank, std::string* outS3EndpointStr)
+    size_t workerRank, std::atomic_bool* isInterruptionRequested, std::string* outS3EndpointStr)
 {
     if(progArgs->getS3EndpointsVec().empty() )
         throw ProgException(std::string(__func__) + " cannot init S3 client if no S3 endpoints are "
@@ -145,6 +147,8 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     config.verifySSL = false; // to avoid self-signed certificate errors
     config.enableEndpointDiscovery = false; // to avoid delays for discovery
     config.maxConnections = progArgs->getIODepth();
+    config.retryStrategy = std::make_shared<InterruptibleRetryStrategy>(
+        isInterruptionRequested); // note: restryStrategy is not used by S3CrtClient
     config.connectTimeoutMs = 5000;
     config.requestTimeoutMs = 300000;
     config.disableExpectHeader = true;

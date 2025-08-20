@@ -9,6 +9,7 @@
 
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.628.
+* Added interruption check to S3 retry handler to respond faster to termination requests (e.g. via ctrl+c).
 
 ### Contributors
 * Thanks to Christopher Koay for helpful comments and suggestions.

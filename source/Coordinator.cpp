@@ -1,5 +1,5 @@
 #include <chrono>
-#include <client_http.hpp> // todo move to actual test place
+#include <client_http.hpp>
 #include <csignal>
 #include <iostream>
 #include <thread>
