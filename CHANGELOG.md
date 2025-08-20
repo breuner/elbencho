@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.32 (work in progress)
+## v3.0.33 (Aug 20, 2025)
 
 ### New Features & Enhancements
 * Added support for S3 async PUT/GET via `--iodepth`.
@@ -12,7 +12,7 @@
 * Added interruption check to S3 retry handler to respond faster to termination requests (e.g. via ctrl+c).
 
 ### Contributors
-* Thanks to Christopher Koay for helpful comments and suggestions.
+* Thanks to John Fragalla & Christopher Koay for helpful comments and suggestions.
 
 ## v3.0.31 (July 20, 2025)
 
