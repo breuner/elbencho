@@ -245,12 +245,12 @@ void Statistics::loopSingleLineLiveStats()
 
 	LiveResults liveResults;
 
-	liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
-		workersSharedData.currentBenchPhase, &progArgs);
-	liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
-		workersSharedData.currentBenchPhase);
-	liveResults.entryTypeUpperCase =
-		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
+    liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
+        workersSharedData.currentBenchPhase, &progArgs);
+    liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs);
+    liveResults.entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs, true);
 
 	workerManager.getPhaseNumEntriesAndBytes(
 		liveResults.numEntriesPerWorker, liveResults.numBytesPerWorker);
@@ -308,12 +308,12 @@ void Statistics::loopNoConsoleLiveStats()
 
 	LiveResults liveResults;
 
-	liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
-		workersSharedData.currentBenchPhase, &progArgs);
-	liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
-		workersSharedData.currentBenchPhase);
-	liveResults.entryTypeUpperCase =
-		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
+    liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
+        workersSharedData.currentBenchPhase, &progArgs);
+    liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs);
+    liveResults.entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs, true);
 
 	workerManager.getPhaseNumEntriesAndBytes(
 		liveResults.numEntriesPerWorker, liveResults.numBytesPerWorker);
@@ -365,12 +365,12 @@ void Statistics::loopFullScreenLiveStats()
 
 	LiveResults liveResults;
 
-	liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
-		workersSharedData.currentBenchPhase, &progArgs);
-	liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
-		workersSharedData.currentBenchPhase);
-	liveResults.entryTypeUpperCase =
-		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
+    liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
+        workersSharedData.currentBenchPhase, &progArgs);
+    liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs);
+    liveResults.entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs, true);
 
 	workerManager.getPhaseNumEntriesAndBytes(
 		liveResults.numEntriesPerWorker, liveResults.numBytesPerWorker);
@@ -1343,10 +1343,10 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 {
 	std::string phaseName =
 		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs);
-	std::string entryTypeUpperCase =
-		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, true);
-	std::string entryTypeLowerCase =
-		TranslatorTk::benchPhaseToPhaseEntryType(workersSharedData.currentBenchPhase, false);
+	std::string entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs, true);
+	std::string entryTypeLowerCase = TranslatorTk::benchPhaseToPhaseEntryType(
+        workersSharedData.currentBenchPhase, &progArgs, false);
 
 	const bool isRWMixPhase = (phaseResults.opsTotalReadMix.numBytesDone ||
 		phaseResults.opsTotalReadMix.numEntriesDone);

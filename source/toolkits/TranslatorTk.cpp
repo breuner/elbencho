@@ -21,8 +21,10 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 	{
 		case BenchPhase_IDLE: return PHASENAME_IDLE;
 		case BenchPhase_TERMINATE: return PHASENAME_TERMINATE;
-		case BenchPhase_CREATEDIRS: return PHASENAME_CREATEDIRS;
-		case BenchPhase_DELETEDIRS: return PHASENAME_DELETEDIRS;
+		case BenchPhase_CREATEDIRS: return progArgs->getS3EndpointsVec().empty() ?
+            PHASENAME_CREATEDIRS : PHASENAME_CREATEBUCKETS;
+		case BenchPhase_DELETEDIRS: return progArgs->getS3EndpointsVec().empty() ?
+            PHASENAME_DELETEDIRS : PHASENAME_DELETEBUCKETS;
 		case BenchPhase_CREATEFILES:
 		{
 			std::string phaseName;
@@ -63,10 +65,12 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 
 			return phaseName;
 		}
-		case BenchPhase_DELETEFILES: return PHASENAME_DELETEFILES;
+		case BenchPhase_DELETEFILES: return progArgs->getS3EndpointsVec().empty() ?
+            PHASENAME_DELETEFILES : PHASENAME_DELETEOBJECTS;
 		case BenchPhase_SYNC: return PHASENAME_SYNC;
 		case BenchPhase_DROPCACHES: return PHASENAME_DROPCACHES;
-		case BenchPhase_STATFILES: return PHASENAME_STATFILES;
+		case BenchPhase_STATFILES: return progArgs->getS3EndpointsVec().empty() ?
+            PHASENAME_STATFILES : PHASENAME_STATOBJECTS;
 		case BenchPhase_PUTBUCKETACL: return PHASENAME_PUTBUCKETACL;
 		case BenchPhase_PUTOBJACL: return PHASENAME_PUTOBJACL;
 		case BenchPhase_GETOBJACL: return PHASENAME_GETOBJACL;
@@ -97,51 +101,54 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
  * @return PHASEENTRYTYPE_...
  * @throw ProgException on invalid benchPhase value
  */
-std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase, bool firstToUpper)
+std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
+    const ProgArgs* progArgs, bool firstToUpper)
 {
-	std::string retVal;
+    std::string retVal;
 
-	switch(benchPhase)
-	{
-		case BenchPhase_CREATEDIRS:
-		case BenchPhase_DELETEDIRS:
+    switch(benchPhase)
+    {
+        case BenchPhase_CREATEDIRS:
+        case BenchPhase_DELETEDIRS:
         case BenchPhase_GET_S3_BUCKET_MD:
         case BenchPhase_PUT_S3_BUCKET_MD:
         case BenchPhase_DEL_S3_BUCKET_MD:
-		{
-			retVal = PHASEENTRYTYPE_DIRS;
-		} break;
-		case BenchPhase_CREATEFILES:
-		case BenchPhase_READFILES:
-		case BenchPhase_DELETEFILES:
-		case BenchPhase_SYNC:
-		case BenchPhase_DROPCACHES:
-		case BenchPhase_STATFILES:
-		case BenchPhase_PUTBUCKETACL:
-		case BenchPhase_PUTOBJACL:
-		case BenchPhase_GETOBJACL:
-		case BenchPhase_GETBUCKETACL:
+        {
+            retVal = progArgs->getS3EndpointsVec().empty() ?
+                PHASEENTRYTYPE_DIRS : PHASEENTRYTYPE_BUCKETS;
+        } break;
+        case BenchPhase_CREATEFILES:
+        case BenchPhase_READFILES:
+        case BenchPhase_DELETEFILES:
+        case BenchPhase_SYNC:
+        case BenchPhase_DROPCACHES:
+        case BenchPhase_STATFILES:
+        case BenchPhase_PUTBUCKETACL:
+        case BenchPhase_PUTOBJACL:
+        case BenchPhase_GETOBJACL:
+        case BenchPhase_GETBUCKETACL:
         case BenchPhase_STATDIRS:
-		case BenchPhase_LISTOBJECTS:
-		case BenchPhase_LISTOBJPARALLEL:
-		case BenchPhase_MULTIDELOBJ:
+        case BenchPhase_LISTOBJECTS:
+        case BenchPhase_LISTOBJPARALLEL:
+        case BenchPhase_MULTIDELOBJ:
         case BenchPhase_GET_S3_OBJECT_MD:
         case BenchPhase_PUT_S3_OBJECT_MD:
         case BenchPhase_DEL_S3_OBJECT_MD:
-		{
-			retVal = PHASEENTRYTYPE_FILES;
-		} break;
-		default:
-		{ // should never happen
-			throw ProgException("Phase entry type requested for unknown/invalid phase type: " +
-				std::to_string(benchPhase) );
-		} break;
-	}
+        {
+            retVal = progArgs->getS3EndpointsVec().empty() ?
+                PHASEENTRYTYPE_FILES : PHASEENTRYTYPE_OBJECTS;
+        } break;
+        default:
+        { // should never happen
+            throw ProgException("Phase entry type requested for unknown/invalid phase type: " +
+                std::to_string(benchPhase) );
+        } break;
+    }
 
-	if(firstToUpper)
-		retVal[0] = std::toupper(retVal[0]);
+    if(firstToUpper)
+        retVal[0] = std::toupper(retVal[0]);
 
-	return retVal;
+    return retVal;
 }
 
 /**
