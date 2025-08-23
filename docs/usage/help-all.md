@@ -130,10 +130,11 @@ All options in alphabetical order:
                           ignored. (Format: hostname[:port])
   -i [ --iterations ] arg Number of iterations to run the benchmark. (Default: 
                           1)
-  --infloop               Let I/O threads run in an infinite loop, i.e. they 
-                          restart from the beginning when the reach the end of 
-                          the specified workload. Terminate this via ctrl+c or 
-                          by using "--timelimit"
+  --infloop               Let I/O threads run in an infinite repeat loop, i.e. 
+                          each thread individually restarts its work from the 
+                          beginning when it reaches the end of its specified 
+                          workload. Terminate this via ctrl+c or by using 
+                          "--timelimit".
   --interrupt             Interrupt current benchmark phase on given service 
                           mode hosts.
   --iodepth arg           Depth of I/O queue per thread for asynchronous I/O. 
@@ -334,7 +335,7 @@ All options in alphabetical order:
   --s3bversion            Activate bucket versioning operations.
   --s3bversionverify      Verify the correctness of S3 bucket versioning 
                           settings. (Requires "--s3bversion")
-  --s3checksumalgo arg    S3 checksum algorithm to use (CRC32, CRC32C, SHA1, 
+  --s3chksumalgo arg      S3 checksum algorithm to use (CRC32, CRC32C, SHA1, 
                           SHA256). This sets the x-amz-sdk-checksum-algorithm 
                           header for S3 operations. (EXPERIMENTAL)
   --s3endpoints arg       Comma-separated list of S3 endpoints. When this 
@@ -451,6 +452,8 @@ All options in alphabetical order:
                           service instances.
   --svcupint arg          Update retrieval interval for service hosts in 
                           milliseconds. (Default: 500)
+  --svcwait arg           Wait time (in seconds) for service instances to 
+                          become ready. (Default: 5)
   --sync                  Sync Linux kernel page cache to stable storage 
                           before/after each phase.
   -t [ --threads ] arg    Number of I/O worker threads. (Default: 1)
