@@ -457,7 +457,7 @@ class ProgArgs
 		bool runS3AclPut; // change object acl
 		bool runS3BucketAclGet; // retrieve bucket acl
 		bool runS3BucketAclPut; // change bucket acl
-        bool runS3StatDirs; // retrieve bucket HEAD (and other bucket MD ops, goes well with doS3BucketTag)
+        bool runS3StatDirs; // HeadBucket (and other bucket MD ops, goes well with doS3BucketTag)
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit

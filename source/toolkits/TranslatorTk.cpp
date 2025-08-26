@@ -110,6 +110,9 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
     {
         case BenchPhase_CREATEDIRS:
         case BenchPhase_DELETEDIRS:
+        case BenchPhase_STATDIRS:
+        case BenchPhase_PUTBUCKETACL:
+        case BenchPhase_GETBUCKETACL:
         case BenchPhase_GET_S3_BUCKET_MD:
         case BenchPhase_PUT_S3_BUCKET_MD:
         case BenchPhase_DEL_S3_BUCKET_MD:
@@ -123,11 +126,8 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
         case BenchPhase_SYNC:
         case BenchPhase_DROPCACHES:
         case BenchPhase_STATFILES:
-        case BenchPhase_PUTBUCKETACL:
         case BenchPhase_PUTOBJACL:
         case BenchPhase_GETOBJACL:
-        case BenchPhase_GETBUCKETACL:
-        case BenchPhase_STATDIRS:
         case BenchPhase_LISTOBJECTS:
         case BenchPhase_LISTOBJPARALLEL:
         case BenchPhase_MULTIDELOBJ:

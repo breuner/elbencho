@@ -1,5 +1,10 @@
 # Changelog of elbencho
 
+## v3.0.34 (work in progress)
+
+### Fixes
+* For some bucket-related phases, the performance report on the console had "Objects/s" instead of "Buckets/s".
+
 ## v3.0.33 (Aug 20, 2025)
 
 ### New Features & Enhancements
@@ -10,6 +15,7 @@
 ### General Changes
 * Updated S3 to latest AWS SDK CPP v1.11.628.
 * Added interruption check to S3 retry handler to respond faster to termination requests (e.g. via ctrl+c).
+* Report object performance numbers on console as "Objects/s" instead of "Files/s".
 
 ### Contributors
 * Thanks to John Fragalla & Christopher Koay for helpful comments and suggestions.

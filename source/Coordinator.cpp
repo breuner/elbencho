@@ -292,7 +292,6 @@ void Coordinator::runBenchmarks()
 	/* note: multiple phases can be selected for a single run and this array defines the order in
 		which they run, so make sure to have reasonable ordering here (e.g. creates before
 		deletes). */
-
 	std::array allBenchPhasesArray
 	{
 		BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },

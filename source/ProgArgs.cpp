@@ -647,7 +647,7 @@ void ProgArgs::defineAllowedArgs()
 			"'Never' has no effect with current S3 SDK as described in Github issue 3297. "
 			"(Default: 0)")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
-            "Do bucket Stats.")
+            "Run bucket attributes query phase.")
 #endif // S3_SUPPORT
 /*se*/	(ARG_SENDBUFSIZE_LONG, bpo::value(&this->sockSendBufSizeOrigStr),
 			"In netbench mode, this sets the send buffer size of sockets in bytes. "
