@@ -4301,7 +4301,7 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 }
 
 /**
- * Create given S3 bucket.
+ * Request attributes of given S3 bucket.
  *
  * @throw WorkerException on error.
  */
