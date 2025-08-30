@@ -718,7 +718,7 @@ void ProgArgs::defineAllowedArgs()
             "runs single-threaded. In case of a distributed run with services, the master instance "
             "(i.e. the host from which the test gets submitted) will run the scan. Only regular "
             "files will be used, symlinks and other special files will be ignored. S3 prefix from "
-            "scan will not be stored in the treefile, so use \"--" ARG_S3OBJECTPREFIX_LONG "\" to"
+            "scan will not be stored in the treefile, so use \"--" ARG_S3OBJECTPREFIX_LONG "\" to "
             "set/change prefix for benchmark runs.")
 /*tr*/	(ARG_TRUNCATE_LONG, bpo::bool_switch(&this->doTruncate),
 			"Truncate files to 0 size when opening for writing.")

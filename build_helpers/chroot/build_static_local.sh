@@ -14,7 +14,7 @@
 
 
 CHROOT_PATH=${CHROOT_PATH:="/var/tmp/elbencho_chroot_$(whoami)"}
-CHROOT_VERSION="v3.21"
+CHROOT_VERSION="v3.22"
 ELBENCHO_VERSION=$(make version)
 BUILD_ARCH=${BUILD_ARCH:="$(uname -m)"}                             # e.g. aarch64, x86_64
 ALPINE_SCRIPT_PATH=${ALPINE_SCRIPT_PATH:="external/alpine-chroot-install"}

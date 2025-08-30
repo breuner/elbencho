@@ -18,7 +18,7 @@ void Worker::threadStart(Worker* worker)
 
 
 /**
- * Increase number of done and workers and create stonewall stats if this is the first worker to
+ * Increase number of done workers and create stonewall stats if this is the first worker to
  * finish.
  */
 void Worker::incNumWorkersDone()

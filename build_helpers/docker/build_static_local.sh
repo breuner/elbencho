@@ -9,7 +9,7 @@
 
 
 CONTAINER_NAME="elbencho-static"
-IMAGE_NAME="alpine:3.21"
+IMAGE_NAME="alpine:3.22"
 ELBENCHO_VERSION=$(make version)
 
 ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-1}"

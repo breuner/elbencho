@@ -6559,7 +6559,13 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 			delRequest.SetBucket(bucketVec[bucketIndex] );
 			delRequest.SetDelete(deleteObjectList);
 
+            OPLOG_PRE_OP("S3DeleteObjects", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+                numObjectsPerRequest);
+
 			S3::DeleteObjectsOutcome delOutcome = s3Client->DeleteObjects(delRequest);
+
+            OPLOG_POST_OP("S3DeleteObjects", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
+                delOutcome.GetResult().GetDeleted().size(), !delOutcome.IsSuccess() );
 
 			IF_UNLIKELY(!delOutcome.IsSuccess() &&
 				(!ignoreDelErrors ||
@@ -6585,7 +6591,7 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 
 			entriesLatHisto.addLatency(ioElapsedMicroSec.count() );
 
-			unsigned keyCount = listOutcome.GetResult().GetKeyCount();
+			unsigned keyCount = delOutcome.GetResult().GetDeleted().size();
 
 			atomicLiveOps.numEntriesDone += keyCount;
 

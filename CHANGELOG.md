@@ -2,6 +2,10 @@
 
 ## v3.0.34 (work in progress)
 
+### General Changes
+* Updated Alpine Linux version for static builds to latest v3.22.
+* Updated mimalloc lib for static builds to latest v2.2.4.
+
 ### Fixes
 * For some bucket-related phases, the performance report on the console had "Objects/s" instead of "Buckets/s".
 
