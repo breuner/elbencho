@@ -925,7 +925,7 @@ void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
 }
 
 /**
- * @usePerThreadValues true to div numEntriesDone/numBytesDone by number of workers.
+ * Get live statistics for progress report of RemoteWorkers in service mode.
  */
 void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 {
@@ -940,6 +940,8 @@ void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 				(std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
 	size_t elapsedSecs = elapsedDurationSecs.count();
 
+    std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
+
 	outTree.put(XFER_STATS_BENCHID, workersSharedData.currentBenchID);
 	outTree.put(XFER_STATS_BENCHPHASENAME,
 		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs) );
@@ -948,6 +950,9 @@ void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_NUMWORKERSDONEWITHERR, workersSharedData.numWorkersDoneWithError);
 	outTree.put(XFER_STATS_TRIGGERSTONEWALL,
 		!workerVec.empty() && workerVec[0]->getStoneWallTriggered());
+
+    lock.unlock(); // U N L O C K
+
 	outTree.put(XFER_STATS_NUMENTRIESDONE, liveOps.numEntriesDone);
 	outTree.put(XFER_STATS_NUMBYTESDONE, liveOps.numBytesDone);
 	outTree.put(XFER_STATS_NUMIOPSDONE, liveOps.numIOPSDone);
@@ -2254,12 +2259,17 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
 
 	getLiveOps(liveOps, liveOpsReadMix, liveLatency);
 
+    std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K
+
 	outTree.put(XFER_STATS_BENCHID, workersSharedData.currentBenchID);
 	outTree.put(XFER_STATS_BENCHPHASENAME,
 		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs) );
 	outTree.put(XFER_STATS_BENCHPHASECODE, workersSharedData.currentBenchPhase);
 	outTree.put(XFER_STATS_NUMWORKERSDONE, workersSharedData.numWorkersDone);
 	outTree.put(XFER_STATS_NUMWORKERSDONEWITHERR, workersSharedData.numWorkersDoneWithError);
+
+    lock.unlock(); // U N L O C K
+
 	outTree.put(XFER_STATS_NUMENTRIESDONE, liveOps.numEntriesDone);
 	outTree.put(XFER_STATS_NUMBYTESDONE, liveOps.numBytesDone);
 	outTree.put(XFER_STATS_NUMIOPSDONE, liveOps.numIOPSDone);

@@ -329,6 +329,10 @@ void Coordinator::runBenchmarks()
 
 	for(size_t iterationIndex = 0; iterationIndex < progArgs.getIterations(); iterationIndex++)
 	{
+        if(progArgs.getIterations() > 1)
+            LOGGER(Log_NORMAL, "[Starting iteration " <<
+                (iterationIndex+1) << " of " << progArgs.getIterations() << "...]" << std::endl);
+
 		statistics.printPhaseResultsTableHeader();
 
 		runSyncAndDropCaches();

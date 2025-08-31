@@ -6,9 +6,11 @@
 * Updated Alpine Linux version for static builds to latest v3.22.
 * Updated mimalloc lib for static builds to latest v2.2.4.
 * Let service instances respond to `--quit` command so that caller can see which services were running.
+* Print current iteration number on console if multiple iterations were specified.
 
 ### Fixes
 * For some bucket-related phases, the performance report on the console had "Objects/s" instead of "Buckets/s".
+* Protect done counter read for service status call by mutex.
 
 ## v3.0.33 (Aug 20, 2025)
 

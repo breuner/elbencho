@@ -114,6 +114,11 @@ void HTTPServiceSWS::startServer()
 
 /**
  * Define the resources (URL handlers) of the HTTP server.
+ *
+ * NOTE: These resource defintions assume that the server has only a single thread, so that
+ * multiple requests cannot be handled concurrently. If the server could handle multiple threads
+ * concurrently then we would need to add a read/write mutex so that e.g. statistics reads cannot
+ * happen while the prepare phase handler is modifying the threads vector.
  */
 void HTTPServiceSWS::defineServerResources(HttpServer& server)
 {
