@@ -487,16 +487,22 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 		response->write(LoggerBase::getErrHistory() );
 
-		if(quitAfterInterrupt)
-		{
-			response->send(); // (otherwise send() would only happen after server.stop() below)
+        if(quitAfterInterrupt)
+        {
+            response->close_connection_after_response = true;
 
-			LOGGER(Log_NORMAL, "Shutting down as requested by client. "
-				"Client: " << request->remote_endpoint().address().to_string() << std::endl);
+            LOGGER(Log_NORMAL, "Shutting down as requested by client. "
+                "Client: " << request->remote_endpoint().address().to_string() << std::endl);
 
-			// this will make the blocking server.start() call exit
-			server.stop();
-		}
+            std::function<void(const Web::error_code&)> responseSentCallback =
+                [&server](const Web::error_code& errorCode)
+                {
+                    // this will make the blocking server.start() call exit
+                    server.stop();
+                };
+
+            response->send(responseSentCallback);
+        }
 	};
 
 	// handle server/protocol errors like disconnect
