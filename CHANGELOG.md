@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.34 (work in progress)
+## v3.0.35 (Sep 1, 2025)
 
 ### General Changes
 * Updated Alpine Linux version for static builds to latest v3.22.
