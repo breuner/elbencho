@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include "HTTPServiceSWS.h"
 #include "ProgException.h"
 #include "toolkits/S3Tk.h"
@@ -46,6 +47,10 @@ void HTTPServiceSWS::startServer()
 	server.config.port = progArgs.getServicePort(); // desired port (std::promise confirms this)
 	std::promise<unsigned short> actualServerPort; // set by HttpServer after startup (0 for error)
 
+    server.config.timeout_request = 60; /* conn idle timeout in secs; default is 5 sec, which makes
+        it too likely that master encounters a timeout just when starting the next bench phase,
+        which is undesirable because the retry adds a small skew to the start of the different
+        services. */
 
 	// run http server in separate thread to enable success message through std::promise
 
@@ -122,6 +127,22 @@ void HTTPServiceSWS::startServer()
  */
 void HTTPServiceSWS::defineServerResources(HttpServer& server)
 {
+    defineServerResourceInfo(server);
+    defineServerResourceProtocolVersion(server);
+    defineServerResourceStatus(server);
+    defineServerResourceBenchResult(server);
+    defineServerResourcePrepareFile(server);
+    defineServerResourcePreparePhase(server);
+    defineServerResourceStartPhase(server);
+    defineServerResourceInterruptPhase(server);
+    defineServerResourceErrorHandler(server);
+}
+
+/**
+ * Define the HTTPSERVERPATH_INFO resource.
+ */
+void HTTPServiceSWS::defineServerResourceInfo(HttpServer& server)
+{
 	// get info for testing (not used by master)
 	server.resource[HTTPSERVERPATH_INFO]["GET"] =
 		[](std::shared_ptr<HttpServer::Response> response,
@@ -147,7 +168,13 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 		response->write(stream);
 	};
+}
 
+/**
+ * Define the HTTPSERVERPATH_PROTOCOLVERSION resource.
+ */
+void HTTPServiceSWS::defineServerResourceProtocolVersion(HttpServer& server)
+{
 	// get http service protocol version
 	server.resource[HTTPSERVERPATH_PROTOCOLVERSION]["GET"] =
 		[&](std::shared_ptr<HttpServer::Response> response,
@@ -158,7 +185,13 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 		response->write(HTTP_PROTOCOLVERSION);
 	};
+}
 
+/**
+ * Define the HTTPSERVERPATH_STATUS resource.
+ */
+void HTTPServiceSWS::defineServerResourceStatus(HttpServer& server)
+{
 	// get live statistics
 	server.resource[HTTPSERVERPATH_STATUS]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
@@ -179,7 +212,13 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 
 		response->write(stream);
 	};
+}
 
+/**
+ * Define the HTTPSERVERPATH_BENCHRESULT resource.
+ */
+void HTTPServiceSWS::defineServerResourceBenchResult(HttpServer& server)
+{
 	// get final results after completion of benchmark phase
 	server.resource[HTTPSERVERPATH_BENCHRESULT]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
@@ -212,7 +251,13 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 			std::cerr << stream.str() << std::endl;
 		}
 	};
+}
 
+/**
+ * Define the HTTPSERVERPATH_PREPAREFILE resource.
+ */
+void HTTPServiceSWS::defineServerResourcePrepareFile(HttpServer& server)
+{
 	// receive input files for following prepare phase, such as custom tree mode files
 	server.resource[HTTPSERVERPATH_PREPAREFILE]["POST"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
@@ -312,7 +357,13 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 			//std::cerr << "File preparation phase error: " << stream.str() << std::endl;
 		}
 	};
+}
 
+/**
+ * Define the HTTPSERVERPATH_PREPAREPHASE resource.
+ */
+void HTTPServiceSWS::defineServerResourcePreparePhase(HttpServer& server)
+{
 	// prepare new benchmark phase: transfer ProgArgs, prepare workers, reply when all ready
 	server.resource[HTTPSERVERPATH_PREPAREPHASE]["POST"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
@@ -431,7 +482,13 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 			//std::cerr << "Preparation phase error: " << stream.str() << std::endl;
 		}
 	};
+}
 
+/**
+ * Define the HTTPSERVERPATH_STARTPHASE resource.
+ */
+void HTTPServiceSWS::defineServerResourceStartPhase(HttpServer& server)
+{
 	// start benchmark phase after successful preparation
 	server.resource[HTTPSERVERPATH_STARTPHASE]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
@@ -461,13 +518,71 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 		if(iter != query_fields.end() )
 			benchID = iter->second;
 
+        // preflight checks
+        {
+            WorkersSharedData& workersSharedData = workerManager.getWorkersSharedData();
+
+            std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
+
+            /* if the network is flaky then it's possible that we get the same start command again,
+                so ignore if we are already in the requested phase... */
+
+            if(benchID == buuids::to_string(workersSharedData.currentBenchID) )
+            {
+                Logger(Log_NORMAL) << "Ignoring duplicate start request with same benchmark ID. " <<
+                    "BenchID: " << benchID << "; " <<
+                    "Phase: " << TranslatorTk::benchPhaseToPhaseName(benchPhase, &progArgs) << "; "
+                    "Client: " << request->remote_endpoint().address().to_string() << "; " <<
+                    std::endl;
+
+                response->write(""); // empty response to set success status code
+
+                return;
+            }
+
+            /* we can't have a start request in the middle of a benchmark phase, because
+                workerManager.startNextPhase() expects that all workers are idle. */
+
+            uint64_t numWorkersDoneTotal = workersSharedData.numWorkersDone +
+                workersSharedData.numWorkersDoneWithError;
+
+            if(numWorkersDoneTotal != workersSharedData.workerVec->size() )
+            {
+                stream << "Refusing start request while not all workers are idle/done. " <<
+                    "BenchID: " << benchID << "; " <<
+                    "Phase: " << TranslatorTk::benchPhaseToPhaseName(benchPhase, &progArgs) << "; "
+                    "Client: " << request->remote_endpoint().address().to_string() << "; "
+                    "WorkersTotal: " << workersSharedData.workerVec->size() << "; "
+                    "WorkersDoneTotal: " << numWorkersDoneTotal << std::endl;
+
+                Logger(Log_NORMAL) << stream.str();
+
+                response->write(stream); // non-empty response will make RemoteWorker error out
+
+                return;
+            }
+
+        } // end of lock scope for preflight checks
+
 		statistics.updateLiveCPUUtil();
 
 		workerManager.startNextPhase(benchPhase, benchID.empty() ? NULL : &benchID);
 
+        Logger(Log_DEBUG) << "Completed startup of new benchmark phase. " <<
+            "BenchID: " << benchID << "; " <<
+            "Phase: " << TranslatorTk::benchPhaseToPhaseName(benchPhase, &progArgs) << "; "
+            "Client: " << request->remote_endpoint().address().to_string() <<
+            std::endl;
+
 		response->write(LoggerBase::getErrHistory() );
 	};
+}
 
+/**
+ * Define the HTTPSERVERPATH_INTERRUPTPHASE resource.
+ */
+void HTTPServiceSWS::defineServerResourceInterruptPhase(HttpServer& server)
+{
 	// interrupt any running benchmark and reset everything, reply when all done
 	server.resource[HTTPSERVERPATH_INTERRUPTPHASE]["GET"] =
 		[&, this](std::shared_ptr<HttpServer::Response> response,
@@ -509,7 +624,13 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
             response->send(responseSentCallback);
         }
 	};
+}
 
+/**
+ * Define the http server error handler.
+ */
+void HTTPServiceSWS::defineServerResourceErrorHandler(HttpServer& server)
+{
 	// handle server/protocol errors like disconnect
 	server.on_error = [&](std::shared_ptr<HttpServer::Request> request, const Web::error_code& ec)
 	{
@@ -519,13 +640,14 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 		if( (ec.category() == boost::asio::error::system_category) &&
 			(ec.value() == boost::asio::error::operation_aborted) )
 		{
-			/* from documenation: "connection timeouts call this handler with Web::error_code set to
-			   SimpleWeb::errc::operation_canceled" */
+			/* from documentation: "connection timeouts call this handler with Web::error_code set
+			   to SimpleWeb::errc::operation_canceled" */
 
-			LOGGER(Log_VERBOSE, "Operation aborted. Request/response handler timed out. " <<
+			LOGGER(Log_VERBOSE, "Dropping idle connection. " <<
 				"Client: " << request->remote_endpoint().address().to_string() << ":" <<
 					request->remote_endpoint().port() << "; " <<
 				"Phase: " << benchPhaseName << "; " <<
+				"Timeout setting: " << server.config.timeout_request << "sec ; " <<
 				"Request: " << request->path << "?" << request->query_string << std::endl);
 			return;
 		}
@@ -547,6 +669,5 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
 			"Phase: " << benchPhaseName << "; " <<
 			"Request: " << request->path << "?" << request->query_string << std::endl);
 	};
-
 }
 

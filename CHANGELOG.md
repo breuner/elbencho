@@ -10,7 +10,7 @@
 
 ### Fixes
 * For some bucket-related phases, the performance report on the console had "Objects/s" instead of "Buckets/s".
-* Protect done counter read for service status call by mutex.
+* For distriubted runs, services now ignore duplicate phase start requests from retries after connection drops.
 
 ## v3.0.33 (Aug 20, 2025)
 

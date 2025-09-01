@@ -57,6 +57,7 @@ void RemoteWorker::run()
 						progArgs->getInterruptServices() || progArgs->getQuitServices() );
 					return;
 				} break;
+
 				case BenchPhase_CREATEDIRS:
 				case BenchPhase_DELETEDIRS:
                 case BenchPhase_STATDIRS:
@@ -118,6 +119,7 @@ void RemoteWorker::run()
 						return;
 					}
 				} break;
+
 				default:
 				{ // should never happen
 					throw WorkerException("Unknown/invalid next phase type: " +

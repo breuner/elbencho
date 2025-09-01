@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include "HTTPServiceUWS.h"
 #include "ProgException.h"
 #include "toolkits/S3Tk.h"
@@ -476,9 +477,61 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 		if(!benchIDParam.empty() )
 			benchID = std::string(benchIDParam);
 
+        // preflight checks
+        {
+            WorkersSharedData& workersSharedData = workerManager.getWorkersSharedData();
+
+            std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
+
+            /* if the network is flaky then it's possible that we get the same start command again,
+                so ignore if we are already in the requested phase... */
+
+            if(benchID == buuids::to_string(workersSharedData.currentBenchID) )
+            {
+                Logger(Log_NORMAL) << "Ignoring duplicate start request with same benchmark ID. " <<
+                    "BenchID: " << benchID << "; " <<
+                    "Phase: " << TranslatorTk::benchPhaseToPhaseName(benchPhase, &progArgs) << "; "
+                    "Client: " << res->getRemoteAddressAsText() << "; " <<
+                    std::endl;
+
+                res->end(""); // empty response to set success status code
+
+                return;
+            }
+
+            /* we can't have a start request in the middle of a benchmark phase, because
+                workerManager.startNextPhase() expects that all workers are idle. */
+
+            uint64_t numWorkersDoneTotal = workersSharedData.numWorkersDone +
+                workersSharedData.numWorkersDoneWithError;
+
+            if(numWorkersDoneTotal != workersSharedData.workerVec->size() )
+            {
+                stream << "Refusing start request while not all workers are idle/done. " <<
+                    "BenchID: " << benchID << "; " <<
+                    "Phase: " << TranslatorTk::benchPhaseToPhaseName(benchPhase, &progArgs) << "; "
+                    "Client: " << res->getRemoteAddressAsText() << "; "
+                    "WorkersTotal: " << workersSharedData.workerVec->size() << "; "
+                    "WorkersDoneTotal: " << numWorkersDoneTotal << std::endl;
+
+                Logger(Log_NORMAL) << stream.str();
+
+                res->end(stream.str() ); // non-empty response will make RemoteWorker error out
+
+                return;
+            }
+
+        } // end of lock scope for preflight checks
+
 		statistics.updateLiveCPUUtil();
 
 		workerManager.startNextPhase(benchPhase, benchID.empty() ? NULL : &benchID);
+
+        Logger(Log_DEBUG) << "Completed startup of new benchmark phase. " <<
+            "BenchID: " << benchID << "; " <<
+            "Phase: " << TranslatorTk::benchPhaseToPhaseName(benchPhase, &progArgs) << "; "
+            "Client: " << res->getRemoteAddressAsText() <<
+            std::endl;
 
 		res->end(LoggerBase::getErrHistory() );
 	});
