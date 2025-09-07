@@ -513,6 +513,10 @@ void ProgArgs::defineAllowedArgs()
 /*s*/	(ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value(&this->fileSizeOrigStr),
 			"File size. (Default: 0; supports base2 suffixes, e.g. \"2M\")")
 #ifdef S3_SUPPORT
+/*s3c*/	(ARG_S3CREDFILE_LONG, bpo::value(&this->s3CredentialsFile),
+			"Path to file containing multiple S3 credentials. Each line in format: access_key:secret_key")
+/*s3c*/	(ARG_S3CREDLIST_LONG, bpo::value(&this->s3CredentialsList),
+			"Comma-separated list of S3 credentials. Each credential in format: access_key:secret_key")
 /*s3a*/	(ARG_S3ACLGET_LONG, bpo::bool_switch(&this->runS3AclGet),
 			"Get S3 object ACLs.")
 /*s3a*/	(ARG_S3ACLGRANTEE_LONG, bpo::value(&this->s3AclGrantee),
@@ -899,6 +903,8 @@ void ProgArgs::defineDefaults()
 	this->s3IgnoreMultipartUpload404 = false;
 	this->stdoutDupFD = -1;
     this->s3ChecksumAlgoStr = "";  // Default to empty string (resolved as NOT_SET)
+	this->s3CredentialsFile = "";
+	this->s3CredentialsList = "";
 }
 
 /**
@@ -1268,6 +1274,16 @@ void ProgArgs::checkArgs()
     ///////////// if we get here, we are running in local standalone mode...
 
     checkPathDependentArgs();
+
+    // Check that only one credential source is specified
+    if(!s3CredentialsFile.empty() && !s3CredentialsList.empty())
+        throw ProgException("Only one of --" ARG_S3CREDFILE_LONG " or --" 
+            ARG_S3CREDLIST_LONG " may be specified.");
+
+    // If using multi-credentials, s3AccessKey and s3AccessSecret must be empty
+    if((!s3CredentialsFile.empty() || !s3CredentialsList.empty()) && 
+        (!s3AccessKey.empty() || !s3AccessSecret.empty()))
+        throw ProgException("Cannot specify both multi-credentials and single credential options.");
 }
 
 /**
@@ -2987,6 +3003,10 @@ void ProgArgs::printHelpS3()
             "S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
         (ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
              "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN " env variable.)")
+        (ARG_S3CREDFILE_LONG, bpo::value(&this->s3CredentialsFile),
+            "Path to file containing multiple S3 credentials. Each line in format: access_key:secret_key")
+        (ARG_S3CREDLIST_LONG, bpo::value(&this->s3CredentialsList),
+            "Comma-separated list of S3 credentials. Each credential in format: access_key:secret_key")
     ;
 
     std::cout << argsS3ServiceArgsDescription << std::endl;
@@ -3384,6 +3404,8 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3AclGrantee = tree.get<std::string>(ARG_S3ACLGRANTEE_LONG);
 	s3AclGranteePermissions = tree.get<std::string>(ARG_S3ACLGRANTS_LONG);
 	s3AclGranteeType = tree.get<std::string>(ARG_S3ACLGRANTEETYPE_LONG);
+	s3CredentialsFile = tree.get<std::string>(ARG_S3CREDFILE_LONG);
+    s3CredentialsList = tree.get<std::string>(ARG_S3CREDLIST_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
@@ -3521,6 +3543,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_RWMIXTHREADSPCT_LONG, rwMixThreadsReadPercent);
 	outTree.put(ARG_S3ACCESSKEY_LONG, s3AccessKey);
 	outTree.put(ARG_S3ACCESSSECRET_LONG, s3AccessSecret);
+	outTree.put(ARG_S3CREDFILE_LONG, s3CredentialsFile);
+    outTree.put(ARG_S3CREDLIST_LONG, s3CredentialsList);
 	outTree.put(ARG_S3ACLGET_LONG, runS3AclGet);
 	outTree.put(ARG_S3ACLGRANTEE_LONG, s3AclGrantee);
 	outTree.put(ARG_S3ACLGRANTEETYPE_LONG, s3AclGranteeType);
