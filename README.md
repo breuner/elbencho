@@ -23,6 +23,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
   - [Nvidia CUDA Support](#nvidia-cuda-support)
   - [Nvidia GPUDirect Storage \(GDS\) Support](#nvidia-gpudirect-storage-gds-support)
   - [S3 Object Storage Support](#s3-object-storage-support)
+  - [macOS Support](#macos-support)
 
 </details>
 
