@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.0.36 (work in progress))
+## v3.0.36 (work in progress)
 
 ### General Changes
 * Added config values to `--jsonfile` output.
