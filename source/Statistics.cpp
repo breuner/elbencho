@@ -2005,6 +2005,8 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
 {
     bpt::ptree ptree;
 
+    bpt::ptree configSubtree;
+
     bpt::ptree firstDoneSubtree;
     bpt::ptree firstDoneSubtreeReadMix;
     bpt::ptree lastDoneSubtree;
@@ -2045,13 +2047,83 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
 
     ptree.put("iso_start_date", dateStream.str() );
 
-    // elapsed time
+    // config subtree...
+
+    configSubtree.put("path_type", TranslatorTk::benchPathTypeToStr(
+        progArgs.getBenchPathType(), &progArgs) );
+
+    configSubtree.put("paths", progArgs.getBenchPaths().size() );
+
+    configSubtree.put("hosts", progArgs.getHostsVec().empty() ?
+        1 :  progArgs.getHostsVec().size() );
+
+    configSubtree.put("threads", progArgs.getNumThreads() );
+
+    if(progArgs.getBenchPathType() == BenchPathType_DIR)
+    {
+        if(progArgs.getTreeFilePath().empty() )
+        {
+            configSubtree.put("dirs", progArgs.getNumDirs() );
+            configSubtree.put("files", progArgs.getNumFiles() );
+        }
+        else
+        { // custom tree
+            configSubtree.put("custom_tree_dirs",
+                progArgs.getCustomTreeDirs().getNumPaths() );
+            configSubtree.put("custom_tree_files_shared",
+                progArgs.getCustomTreeFilesShared().getNumPaths() );
+            configSubtree.put("files_not_shared",
+                progArgs.getCustomTreeFilesNonShared().getNumPaths() );
+        }
+    }
+
+    configSubtree.put("file_size", progArgs.getFileSize() );
+    configSubtree.put("block_size", progArgs.getBlockSize() );
+    configSubtree.put("direct_io", progArgs.getUseDirectIO() );
+    configSubtree.put("random_offsets", progArgs.getUseRandomOffsets() );
+
+    if(progArgs.getUseRandomOffsets() )
+        configSubtree.put("random_aligned", !progArgs.getUseRandomUnaligned() );
+
+    configSubtree.put("io_depth", progArgs.getIODepth() );
+
+    if(!progArgs.getHostsVec().empty() )
+        configSubtree.put("shared_service_paths", progArgs.getIsServicePathShared() );
+
+    if( progArgs.getS3EndpointsVec().empty() &&
+        (progArgs.getBenchPathType() != BenchPathType_BLOCKDEV) )
+        configSubtree.put("truncate_files", progArgs.getDoTruncate() );
+
+    // elbencho version
+
+    configSubtree.put("version", EXE_VERSION);
+
+    // command line
+
+    std::ostringstream cmdStream;
+    std::string cmdString;
+
+    for(int i=0; i < progArgs.getProgArgCount(); i++)
+    {
+        if(!strcmp(progArgs.getProgArgVec()[i], "--" ARG_S3ACCESSSECRET_LONG) )
+        { // skip over s3 secret
+            i += 1;
+            continue;
+        }
+
+        cmdStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
+    }
+
+    cmdString = cmdStream.str();
+    std::replace(cmdString.begin(), cmdString.end(), ',', ' '); // replace all commas with spaces
+
+    configSubtree.put("command", cmdString);
+
+
+    // elasped time (first done & last done)
 
     firstDoneSubtree.put("elapsed_time_ms", phaseResults.firstFinishUSec / 1000);
     lastDoneSubtree.put("elapsed_time_ms", phaseResults.lastFinishUSec / 1000);
-
-
-    // fist done subtree
 
     // lambda to fill first done & last done subtrees with per-second values
     std::function addPerSecResultsToSubtree = [](const LiveOps& opsTotal,
@@ -2118,7 +2190,7 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
     addTotalResultsToSubtree(phaseResults.opsTotalReadMix,
         phaseResults.opsTotalReadMix, lastDoneSubtreeReadMix);
 
-	// copy rwmix read subtrees into first & last done subtrees
+    // copy rwmix read subtrees into first & last done subtrees
 
     if(firstDoneSubtreeReadMix.size() )
         firstDoneSubtree.put_child("rwmix_read", firstDoneSubtreeReadMix);
@@ -2188,35 +2260,13 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
     if(lastDoneLatencySubtree.size() )
         lastDoneSubtree.put_child("latency", lastDoneLatencySubtree);
 
-    // copy first done & last done subtrees into main tree
 
+    // copy first level subtrees into main tree
+
+    ptree.put_child("config", configSubtree);
     ptree.put_child("first_done", firstDoneSubtree);
     ptree.put_child("last_done", lastDoneSubtree);
 
-    // elbencho version
-
-    ptree.put("version", EXE_VERSION);
-
-    // command line
-
-    std::ostringstream cmdStream;
-    std::string cmdString;
-
-    for(int i=0; i < progArgs.getProgArgCount(); i++)
-    {
-        if(!strcmp(progArgs.getProgArgVec()[i], "--" ARG_S3ACCESSSECRET_LONG) )
-        { // skip over s3 secret
-            i += 1;
-            continue;
-        }
-
-        cmdStream << "\"" << progArgs.getProgArgVec()[i] << "\" ";
-    }
-
-    cmdString = cmdStream.str();
-    std::replace(cmdString.begin(), cmdString.end(), ',', ' '); // replace all commas with spaces
-
-    ptree.put("command", cmdString);
 
     // print json
 
