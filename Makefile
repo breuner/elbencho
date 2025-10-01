@@ -26,7 +26,7 @@ CXX_FLAVOR         ?= c++17
 CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE -DBOOST_BIND_GLOBAL_PLACEHOLDERS
 
 LDFLAGS_AIO        ?= -laio
-LDFLAGS_BOOST      ?= -lboost_program_options -lboost_system -lboost_thread
+LDFLAGS_BOOST      ?= -lboost_program_options -lboost_thread
 LDFLAGS_LINUX      ?= -l rt -l stdc++fs
 LDFLAGS_NUMA       ?= -lnuma
 
@@ -174,13 +174,13 @@ ifeq ($(shell uname -s),Darwin)
     LDFLAGS += -framework CoreFoundation -framework Security -framework Network
   endif
 
-LIBAIO_SUPPORT   := 0
-SYNCFS_SUPPORT   := 0
-LIBNUMA_SUPPORT  := 0
-COREBIND_SUPPORT := 0
+	LIBAIO_SUPPORT   := 0
+	SYNCFS_SUPPORT   := 0
+	LIBNUMA_SUPPORT  := 0
+	COREBIND_SUPPORT := 0
 
-CXXFLAGS_EXTRA   += -I/opt/homebrew/include
-LDFLAGS          += -L/opt/homebrew/lib
+	CXXFLAGS_EXTRA   += -I/opt/homebrew/include
+	LDFLAGS          += -L/opt/homebrew/lib
 endif
 
 # Extra flags for Linux & Cygwin, but not for macOS
