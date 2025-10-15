@@ -2,6 +2,7 @@
 #define TOOLKITS_S3TK_H_
 
 #ifdef S3_SUPPORT
+    #include "Common.h"
 	#include <aws/core/Aws.h>
     #include <aws/core/client/DefaultRetryStrategy.h>
     #include <aws/core/utils/HashingUtils.h>

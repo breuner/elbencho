@@ -182,6 +182,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3CHECKSUM_ALGO_LONG    "s3chksumalgo"  // parameter for x-amz-sdk-checksum-algorithm
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
+#define ARG_S3LISTMPU_LONG          "s3listmpu"
+#define ARG_S3LISTPARTS_LONG        "s3listparts"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -377,6 +379,8 @@ class ProgArgs
         bool doS3ObjectTagVerify; // do bucket tagging verification.
         bool doS3ObjectLockCfg; // do S3 object lock configuration
         bool doS3ObjectLockCfgVerify; // do S3 object lock configuration verification
+        bool doS3ListMPU; // enable list multipart uploads requests
+        bool doS3ListParts; // enable list parts requests
 		bool doTruncate; // truncate files to 0 size on open for writing
 		bool doTruncToSize; // truncate files to size on creation via ftruncate()
 		unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
@@ -639,7 +643,9 @@ class ProgArgs
         bool getDoS3ObjectLockConfiguration() const { return doS3ObjectLockCfg; }
         bool getDoS3ObjectLockConfigurationVerify() const { return doS3ObjectLockCfgVerify; }
         bool getDoS3AclPutInline() const { return doS3AclPutInline; }
-        bool getDoS3AclVerify() const { return doS3AclVerify; }
+		bool getDoS3AclVerify() const { return doS3AclVerify; }
+        bool getDoS3ListMPU() const { return doS3ListMPU; }
+        bool getDoS3ListParts() const { return doS3ListParts; }
         bool getDoTruncate() const { return doTruncate; }
         bool getDoTruncToSize() const { return doTruncToSize; }
         bool getDoListObjVerify() const { return doS3ListObjVerify; }
