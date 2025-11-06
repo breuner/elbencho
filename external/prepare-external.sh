@@ -255,7 +255,7 @@ prepare_awssdk()
 
 	echo "Configure, build and install...  (parallel jobs: $NUM_PARALLEL_JOBS)"
 
-	if [ "$S3_AWSCRT" -eq 1 ]; then
+	if [ "$S3_AWSCRT" = 1 ]; then
 	  local cmake_build_opts=(-DBUILD_ONLY="s3-crt" "-DUSE_OPENSSL=OFF" \
 	      "-DUSE_CRT_HTTP_CLIENT=ON")
 	else
