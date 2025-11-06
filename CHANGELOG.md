@@ -2,6 +2,10 @@
 
 ## v3.0.36 (work in progress)
 
+### New Features & Enhancements
+* Added support for list parts requests at the end of multipart uploads (enable by passing the `--s3listparts` parameter).
+* Added support for list multipart uploads requests at the end of multipart uploads (enable by passing the `--s3listmpu` parameter).
+
 ### General Changes
 * Added config values to `--jsonfile` output.
 

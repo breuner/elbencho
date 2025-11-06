@@ -251,7 +251,7 @@ class LocalWorker : public Worker
         void s3ModeGetBucketVersioning(const std::string& bucketName);
         void s3ModePutBucketVersioning(const std::string& bucketName, bool enable = true);
 		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
-		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
+		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string prefix, std::string objectName);
         void s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
 			uint64_t objectTotalSize);

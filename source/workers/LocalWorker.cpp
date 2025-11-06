@@ -41,7 +41,9 @@
     #include INCLUDE_AWS_S3(model/GetBucketVersioningRequest.h)
 	#include INCLUDE_AWS_S3(model/HeadObjectRequest.h)
 	#include INCLUDE_AWS_S3(model/HeadBucketRequest.h)
+	#include INCLUDE_AWS_S3(model/ListMultipartUploadsRequest.h)
 	#include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
+	#include INCLUDE_AWS_S3(model/ListPartsRequest.h)
 	#include INCLUDE_AWS_S3(model/Object.h)
     #include INCLUDE_AWS_S3(model/ObjectLockRule.h)
 	#include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
@@ -3882,15 +3884,9 @@ void LocalWorker::s3ModeIterateObjects()
 			IF_UNLIKELY( (fileIndex % INTERRUPTION_CHECK_INTERVAL) == 0)
 				checkInterruptionRequest();
 
-			// generate current dir path
-			int printRes;
-
-			if(haveSubdirs)
-				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu/d%zu/r%zu-f%zu",
-					workerDirRank, dirIndex, workerRank, fileIndex);
-			else
-				printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
-					workerRank, fileIndex);
+			// generate current file path (subdir is added to objectPrefix below)
+			int printRes = snprintf(currentPath.data(), PATH_BUF_LEN, "r%zu-f%zu",
+				workerRank, fileIndex);
 
 			IF_UNLIKELY(printRes >= PATH_BUF_LEN)
 				throw WorkerException("object path too long for static buffer. "
@@ -3902,6 +3898,16 @@ void LocalWorker::s3ModeIterateObjects()
 			if(objectPrefixRand)
 				objectPrefix = getS3RandObjectPrefix(
 					workerRank, dirIndex, fileIndex, progArgs->getS3ObjectPrefix() );
+			else if(haveSubdirs)
+			{
+				// add subdir to objectPrefix instead of currentPath
+				char subdirBuf[PATH_BUF_LEN];
+				snprintf(subdirBuf, PATH_BUF_LEN, "r%zu/d%zu/",
+					workerDirRank, dirIndex);
+				objectPrefix = progArgs->getS3ObjectPrefix() + std::string(subdirBuf);
+			}
+			else
+				objectPrefix = progArgs->getS3ObjectPrefix();
 
 			unsigned bucketIndex = (workerRank + dirIndex) % bucketVec.size();
 			std::string currentObjectPath = objectPrefix + currentPath.data();
@@ -3914,7 +3920,9 @@ void LocalWorker::s3ModeIterateObjects()
 			if( (benchPhase == BenchPhase_CREATEFILES) && !isRWMixedReader)
 			{
 				if(blockSize < fileSize)
-					s3ModeUploadObjectMultiPart(bucketVec[bucketIndex], currentObjectPath);
+                    s3ModeUploadObjectMultiPart(bucketVec[bucketIndex],
+                                            objectPrefix,
+                                            currentObjectPath);
 				else
 					s3ModeUploadObjectSinglePart(bucketVec[bucketIndex], currentObjectPath);
 			}
@@ -4133,18 +4141,21 @@ void LocalWorker::s3ModeIterateCustomObjects()
 
 			if(benchPhase == BenchPhase_CREATEFILES)
 			{
-				if(rangeLen < fileSize)
-					s3ModeUploadObjectMultiPartShared(bucketName,
-					    objectPrefix + currentPathElem.path, fileSize);
-				else
-				{ // this worker uploads the whole object
-					if(blockSize < fileSize)
-						s3ModeUploadObjectMultiPart(bucketName,
-						    objectPrefix + currentPathElem.path);
-					else
-						s3ModeUploadObjectSinglePart(bucketName,
-						    objectPrefix + currentPathElem.path);
-				}
+                if(rangeLen < fileSize)
+                {
+                    s3ModeUploadObjectMultiPartShared(bucketName,
+                        objectPrefix + currentPathElem.path, fileSize);
+                } 
+                else
+                { // this worker uploads the whole object
+                    if(blockSize < fileSize)
+                        s3ModeUploadObjectMultiPart(bucketName,
+                                objectPrefix,
+                                objectPrefix + currentPathElem.path);
+                    else
+                        s3ModeUploadObjectSinglePart(bucketName,
+                            objectPrefix + currentPathElem.path);
+                }
 			}
 
             if(benchPhase == BenchPhase_READFILES)
@@ -4211,7 +4222,7 @@ void LocalWorker::s3ModeThrowOnError(
     IF_LIKELY(outcome.IsSuccess() )
         return;
 
-    const auto s3Error = outcome.GetError();
+    const S3ErrorType s3Error = outcome.GetError();
 
     std::stringstream errStr;
         errStr << failMessage << std::endl <<
@@ -4734,7 +4745,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
  *
  * @throw WorkerException on error.
  */
-void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName)
+void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::string prefix, std::string objectName)
 {
 #ifndef S3_SUPPORT
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
@@ -4886,6 +4897,81 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		rwOffsetGen->addBytesSubmitted(blockSize);
 		atomicLiveOps.numIOPSDone++;
 	}
+
+    // List parts before completion to validate
+    if (progArgs->getDoS3ListParts()) {
+        S3::ListPartsRequest listPartsRequest;
+        listPartsRequest.WithBucket(bucketName)
+            .WithKey(objectName)
+            .WithUploadId(uploadID);
+
+        OPLOG_PRE_OP("S3ListParts", bucketName + "/" + objectName, 0, 0);
+
+        auto listPartsOutcome = s3Client->ListParts(listPartsRequest);
+
+        OPLOG_POST_OP("S3ListParts", bucketName + "/" + objectName, 0, 0,
+                      !listPartsOutcome.IsSuccess());
+
+        IF_UNLIKELY(!listPartsOutcome.IsSuccess()) {
+            auto s3Error = listPartsOutcome.GetError();
+            if (!ignoreS3Errors) {
+                throw WorkerException(
+                    std::string("List parts failed. ") + "Bucket: " + bucketName + "; " +
+                    "Key: " + objectName + "; " + "UploadId: " + uploadID + "; " +
+                    "Error: " + s3Error.GetExceptionName() + "; " +
+                    "Message: " + s3Error.GetMessage());
+            }
+        }
+        // Validate that the number of parts matches
+        const auto &parts = listPartsOutcome.GetResult().GetParts();
+        size_t expectedPartCount = completedMultipartUpload.GetParts().size();
+        size_t actualPartCount = parts.size();
+
+        IF_UNLIKELY(actualPartCount != expectedPartCount) {
+            if (!ignoreS3Errors) {
+                throw WorkerException(
+                    std::string("List parts count mismatch. ") + "Bucket: " + bucketName +
+                    "; " + "Key: " + objectName + "; " +
+                    "Expected parts: " + std::to_string(expectedPartCount) + "; " +
+                    "Actual parts: " + std::to_string(actualPartCount));
+            }
+        }
+    }
+
+    // List multipart uploads before completion
+    if (progArgs->getDoS3ListMPU()) {
+        S3::ListMultipartUploadsRequest listRequest;
+        listRequest.WithBucket(bucketName).WithPrefix(prefix);
+
+        OPLOG_PRE_OP("S3ListMultipartUploads", bucketName, 0, 0);
+
+        auto listOutcome = s3Client->ListMultipartUploads(listRequest);
+
+        OPLOG_POST_OP("S3ListMultipartUploads", bucketName, 0, 0,
+                      !listOutcome.IsSuccess());
+
+        IF_UNLIKELY(!listOutcome.IsSuccess()) {
+            auto s3Error = listOutcome.GetError();
+            if (!ignoreS3Errors) {
+                throw WorkerException(std::string("Multipart upload listing failed. ") +
+                                      "Bucket: " + bucketName + "; " +
+                                      "Error: " + s3Error.GetExceptionName() + "; " +
+                                      "Message: " + s3Error.GetMessage());
+            }
+        }
+
+        auto outcome = listOutcome.GetResult();
+        std::cout << "Uploads size: " << outcome.GetUploads().size() << " For prefix " << outcome.GetPrefix() << std::endl;
+
+        // We expect exactly 1 multipart upload because the prefix contains the worker rank,
+        // making it specific enough to match only the current upload
+        IF_UNLIKELY(outcome.GetUploads().size() != 1) {
+            throw WorkerException(
+                std::string("Expected exactly 1 multipart upload, but found ") +
+                std::to_string(outcome.GetUploads().size()) + "; " +
+                "Bucket: " + bucketName + "; " + "Prefix: " + outcome.GetPrefix());
+        }
+    }
 
 	// S T E P 3: submit upload completion
 
