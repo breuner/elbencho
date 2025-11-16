@@ -5,7 +5,10 @@
 TEST_C_FILE    = $(BUILD_HELPERS_PATH)/AutoDetection.c
 TEST_OBJ_FILE  = $(BUILD_HELPERS_PATH)/AutoDetection.obj
 
-# Try to auto-detect library and inlcude paths...
+LDFLAGS_BOOST_SYSTEM     ?= -lboost_system
+
+
+# Try to auto-detect CUDA library and inlcude paths...
 CUDA_INCLUDE_PATH        ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cuda_runtime.h \
                             -printf '%h\n' 2>/dev/null | head -n1)
 CUDA_LIB_PATH            ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name libcudart.so \
@@ -37,6 +40,25 @@ CXXFLAGS_CUFILE_SUPPORT    += -DCUFILE_SUPPORT
 LDFLAGS_CUFILE_SUPPORT     += -lcufile
 CUFILE_SUPPORT_DETECT_ARGS  = $(CXXFLAGS_CUFILE_SUPPORT) $(LDFLAGS_CUFILE_SUPPORT) \
                               $(CUDA_SUPPORT_DETECT_ARGS)
+
+####### BOOST LIB "boost_system" ########
+
+# Detect boost_system library. It was removed in recent boost.org versions, but older system still
+# need it (e.g. sles15), so we detect if it exists. If it exists we add it to LDFLAGS_BOOST,
+# otherwise we skip it.
+
+ifdef BUILD_VERBOSE
+  $(info [TEST_BOOST_SYS] $(CXX) -o $(TEST_OBJ_FILE) $(TEST_C_FILE) $(LDFLAGS_BOOST_SYSTEM) )
+endif
+
+LIB_BOOST_SYSTEM_DETECTED = $(shell \
+    if $(CXX) -o $(TEST_OBJ_FILE) $(TEST_C_FILE) $(LDFLAGS_BOOST_SYSTEM) 1>/dev/null 2>&1; \
+    then printf '%s\n' '$(LDFLAGS_BOOST_SYSTEM)'; \
+    fi)
+
+LDFLAGS_BOOST += $(LIB_BOOST_SYSTEM_DETECTED)
+
+####### END BOOST LIB "boost_system" ########
 
 
 ####### CUFILE (GDS) Support ########
