@@ -338,6 +338,11 @@ All options in alphabetical order:
   --s3chksumalgo arg      S3 checksum algorithm to use (CRC32, CRC32C, SHA1, 
                           SHA256). This sets the x-amz-sdk-checksum-algorithm 
                           header for S3 operations. (EXPERIMENTAL)
+  --s3credfile arg        Path to file containing multiple S3 credentials. Each 
+                          line in format: access_key:secret_key. Lines starting 
+                          with # are treated as comments.
+  --s3credlist arg        Comma-separated list of S3 credentials. Each credential
+                          in format: access_key:secret_key.
   --s3endpoints arg       Comma-separated list of S3 endpoints. When this 
                           argument is used, the given benchmark paths are used 
                           as bucket names. Also see "--s3key" & "--s3secret". 

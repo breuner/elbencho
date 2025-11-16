@@ -3,10 +3,11 @@
 #include "OpsLogger.h"
 #include "ProgArgs.h"
 #include "toolkits/Base64Encoder.h"
+#include "toolkits/S3CredentialStore.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/StringTk.h"
-#include "toolkits/UnitTk.h"
 #include "toolkits/TerminalTk.h"
+#include "toolkits/UnitTk.h"
 
 #ifdef S3_SUPPORT
     #include <aws/core/auth/AWSCredentialsProvider.h>
@@ -85,6 +86,26 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 		AWS instance metadata service to retrieve credentials, although we already set them.
 		this way, it can still manually be overrideen through the environment variable. */
 	setenv("AWS_EC2_METADATA_DISABLED", "true", 0);
+
+    // Initialize credential store if multi-credentials are specified
+    if(!progArgs->getS3CredentialsFile().empty())
+    {
+        S3CredentialStore::getInstance().loadCredentialsFromFile(progArgs->getS3CredentialsFile());
+        LOGGER(Log_DEBUG, "Loaded S3 credentials from file: "
+               << progArgs->getS3CredentialsFile() << std::endl);
+    }
+    else if(!progArgs->getS3CredentialsList().empty())
+    {
+        S3CredentialStore::getInstance().loadCredentialsFromList(progArgs->getS3CredentialsList());
+        LOGGER(Log_DEBUG, "Loaded S3 credentials from command line list" << std::endl);
+    }
+    else if(!progArgs->getS3AccessKey().empty() || !progArgs->getS3AccessSecret().empty())
+    {
+        // Add single credential to store if provided
+        S3CredentialStore::getInstance().addCredential(
+            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret());
+        LOGGER(Log_DEBUG, "Using single S3 credential" << std::endl);
+    }
 
 #endif // S3_SUPPORT
 }
@@ -187,16 +208,34 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     /* note: just passing Aws::Auth::AWSCredentials to the s3client constructor doesn't override
         credentials from profiles in home directory, so we need to pass a CredentialsProvider. */
 
-    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentialsProviderPtr =
-        std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
-            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret(), progArgs->getS3SessionToken());
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentialsProvider;
 
-    // if creds not given via config then use aws default way of loading them from profile config
-    if(progArgs->getS3AccessKey().empty() )
-        credentialsProviderPtr = std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+    if(!progArgs->getS3AccessKey().empty() || !progArgs->getS3AccessSecret().empty())
+    {
+        // Single credential mode
+        credentialsProvider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
+            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret());
+            
+        LOGGER(Log_DEBUG, "Using single S3 credential" << std::endl);
+    }
+    else if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty())
+    {
+        // Multi-credential mode (round-robin)
+        credentialsProvider = S3CredentialStore::getInstance().getCredential(workerRank);
+
+        LOGGER(Log_DEBUG, "Using multi-credential from store for worker rank: "
+                << workerRank << std::endl);
+    }
+    else
+    {
+        // Fallback: use default chain
+        credentialsProvider = std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+
+        LOGGER(Log_DEBUG, "Using default AWS credential chain" << std::endl);
+    }
 
     // create s3 client for this worker
-    std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentialsProviderPtr,
+    std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentialsProvider,
         config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(),
         false);
 

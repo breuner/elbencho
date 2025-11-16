@@ -153,6 +153,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
 #define ARG_S3BUCKETVER_LONG        "s3bversion"
 #define ARG_S3BUCKETVERVERIFY_LONG  "s3bversionverify"
+#define ARG_S3CREDFILE_LONG         "s3credfile"
+#define ARG_S3CREDLIST_LONG         "s3credlist"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
 #define ARG_S3FASTGET_LONG			"s3fastget"
 #define ARG_S3FASTPUT_LONG          "s3fastput"
@@ -471,6 +473,8 @@ class ProgArgs
 		std::string s3AclGrantee; // s3 acl grantee
 		std::string s3AclGranteeType; // s3 acl grantee type
 		std::string s3AclGranteePermissions; // s3 acl grantee permission flags (ARG_S3_ACL_...)
+		std::string s3CredentialsFile; // path to file containing multiple S3 credentials
+        std::string s3CredentialsList; // comma-separated list of S3 credentials
 		std::string s3EndpointsServiceOverrideStr; // override of s3EndpointStr in service mode
 		StringVec s3EndpointsVec; // s3 endpoints broken down into individual elements
 		std::string s3EndpointsStr; // user-given s3 endpoints; elem format: [http(s)://]host[:port]
@@ -723,6 +727,8 @@ class ProgArgs
         std::string getS3AclGrantee() const { return s3AclGrantee; }
         std::string getS3AclGranteeType() const { return s3AclGranteeType; }
         std::string getS3AclGranteePermissions() const { return s3AclGranteePermissions; }
+		std::string getS3CredentialsFile() const { return s3CredentialsFile; }
+        std::string getS3CredentialsList() const { return s3CredentialsList; }
         std::string getS3EndpointsServiceOverride() const { return s3EndpointsServiceOverrideStr; }
         std::string getS3EndpointsStr() const { return s3EndpointsStr; }
         const StringVec& getS3EndpointsVec() const { return s3EndpointsVec; }
