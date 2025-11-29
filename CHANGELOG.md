@@ -2,8 +2,14 @@
 
 ## v3.0.36 (work in progress)
 
+### New Features & Enhancements
+* Added tool to clean up unfinished S3 multi-part uploads. (See `tools/s3-cleanup-mpu.py`)
+
 ### General Changes
 * Added config values to `--jsonfile` output.
+
+### Contributors
+* Thanks to Github user panghubaobao777 for contributions, helpful comments and suggestions.
 
 ## v3.0.35 (Sep 1, 2025)
 
