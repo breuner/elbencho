@@ -17,7 +17,7 @@ COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \
-    apt install -y /tmp/elbencho*.deb && \
+    apt install -y /tmp/elbencho*.deb jq && \
     rm -f /tmp/elbencho*.deb && \
     apt clean all && \
     /usr/bin/elbencho --version

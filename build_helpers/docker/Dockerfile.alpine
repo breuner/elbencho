@@ -16,7 +16,7 @@ FROM alpine:3
 
 COPY --from=builder /usr/local/bin/elbencho /usr/local/bin
 
-RUN apk add boost-regex boost-program_options libaio libcurl libstdc++ ncurses \
+RUN apk add boost-regex boost-program_options jq libaio libcurl libstdc++ ncurses \
         numactl && \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho && \
     /usr/local/bin/elbencho --version
