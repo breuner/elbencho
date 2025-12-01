@@ -1,0 +1,378 @@
+#!/bin/bash
+
+#
+# A script to summarize elbencho JSON results using jq.
+#
+# By default, it shows a summary with average throughput and IOPS.
+#
+
+# --- Usage Function ---
+usage() {
+  echo "Summarize elbencho JSON results into a formatted table."
+  echo
+  echo "Usage: $0 [OPTIONS]... [FILE]..."
+  echo
+  echo "Header Abbreviations:"
+  printf "  %-22s %s\n" "(F) = first_done" "The metric when the first/fastest thread finished its work."
+  printf "  %-22s %s\n" "(L) = last_done" "The metric when the last/slowest thread finished its work."
+  echo
+  echo "Output Modes:"
+  printf "  %-22s %s\n" "--details" "Show a detailed table for each individual test run."
+  printf "  %-22s %s\n" "--separator <char>" "Use <char> as a separator for CSV-style output."
+  printf "  %-22s %s\n" "--config-cols <keys>" "Add config columns and group summary by their values."
+  printf "  %-22s %s\n" "" "Example: --config-cols threads,block_size"
+  printf "  %-22s %s\n" "--raw" "Show raw numbers (B/s, IOPS, etc.) without units."
+  printf "  %-22s %s\n" "--base10" "Use base-10 units for throughput (MB/s vs MiB/s)."
+  echo
+  echo "Column Visibility:"
+  printf "  %-22s %s\n" "--cpu" "Show CPU utilization columns."
+  printf "  %-22s %s\n" "--show-entries" "Show Entries/s columns."
+  printf "  %-22s %s\n" "--show-latency-io" "Show I/O latency columns."
+  printf "  %-22s %s\n" "--show-latency-entries" "Show Entries latency columns."
+  printf "  %-22s %s\n" "--show-minmax" "Show Min/Max columns for all visible metrics."
+  printf "  %-22s %s\n" "--hide-throughput" "Hide Throughput columns."
+  printf "  %-22s %s\n" "--hide-iops" "Hide IOPS columns."
+  printf "  %-22s %s\n" "--show-time" "Show elapsed time columns."
+  printf "  %-22s %s\n" "--show-id" "Show the unique ID in the details table."
+  exit 1
+}
+
+
+# --- Default settings ---
+RAW_OUTPUT=false
+SHOW_ENTRIES=false
+SHOW_MINMAX=false
+HIDE_IOPS=false
+HIDE_THROUGHPUT=false
+SHOW_CPU=false
+SHOW_DETAILS=false
+SHOW_ID=false
+SHOW_TIME=false
+USE_BASE10=false
+SHOW_LATENCY_IO=false
+SHOW_LATENCY_ENTRIES=false
+CONFIG_COLS=""
+SEPARATOR=""
+
+# --- Argument Parsing ---
+while [[ "$1" =~ ^- ]]; do
+  case "$1" in
+    --raw) RAW_OUTPUT=true; shift;;
+    --show-entries) SHOW_ENTRIES=true; shift;;
+    --show-minmax) SHOW_MINMAX=true; shift;;
+    --hide-iops) HIDE_IOPS=true; shift;;
+    --hide-throughput) HIDE_THROUGHPUT=true; shift;;
+    --cpu) SHOW_CPU=true; shift;;
+    --details) SHOW_DETAILS=true; shift;;
+    --show-id) SHOW_ID=true; shift;;
+    --show-time) SHOW_TIME=true; shift;;
+    --base10) USE_BASE10=true; shift;;
+    --show-latency-io) SHOW_LATENCY_IO=true; shift;;
+    --show-latency-entries) SHOW_LATENCY_ENTRIES=true; shift;;
+    --config-cols)
+      CONFIG_COLS="$2"
+      if [[ -z "$2" ]]; then echo "Error: --config-cols option requires an argument." >&2; usage; fi
+      shift 2
+      ;;
+    --separator)
+      SEPARATOR="$2"
+      if [[ -z "$2" ]]; then echo "Error: --separator option requires an argument." >&2; usage; fi
+      shift 2
+      ;;
+    *) echo "Unknown option: $1" >&2; usage;;
+  esac
+done
+
+# --- Validation ---
+if ! command -v jq &> /dev/null; then echo "Error: 'jq' is not installed." >&2; exit 1; fi
+if [ "$#" -eq 0 ]; then usage; fi
+
+for file in "$@"; do
+  if [ ! -f "$file" ]; then echo "Error: Input file not found: $file" >&2; exit 1; fi
+done
+
+# --- JQ Programs ---
+
+# JQ_SUMMARY_PROGRAM: A single, combined program for the summary table.
+JQ_SUMMARY_PROGRAM='
+  # --- All helper functions are defined once at the top ---
+  def round2: . * 100 | round / 100;
+  def pad3: tostring | if length == 1 then "00" + . elif length == 2 then "0" + . else . end;
+  def format_ms: tonumber as $ms | ($ms / 60000 | floor) as $m | ($ms % 60000) as $rem | ($rem / 1000 | floor) as $s | ($rem % 1000) as $rem_ms | if $m > 0 then "\($m)m \($s).\(($rem_ms|pad3))s" elif $ms >= 1000 then "\($s).\(($rem_ms|pad3))s" else "\($ms)ms" end;
+  def format_us: tonumber as $us | if $us < 1000 then "\($us|round)us" elif $us < 1000000 then "\($us / 1000 | round2)ms" else "\($us / 1000000 | round2)s" end;
+  def human_readable_base2: . as $bytes | if $bytes < 1024 then "\($bytes | round) B/s" elif $bytes < 1048576 then "\($bytes / 1024 | round2) KiB/s" elif $bytes < 1073741824 then "\($bytes / 1048576 | round2) MiB/s" elif $bytes < 1099511627776 then "\($bytes / 1073741824 | round2) GiB/s" else "\($bytes / 1099511627776 | round2) TiB/s" end;
+  def human_readable_base10_bytes: . as $bytes | if $bytes < 1000 then "\($bytes | round) B/s" elif $bytes < 1000000 then "\($bytes / 1000 | round2) kB/s" elif $bytes < 1000000000 then "\($bytes / 1000000 | round2) MB/s" elif $bytes < 1000000000000 then "\($bytes / 1000000000 | round2) GB/s" else "\($bytes / 1000000000000 | round2) TB/s" end;
+  def human_readable_base10_prefix: . as $val | if $val < 1000 then "\($val | round)" elif $val < 1000000 then "\($val / 1000 | round2) k" elif $val < 1000000000 then "\($val / 1000000 | round2) M" elif $val < 1000000000000 then "\($val / 1000000000 | round2) G" else "\($val / 1000000000000 | round2) T" end;
+
+  def format_metric(min; max; avg; base; unit):
+      def format_value(val):
+          if $raw_output then
+            if base == "time" then val elif base == "latency" then (val|round) else (val|round) end
+          elif base == 2 then
+            if $use_base10 then (val|human_readable_base10_bytes) else (val|human_readable_base2) end
+          elif base == "percent" then "\((val|round)) %"
+          elif base == "time" then (val|format_ms)
+          elif base == "latency" then (val|format_us)
+          else (val|human_readable_base10_prefix)
+          end;
+      (if $show_minmax then [format_value(min), format_value(max)] else [] end) + [format_value(avg)];
+
+  # --- Start of Calculation Logic ---
+  (
+    ($config_cols | split(",") | map(select(length > 0))) as $keys |
+    . as $all_data |
+    ($all_data | map(. as $obj | {obj: $obj, key: ([$obj.phase_type] + ($keys | map($obj.config[.]?)))})) as $data_with_keys |
+    ($data_with_keys | map(.key) | reduce .[] as $item ({unique: [], seen: {}}; ($item | tojson) as $key_str | if .seen[$key_str] then . else .unique += [$item] | .seen[$key_str] = true end) | .unique) as $ordered_keys |
+    $ordered_keys | map(
+        . as $current_key |
+        ($data_with_keys | map(select((.key | tojson) == ($current_key | tojson)) | .obj)) as $group |
+        ($keys | map(. as $k | {key: $k, value: (if ($group[0].config? | has($k)) then $group[0].config[$k] else "" end)})) as $configs |
+        ($group | map(.first_done."bytes/s"? | if . == null then 0 else tonumber end)) as $first_bytes |
+        ($group | map(.last_done."bytes/s"?  | if . == null then 0 else tonumber end)) as $last_bytes |
+        ($group | map(.first_done.iops?       | if . == null then 0 else tonumber end)) as $first_iops |
+        ($group | map(.last_done.iops?        | if . == null then 0 else tonumber end)) as $last_iops |
+        ($group | map(.first_done."entries/s"? | if . == null then 0 else tonumber end)) as $first_entries |
+        ($group | map(.last_done."entries/s"?  | if . == null then 0 else tonumber end)) as $last_entries |
+        ($group | map(.first_done."cpu%"?    | if . == null then 0 else tonumber end)) as $first_cpu |
+        ($group | map(.last_done."cpu%"?     | if . == null then 0 else tonumber end)) as $last_cpu |
+        ($group | map(.first_done."elapsed_time_ms"? | if . == null then 0 else tonumber end)) as $first_time |
+        ($group | map(.last_done."elapsed_time_ms"?  | if . == null then 0 else tonumber end)) as $last_time |
+        ($group | map(.last_done?.latency?.IO?.min_us? | if . == null then 0 else tonumber end)) as $lat_io_min |
+        ($group | map(.last_done?.latency?.IO?.max_us? | if . == null then 0 else tonumber end)) as $lat_io_max |
+        ($group | map(.last_done?.latency?.IO?.avg_us? | if . == null then 0 else tonumber end)) as $lat_io_avg |
+        ($group | map(.last_done?.latency?.entries?.min_us? | if . == null then 0 else tonumber end)) as $lat_ent_min |
+        ($group | map(.last_done?.latency?.entries?.max_us? | if . == null then 0 else tonumber end)) as $lat_ent_max |
+        ($group | map(.last_done?.latency?.entries?.avg_us? | if . == null then 0 else tonumber end)) as $lat_ent_avg |
+        {
+          phase: $group[0].phase_type, configs: $configs,
+          min_first_bytes: ($first_bytes | min), max_first_bytes: ($first_bytes | max), avg_first_bytes: ($first_bytes | add / length),
+          min_last_bytes: ($last_bytes | min), max_last_bytes: ($last_bytes | max), avg_last_bytes: ($last_bytes | add / length),
+          min_first_iops: ($first_iops | min), max_first_iops: ($first_iops | max), avg_first_iops: ($first_iops | add / length),
+          min_last_iops: ($last_iops | min), max_last_iops: ($last_iops | max), avg_last_iops: ($last_iops | add / length),
+          min_first_entries: ($first_entries | min), max_first_entries: ($first_entries | max), avg_first_entries: ($first_entries | add / length),
+          min_last_entries: ($last_entries | min), max_last_entries: ($last_entries | max), avg_last_entries: ($last_entries | add / length),
+          min_first_cpu: ($first_cpu | min), max_first_cpu: ($first_cpu | max), avg_first_cpu: ($first_cpu | add / length),
+          min_last_cpu: ($last_cpu | min), max_last_cpu: ($last_cpu | max), avg_last_cpu: ($last_cpu | add / length),
+          min_first_time: ($first_time | min), max_first_time: ($first_time | max), avg_first_time: ($first_time | add / length),
+          min_last_time: ($last_time | min), max_last_time: ($last_time | max), avg_last_time: ($last_time | add / length),
+          min_lat_io: ($lat_io_min | min), max_lat_io: ($lat_io_max | max), avg_lat_io: ($lat_io_avg | add / length),
+          min_lat_ent: ($lat_ent_min | min), max_lat_ent: ($lat_ent_max | max), avg_lat_ent: ($lat_ent_avg | add / length)
+        }
+      )
+  ) as $summary_data |
+
+  # --- Start of Formatting Logic ---
+  $summary_data | .[] | (
+    [.phase] +
+    (.configs | map(.value)) +
+    (if $hide_throughput then [] else format_metric(.min_first_bytes; .max_first_bytes; .avg_first_bytes; 2; "") + format_metric(.min_last_bytes; .max_last_bytes; .avg_last_bytes; 2; "") end) +
+    (if $hide_iops then [] else format_metric(.min_first_iops; .max_first_iops; .avg_first_iops; 10; "") + format_metric(.min_last_iops; .max_last_iops; .avg_last_iops; 10; "") end) +
+    (if $show_entries then format_metric(.min_first_entries; .max_first_entries; .avg_first_entries; 10; "") + format_metric(.min_last_entries; .max_last_entries; .avg_last_entries; 10; "") else [] end) +
+    (if $show_cpu then format_metric(.min_first_cpu; .max_first_cpu; .avg_first_cpu; "percent"; "") + format_metric(.min_last_cpu; .max_last_cpu; .avg_last_cpu; "percent"; "") else [] end) +
+    (if $show_time then format_metric(.min_first_time; .max_first_time; .avg_first_time; "time"; "") + format_metric(.min_last_time; .max_last_time; .avg_last_time; "time"; "") else [] end) +
+    (if $show_latency_io then format_metric(.min_lat_io; .max_lat_io; .avg_lat_io; "latency"; "") else [] end) +
+    (if $show_latency_entries then format_metric(.min_lat_ent; .max_lat_ent; .avg_lat_ent; "latency"; "") else [] end)
+  ) | @tsv
+'
+
+
+# JQ_DETAILS_FORMATTER: program to format the details table.
+JQ_DETAILS_FORMATTER='
+  ($config_cols | split(",") | map(select(length > 0))) as $keys |
+  def round2: . * 100 | round / 100;
+  def pad3: tostring | if length == 1 then "00" + . elif length == 2 then "0" + . else . end;
+  def format_ms: tonumber as $ms | ($ms / 60000 | floor) as $m | ($ms % 60000) as $rem | ($rem / 1000 | floor) as $s | ($rem % 1000) as $rem_ms | if $m > 0 then "\($m)m \($s).\(($rem_ms|pad3))s" elif $ms >= 1000 then "\($s).\(($rem_ms|pad3))s" else "\($ms)ms" end;
+  def format_us: tonumber as $us | if $us < 1000 then "\($us|round)us" elif $us < 1000000 then "\($us / 1000 | round2)ms" else "\($us / 1000000 | round2)s" end;
+  def human_readable_base2: . as $bytes | if $bytes < 1024 then "\($bytes | round) B/s" elif $bytes < 1048576 then "\($bytes / 1024 | round2) KiB/s" elif $bytes < 1073741824 then "\($bytes / 1048576 | round2) MiB/s" elif $bytes < 1099511627776 then "\($bytes / 1073741824 | round2) GiB/s" else "\($bytes / 1099511627776 | round2) TiB/s" end;
+  def human_readable_base10_bytes: . as $bytes | if $bytes < 1000 then "\($bytes | round) B/s" elif $bytes < 1000000 then "\($bytes / 1000 | round2) kB/s" elif $bytes < 1000000000 then "\($bytes / 1000000 | round2) MB/s" elif $bytes < 1000000000000 then "\($bytes / 1000000000 | round2) GB/s" else "\($bytes / 1000000000000 | round2) TB/s" end;
+  def human_readable_base10_prefix: . as $val | if $val < 1000 then "\($val | round)" elif $val < 1000000 then "\($val / 1000 | round2) k" elif $val < 1000000000 then "\($val / 1000000 | round2) M" elif $val < 1000000000000 then "\($val / 1000000000 | round2) G" else "\($val / 1000000000000 | round2) T" end;
+  def format_value(val; base; unit): if val == null then "" else (val | tonumber) as $num | if $raw_output then if base == "time" then $num elif base == "latency" then ($num|round) else ($num|round) end elif base == 2 then if $use_base10 then ($num|human_readable_base10_bytes) else ($num|human_readable_base2) end elif base == "percent" then "\(($num|round)) %" elif base == "time" then ($num|format_ms) elif base == "latency" then ($num|format_us) else ($num|human_readable_base10_prefix) end end;
+
+  .[] | select(.first_done or .last_done) | . as $obj |
+  (
+    [$obj.phase_type] +
+    ($keys | map(. as $k | if ($obj.config? | has($k)) then $obj.config[$k] else "" end)) +
+    (if $hide_throughput then [] else [format_value($obj.first_done."bytes/s"?; 2; ""), format_value($obj.last_done."bytes/s"?; 2; "")] end) +
+    (if $hide_iops then [] else [format_value($obj.first_done.iops?; 10; ""), format_value($obj.last_done.iops?; 10; "")] end) +
+    (if $show_entries then [format_value($obj.first_done."entries/s"?; 10; ""), format_value($obj.last_done."entries/s"?; 10; "")] else [] end) +
+    (if $show_cpu then [format_value($obj.first_done."cpu%"?; "percent"; ""), format_value($obj.last_done."cpu%"?; "percent"; "")] else [] end) +
+    (if $show_time then [format_value($obj.first_done."elapsed_time_ms"?; "time"; ""), format_value($obj.last_done."elapsed_time_ms"?; "time"; "")] else [] end) +
+    (if $show_latency_io then (if $show_minmax then [format_value($obj.last_done?.latency?.IO?.min_us?; "latency"; ""), format_value($obj.last_done?.latency?.IO?.max_us?; "latency"; "")] else [] end) + [format_value($obj.last_done?.latency?.IO?.avg_us?; "latency"; "")] else [] end) +
+    (if $show_latency_entries then (if $show_minmax then [format_value($obj.last_done?.latency?.entries?.min_us?; "latency"; ""), format_value($obj.last_done?.latency?.entries?.max_us?; "latency"; "")] else [] end) + [format_value($obj.last_done?.latency?.entries?.avg_us?; "latency"; "")] else [] end) +
+    (if $show_id then [$obj.phase_id[0:8]] else [] end)
+  ) | @tsv
+'
+
+
+# --- Output ---
+
+# Determine base unit names for the header
+if [ "$RAW_OUTPUT" = true ]; then
+    throughput_unit="B/s"; iops_unit="IOPS"; entries_unit="Ent/s"; cpu_unit="CPU %"; time_unit="Elapsed ms"; lat_unit="Latency us"
+else
+    throughput_unit="Throughput"; iops_unit="IOPS"; entries_unit="Ent/s"; cpu_unit="CPU %"; time_unit="Elapsed Time"; lat_unit="Latency"
+fi
+
+# Convert comma-separated config cols string to a bash array
+IFS=',' read -r -a config_keys <<< "$CONFIG_COLS"
+
+
+# --- Details Table (if requested) ---
+if [ "$SHOW_DETAILS" = true ]; then
+  # Generate details data first
+  details_data=$(cat "$@" | jq -s -r --argjson raw_output "$RAW_OUTPUT" \
+      --argjson show_entries "$SHOW_ENTRIES" \
+      --argjson show_minmax "$SHOW_MINMAX" \
+      --argjson hide_iops "$HIDE_IOPS" \
+      --argjson hide_throughput "$HIDE_THROUGHPUT" \
+      --argjson show_cpu "$SHOW_CPU" \
+      --argjson show_id "$SHOW_ID" \
+      --argjson show_time "$SHOW_TIME" \
+      --argjson use_base10 "$USE_BASE10" \
+      --argjson show_latency_io "$SHOW_LATENCY_IO" \
+      --argjson show_latency_entries "$SHOW_LATENCY_ENTRIES" \
+      --arg config_cols "$CONFIG_COLS" \
+      "$JQ_DETAILS_FORMATTER")
+
+  (
+    header_cols_details=("Test Case")
+    for key in "${config_keys[@]}"; do header_cols_details+=("$key"); done
+    if [ "$HIDE_THROUGHPUT" = false ]; then header_cols_details+=("$throughput_unit (F)" "$throughput_unit (L)"); fi
+    if [ "$HIDE_IOPS" = false ]; then header_cols_details+=("$iops_unit (F)" "$iops_unit (L)"); fi
+    if [ "$SHOW_ENTRIES" = true ]; then header_cols_details+=("$entries_unit (F)" "$entries_unit (L)"); fi
+    if [ "$SHOW_CPU" = true ]; then header_cols_details+=("$cpu_unit (F)" "$cpu_unit (L)"); fi
+    if [ "$SHOW_TIME" = true ]; then header_cols_details+=("$time_unit (F)" "$time_unit (L)"); fi
+    if [ "$SHOW_LATENCY_IO" = true ]; then
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_details+=("Min $lat_unit IO" "Max $lat_unit IO"); fi
+        header_cols_details+=("Avg $lat_unit IO")
+    fi
+    if [ "$SHOW_LATENCY_ENTRIES" = true ]; then
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_details+=("Min $lat_unit Ent" "Max $lat_unit Ent"); fi
+        header_cols_details+=("Avg $lat_unit Ent")
+    fi
+    if [ "$SHOW_ID" = true ]; then header_cols_details+=("ID"); fi
+
+    if [[ -n "$SEPARATOR" ]]; then
+      (IFS="$SEPARATOR"; printf "%s\n" "${header_cols_details[*]}")
+    else
+      (IFS=$'\t'; printf "%s\n" "${header_cols_details[*]}")
+      separator_cols=(); num_cols=${#header_cols_details[@]}
+      for (( i=0; i<num_cols; i++ )); do separator_cols+=("----------"); done
+      (IFS=$'\t'; printf "%s\n" "${separator_cols[*]}")
+    fi
+
+    echo "$details_data"
+
+  ) | if [[ -n "$SEPARATOR" ]]; then tr '\t' "$SEPARATOR"; else column -t -s $'\t'; fi
+  echo
+fi
+
+
+# --- Summary Table ---
+(
+  if [[ -n "$SEPARATOR" ]]; then
+    header_cols_csv=("Test Case")
+    for key in "${config_keys[@]}"; do header_cols_csv+=("$key"); done
+    if [ "$HIDE_THROUGHPUT" = false ]; then
+      for moment in "(F)" "(L)"; do
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_csv+=("Min $throughput_unit $moment" "Max $throughput_unit $moment"); fi
+        header_cols_csv+=("Avg $throughput_unit $moment")
+      done
+    fi
+    if [ "$HIDE_IOPS" = false ]; then
+      for moment in "(F)" "(L)"; do
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_csv+=("Min $iops_unit $moment" "Max $iops_unit $moment"); fi
+        header_cols_csv+=("Avg $iops_unit $moment")
+      done
+    fi
+    if [ "$SHOW_ENTRIES" = true ]; then
+      for moment in "(F)" "(L)"; do
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_csv+=("Min $entries_unit $moment" "Max $entries_unit $moment"); fi
+        header_cols_csv+=("Avg $entries_unit $moment")
+      done
+    fi
+    if [ "$SHOW_CPU" = true ]; then
+      for moment in "(F)" "(L)"; do
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_csv+=("Min $cpu_unit $moment" "Max $cpu_unit $moment"); fi
+        header_cols_csv+=("Avg $cpu_unit $moment")
+      done
+    fi
+    if [ "$SHOW_TIME" = true ]; then
+      for moment in "(F)" "(L)"; do
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_csv+=("Min $time_unit $moment" "Max $time_unit $moment"); fi
+        header_cols_csv+=("Avg $time_unit $moment")
+      done
+    fi
+    if [ "$SHOW_LATENCY_IO" = true ]; then
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_csv+=("Min $lat_unit IO" "Max $lat_unit IO"); fi
+        header_cols_csv+=("Avg $lat_unit IO")
+    fi
+    if [ "$SHOW_LATENCY_ENTRIES" = true ]; then
+        if [ "$SHOW_MINMAX" = true ]; then header_cols_csv+=("Min $lat_unit Ent" "Max $lat_unit Ent"); fi
+        header_cols_csv+=("Avg $lat_unit Ent")
+    fi
+
+    (IFS="$SEPARATOR"; printf "%s\n" "${header_cols_csv[*]}")
+  else
+    header_line1=("Test Case"); header_line2=("")
+    for key in "${config_keys[@]}"; do header_line1+=("$key"); header_line2+=(""); done
+    if [ "$HIDE_THROUGHPUT" = false ]; then
+      for moment in "(F)" "(L)"; do
+          header_line1+=("$throughput_unit $moment");
+          if [ "$SHOW_MINMAX" = true ]; then header_line1+=("" ""); header_line2+=("Min" "Max" "Avg"); else header_line2+=("Avg"); fi
+      done
+    fi
+    if [ "$HIDE_IOPS" = false ]; then
+      for moment in "(F)" "(L)"; do
+          header_line1+=("$iops_unit $moment");
+          if [ "$SHOW_MINMAX" = true ]; then header_line1+=("" ""); header_line2+=("Min" "Max" "Avg"); else header_line2+=("Avg"); fi
+      done
+    fi
+    if [ "$SHOW_ENTRIES" = true ]; then
+        for moment in "(F)" "(L)"; do
+          header_line1+=("$entries_unit $moment");
+          if [ "$SHOW_MINMAX" = true ]; then header_line1+=("" ""); header_line2+=("Min" "Max" "Avg"); else header_line2+=("Avg"); fi
+      done
+    fi
+    if [ "$SHOW_CPU" = true ]; then
+        for moment in "(F)" "(L)"; do
+          header_line1+=("$cpu_unit $moment");
+          if [ "$SHOW_MINMAX" = true ]; then header_line1+=("" ""); header_line2+=("Min" "Max" "Avg"); else header_line2+=("Avg"); fi
+      done
+    fi
+    if [ "$SHOW_TIME" = true ]; then
+        for moment in "(F)" "(L)"; do
+          header_line1+=("$time_unit $moment");
+          if [ "$SHOW_MINMAX" = true ]; then header_line1+=("" ""); header_line2+=("Min" "Max" "Avg"); else header_line2+=("Avg"); fi
+      done
+    fi
+    if [ "$SHOW_LATENCY_IO" = true ]; then
+        header_line1+=("$lat_unit IO");
+        if [ "$SHOW_MINMAX" = true ]; then header_line1+=("" ""); header_line2+=("Min" "Max" "Avg"); else header_line2+=("Avg"); fi
+    fi
+    if [ "$SHOW_LATENCY_ENTRIES" = true ]; then
+        header_line1+=("$lat_unit Ent");
+        if [ "$SHOW_MINMAX" = true ]; then header_line1+=("" ""); header_line2+=("Min" "Max" "Avg"); else header_line2+=("Avg"); fi
+    fi
+
+    (IFS=$'\t'; printf "%s\n" "${header_line1[*]}")
+    (IFS=$'\t'; printf "%s\n" "${header_line2[*]}")
+    separator_cols=(); num_cols=${#header_line1[@]}
+    for (( i=0; i<num_cols; i++ )); do separator_cols+=("----------"); done
+    (IFS=$'\t'; printf "%s\n" "${separator_cols[*]}")
+  fi
+
+  # Corrected Summary Pipeline
+  cat "$@" | jq -s -r --arg config_cols "$CONFIG_COLS" \
+      --argjson raw_output "$RAW_OUTPUT" \
+      --argjson show_entries "$SHOW_ENTRIES" \
+      --argjson show_minmax "$SHOW_MINMAX" \
+      --argjson hide_iops "$HIDE_IOPS" \
+      --argjson hide_throughput "$HIDE_THROUGHPUT" \
+      --argjson show_cpu "$SHOW_CPU" \
+      --argjson show_time "$SHOW_TIME" \
+      --argjson use_base10 "$USE_BASE10" \
+      --argjson show_latency_io "$SHOW_LATENCY_IO" \
+      --argjson show_latency_entries "$SHOW_LATENCY_ENTRIES" \
+      "$JQ_SUMMARY_PROGRAM" | if [[ -n "$SEPARATOR" ]]; then tr '\t' "$SEPARATOR"; else cat; fi
+) | if [[ -z "$SEPARATOR" ]]; then column -t -s $'\t'; else cat; fi

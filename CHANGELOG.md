@@ -3,14 +3,18 @@
 ## v3.0.36 (work in progress)
 
 ### New Features & Enhancements
-* Added tool to clean up unfinished S3 multi-part uploads. (See `tools/s3-cleanup-mpu.py`)
-* Added option for Excel (`.xlsx`) file generation to the elbencho chart tool. (`elbencho-chart --excel PATH`).
+* Added tool to summarize elbencho JSON results into a formatted table. (`elbencho-summarize-json`)
+* Added option for Excel (`.xlsx`) file generation to the elbencho chart tool. (`elbencho-chart --excel PATH`)
+* Added tool to clean up unfinished S3 multi-part uploads. (See `tools/s3-cleanup-mpu.py`.)
+* Added support for multiple S3 credentials. (See `--s3credfile` & `--s3credlist`.)
 
 ### General Changes
 * Added config values to `--jsonfile` output.
+* Removed dependency on lib boost_system for compatibility with more recent boost versions.
+* Added `nvidia-open` package to CUDA container to have `nvidia-smi` tool available inside container.
 
 ### Contributors
-* Thanks to Github user panghubaobao777 for contributions, helpful comments and suggestions.
+* Thanks to John Fragalla, Tamar Baran, Michael Shustin & Github user panghubaobao777 for contributions, helpful comments and suggestions.
 
 ## v3.0.35 (Sep 1, 2025)
 

@@ -1,5 +1,5 @@
-#!/usr/bin/make -f  
-%:  
+#!/usr/bin/make -f
+%:
 	dh $@
 
 override_dh_shlibdeps:
@@ -9,6 +9,7 @@ override_dh_auto_install:
 	install -D -m 0755 $$(pwd)/usr/bin/elbencho $$(pwd)/debian/elbencho/usr/bin/elbencho
 	install -D -m 0755 $$(pwd)/usr/bin/elbencho-chart $$(pwd)/debian/elbencho/usr/bin/elbencho-chart
 	install -D -m 0755 $$(pwd)/usr/bin/elbencho-scan-path $$(pwd)/debian/elbencho/usr/bin/elbencho-scan-path
+	install -D -m 0755 $$(pwd)/usr/bin/elbencho-summarize-json $$(pwd)/debian/elbencho/usr/bin/elbencho-summarize-json
 	# lintian warns about /etc/bash_completion.d being obsolete, so install also to new /usr/share/bash-completion
 	install -D -m 0755 $$(pwd)/etc/bash_completion.d/elbencho $$(pwd)/debian/elbencho/etc/bash_completion.d/elbencho
 	install -D -m 0755 $$(pwd)/etc/bash_completion.d/elbencho $$(pwd)/debian/elbencho/usr/share/bash-completion/completions/elbencho
@@ -17,4 +18,3 @@ override_dh_auto_install:
 	# install contrib tools
 	install -D -m 0755 $$(pwd)/usr/bin/mtelbencho.sh $$(pwd)/debian/elbencho/usr/bin/mtelbencho.sh
 	install -D -m 0755 $$(pwd)/usr/bin/graph_sweep.sh $$(pwd)/debian/elbencho/usr/bin/graph_sweep.sh
-	
