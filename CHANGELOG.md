@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * Added tool to clean up unfinished S3 multi-part uploads. (See `tools/s3-cleanup-mpu.py`)
+* Added option for Excel (`.xlsx`) file generation to the elbencho chart tool. (`elbencho-chart --excel PATH`).
 
 ### General Changes
 * Added config values to `--jsonfile` output.

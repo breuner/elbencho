@@ -1,10 +1,11 @@
 #!/bin/bash
 #
-# Generate chart from elbencho csv result file via gnuplot.
+# Generate chart from elbencho csv result file via gnuplot and/or Excel.
 
 
 CSVFILE=""                   # input file
 OUTIMGFILE=""                # output file for chart image
+OUTXLSXFILE=""               # output file for excel sheet
 OUTIMGBGCOLOR=""             # output image rgb background (e.g. "#ffffff" for white)
 TMPOPSTRING="OPERATION"      # string in tmp file name to replace by actual op (e.g. "READ")
 TMPOPFILE="/tmp/elbencho-plot-${TMPOPSTRING}.csv" # tmp files for each requested op (e.g. "READ")
@@ -55,14 +56,16 @@ usage()
    echo "  -Y COL[:OP]        Csv file column to use for graph on right-hand y-axis."
    echo "                     This option can be used multiple times for multiple graphs."
    echo
+   echo "Output Options:"
+   echo "  --imgfile PATH     Path to output image file (svg, png, pdf)."
+   echo "                     If no output option is given, a gnuplot window is shown."
+   echo "  --excel PATH       Path to output Excel file with embedded chart."
+   echo
    echo "Misc Options:"
    echo "  --bars             Generate bar chart. Default is line chart."
    echo "  --chartsize W,H    Chart width and height in pixels."
    echo "                     Exception: Size for pdf image file is in inches."
    echo "  --fontsize NUM     Font size."
-   echo "  --imgfile PATH     Path to output image file. The extension of the filename"
-   echo "                     determines the file type."
-   echo "                     Supported extensions are: \".svg\" \".png\" \".pdf\""
    echo "  --imgbg RGB        Image background color instead of transparent background."
    echo "                     Example: \"#ffffff\" for white background."
    echo "  --keypos STRING    Position of key with line descriptions within chart area."
@@ -93,6 +96,10 @@ usage()
    echo "     different blocks sizes from elbencho-results.csv:"
    echo "     $ $(basename -- $0) -x \"block size\" -y \"MiB/s [last]:READ\" \\"
    echo "         -Y \"IOPS [last]:READ\" elbencho-results.csv"
+   echo
+   echo "  3) Generate the same chart but save it to an Excel file:"
+   echo "     $ $(basename -- $0) -x \"block size\" -y \"MiB/s [last]:READ\" \\"
+   echo "         -Y \"IOPS [last]:READ\" --excel my-chart.xlsx elbencho-results.csv"
 
    exit 1
 }
@@ -115,7 +122,7 @@ parse_args()
          -c)
             list_csv_columns_only="1"
             ;;
-         -h|--help) 
+         -h|--help)
             usage
             exit 0
             ;;
@@ -131,6 +138,10 @@ parse_args()
            ;;
         --chartsize)
            CHARTSIZE="$2"
+           shift
+           ;;
+        --excel)
+           OUTXLSXFILE="$2"
            shift
            ;;
         --fontsize)
@@ -298,6 +309,23 @@ find_gnuplot_or_exit()
    fi
 }
 
+# Check if python3 and required libs are installed and exit if not.
+find_python_or_exit()
+{
+   if ! which python3 >/dev/null 2>&1; then
+      echo "ERROR: python3 command not found. Install python3 and try again."
+      exit 1
+   fi
+   if ! python3 -c "import pandas" >/dev/null 2>&1; then
+      echo "ERROR: Python pandas library not found. Install with 'pip install pandas'."
+      exit 1
+   fi
+   if ! python3 -c "import xlsxwriter" >/dev/null 2>&1; then
+      echo "ERROR: Python xlsxwriter library not found. Install with 'pip install xlsxwriter'."
+      exit 1
+   fi
+}
+
 # List csv file columns, one per line.
 list_csv_columns()
 {
@@ -343,7 +371,7 @@ create_op_file_copy()
    local tmpfile="${TMPOPFILE/$TMPOPSTRING/$opfilter}"
 
    head -n1 "$CSVFILE" > "$tmpfile" || exit 1
-   tail -n+2 "$CSVFILE" | grep "$opfilter" >> "$tmpfile" || exit 1
+   tail -n+2 "$CSVFILE" | grep ",$opfilter," >> "$tmpfile" || exit 1
 }
 
 # Create copies of csv input file in /tmp containing only the selected operation types.
@@ -424,7 +452,7 @@ get_column_name()
 # $1: op filter string (e.g. "READ")
 count_op_filter_lines()
 {
-   grep "$1" "$CSVFILE" | wc -l
+   grep ",$1," "$CSVFILE" | wc -l
 }
 
 # Check if csv rows are found for a given op filter.
@@ -514,7 +542,7 @@ generate_gnuplot_xlabels()
 
    # use inputfile or first left-hand y-axis graph line as basis
    inputfile=$(get_input_file "${CSVCOLUMNS_Y_LEFT[0]}")
-   
+
    # awk_cmd looks like this in the end:
    #    NF {print \$9 \" \" \$25 \" \"}
 
@@ -556,7 +584,7 @@ get_line_title()
 
    if [ -z "$opfilter" ]; then
       # no opfilter set, so just return given column string
-      echo "$1" 
+      echo "$1"
    else
       echo "$opfilter $columnlabel"
    fi
@@ -710,12 +738,205 @@ generate_gnuplot_cmd()
    echo "$plot_cmd"
 }
 
+# Generate Excel chart by invoking an embedded python script
+generate_excel_chart() {
+    python3 - "$OUTXLSXFILE" \
+            "$CSVFILE" \
+            "$USEBARS" \
+            "$CHARTTITLE" \
+            "$CHARTXTITLE" \
+            "$CHARTYTITLE" \
+            "$CHARTY2TITLE" \
+            "$CHARTKEYPOS" \
+            "$XTICLABELROTDEGREES" \
+            "${#CSVCOLUMNS_X[@]}" "${CSVCOLUMNS_X[@]}" \
+            "${#CSVCOLUMNS_Y_LEFT[@]}" "${CSVCOLUMNS_Y_LEFT[@]}" \
+            "${#CSVCOLUMNS_Y_RIGHT[@]}" "${CSVCOLUMNS_Y_RIGHT[@]}" \
+            "${#LINECOLORS[@]}" "${LINECOLORS[@]}" \
+    <<EOF
+import sys
+import pandas as pd
+
+def parse_col_op(col_op_string):
+    """Splits a 'column:operation' string into a (column, operation) tuple."""
+    if ':' in col_op_string:
+        parts = col_op_string.split(':', 1)
+        return parts[0], parts[1]
+    else:
+        return col_op_string, None
+
+def main():
+    # --- Argument Parsing from stdin ---
+    args = sys.argv[1:]
+    out_xlsx_file = args.pop(0)
+    csv_file = args.pop(0)
+    use_bars = args.pop(0)
+    chart_title = args.pop(0)
+    chart_xtitle = args.pop(0)
+    chart_ytitle = args.pop(0)
+    chart_y2title = args.pop(0)
+    chart_keypos = args.pop(0)
+    xtic_label_rot_degrees = args.pop(0)
+
+    # Reconstruct arrays
+    num_x = int(args.pop(0))
+    cols_x = [args.pop(0) for _ in range(num_x)]
+    num_y_left = int(args.pop(0))
+    cols_y_left = [args.pop(0) for _ in range(num_y_left)]
+    num_y_right = int(args.pop(0))
+    cols_y_right = [args.pop(0) for _ in range(num_y_right)]
+    num_colors = int(args.pop(0))
+    line_colors = [args.pop(0) for _ in range(num_colors)]
+
+    # --- Data Processing with Pandas ---
+    try:
+        df = pd.read_csv(csv_file)
+    except FileNotFoundError:
+        print(f"ERROR: CSV file not found: {csv_file}", file=sys.stderr)
+        sys.exit(1)
+
+    series_data = {}
+    all_y_cols_op = cols_y_left + cols_y_right
+
+    for y_col_op in all_y_cols_op:
+        col_name, op_filter = parse_col_op(y_col_op)
+        filtered_df = df[df['operation'] == op_filter].copy() if op_filter else df.copy()
+        filtered_df.reset_index(drop=True, inplace=True)
+        series_data[y_col_op] = filtered_df[col_name]
+
+    first_y_col_op = cols_y_left[0]
+    _, first_op_filter = parse_col_op(first_y_col_op)
+    
+    base_df = df[df['operation'] == first_op_filter].copy() if first_op_filter else df.copy()
+    base_df.reset_index(drop=True, inplace=True)
+    x_labels = base_df[cols_x].astype(str).agg('@'.join, axis=1)
+
+    output_df = pd.DataFrame(series_data)
+    
+    x_axis_label_name = '@'.join(cols_x)
+    output_df.insert(0, x_axis_label_name, x_labels)
+
+    # --- Excel Chart Generation with XlsxWriter ---
+    writer = pd.ExcelWriter(out_xlsx_file, engine='xlsxwriter')
+    output_df.to_excel(writer, sheet_name='ChartData', index=False)
+
+    workbook = writer.book
+    worksheet = writer.sheets['ChartData']
+
+    num_rows = len(output_df)
+    color_idx = 0
+
+    # Create the chart. For clustered bar charts with a secondary axis, we must
+    # create two separate chart objects and combine them.
+    if use_bars:
+        # Create a primary chart for the left y-axis series
+        chart = workbook.add_chart({'type': 'column', 'subtype': 'clustered'})
+    else:
+        # Line charts don't have this issue and can be a single object
+        chart = workbook.add_chart({'type': 'line'})
+
+    # Add left y-axis series to the primary chart
+    for i, col_op in enumerate(cols_y_left):
+        col_name, op_filter = parse_col_op(col_op)
+        series_name = f"{op_filter} {col_name}" if op_filter else col_name
+        
+        chart.add_series({
+            'name':       series_name,
+            'categories': ['ChartData', 1, 0, num_rows, 0],
+            'values':     ['ChartData', 1, i + 1, num_rows, i + 1],
+            'line':       {'color': line_colors[color_idx]},
+            'fill':       {'color': line_colors[color_idx]},
+        })
+        color_idx += 1
+
+    # Add right y-axis series.
+    if cols_y_right:
+        if use_bars:
+            # For bar charts, create a secondary chart object to combine
+            secondary_chart = workbook.add_chart({'type': 'column', 'subtype': 'clustered'})
+            
+            # Add series to the secondary chart, making sure to mark y2_axis
+            for i, col_op in enumerate(cols_y_right):
+                col_name, op_filter = parse_col_op(col_op)
+                series_name = f"{op_filter} {col_name}" if op_filter else col_name
+                secondary_chart.add_series({
+                    'name':       series_name,
+                    'categories': ['ChartData', 1, 0, num_rows, 0],
+                    'values':     ['ChartData', 1, len(cols_y_left) + i + 1, num_rows, len(cols_y_left) + i + 1],
+                    'y2_axis':    True,
+                    'line':       {'color': line_colors[color_idx]},
+                    'fill':       {'color': line_colors[color_idx]},
+                })
+                color_idx += 1
+            
+            # Combine the primary and secondary charts
+            chart.combine(secondary_chart)
+        else:
+            # For line charts, just add series to the original chart
+            for i, col_op in enumerate(cols_y_right):
+                col_name, op_filter = parse_col_op(col_op)
+                series_name = f"{op_filter} {col_name}" if op_filter else col_name
+                chart.add_series({
+                    'name':       series_name,
+                    'categories': ['ChartData', 1, 0, num_rows, 0],
+                    'values':     ['ChartData', 1, len(cols_y_left) + i + 1, num_rows, len(cols_y_left) + i + 1],
+                    'y2_axis':    True,
+                    'line':       {'color': line_colors[color_idx]},
+                })
+                color_idx += 1
+
+    # --- Chart Formatting ---
+    chart.set_title({'name': chart_title})
+    chart.set_x_axis({'name': chart_xtitle, 'num_font': {'rotation': int(xtic_label_rot_degrees)}})
+    chart.set_y_axis({'name': chart_ytitle, 'major_gridlines': {'visible': True}})
+    if cols_y_right:
+        chart.set_y2_axis({'name': chart_y2title})
+    
+    legend_position = 'top'
+    if 'right' in chart_keypos: legend_position = 'right'
+    if 'left' in chart_keypos: legend_position = 'left'
+    if 'bottom' in chart_keypos: legend_position = 'bottom'
+    chart.set_legend({'position': legend_position})
+    
+    if use_bars:
+        chart.set_style(10)
+
+    worksheet.insert_chart('K2', chart, {'x_scale': 2, 'y_scale': 2})
+    writer.close()
+
+if __name__ == "__main__":
+    main()
+EOF
+}
+
 
 ##################### end of function definitions / start of main commands ###################
 
 
 parse_args "$@"
-find_gnuplot_or_exit
+
+# Determine which outputs are requested
+DO_GNUPLOT=0
+DO_EXCEL=0
+
+# Default to gnuplot window if no output file is specified
+if [ -z "$OUTIMGFILE" ] && [ -z "$OUTXLSXFILE" ]; then
+    DO_GNUPLOT=1
+fi
+if [ -n "$OUTIMGFILE" ]; then
+    DO_GNUPLOT=1
+fi
+if [ -n "$OUTXLSXFILE" ]; then
+    DO_EXCEL=1
+fi
+
+# Check for required tools
+if [ "$DO_GNUPLOT" -eq 1 ]; then
+    find_gnuplot_or_exit
+fi
+if [ "$DO_EXCEL" -eq 1 ]; then
+    find_python_or_exit
+fi
 
 set_column_indices || exit 1
 
@@ -729,17 +950,28 @@ if [ -z "${CSVCOLUMNS_Y_LEFT[0]}" ]; then
    exit 1
 fi
 
-if [ "$(( ${#CSVCOLUMNSIDX_Y_LEFT[@]} + ${#CSVCOLUMNSIDX_Y_RIGHT[@]} ))" -gt "${#LINECOLORS[@]}" ]; then
+NUM_GRAPHS=$(( ${#CSVCOLUMNSIDX_Y_LEFT[@]} + ${#CSVCOLUMNSIDX_Y_RIGHT[@]} ))
+if [ "$NUM_GRAPHS" -gt "${#LINECOLORS[@]}" ]; then
    echo "ERROR: We don't have enough colors for all these graphs. Number of available colors: ${#LINECOLORS[@]}" 1>&2
    exit 1
 fi
 
-if ! create_op_files; then
-   echo "ERROR: Unable to create operation tmp files."
-   exit 1
+
+# Generate Excel chart first, as gnuplot can pause the script
+if [ "$DO_EXCEL" -eq 1 ]; then
+    echo "Generating Excel chart..."
+    generate_excel_chart || exit 1
+    echo "Excel chart generated: $OUTXLSXFILE"
 fi
 
-gnuplot_cmd=$(generate_gnuplot_cmd) || exit 1
-
-echo "$gnuplot_cmd" | gnuplot -p
-
+# Generate gnuplot chart
+if [ "$DO_GNUPLOT" -eq 1 ]; then
+   if ! create_op_files; then
+      echo "ERROR: Unable to create operation tmp files for gnuplot."
+      exit 1
+   fi
+   
+   echo "Generating gnuplot chart..."
+   gnuplot_cmd=$(generate_gnuplot_cmd) || exit 1
+   echo "$gnuplot_cmd" | gnuplot -p
+fi
