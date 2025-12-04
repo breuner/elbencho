@@ -78,7 +78,7 @@
     #else
         namespace S3 = Aws::S3::Model;
         using S3Errors = Aws::S3::S3Errors;
-    #endif // !S3_AWSCRT
+    #endif // S3_AWSCRT
 
     S3UploadStore LocalWorker::s3SharedUploadStore; // singleton for shared uploads
 
@@ -500,7 +500,16 @@ void LocalWorker::initS3Client()
 	if(progArgs->getS3EndpointsVec().empty() )
 		return; // nothing to do
 
-	s3Client = S3Tk::initS3Client(progArgs, workerRank, &isInterruptionRequested, &s3EndpointStr);
+    if(progArgs->getUseS3ClientSingleton() )
+    { // using shared singleton s3 client instead of per-worker s3 client instances
+        s3Client = progArgs->getS3ClientSingleton();
+        s3EndpointStr = progArgs->getS3SingletonEndpointStr();
+    }
+    else
+    { // using per-worker s3 client instances
+        s3Client = S3Tk::initS3Client(progArgs, workerRank, &isInterruptionRequested,
+            &s3EndpointStr);
+    }
 
     useS3SSE = progArgs->getUseS3SSE();
 
@@ -550,6 +559,7 @@ void LocalWorker::uninitS3Client()
 		return; // nothing to do
 
 	// s3Client is a std::shared_ptr, so reset() will cleanup the client object
+	// (note: this could also be the shared singleton s3 client from ProgArgs)
 	s3Client.reset();
 
 #endif // S3_SUPPORT
@@ -4701,8 +4711,10 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
         [&](const Aws::Http::HttpRequest* request, long long numBytes)
         { atomicLiveOps.numBytesDone += numBytes; } );
 
-    request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-        { return !isInterruptionRequested.load(); } );
+    #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+        request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+            { return !isInterruptionRequested.load(); } );
+    #endif // !S3_AWSCRT
 
 	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -4838,8 +4850,10 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
 			{ atomicLiveOps.numBytesDone += numBytes; } );
 
-		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-			{ return !isInterruptionRequested.load(); } );
+        #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+            uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                { return !isInterruptionRequested.load(); } );
+        #endif // !S3_AWSCRT
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -5071,10 +5085,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                     (const Aws::Http::HttpRequest* request, long long numBytes)
                     { atomicLiveOps.numBytesDone += numBytes; } );
 
-                uploadPartRequest.SetContinueRequestHandler(
-                    [&isInterruptionRequested = isInterruptionRequested]
-                    (const Aws::Http::HttpRequest* request)
-                    { return !isInterruptionRequested.load(); } );
+                #ifndef S3_AWSCRT // because of https://github.com/aws/aws-sdk-cpp/issues/3639
+                    uploadPartRequest.SetContinueRequestHandler(
+                        [&isInterruptionRequested = isInterruptionRequested]
+                        (const Aws::Http::HttpRequest* request)
+                        { return !isInterruptionRequested.load(); } );
+                #endif // !S3_AWSCRT
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -5163,7 +5179,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
     }
     catch(...)
     {
-        isInterruptionRequested = true; // for SetContinueRequestHandler()
+        interruptExecution(); // for SetContinueRequestHandler()
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)
@@ -5317,8 +5333,10 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
 			{ atomicLiveOps.numBytesDone += numBytes; } );
 
-		uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-			{ return !isInterruptionRequested.load(); } );
+        #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+            uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                { return !isInterruptionRequested.load(); } );
+        #endif // !S3_AWSCRT
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -5528,10 +5546,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                     (const Aws::Http::HttpRequest* request, long long numBytes)
                     { atomicLiveOps.numBytesDone += numBytes; } );
 
-                uploadPartRequest.SetContinueRequestHandler(
-                    [&isInterruptionRequested = isInterruptionRequested]
-                    (const Aws::Http::HttpRequest* request)
-                    { return !isInterruptionRequested.load(); } );
+                #ifndef S3_AWSCRT // because of https://github.com/aws/aws-sdk-cpp/issues/3639
+                    uploadPartRequest.SetContinueRequestHandler(
+                        [&isInterruptionRequested = isInterruptionRequested]
+                        (const Aws::Http::HttpRequest* request)
+                        { return !isInterruptionRequested.load(); } );
+                #endif // !S3_AWSCRT
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -5632,7 +5652,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
     }
     catch(...)
     {
-        isInterruptionRequested = true; // for SetContinueRequestHandler()
+        interruptExecution(); // for SetContinueRequestHandler()
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)
@@ -5864,8 +5884,10 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 					atomicLiveOps.numBytesDone += numBytes;
 			} );
 
-		request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-			{ return !isInterruptionRequested.load(); } );
+        #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+            request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                { return !isInterruptionRequested.load(); } );
+        #endif // !S3_AWSCRT
 
 		OPLOG_PRE_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -6021,10 +6043,12 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                             atomicLiveOps.numBytesDone += numBytes;
                     } );
 
-                request.SetContinueRequestHandler(
-                    [&isInterruptionRequested = isInterruptionRequested]
-                    (const Aws::Http::HttpRequest* request)
-                    { return !isInterruptionRequested.load(); } );
+                #ifndef S3_AWSCRT // because of https://github.com/aws/aws-sdk-cpp/issues/3639
+                    request.SetContinueRequestHandler(
+                        [&isInterruptionRequested = isInterruptionRequested]
+                        (const Aws::Http::HttpRequest* request)
+                        { return !isInterruptionRequested.load(); } );
+                #endif // !S3_AWSCRT
 
                 OPLOG_PRE_OP("S3GetObjectAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -6112,7 +6136,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
     }
     catch(...)
     {
-        isInterruptionRequested = true;
+        interruptExecution(); // for SetContinueRequestHandler()
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)

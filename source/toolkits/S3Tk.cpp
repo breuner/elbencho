@@ -27,7 +27,7 @@
     std::stringbuf S3MemoryStream::staticZeroStreamBuf;
 
     bool S3Tk::globalInitCalled = false;
-    Aws::SDKOptions* S3Tk::s3SDKOptions = NULL; // needed for init and again for uninit later
+    Aws::SDKOptions* S3Tk::s3SDKOptions = NULL;
 #endif // S3_SUPPORT
 
 
@@ -154,20 +154,26 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     S3ClientConfiguration config;
 
+    size_t numParallelRequests = progArgs->getUseS3ClientSingleton() ?
+        progArgs->getNumThreads() * progArgs->getIODepth() : progArgs->getIODepth();
+
     /* note: DefaultExecutor creates a new temporary thread for each async request, so is unbounded
-        and has overhead for thread creation. Thus, we only use it for zero I/O depth (i.e. no async
-        I/O) to avoid creation of a separate thread. PooledThreadExecutor has a fixed pool of
+        and has overhead for thread creation. Thus, we only use it without I/O depth (i.e. no async
+        I/O) to avoid dynamic creation of separate threads. PooledThreadExecutor has a fixed pool of
         threads. */
-    size_t ioDepth = progArgs->getIODepth();
-    config.executor = ioDepth ?
+    /* note: config.executor is not used by S3CrtClient, it has config.clientBootstrap for that,
+        which defaults to one EventLoop thread per cpu core, but config.executor is used for
+        offloading callbacks/lambdas to separate threads. */
+    config.executor = (numParallelRequests > 1) ?
         (std::shared_ptr<Aws::Utils::Threading::Executor>)
-            std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(ioDepth) :
+            std::make_shared<Aws::Utils::Threading::PooledThreadExecutor>(numParallelRequests) :
         (std::shared_ptr<Aws::Utils::Threading::Executor>)
             std::make_shared<Aws::Utils::Threading::DefaultExecutor>();
 
-    config.verifySSL = false; // to avoid self-signed certificate errors
+    config.verifySSL = false; // to avoid self-signed certificate errors; ignored by S3CrtClient
     config.enableEndpointDiscovery = false; // to avoid delays for discovery
-    config.maxConnections = progArgs->getIODepth();
+    config.maxConnections = numParallelRequests; /* max tcp conns; ignored by S3CrtClient, uses
+        throughputTargetGbps for implicit calculation */
     config.retryStrategy = std::make_shared<InterruptibleRetryStrategy>(
         isInterruptionRequested); // note: restryStrategy is not used by S3CrtClient
     config.connectTimeoutMs = 5000;
@@ -184,9 +190,11 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 #ifdef S3_AWSCRT
     config.useVirtualAddressing = false; /* only exists in config of s3-crt and not effective in
         client constructor (but effective there for non-crt s3 client) */
-    config.partSize = progArgs->getBlockSize() ? progArgs->getBlockSize() : 5 * 1024 * 1024; /* not
-        clear what the effect of setting this is, given that we don't submit more than blockSize. */
-    config.throughputTargetGbps = 100; // not clear what the effect of setting this is.
+    config.partSize = progArgs->getBlockSize() ? progArgs->getBlockSize() : 5 * 1024 * 1024; /*
+        S3CrtClient would internally split into smaller MPU parts if smaller than blockSize */
+    config.throughputTargetGbps = 100; /* used for implicit calculation of max connections, as
+        S3CrtClient has no explicit number of max connections; see aws-c-s3/source/s3_client.c
+        s_get_ideal_connection_number_from_throughput() */
 #endif // S3_AWSCRT
 
     if(!progArgs->getS3Region().empty() )
@@ -215,23 +223,25 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         // Single credential mode
         credentialsProvider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
             progArgs->getS3AccessKey(), progArgs->getS3AccessSecret());
-            
-        LOGGER(Log_DEBUG, "Using single S3 credential" << std::endl);
+
+        LOGGER(Log_DEBUG, "Using single S3 credential. "
+            "Worker rank: " << workerRank << std::endl);
     }
     else if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty())
     {
         // Multi-credential mode (round-robin)
         credentialsProvider = S3CredentialStore::getInstance().getCredential(workerRank);
 
-        LOGGER(Log_DEBUG, "Using multi-credential from store for worker rank: "
-                << workerRank << std::endl);
+        LOGGER(Log_DEBUG, "Using multi-credential from store. "
+            "Worker rank: " << workerRank << std::endl);
     }
     else
     {
         // Fallback: use default chain
         credentialsProvider = std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 
-        LOGGER(Log_DEBUG, "Using default AWS credential chain" << std::endl);
+        LOGGER(Log_DEBUG, "Using default AWS credential chain. "
+            "Worker rank: " << workerRank << std::endl);
     }
 
     // create s3 client for this worker

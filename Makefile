@@ -82,7 +82,7 @@ ifeq ($(BUILD_STATIC), 1)
   ifeq ($(S3_AWSCRT), 1)
     LDFLAGS_S3_STATIC  += -l z
   else
-    LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l brotlidec \
+    LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l nghttp3 -l brotlidec \
       -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd -l dl
   endif
 

@@ -9,13 +9,13 @@
 #  * Install binfmt support and qemu to enable running non-native executables:
 #    $ sudo apt-get install qemu binfmt-support qemu-user-static
 #  * Register multiarch support:
-#    $ docker run --rm --privileged multiarch/qemu-user-static --reset -p yes 
+#    $ docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 #  * Try running an arm64 executable:
-#    $ docker run --rm -t arm64v8/ubuntu uname -m 
+#    $ docker run --rm -t arm64v8/ubuntu uname -m
 
 
 CONTAINER_NAME="elbencho-static"
-IMAGE_NAME="alpine:3.21"
+IMAGE_NAME="alpine:3"
 ELBENCHO_VERSION=$(make version)
 
 ALTHTTPSVC_SUPPORT="${OVERRIDE_ALTHTTPSVC_SUPPORT:-0}"
@@ -37,7 +37,7 @@ docker run --platform linux/arm64 --name $CONTAINER_NAME --privileged -i -v $PWD
     sh -c "\
     apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
         cmake curl-dev curl-static openssl-libs-static ncurses-static \
-        boost-static ncurses zlib-static libretls-static nghttp2-static \
+        boost-static ncurses zlib-static libretls-static nghttp2-static nghttp3-static \
         brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
         libpsl-static c-ares-dev zstd-static && \
     apk update && apk upgrade && \

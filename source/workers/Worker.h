@@ -216,6 +216,8 @@ class Worker
 		void interruptExecution()
 		{
 			isInterruptionRequested = true;
+
+			progArgs->setS3InterruptionRequested();
 		}
 
 };

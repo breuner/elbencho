@@ -16,6 +16,8 @@ WorkerManager::~WorkerManager()
  */
 void WorkerManager::interruptAndNotifyWorkersUnlocked()
 {
+	progArgs.setS3InterruptionRequested();
+
 	for(Worker* worker : workerVec)
 		worker->interruptExecution();
 

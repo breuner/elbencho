@@ -123,6 +123,8 @@ joinall_and_exit:
 		LoggerBase::clearErrHistory();
 	}
 
+	progArgs.resetBenchPath(); // important here to release shared s3 client before s3 sdk uninit
+
 	S3Tk::uninitS3Global(&progArgs);
 
 	if( (retVal != EXIT_SUCCESS) || workerManager.getNumWorkersDoneWithError() )

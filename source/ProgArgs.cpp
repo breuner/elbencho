@@ -141,6 +141,8 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 
 ProgArgs::~ProgArgs()
 {
+    // note: no s3ClientSingleton.reset() here because this destructor is after S3 global uninit
+
 	for(int fd : benchPathFDsVec)
 		close(fd);
 
@@ -647,6 +649,12 @@ void ProgArgs::defineAllowedArgs()
 /*s3s*/	(ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
              "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN
 			 " env variable.)")
+/*s3s*/	(ARG_S3CLIENTSINGLETON_LONG, bpo::bool_switch(&this->useS3ClientSingleton),
+            "Use a single shared S3 client instance for all threads instead of one S3 client "
+            "instance per thread. This is recommended when using the AWS S3 CRT libraries. "
+            "With this option, giving multiple S3 endpoints will not be effective. "
+            "(Hint: See \"--" ARG_VERSION_LONG "\" output to check if this build is using the AWS "
+            "S3 CRT libraries.)")
 /*s3s*/	(ARG_S3SIGNPAYLOAD_LONG, bpo::value(&this->s3SignPolicy),
 			"S3 payload signing policy. 0=RequestDependent, 1=Always, 2=Never. Changing this to "
 			"'Never' has no effect with current S3 SDK as described in Github issue 3297. "
@@ -878,6 +886,7 @@ void ProgArgs::defineDefaults()
 	this->runS3MultiDelObjNum = 0;
     this->runS3StatDirs = false;
 	this->disablePathBracketsExpansion = false;
+    this->useS3ClientSingleton = false;
 	this->useS3ObjectPrefixRand = false;
     this->useS3SSE = false;
 	this->doReadInline = false;
@@ -1278,11 +1287,11 @@ void ProgArgs::checkArgs()
 
     // Check that only one credential source is specified
     if(!s3CredentialsFile.empty() && !s3CredentialsList.empty())
-        throw ProgException("Only one of --" ARG_S3CREDFILE_LONG " or --" 
+        throw ProgException("Only one of --" ARG_S3CREDFILE_LONG " or --"
             ARG_S3CREDLIST_LONG " may be specified.");
 
     // If using multi-credentials, s3AccessKey and s3AccessSecret must be empty
-    if((!s3CredentialsFile.empty() || !s3CredentialsList.empty()) && 
+    if((!s3CredentialsFile.empty() || !s3CredentialsList.empty()) &&
         (!s3AccessKey.empty() || !s3AccessSecret.empty()))
         throw ProgException("Cannot specify both multi-credentials and single credential options.");
 }
@@ -1571,16 +1580,20 @@ void ProgArgs::parseAndCheckPaths()
 
 	// if we get here then this is not the master of a distributed run...
 
-	// skip open of local paths for S3
+    prepareS3ClientSingleton();
+
+	// skip open of local paths for S3/HDFS/NetBench
 	if(!s3EndpointsStr.empty() || useHDFS || useNetBench)
 	{
 		benchPathType = BenchPathType_DIR;
 		return;
 	}
 
-	prepareBenchPathFDsVec();
-	prepareCuFileHandleDataVec();
-	prepareMmapVec();
+    // if we get here then we have a normal file system as bench path
+
+    prepareBenchPathFDsVec();
+    prepareCuFileHandleDataVec();
+    prepareMmapVec();
 }
 
 /**
@@ -1848,6 +1861,30 @@ void ProgArgs::prepareMmapVec()
 		mmapVec[i] = (char*)FileTk::mmapAndMadvise<ProgException>(fileSize, protectionMode,
 			MAP_SHARED, fd, madviseFlags, benchPathsVec[i].c_str() );
 	}
+}
+
+/**
+ * Prepare singleton S3 client to be shared by all worker threads. Cleanup is done in
+ * resetBenchPath() after all worker threads have finished.
+ */
+void ProgArgs::prepareS3ClientSingleton()
+{
+#ifdef S3_SUPPORT
+    if(s3EndpointsVec.empty() )
+        return; // nothing to do
+
+    if(!useS3ClientSingleton)
+        return; // nothing to do
+
+    S3Tk::initS3Global(this);
+
+    // init singleton
+    s3ClientSingleton = S3Tk::initS3Client(this,
+        std::chrono::system_clock::now().time_since_epoch().count(),
+        &s3IsInterruptionRequested,
+        &s3SingletonEndpointStr);
+
+#endif // S3_SUPPORT
 }
 
 /**
@@ -3433,6 +3470,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useOpsLogLocking = tree.get<bool>(ARG_OPSLOGLOCKING_LONG);
 	useRandomUnaligned = tree.get<bool>(ARG_NORANDOMALIGN_LONG);
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
+    useS3ClientSingleton = tree.get<bool>(ARG_S3CLIENTSINGLETON_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
     useS3SSE = tree.get<bool>(ARG_S3SSE_LONG);
@@ -3555,6 +3593,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3BUCKETACLGET_LONG, runS3BucketAclGet);
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
     outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
+    outTree.put(ARG_S3CLIENTSINGLETON_LONG, useS3ClientSingleton);
 	outTree.put(ARG_S3CREDFILE_LONG, s3CredentialsFile);
     outTree.put(ARG_S3CREDLIST_LONG, s3CredentialsList);
 	outTree.put(ARG_S3ENDPOINTS_LONG, s3EndpointsStr);
@@ -3670,13 +3709,21 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 /**
  * Reset benchmark path, close associated file descriptors (incl. cuFile driver) and free/reset
  * any other resources that are associated with the previous benchmark phase. Intended to be used
- * in service mode to not waste/block resources while idle.
+ * in service mode to not waste/block resources while idle, but also for local standalone mode e.g.
+ * to cleanup singleton S3 client before global S3 uninit.
  */
 void ProgArgs::resetBenchPath()
 {
-	// cleanup any old memory mappings
+    LOGGER(Log_DEBUG, "Resetting bench path..." << std::endl);
 
-	for(char*& mmapPtr : mmapVec)
+#ifdef S3_SUPPORT
+    s3ClientSingleton.reset();
+    s3IsInterruptionRequested = false;
+    s3SingletonEndpointStr.clear();
+#endif // S3_SUPPORT
+
+	// cleanup any old memory mappings
+    for(char*& mmapPtr : mmapVec)
 	{
 		if(mmapPtr == MAP_FAILED)
 			continue;
@@ -3722,7 +3769,7 @@ void ProgArgs::resetBenchPath()
 		cuFileDriverClose();
 
 	isCuFileDriverOpen = false;
-#endif
+#endif // CUFILE_SUPPORT
 }
 
 /**

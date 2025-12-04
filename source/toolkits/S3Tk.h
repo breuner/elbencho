@@ -112,7 +112,7 @@ class S3Tk
 #ifdef S3_SUPPORT
 		static bool globalInitCalled; // to make uninit a no-op if init wasn't called
 
-		static Aws::SDKOptions* s3SDKOptions;
+		static Aws::SDKOptions* s3SDKOptions; // needed for init and again for uninit later
 
     // inliners
     public:

@@ -5,11 +5,13 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <time.h>
+
 #include "Common.h"
 #include "CuFileHandleData.h"
 #include "Logger.h"
 #include "PathStore.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/S3Tk.h"
 #include "toolkits/SystemTk.h"
 
 
@@ -153,6 +155,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3BUCKETTAGVERIFY_LONG  "s3btagverify"
 #define ARG_S3BUCKETVER_LONG        "s3bversion"
 #define ARG_S3BUCKETVERVERIFY_LONG  "s3bversionverify"
+#define ARG_S3CLIENTSINGLETON_LONG  "s3single"
 #define ARG_S3CREDFILE_LONG         "s3credfile"
 #define ARG_S3CREDLIST_LONG         "s3credlist"
 #define ARG_S3ENDPOINTS_LONG		"s3endpoints"
@@ -341,6 +344,12 @@ class ProgArgs
 		CuFileHandleDataVec cuFileHandleDataVec; /* registered cuFile handles in file/bdev mode;
 							vec will also be filled (with unreg'ed handles) if cuFile API is not
 							selected to make things easier for localworkers */
+
+#ifdef S3_SUPPORT
+        std::shared_ptr<S3Client> s3ClientSingleton; // shared singleton s3 client for workers
+        std::atomic_bool s3IsInterruptionRequested{false}; // interrupt for s3 singleton lambdas
+        std::string s3SingletonEndpointStr; // endpoint string for singleton s3 client
+#endif // S3_SUPPORT
 
 		int stdoutDupFD; // dup of stdout file descriptor if overridden e.g. due to csv to stdout
 
@@ -537,13 +546,15 @@ class ProgArgs
 		bool useRandomOffsets; // use random offsets for file reads/writes
 		bool useRWMixPercent; // implicitly set in case of rwmixpct (even if ==0)
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
+        bool useS3ClientSingleton; // use singleton S3 client for all threads
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		bool useS3RandObjSelect; // random object selection for each read
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
 								via buffer possible, such as GPU copy or data verification) */
         bool useS3SSE; // use SSE-S3 encryption method for S3
         bool useStridedAccess; // use strided file access pattern for shared files
-		std::string s3ChecksumAlgoStr;  // Stores the S3 checksum algorithm value (e.g. "CRC32", "CRC32C", "SHA1", "SHA256")
+		std::string s3ChecksumAlgoStr;  /* Stores the S3 checksum algorithm value (e.g. "CRC32",
+                                            "CRC32C", "SHA1", "SHA256") */
 
 
 		void defineDefaults();
@@ -556,6 +567,7 @@ class ProgArgs
 		void prepareBenchPathFDsVec();
 		void prepareCuFileHandleDataVec();
 		void prepareMmapVec();
+        void prepareS3ClientSingleton();
 		void prepareFileSize(int fd, std::string& path);
 		void parseHosts();
 		void parseNetBenchServersForService();
@@ -595,9 +607,18 @@ class ProgArgs
 		const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
 		BenchPathType getBenchPathType() const { return benchPathType; }
 
-        bool getS3BucketMetadataRequested() const {
-            return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning;
-        }
+        // methods related to shared s3 client singleton for workers
+#ifdef S3_SUPPORT
+        std::shared_ptr<S3Client> getS3ClientSingleton() const { return s3ClientSingleton; }
+        void setS3InterruptionRequested() { s3IsInterruptionRequested = true; }
+        std::string getS3SingletonEndpointStr() const { return s3SingletonEndpointStr; }
+#else // !S3_SUPPORT
+        void setS3InterruptionRequested() { /* no-op */ }
+#endif // S3_SUPPORT
+
+
+        bool getS3BucketMetadataRequested() const
+            { return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning; }
         bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
         bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
         bool getRunS3PutObjectMetadata() const
@@ -780,6 +801,7 @@ class ProgArgs
         bool getUseOpsLogLocking() const { return useOpsLogLocking; }
         bool getUseRandomUnaligned() const { return useRandomUnaligned; }
         bool getUseRandomOffsets() const { return useRandomOffsets; }
+        bool getUseS3ClientSingleton() const { return useS3ClientSingleton; }
         bool getUseS3FastRead() const { return useS3FastRead; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }

@@ -18,7 +18,7 @@ ENV NUM_JOBS=${NUM_JOBS}
 
 RUN apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
     cmake curl-dev curl-static openssl-libs-static ncurses-static \
-    boost-static ncurses zlib-static libretls-static nghttp2-static \
+    boost-static ncurses zlib-static libretls-static nghttp2-static nghttp3-static \
     brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
     libpsl-static c-ares-dev zstd-static && \
     apk update && apk upgrade
@@ -42,7 +42,7 @@ RUN cd /root/elbencho && \
         chmod +x ./gcc-custom ./g++-custom; \
         export CC="$(pwd)/gcc-custom" CXX="$(pwd)/g++-custom"; \
     fi && \
-    make -j $(nproc) \
+    make -j $NUM_JOBS \
         BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=0 S3_SUPPORT=1 \
         S3_AWSCRT=0 USE_MIMALLOC=1 BUILD_STATIC=1 && \
     make install
