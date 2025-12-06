@@ -9,7 +9,7 @@
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
-NUM_PARALLEL_JOBS=1  # Number of parallel "make -j X" jobs
+NUM_PARALLEL_JOBS=1  # Number of parallel "make" jobs, gets set from "make" env vars or cpu cores
 
 
 # Clone Simple-Web-Server git repo and switch to required tag. Nothing to configure/build/install
@@ -224,7 +224,9 @@ prepare_awssdk()
 		return 0; # AWS SDK build not required, so we're done here
 	fi
 
-	local REQUIRED_TAG="1.11.628-elbencho-tag"
+	local REQUIRED_TAG="${AWS_REQUIRED_TAG:-"1.11.628-elbencho-tag"}"
+	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/breuner/aws-sdk-cpp.git"}"
+
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
@@ -240,10 +242,10 @@ prepare_awssdk()
 
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
-		echo "Cloning AWS SDK git repo..."
+		echo "Cloning AWS SDK git repo... [Repo: $GIT_REPO] [Branch: $REQUIRED_TAG]"
 
 		git clone --recursive --depth 1 --branch "$REQUIRED_TAG" \
-			https://github.com/breuner/aws-sdk-cpp.git $CLONE_DIR
+			"$GIT_REPO" $CLONE_DIR
 		if [ $? -ne 0 ]; then
 			echo "ERROR: Cloning AWS SDK git repo failed." \
 				"Consider \"make clean-all\" before retrying a partially completed clone."
@@ -383,10 +385,13 @@ prepare_mimalloc()
 
 ########### End of function definitions ############
 
+
 # Get number of parallel jobs from "make" environment variables
 NUM_PARALLEL_JOBS=$(echo " $MAKEFLAGS" | grep -o -e "-j[[:digit:]]\+" | sed s/-j//g)
 
+# Use number of CPU cores if "make" env vars are not set or use "1" as fallback
 if [ -z "$NUM_PARALLEL_JOBS" ]; then
+	# Try to get number of CPU cores macOS style (hw.ncpu) or Linux style (nproc) or fallback to 1
 	NUM_PARALLEL_JOBS="$(uname | grep -q Darwin && sysctl -n hw.ncpu || nproc || echo 1)";
 fi
 
