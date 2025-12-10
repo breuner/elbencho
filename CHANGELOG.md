@@ -15,7 +15,7 @@
 * Added `nvidia-open` package to CUDA container to have `nvidia-smi` tool available inside container.
 
 ### Fixes
-* Disabled S3 continue request handler (which allowed for faster termination in case of errors or user interruption) when built with S3_AWSCRT=1 as a workaround for this issue: https://github.com/aws/aws-sdk-cpp/issues/3639
+* Disabled S3 continue request handler (which allowed for faster termination in case of errors or user interruption) when built with S3_AWSCRT=1 and AWS SDK CPP versions before 1.11.708. (This is as workaround for https://github.com/aws/aws-sdk-cpp/issues/3639.)
 
 ### Contributors
 * Thanks to John Fragalla, Kiran Modukuri, Tamar Baran, Michael Shustin & GitHub user panghubaobao777 for contributions, helpful comments and suggestions.

@@ -24,6 +24,15 @@
     #endif
 
 
+    /* print a note for AWS CRT with older SDK versions because of known issue with
+        SetContinueRequestHandler: https://github.com/aws/aws-sdk-cpp/issues/3639 */
+    #if defined(S3_AWSCRT) && !AWS_SDK_AT_LEAST(1, 11, 708)
+        #pragma message(" *** NOTE: " \
+            "Using AWS CRT S3 with AWS SDK CPP version older than 1.11.708. " \
+            "Disabling some convenience features due to known issues.")
+    #endif
+
+
     std::stringbuf S3MemoryStream::staticZeroStreamBuf;
 
     bool S3Tk::globalInitCalled = false;

@@ -482,7 +482,7 @@ void LocalWorker::uninitLibAio()
         return; // no libaio needed
 
     if(libaioContext.ioContext != NULL)
-	    io_queue_release(libaioContext.ioContext);
+        io_queue_release(libaioContext.ioContext);
 
 #endif // LIBAIO_SUPPORT
 }
@@ -4711,10 +4711,10 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
         [&](const Aws::Http::HttpRequest* request, long long numBytes)
         { atomicLiveOps.numBytesDone += numBytes; } );
 
-    #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+    #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
         request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
             { return !isInterruptionRequested.load(); } );
-    #endif // !S3_AWSCRT
+    #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -4850,10 +4850,10 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
 			{ atomicLiveOps.numBytesDone += numBytes; } );
 
-        #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
             uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
                 { return !isInterruptionRequested.load(); } );
-        #endif // !S3_AWSCRT
+        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -5085,12 +5085,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                     (const Aws::Http::HttpRequest* request, long long numBytes)
                     { atomicLiveOps.numBytesDone += numBytes; } );
 
-                #ifndef S3_AWSCRT // because of https://github.com/aws/aws-sdk-cpp/issues/3639
+                #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
                     uploadPartRequest.SetContinueRequestHandler(
                         [&isInterruptionRequested = isInterruptionRequested]
                         (const Aws::Http::HttpRequest* request)
                         { return !isInterruptionRequested.load(); } );
-                #endif // !S3_AWSCRT
+                #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -5333,10 +5333,10 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
 			{ atomicLiveOps.numBytesDone += numBytes; } );
 
-        #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
             uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
                 { return !isInterruptionRequested.load(); } );
-        #endif // !S3_AWSCRT
+        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -5546,12 +5546,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                     (const Aws::Http::HttpRequest* request, long long numBytes)
                     { atomicLiveOps.numBytesDone += numBytes; } );
 
-                #ifndef S3_AWSCRT // because of https://github.com/aws/aws-sdk-cpp/issues/3639
+                #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
                     uploadPartRequest.SetContinueRequestHandler(
                         [&isInterruptionRequested = isInterruptionRequested]
                         (const Aws::Http::HttpRequest* request)
                         { return !isInterruptionRequested.load(); } );
-                #endif // !S3_AWSCRT
+                #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
@@ -5884,10 +5884,10 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 					atomicLiveOps.numBytesDone += numBytes;
 			} );
 
-        #ifndef S3_AWSCRT // not for CRT because of https://github.com/aws/aws-sdk-cpp/issues/3639
+        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
             request.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
                 { return !isInterruptionRequested.load(); } );
-        #endif // !S3_AWSCRT
+        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
@@ -6043,12 +6043,12 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                             atomicLiveOps.numBytesDone += numBytes;
                     } );
 
-                #ifndef S3_AWSCRT // because of https://github.com/aws/aws-sdk-cpp/issues/3639
+                #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
                     request.SetContinueRequestHandler(
                         [&isInterruptionRequested = isInterruptionRequested]
                         (const Aws::Http::HttpRequest* request)
                         { return !isInterruptionRequested.load(); } );
-                #endif // !S3_AWSCRT
+                #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
                 OPLOG_PRE_OP("S3GetObjectAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
