@@ -3,7 +3,7 @@
 # Run docker build from elbencho repository root dir like this:
 # docker build -t elbencho-local -f build_helpers/docker/Dockerfile.centos7.local .
 
-FROM centos:7 as builder
+FROM centos:7 AS builder
 
 COPY ./ /root/elbencho
 

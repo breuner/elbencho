@@ -1,6 +1,6 @@
 # Full elbencho rpm install of latest github master on CentOS 7
 
-FROM centos:7 as builder
+FROM centos:7 AS builder
 
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo && \
     sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo && \

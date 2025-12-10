@@ -1,6 +1,6 @@
 # Full elbencho deb install of latest github master on Ubuntu 20.04
 
-FROM ubuntu:20.04 as builder
+FROM ubuntu:20.04 AS builder
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \

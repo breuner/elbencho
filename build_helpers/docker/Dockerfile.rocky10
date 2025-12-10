@@ -1,19 +1,15 @@
-# Full elbencho rpm install of latest github master on AlmaLinux 8
-#
-# Run docker build from elbencho repository root dir like this:
-# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.centos8.local .
+# Full elbencho rpm install of latest github master on AlmaLinux 10
 
-FROM almalinux:8 AS builder
-
-COPY ./ /root/elbencho
+FROM almalinux:10 AS builder
 
 RUN yum -y update && \
     yum install -y boost-devel cmake gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build zlib zlib-devel && \
-    cd /root/elbencho && \
+    cd /root && git clone https://github.com/breuner/elbencho.git && \
+    cd elbencho && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm
 
-FROM almalinux:8
+FROM almalinux:10
 
 COPY --from=builder /root/elbencho/packaging/RPMS/*/elbencho*.rpm /tmp/
 

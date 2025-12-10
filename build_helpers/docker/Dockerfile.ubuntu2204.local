@@ -3,7 +3,7 @@
 # Run docker build from elbencho repository root dir like this:
 # docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2204.local .
 
-FROM ubuntu:22.04 as builder
+FROM ubuntu:22.04 AS builder
 
 COPY ./ /root/elbencho
 

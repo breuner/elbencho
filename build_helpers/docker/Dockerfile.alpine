@@ -2,7 +2,7 @@
 # This uses mimalloc to overcome the malloc performance issues with musl-libc, which otherwise
 # would reduce S3 performance.
 
-FROM alpine:3 as builder
+FROM alpine:3 AS builder
 
 RUN apk add bash boost-dev cmake curl-dev gcc g++ git libaio-dev make \
         numactl-dev ncurses ncurses-dev sudo
