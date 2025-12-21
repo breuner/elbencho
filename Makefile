@@ -49,7 +49,7 @@ CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOS
 CXXFLAGS_RELEASE  = -O3 -Wuninitialized
 CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON       = -rdynamic -pthread $(LDFLAGS_BOOST)
+LDFLAGS_COMMON       = -pthread $(LDFLAGS_BOOST)
 LDFLAGS_RELASE       = -O3
 LDFLAGS_DEBUG        = -O0
 
@@ -87,6 +87,8 @@ ifeq ($(BUILD_STATIC), 1)
   endif
 
 else # dynamic linking
+
+  LDFLAGS += -rdynamic
 
   ifeq ($(S3_AWSCRT), 1)
     LDFLAGS_S3_DYNAMIC += -l z -l dl
