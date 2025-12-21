@@ -598,6 +598,11 @@ void ProgArgs::defineAllowedArgs()
 			"Path and filename prefix of AWS S3 SDK log file. \"DATE.log\" will get appended to "
 			"the given filename. "
 			"(Default: \"" AWS_SDK_LOGPREFIX_DEFAULT "\" in current working directory)")
+/*s3m*/ (ARG_S3MPUSIZEVAR_LONG, bpo::value(&this->s3MpuSizeVarianceOrigStr),
+            "Maximum number of bytes to subtract from part size of multipart uploads for random "
+            "variance in part sizes. The last uploaded part will be correspondingly larger to "
+            "meet the full given object size. This only works for plain sequential uploads in "
+            "objects-per-thread mode, i.e. in combination with \"-" ARG_NUMFILES_SHORT "\".")
 /*s3m*/	(ARG_S3MULTIDELETE_LONG, bpo::value(&this->runS3MultiDelObjNum),
 			"Delete multiple objects in a single DeleteObjects request. This loops on retrieving "
 			"a chunk of objects from a listing request and then deleting the retrieved set of "
@@ -908,6 +913,8 @@ void ProgArgs::defineDefaults()
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
+	this->s3MpuSizeVariance = 0;
+    this->s3MpuSizeVarianceOrigStr = "0";
 	this->s3NoCompression = false;
 	this->s3NoMpuCompletion = false;
 	this->s3IgnoreMultipartUpload404 = false;
@@ -1055,6 +1062,7 @@ void ProgArgs::convertUnitStrings()
 	limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
 	limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
 	netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
+    s3MpuSizeVariance = UnitTk::numHumanToBytesBinary(s3MpuSizeVarianceOrigStr, false);
 	sockRecvBufSize = UnitTk::numHumanToBytesBinary(sockRecvBufSizeOrigStr, false);
 	sockSendBufSize = UnitTk::numHumanToBytesBinary(sockSendBufSizeOrigStr, false);
 
@@ -1339,6 +1347,10 @@ void ProgArgs::checkPathDependentArgs()
 		s3EndpointsVec.empty() )
 		throw ProgException("Putting/getting bucket or object ACLs requires S3 endpoints "
 			"definition.");
+
+	if(!s3EndpointsVec.empty() && s3MpuSizeVariance && (doReverseSeqOffsets || useRandomOffsets) &&
+		runCreateFilesPhase)
+		throw ProgException("S3 MPU size variance can only be used with sequential upload.");
 
 	if( (hasUserSetRWMixPercent() || hasUserSetRWMixReadThreads() ) &&
 		!s3EndpointsStr.empty() &&
@@ -3446,6 +3458,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3CredentialsFile = tree.get<std::string>(ARG_S3CREDFILE_LONG);
     s3CredentialsList = tree.get<std::string>(ARG_S3CREDLIST_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
+    s3MpuSizeVariance = tree.get<size_t>(ARG_S3MPUSIZEVAR_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
@@ -3602,6 +3615,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
+    outTree.put(ARG_S3MPUSIZEVAR_LONG, s3MpuSizeVariance);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
     outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);

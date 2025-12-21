@@ -167,6 +167,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 #define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
+#define ARG_S3MPUSIZEVAR_LONG       "s3mpusizevar"
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
 #define ARG_S3MULTI_IGNORE_404      "s3multiignore404"
 #define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
@@ -490,6 +491,8 @@ class ProgArgs
         bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
+        size_t s3MpuSizeVariance; // random subtract variance in bytes for part sizes of MPU
+        std::string s3MpuSizeVarianceOrigStr; // original s3MpuSizeVariance str from user with unit
 		bool s3NoCompression; // disable request compression of aws sdk cpp
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
@@ -757,6 +760,7 @@ class ProgArgs
         uint64_t getS3ListObjNum() const { return runS3ListObjNum; }
         unsigned short getS3LogLevel() const { return s3LogLevel; }
         std::string getS3LogfilePrefix() const { return s3LogfilePrefix; }
+        size_t getS3MpuSizeVariance() const { return s3MpuSizeVariance; }
         bool getS3NoCompression() const { return s3NoCompression; };
         bool getS3NoMpuCompletion() const { return s3NoMpuCompletion; };
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }

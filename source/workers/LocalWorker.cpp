@@ -4765,6 +4765,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
+    const size_t s3MpuSizeVariance = progArgs->getS3MpuSizeVariance();
 
     // S T E P 0: hand over to async function if iodepth is given
 
@@ -4804,12 +4805,27 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 	// S T E P 2: upload one block-sized part in each loop pass
 
+    uint64_t currentPartNum = 0; // valid range is 1..10K
+
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-		const uint64_t currentPartNum =
-			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
+        const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+        size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+        /* note: in normal forward mode, blockSize is variable because of s3MpuSizeVariance, so we
+            can't use the currentPartNum formula with fixed blockSize from reverse mode. */
+        currentPartNum = (progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() ) ?
+            1 + (currentOffset / rwOffsetGen->getBlockSize() ) : (currentPartNum+1);
+
+        /* note: rwOffsetGen->getBlockSize() comparison is to prevent random subtract from last part
+            (to avoid risk of two trailing parts of less than usual 5MiB min allowed part size). */
+        if(s3MpuSizeVariance && (blockSize == rwOffsetGen->getBlockSize() ) )
+        {
+            const size_t randBlockSizeVar = randBlockVarReseed->next() % s3MpuSizeVariance;
+
+            IF_LIKELY(randBlockSizeVar < blockSize)
+                blockSize = blockSize - randBlockSizeVar;
+        }
 
         /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
             have the exact remaining blockSize as len. otherwise the AWS SDK will send full

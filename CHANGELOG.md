@@ -8,6 +8,7 @@
 * Added tool to clean up unfinished S3 multi-part uploads. (See `tools/s3-cleanup-mpu.py`.)
 * Added support for multiple S3 credentials. (See `--s3credfile` & `--s3credlist`.)
 * Added option to use a single shared S3 client instance instead of separate instances for each worker thread. (See `--s3single`.)
+* Added option for random variance in S3 multi-part upload part sizes. (See `--s3mpusizevar`.)
 
 ### General Changes
 * Added config values to `--jsonfile` output.
@@ -18,7 +19,7 @@
 * Disabled S3 continue request handler (which allowed for faster termination in case of errors or user interruption) when built with S3_AWSCRT=1 and AWS SDK CPP versions before 1.11.708. (This is as workaround for https://github.com/aws/aws-sdk-cpp/issues/3639.)
 
 ### Contributors
-* Thanks to John Fragalla, Kiran Modukuri, Tamar Baran, Michael Shustin & GitHub user panghubaobao777 for contributions, helpful comments and suggestions.
+* Thanks to John Fragalla, Kiran Modukuri, Tamar Baran, Michael Shustin, Yair Elharrar & GitHub user panghubaobao777 for contributions, helpful comments and suggestions.
 
 ## v3.0.35 (Sep 1, 2025)
 
