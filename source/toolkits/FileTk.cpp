@@ -140,6 +140,44 @@ void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
 	if(!progArgsFadviseFlags)
 		return; // nothing to do
 
+    /* note: "dontneed"/"noreuse" is intentionally placed before others because it's sometimes
+        combined with seq/rand to first drop cache and then start a new seq/rand read. */
+
+    if(progArgsFadviseFlags & ARG_FADVISE_FLAG_DONTNEED)
+    {
+        #if defined(__APPLE__)
+            fadviseRes = fcntl(fd, F_NOCACHE, 1); // disable caching
+        #else // linux
+            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+        #endif
+
+        IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
+            throw EXCEPTION(
+                std::string("Unable to set POSIX fadvise. ") +
+                "Advise: POSIX_FADV_DONTNEED; "
+                "File: " + path + "; "
+                "SysErr: " + strerror(fadviseRes) );
+    }
+
+    if(progArgsFadviseFlags & ARG_FADVISE_FLAG_NOREUSE)
+    {
+        #if defined(__APPLE__)
+            throw EXCEPTION(
+                std::string("The given POSIX fadvise is not available on this platform. ") +
+                "Advise: POSIX_FADV_NOREUSE; "
+                "File: " + path);
+        #else // linux
+            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_NOREUSE);
+        #endif
+
+        IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
+            throw EXCEPTION(
+                std::string("Unable to set POSIX fadvise. ") +
+                "Advise: POSIX_FADV_NOREUSE; "
+                "File: " + path + "; "
+                "SysErr: " + strerror(fadviseRes) );
+    }
+
 	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_SEQ)
 	{
         #if defined(__APPLE__)
@@ -190,41 +228,6 @@ void FileTk::fadvise(int fd, unsigned progArgsFadviseFlags, const char* path)
 				"File: " + path + "; "
 				"SysErr: " + strerror(fadviseRes) );
 	}
-
-	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_DONTNEED)
-	{
-        #if defined(__APPLE__)
-            fadviseRes = fcntl(fd, F_NOCACHE, 1); // disable caching
-        #else // linux
-            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
-        #endif
-
-		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
-			throw EXCEPTION(
-				std::string("Unable to set POSIX fadvise. ") +
-				"Advise: POSIX_FADV_DONTNEED; "
-				"File: " + path + "; "
-				"SysErr: " + strerror(fadviseRes) );
-	}
-
-	if(progArgsFadviseFlags & ARG_FADVISE_FLAG_NOREUSE)
-	{
-        #if defined(__APPLE__)
-            throw EXCEPTION(
-                std::string("The given POSIX fadvise is not available on this platform. ") +
-                "Advise: POSIX_FADV_NOREUSE; "
-                "File: " + path);
-        #else // linux
-            fadviseRes = posix_fadvise(fd, 0, 0, POSIX_FADV_NOREUSE);
-        #endif
-
-		IF_UNLIKELY(fadviseRes) // this is special: returns errno instead of setting errno
-			throw EXCEPTION(
-				std::string("Unable to set POSIX fadvise. ") +
-				"Advise: POSIX_FADV_NOREUSE; "
-				"File: " + path + "; "
-				"SysErr: " + strerror(fadviseRes) );
-	}
 }
 
 // teach the linker which template instantiation we need so that definition can be in cpp file
@@ -271,6 +274,21 @@ void* FileTk::mmapAndMadvise(size_t length, int protect, int flags, int fd,
 	{
 		int madviseRes;
 
+        /* note: "dontneed" is intentionally placed before others because it's sometimes combined
+            with seq/rand to first drop cache and then start a new seq/rand read. */
+
+        if(progArgsMadviseFlags & ARG_MADVISE_FLAG_DONTNEED)
+        {
+            madviseRes = posix_madvise(mmapRes, length, POSIX_MADV_DONTNEED);
+
+            IF_UNLIKELY(madviseRes) // this is special: returns errno instead of setting errno
+                throw EXCEPTION(
+                    std::string("Unable to set madvise. ") +
+                    "Advise: POSIX_MADV_DONTNEED; "
+                    "File: " + path + "; "
+                    "SysErr: " + strerror(madviseRes) );
+        }
+
 		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_SEQ)
 		{
 			madviseRes = posix_madvise(mmapRes, length, POSIX_MADV_SEQUENTIAL);
@@ -303,18 +321,6 @@ void* FileTk::mmapAndMadvise(size_t length, int protect, int flags, int fd,
 				throw EXCEPTION(
 					std::string("Unable to set madvise. ") +
 					"Advise: POSIX_MADV_WILLNEED; "
-					"File: " + path + "; "
-					"SysErr: " + strerror(madviseRes) );
-		}
-
-		if(progArgsMadviseFlags & ARG_MADVISE_FLAG_DONTNEED)
-		{
-			madviseRes = posix_madvise(mmapRes, length, POSIX_MADV_DONTNEED);
-
-			IF_UNLIKELY(madviseRes) // this is special: returns errno instead of setting errno
-				throw EXCEPTION(
-					std::string("Unable to set madvise. ") +
-					"Advise: POSIX_MADV_DONTNEED; "
 					"File: " + path + "; "
 					"SysErr: " + strerror(madviseRes) );
 		}
