@@ -77,7 +77,7 @@ endif
 # Dynamic or static linking
 ifeq ($(BUILD_STATIC), 1)
 
-  LDFLAGS += -static
+  LDFLAGS += -static -no-pie
 
   ifeq ($(S3_AWSCRT), 1)
     LDFLAGS_S3_STATIC  += -l z
