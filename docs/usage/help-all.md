@@ -338,11 +338,11 @@ All options in alphabetical order:
   --s3chksumalgo arg      S3 checksum algorithm to use (CRC32, CRC32C, SHA1, 
                           SHA256). This sets the x-amz-sdk-checksum-algorithm 
                           header for S3 operations. (EXPERIMENTAL)
-  --s3credfile arg        Path to file containing multiple S3 credentials. Each 
-                          line in format: access_key:secret_key. Lines starting 
+  --s3credfile arg        Path to file containing multiple S3 credentials. Each
+                          line in format: access_key:secret_key. Lines starting
                           with # are treated as comments.
-  --s3credlist arg        Comma-separated list of S3 credentials. Each credential
-                          in format: access_key:secret_key.
+  --s3credlist arg        Comma-separated list of S3 credentials. Each 
+                          credential in format: access_key:secret_key
   --s3endpoints arg       Comma-separated list of S3 endpoints. When this 
                           argument is used, the given benchmark paths are used 
                           as bucket names. Also see "--s3key" & "--s3secret". 
@@ -373,6 +373,12 @@ All options in alphabetical order:
   --s3logprefix arg       Path and filename prefix of AWS S3 SDK log file. 
                           "DATE.log" will get appended to the given filename. 
                           (Default: "aws_sdk_" in current working directory)
+  --s3mpusizevar arg      Maximum number of bytes to subtract from part size of
+                          multipart uploads for random variance in part sizes. 
+                          The last uploaded part will be correspondingly larger
+                          to meet the full given object size. This only works 
+                          for plain sequential uploads in objects-per-thread 
+                          mode, i.e. in combination with "-N".
   --s3multidel arg        Delete multiple objects in a single DeleteObjects 
                           request. This loops on retrieving a chunk of objects 
                           from a listing request and then deleting the 
@@ -419,11 +425,18 @@ All options in alphabetical order:
                           AWS_SECRET_ACCESS_KEY env variable.)
   --s3sessiontoken arg    S3 session token. (Optional. This can also be set via
                           the AWS_SESSION_TOKEN env variable.)
+  --s3single              Use a single shared S3 client instance for all 
+                          threads instead of one S3 client instance per thread.
+                          This is recommended when using the AWS S3 CRT 
+                          libraries. With this option, giving multiple S3 
+                          endpoints will not be effective. (Hint: See 
+                          "--version" output to check if this build is using 
+                          the AWS S3 CRT libraries.)
   --s3sign arg            S3 payload signing policy. 0=RequestDependent, 
                           1=Always, 2=Never. Changing this to 'Never' has no 
                           effect with current S3 SDK as described in Github 
                           issue 3297. (Default: 0)
-  --s3statdirs            Do bucket Stats.
+  --s3statdirs            Run bucket attributes query phase.
   --sendbuf arg           In netbench mode, this sets the send buffer size of 
                           sockets in bytes. (Supports base2 suffixes, e.g. 
                           "2M")
@@ -498,7 +511,7 @@ All options in alphabetical order:
                           scan. Only regular files will be used, symlinks and 
                           other special files will be ignored. S3 prefix from 
                           scan will not be stored in the treefile, so use 
-                          "--s3objprefix" toset/change prefix for benchmark 
+                          "--s3objprefix" to set/change prefix for benchmark 
                           runs.
   --trunc                 Truncate files to 0 size when opening for writing.
   --trunctosize           Truncate files to given "--size" via ftruncate() when

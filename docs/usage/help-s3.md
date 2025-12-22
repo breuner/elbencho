@@ -9,6 +9,11 @@ S3 object storage testing. (The options here are intentionally similar to
 Usage: ./elbencho [OPTIONS] BUCKET [MORE_BUCKETS]
 
 S3 Service Arguments:
+  --s3credfile arg      Path to file containing multiple S3 credentials. Each 
+                        line in format: access_key:secret_key. Lines starting 
+                        with # are treated as comments.
+  --s3credlist arg      Comma-separated list of S3 credentials. Each credential
+                        in format: access_key:secret_key
   --s3endpoints arg     Comma-separated list of S3 endpoints. (Format: 
                         [http(s)://]hostname[:port])
   --s3key arg           S3 access key. (This can also be set via the 
