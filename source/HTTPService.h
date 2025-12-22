@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef HTTPSERVICE_H_
 #define HTTPSERVICE_H_
 

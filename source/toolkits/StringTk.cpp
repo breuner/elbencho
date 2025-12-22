@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "workers/WorkerException.h"
 #include "StringTk.h"
 #include "toolkits/random/RandAlgoGoldenPrime.h"

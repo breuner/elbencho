@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef TOOLKITS_SIGNALTK_H_
 #define TOOLKITS_SIGNALTK_H_
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "toolkits/SignalTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "LocalWorker.h"

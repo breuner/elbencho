@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "toolkits/Base64Encoder.h"
 
 static const std::string Base64Alphabet =
