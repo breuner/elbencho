@@ -15,9 +15,11 @@ void Worker::threadStart(Worker* worker)
 {
 	SignalTk::registerFaultSignalHandlers(*(worker->progArgs) );
 
+#ifdef THREADNAME_SUPPORT
     // set thread name (max 15 chars plus '\0')
     std::string threadName = "elb-wrk-" + std::to_string(worker->workerRank);
     pthread_setname_np(pthread_self(), threadName.c_str() );
+#endif
 
 	worker->run();
 	worker->cleanup();

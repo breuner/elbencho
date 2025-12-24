@@ -22,6 +22,12 @@
 # IntelliJ
 .idea
 
+# Reuse
+.reuse/
+
+# Visual Studio Code
+.vscode/
+
 # Misc
 excluded/
 todo.txt

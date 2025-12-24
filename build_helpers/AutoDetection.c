@@ -1,3 +1,7 @@
+#ifdef BACKTRACE_SUPPORT
+	#include <boost/stacktrace.hpp>
+#endif
+
 #ifdef CUDA_SUPPORT
 	#include <cuda_runtime.h>
 	#include <curand.h>

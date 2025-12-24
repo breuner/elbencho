@@ -19,13 +19,11 @@
 #endif
 
 #ifdef BACKTRACE_SUPPORT
-	#include <execinfo.h>
+    #include <boost/stacktrace.hpp>
 #endif
 
-#define SIGNALTK_BACKTRACE_ARRAY_SIZE	32
 #define SIGNALTK_BACKTRACE_PATH			"/tmp/" EXE_NAME "_fault_trace.txt"
-#define SIGNALTK_BACKTRACE_FILEMODE		(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
-
+#define SIGNALTK_BACKTRACE_FILEMODE		(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
 
 
 /**
@@ -155,43 +153,38 @@ std::string SignalTk::logBacktrace()
 {
 #ifndef BACKTRACE_SUPPORT
 
-	return ""; // no backtrace support for musl-libc compatibility
+    return "This executable was compiled without backtrace support.";
 
 #else // BACKTRACE_SUPPORT
 
-	std::ostringstream stream; // return value
-	int backtraceLength = 0;
-	char** backtraceSymbols = NULL;
+    std::cerr << "Trying to generate a backtrace..." << std::endl;
 
-	void* backtraceArray[SIGNALTK_BACKTRACE_ARRAY_SIZE];
-	backtraceLength = backtrace(backtraceArray, SIGNALTK_BACKTRACE_ARRAY_SIZE);
+    std::ostringstream stream;
 
-	// try to log backtrace to file in case screen is in ncurses mode
-	int fd = open(SIGNALTK_BACKTRACE_PATH, O_CREAT | O_WRONLY | O_APPEND,
-		SIGNALTK_BACKTRACE_FILEMODE);
-	if(fd != -1)
-	{
-		backtrace_symbols_fd(backtraceArray, backtraceLength, fd);
-		close(fd);
-	}
+    stream << "******** BACKTRACE START ********" << std::endl;
+    stream << boost::stacktrace::stacktrace();
+    stream << "********* BACKTRACE END *********" << std::endl;
 
-	// log backtrace to stream
-	backtraceSymbols = backtrace_symbols(backtraceArray, backtraceLength); // needs free() when done
-	if(backtraceSymbols == NULL)
-	{
-		stream << "Unable to get backtrace via backtrace_symbols()." << std::endl;
+    std::cerr << "Backtrace generation done." << std::endl;
 
-		return stream.str();
-	}
+    // additionally log backtrace to file if possible
 
-	stream << "Backtrace:" << std::endl;
+    std::ofstream fileStream;
 
-	for(int i=0; i < backtraceLength; i++)
-		stream << i+1 << ": " << backtraceSymbols[i] << std::endl;
+    fileStream.open(SIGNALTK_BACKTRACE_PATH, std::ofstream::app);
 
-	SAFE_FREE(backtraceSymbols);
+    if(fileStream)
+    {
+        fileStream << stream.str();
+        fileStream.close();
 
-	return stream.str();
+        // make file writable by all in case different users generate backtraces on shared system
+        chmod(SIGNALTK_BACKTRACE_PATH, SIGNALTK_BACKTRACE_FILEMODE);
+
+        std::cerr << "Saved backtrace: " << SIGNALTK_BACKTRACE_PATH << std::endl;
+    }
+
+    return stream.str();
 
 #endif // BACKTRACE_SUPPORT
 }

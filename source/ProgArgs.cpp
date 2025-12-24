@@ -3366,6 +3366,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "syscallh ";
 #endif
 
+#ifdef THREADNAME_SUPPORT
+	includedStream << "threadname ";
+#else
+	notIncludedStream << "threadname ";
+#endif
+
 	std::cout << " * Included optional build features: " <<
 		(includedStream.str().empty() ? "-" : includedStream.str() ) << std::endl;
 	std::cout << " * Excluded optional build features: " <<

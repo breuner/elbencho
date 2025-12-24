@@ -6,6 +6,7 @@
 # (S3_AWSCRT=1 controls build options for the AWS SDK CPP.)
 # Mimalloc will only be prepared when PREP_MIMALLOC=1 is set.
 # uWebSockets will only be prepared when PREP_UWS=1 is set.
+# libbacktrace will only b prepared when PREP_LIBBACKTRACE=1 is set.
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
@@ -380,8 +381,55 @@ prepare_mimalloc()
 		return 0
 
 	[ $? -ne 0 ] && exit 1
+
+	echo "DONE: mimalloc prepared."
+
+	return 0
 }
 
+# Prepare git clone and required tag.
+prepare_libbacktrace()
+{
+	local CLONE_DIR="${EXTERNAL_BASE_DIR}/libbacktrace"
+	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/libbacktrace/install"
+
+	# change to external subdir if we were called from somewhere else
+	cd "$EXTERNAL_BASE_DIR" || exit 1
+
+	# clone if directory does not exist yet
+	if [ ! -d "$CLONE_DIR" ]; then
+		echo "Cloning libbacktrace git repo..."
+		git clone https://github.com/ianlancetaylor/libbacktrace.git $CLONE_DIR
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
+	fi
+
+	# directory exists, check if we already have the lib.
+	# (this is the fast path for dependency calls from Makefile)
+	cd "$CLONE_DIR" && \
+		if [ -f install/lib/libbacktrace.a ] ; then
+			# Already exists, so nothing to do
+			return 0;
+		fi && \
+		cd "$EXTERNAL_BASE_DIR"
+
+	# we need to build it...
+
+	echo "Configure, build and install... (parallel jobs: $NUM_PARALLEL_JOBS)"
+	mkdir -p "$INSTALL_DIR" && \
+		cd "$CLONE_DIR" && \
+		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared && \
+		make -j "$NUM_PARALLEL_JOBS" install  && \
+		cd "$EXTERNAL_BASE_DIR" && \
+		return 0
+
+	[ $? -ne 0 ] && exit 1
+
+	echo "DONE: libbacktrace prepared."
+
+	return 0
+}
 
 ########### End of function definitions ############
 
@@ -407,4 +455,8 @@ fi
 
 if [ "$PREP_MIMALLOC" = "1" ]; then
 	prepare_mimalloc
+fi
+
+if [ "$PREP_LIBBACKTRACE" = "1" ]; then
+	prepare_libbacktrace
 fi

@@ -9,7 +9,7 @@ RUN apk add bash boost-dev cmake curl-dev gcc g++ git libaio-dev make \
 
 RUN cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
-    make BACKTRACE_SUPPORT=0 S3_SUPPORT=1 USE_MIMALLOC=1 -j "$(nproc)" && \
+    make S3_SUPPORT=1 USE_MIMALLOC=1 -j "$(nproc)" && \
     make install
 
 FROM alpine:3

@@ -7,6 +7,9 @@ TEST_OBJ_FILE  = $(BUILD_HELPERS_PATH)/AutoDetection.obj
 
 LDFLAGS_BOOST_SYSTEM     ?= -lboost_system
 
+CXXFLAGS_LIBBACKTRACE    ?= -DBACKTRACE_SUPPORT
+LDFLAGS_LIBBACKTRACE     ?= -lbacktrace
+
 
 # Try to auto-detect CUDA library and inlcude paths...
 CUDA_INCLUDE_PATH        ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cuda_runtime.h \
@@ -40,6 +43,56 @@ CXXFLAGS_CUFILE_SUPPORT    += -DCUFILE_SUPPORT
 LDFLAGS_CUFILE_SUPPORT     += -lcufile
 CUFILE_SUPPORT_DETECT_ARGS  = $(CXXFLAGS_CUFILE_SUPPORT) $(LDFLAGS_CUFILE_SUPPORT) \
                               $(CUDA_SUPPORT_DETECT_ARGS)
+
+####### LIB "backtrace" ########
+
+# Detect backtrace library to support backtraces with line numbers. If the lib is not available
+# (e.g. on Alpine Linux) then we build our own copy.
+
+ifdef BUILD_VERBOSE
+  $(info [TEST_LIBBACKTRACE] $(CXX) -o $(TEST_OBJ_FILE) $(TEST_C_FILE) $(CXXFLAGS_LIBBACKTRACE) \
+    $(LDFLAGS_LIBBACKTRACE) $(CXXFLAGS) $(LDFLAGS) )
+endif
+
+LIB_BACKTRACE_DETECTED = $(shell \
+    if $(CXX) -o $(TEST_OBJ_FILE) $(TEST_C_FILE) $(CXXFLAGS_LIBBACKTRACE) $(LDFLAGS_LIBBACKTRACE) \
+      $(CXXFLAGS) $(LDFLAGS) 1>/dev/null 2>&1; \
+    then echo 1; \
+    fi)
+
+####### END LIB "backtrace" ########
+
+
+####### BOOST HEADER "stacktrace" ########
+
+# Detect "boost/stacktrace.h" header to support backtraces with line numbers. If the header is not
+# available then disable stacktrace feature.
+#
+# Note the "-c" here to only compile and not link, because we only want to check for the header
+# and not whether libbacktrace is available.
+
+ifeq ($(BACKTRACE_SUPPORT),)
+  # note: cxxflags_tmp with filter-out is because the use_backtrace define depends on libbacktrace,
+  # which might not be available yet, because it might come later from prepare-external.sh).
+  CXXFLAGS_TMP := $(filter-out -DBOOST_STACKTRACE_USE_BACKTRACE, $(CXXFLAGS))
+
+  ifdef BUILD_VERBOSE
+    $(info [TEST_STACKTRACE_H] $(CXX) -c -o $(TEST_OBJ_FILE) $(TEST_C_FILE) \
+      $(CXXFLAGS_LIBBACKTRACE) $(CXXFLAGS_TMP) )
+  endif
+
+  STACKTRACE_H_DETECTED = $(shell \
+    if $(CXX) -c -o $(TEST_OBJ_FILE) $(TEST_C_FILE) $(CXXFLAGS_LIBBACKTRACE) $(CXXFLAGS_TMP) \
+      1>/dev/null 2>&1; \
+    then echo 1; \
+    else echo 0; \
+    fi)
+
+  BACKTRACE_SUPPORT := $(STACKTRACE_H_DETECTED)
+endif
+
+####### END BOOST HEADER "stacktrace" ########
+
 
 ####### BOOST LIB "boost_system" ########
 

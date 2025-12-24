@@ -14,7 +14,7 @@
 
 
 CHROOT_PATH=${CHROOT_PATH:="/var/tmp/elbencho_chroot_$(whoami)"}
-CHROOT_VERSION="v3.22"
+CHROOT_VERSION="v3.23"
 ELBENCHO_VERSION=$(make version)
 BUILD_ARCH=${BUILD_ARCH:="$(uname -m)"}                             # e.g. aarch64, x86_64
 ALPINE_SCRIPT_PATH=${ALPINE_SCRIPT_PATH:="external/alpine-chroot-install"}
@@ -99,7 +99,7 @@ echo
 echo "*** Building in chroot..."
 
 sudo "$CHROOT_PATH/enter-chroot" -u $(whoami) make -C "$(pwd)" -j $NUM_JOBS \
-        BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT S3_SUPPORT=$S3_SUPPORT \
+        ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT S3_SUPPORT=$S3_SUPPORT \
         S3_AWSCRT=$S3_AWSCRT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1
 
 if [ $? -ne 0 ]; then

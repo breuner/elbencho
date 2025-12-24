@@ -25,7 +25,7 @@ RUN cd /root/elbencho && \
     DOCKER_BUILD_PLATFORM=$(uname -m) && \
     echo "[PLATFORM] $DOCKER_BUILD_PLATFORM" && \
     make clean-all && \
-    make BACKTRACE_SUPPORT=0 S3_SUPPORT=1 USE_MIMALLOC=1 -j $NUM_JOBS && \
+    make S3_SUPPORT=1 USE_MIMALLOC=1 -j $NUM_JOBS && \
     make install
 
 FROM alpine:3

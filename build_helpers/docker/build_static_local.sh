@@ -33,7 +33,7 @@ docker run --name $CONTAINER_NAME --privileged -i -v $PWD:$PWD -w $PWD $IMAGE_NA
     adduser -u $UID -D builduser && \
     sudo -u builduser make clean-all && \
     sudo -u builduser make -j $(nproc) \
-        BACKTRACE_SUPPORT=0 ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT S3_SUPPORT=$S3_SUPPORT \
+        ALTHTTPSVC_SUPPORT=$ALTHTTPSVC_SUPPORT S3_SUPPORT=$S3_SUPPORT \
         S3_AWSCRT=$S3_AWSCRT USE_MIMALLOC=$USE_MIMALLOC BUILD_STATIC=1" && \
 docker rm $CONTAINER_NAME && \
 cd bin/ && \

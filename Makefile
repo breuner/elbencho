@@ -8,7 +8,6 @@ EXE_VER_MINOR      ?= 0
 EXE_VER_PATCHLEVEL ?= 36
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
-EXE_UNSTRIPPED     ?= $(EXE)-unstripped
 
 SOURCE_PATH        ?= ./source
 BIN_PATH           ?= ./bin
@@ -23,7 +22,10 @@ CXX                ?= g++
 STRIP              ?= strip
 CXX_FLAVOR         ?= c++17
 
-CXXFLAGS_BOOST     ?= -DBOOST_SPIRIT_THREADSAFE -DBOOST_BIND_GLOBAL_PLACEHOLDERS
+# "BOOST_STACKTRACE_USE_BACKTRACE" is to force libbacktrace backend, which is most reliable for
+# static builds on Alpine with musl.
+CXXFLAGS_BOOST     ?= -DBOOST_BIND_GLOBAL_PLACEHOLDERS -DBOOST_SPIRIT_THREADSAFE \
+	-DBOOST_STACKTRACE_USE_BACKTRACE
 
 LDFLAGS_AIO        ?= -laio
 LDFLAGS_BOOST      ?= -lboost_program_options -lboost_thread
@@ -31,7 +33,6 @@ LDFLAGS_LINUX      ?= -l rt -l stdc++fs
 LDFLAGS_NUMA       ?= -lnuma
 
 ALTHTTPSVC_SUPPORT ?= 0
-BACKTRACE_SUPPORT  ?= 1
 COREBIND_SUPPORT   ?= 1
 LIBAIO_SUPPORT     ?= 1
 LIBNUMA_SUPPORT    ?= 1
@@ -40,16 +41,17 @@ SYNCFS_SUPPORT     ?= 1
 S3_AWSCRT          ?= 0
 S3_SUPPORT         ?= 0
 SYSCALLH_SUPPORT   ?= 1
+THREADNAME_SUPPORT ?= 1
 
 CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
 	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
 	-Wall -Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
 	-fno-strict-aliasing -pthread -ggdb -std=$(CXX_FLAVOR)
-CXXFLAGS_RELEASE  = -O3 -Wuninitialized
+CXXFLAGS_RELEASE  = -O3 -Wuninitialized -g1 # "-g1" is for line numbers in backtraces
 CXXFLAGS_DEBUG    = -O0 -D_FORTIFY_SOURCE=2 -DBUILD_DEBUG
 
-LDFLAGS_COMMON       = -pthread $(LDFLAGS_BOOST)
+LDFLAGS_COMMON       = -pthread $(LDFLAGS_BOOST) -gz=zlib
 LDFLAGS_RELASE       = -O3
 LDFLAGS_DEBUG        = -O0
 
@@ -83,17 +85,17 @@ ifeq ($(BUILD_STATIC), 1)
     LDFLAGS_S3_STATIC  += -l z
   else
     LDFLAGS_S3_STATIC  += -l curl -l ssl -l crypto -l tls -l z -l nghttp2 -l nghttp3 -l brotlidec \
-      -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd -l dl
+      -l brotlicommon -l idn2 -l unistring -l psl -l cares -l zstd
   endif
 
 else # dynamic linking
 
-  LDFLAGS += -rdynamic
+  LDFLAGS += -rdynamic -l dl
 
   ifeq ($(S3_AWSCRT), 1)
-    LDFLAGS_S3_DYNAMIC += -l z -l dl
+    LDFLAGS_S3_DYNAMIC += -l z
   else
-    LDFLAGS_S3_DYNAMIC += -l crypto -l ssl -l curl -l z -l dl
+    LDFLAGS_S3_DYNAMIC += -l crypto -l ssl -l curl -l z
   endif
 
 endif
@@ -101,9 +103,9 @@ endif
 # Compiler and linker flags for S3 support
 # "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
 ifeq ($(S3_SUPPORT), 1)
-CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
-LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l aws-sdk-all \
-	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC) \
+  CXXFLAGS += -DS3_SUPPORT -Wno-overloaded-virtual
+  LDFLAGS  += -L $(EXTERNAL_PATH)/aws-sdk-cpp_install/lib* -l aws-sdk-all \
+	$(LDFLAGS_S3_DYNAMIC) $(LDFLAGS_S3_STATIC)
 
   ifeq ($(S3_AWSCRT), 1)
     CXXFLAGS += -DS3_AWSCRT
@@ -122,22 +124,22 @@ endif
 # Note: This needs to come as very last in link order, thus we have a separate variable to ensure
 # it's the trailing arg for the linker. (Can be confirmed e.g. via MIMALLOC_SHOW_STATS=1)
 ifeq ($(USE_MIMALLOC), 1)
-CXXFLAGS += -DUSE_MIMALLOC
-LDFLAGS_MIMALLOC_TAIL := -L external/mimalloc/build -l:libmimalloc.a
+  CXXFLAGS += -DUSE_MIMALLOC
+  LDFLAGS_MIMALLOC_TAIL := -L external/mimalloc/build -l:libmimalloc.a
 endif
 
 # Support for uWS (Micro Web Sockets) HTTP service.
 ifeq ($(ALTHTTPSVC_SUPPORT), 1)
-CXXFLAGS += -DALTHTTPSVC_SUPPORT -I $(EXTERNAL_PATH)/uWebSockets/src \
+  CXXFLAGS += -DALTHTTPSVC_SUPPORT -I $(EXTERNAL_PATH)/uWebSockets/src \
 	-I $(EXTERNAL_PATH)/uWebSockets/uSockets/src -DUWS_NO_ZLIB -DLIBUS_NO_SSL
-LDFLAGS  += -L $(EXTERNAL_PATH)/uWebSockets/uSockets -l:uSockets.a
+  LDFLAGS  += -L $(EXTERNAL_PATH)/uWebSockets/uSockets -l:uSockets.a
 endif
 
 # Support for Hadoop HDFS
 # (Note: "lib/amd64/server" is for OpenJDK 1.8 on RHEL8.)
 ifeq ($(HDFS_SUPPORT), 1)
-CXXFLAGS += -DHDFS_SUPPORT -I $(HADOOP_HOME)/include
-LDFLAGS  += -L $(HADOOP_HOME)/lib/native -l:libhdfs.a -L $(JAVA_HOME)/lib/server \
+  CXXFLAGS += -DHDFS_SUPPORT -I $(HADOOP_HOME)/include
+  LDFLAGS  += -L $(HADOOP_HOME)/lib/native -l:libhdfs.a -L $(JAVA_HOME)/lib/server \
 	-L $(JAVA_HOME)/lib/amd64/server -l jvm
 endif
 
@@ -155,19 +157,17 @@ endif
 
 # Support build in Cygwin environment
 ifeq ($(CYGWIN_SUPPORT), 1)
-# EXE_UNSTRIPPED includes EXE in definition, so must be updated first
-EXE_UNSTRIPPED     := $(EXE_UNSTRIPPED).exe
-EXE                := $(EXE).exe
+  EXE                := $(EXE).exe
 
-BACKTRACE_SUPPORT  := 0
-LIBAIO_SUPPORT     := 0
-SYNCFS_SUPPORT     := 0
-LIBNUMA_SUPPORT    := 0
-COREBIND_SUPPORT   := 0
-SYSCALLH_SUPPORT   := 0
+  BACKTRACE_SUPPORT  := 0
+  COREBIND_SUPPORT   := 0
+  LIBAIO_SUPPORT     := 0
+  LIBNUMA_SUPPORT    := 0
+  SYNCFS_SUPPORT     := 0
+  SYSCALLH_SUPPORT   := 0
 
-CXX_FLAVOR         := gnu++17
-CXXFLAGS           += -DCYGWIN_SUPPORT
+  CXX_FLAVOR         := gnu++17
+  CXXFLAGS           += -DCYGWIN_SUPPORT
 endif
 
 # Support build on macOS
@@ -176,79 +176,86 @@ ifeq ($(shell uname -s),Darwin)
     LDFLAGS += -framework CoreFoundation -framework Security -framework Network
   endif
 
-	LIBAIO_SUPPORT   := 0
-	SYNCFS_SUPPORT   := 0
-	LIBNUMA_SUPPORT  := 0
-	COREBIND_SUPPORT := 0
+  CXXFLAGS_BOOST += -DBOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED
+  CXXFLAGS_BOOST := $(filter-out -DBOOST_STACKTRACE_USE_BACKTRACE, $(CXXFLAGS_BOOST))
 
-	CXXFLAGS_EXTRA   += -I/opt/homebrew/include
-	LDFLAGS          += -L/opt/homebrew/lib
+  COREBIND_SUPPORT   := 0
+  LIBAIO_SUPPORT     := 0
+  LIBNUMA_SUPPORT    := 0
+  SYNCFS_SUPPORT     := 0
+  THREADNAME_SUPPORT := 0
+
+  CXXFLAGS         += -I/opt/homebrew/include
+  LDFLAGS          += -L/opt/homebrew/lib
 endif
 
 # Extra flags for Linux & Cygwin, but not for macOS
 ifneq ($(shell uname -s),Darwin)
-LDFLAGS += $(LDFLAGS_LINUX)
-endif
-
-# Backtrace support
-# Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
-ifeq ($(BACKTRACE_SUPPORT), 1)
-CXXFLAGS += -DBACKTRACE_SUPPORT
+  LDFLAGS += $(LDFLAGS_LINUX)
 endif
 
 # libaio support
 # Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
 ifeq ($(LIBAIO_SUPPORT), 1)
-CXXFLAGS += -DLIBAIO_SUPPORT
-LDFLAGS  += $(LDFLAGS_AIO)
+  CXXFLAGS += -DLIBAIO_SUPPORT
+  LDFLAGS  += $(LDFLAGS_AIO)
 endif
 
 # syncfs() call support
 # Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
 ifeq ($(SYNCFS_SUPPORT), 1)
-CXXFLAGS += -DSYNCFS_SUPPORT
+  CXXFLAGS += -DSYNCFS_SUPPORT
 endif
 
 # libnuma support
 # Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
 ifeq ($(LIBNUMA_SUPPORT), 1)
-CXXFLAGS += -DLIBNUMA_SUPPORT
-LDFLAGS  += $(LDFLAGS_NUMA)
+  CXXFLAGS += -DLIBNUMA_SUPPORT
+  LDFLAGS  += $(LDFLAGS_NUMA)
 endif
 
 # CPU core binding support
 # Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
 ifeq ($(COREBIND_SUPPORT), 1)
-CXXFLAGS += -DCOREBIND_SUPPORT
+  CXXFLAGS += -DCOREBIND_SUPPORT
 endif
 
 # sys/syscall.h include file support (for definition of SYS_..., e.g. SYS_gettid)
 # Note: Gets set by CYGWIN_SUPPORT=1, so needs to come after that
 ifeq ($(SYSCALLH_SUPPORT), 1)
-CXXFLAGS += -DSYSCALLH_SUPPORT
+  CXXFLAGS += -DSYSCALLH_SUPPORT
 endif
 
 # Include build helpers for auto detection
 include build_helpers/AutoDetection.mk
 
+# Backtrace support
+# Note: Gets auto-detected and gets set by CYGWIN_SUPPORT=1, so needs to come after those
+ifeq ($(BACKTRACE_SUPPORT), 1)
+  CXXFLAGS += -DBACKTRACE_SUPPORT
+  LDFLAGS  += -l backtrace
+
+  ifeq ($(LIB_BACKTRACE_DETECTED), )
+    PREP_LIBBACKTRACE := 1
+    CXXFLAGS += -I $(EXTERNAL_PATH)/libbacktrace/install/include
+    LDFLAGS  += -L $(EXTERNAL_PATH)/libbacktrace/install/lib
+  endif
+
+endif
+
+
 
 all: $(SOURCES) $(EXE)
 
-$(EXE): $(EXE_UNSTRIPPED)
-ifdef BUILD_VERBOSE
-	$(STRIP) -S $(EXE_UNSTRIPPED) -o $(EXE)
-else
-	@echo [STRIP] $@
-	@$(STRIP) -S $(EXE_UNSTRIPPED) -o $(EXE)
-endif
 
-$(EXE_UNSTRIPPED): $(OBJECTS)
+$(EXE): $(OBJECTS)
 ifdef BUILD_VERBOSE
-	$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
+	$(CXX) -o $(EXE) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
 else
 	@echo [LINK] $@
-	@$(CXX) -o $(EXE_UNSTRIPPED) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
+	@$(CXX) -o $(EXE) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
 endif
+
 
 .c.o:
 ifdef BUILD_VERBOSE
@@ -260,6 +267,7 @@ else
 	@echo [CXX] $@
 	@$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -o $(@)
 endif
+
 
 .cpp.o:
 ifdef BUILD_VERBOSE
@@ -285,21 +293,33 @@ else
 	@$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) -c $(@:.o=.cpp) -o $(@)
 endif
 
+
 $(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on Makefile change
+
 
 externals:
 ifdef BUILD_VERBOSE
 	PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
-		PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
+		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 else
-	@PREP_AWS_SDK=$(S3_SUPPORT) AWS_LIB_DIR=$(AWS_LIB_DIR) AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) \
-		PREP_MIMALLOC=$(USE_MIMALLOC) PREP_UWS=$(ALTHTTPSVC_SUPPORT) \
+	@PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
+		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
+		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 endif
 
+
 features-info:
+ifeq ($(BACKTRACE_SUPPORT),1)
+ ifdef BUILD_VERBOSE
+	$(info [OPT] Backtrace support enabled)
+ endif
+else
+	$(info [OPT] Backtrace support disabled)
+endif
+
 ifeq ($(CUFILE_SUPPORT),1)
  ifdef BUILD_VERBOSE
 	$(info [OPT] CUFILE (GDS) support enabled (CUFILE_INCLUDE_PATH: $(CUFILE_INCLUDE_PATH)))
@@ -309,6 +329,7 @@ ifeq ($(CUFILE_SUPPORT),1)
 else
 	$(info [OPT] CUFILE (GDS) support disabled)
 endif
+
 ifeq ($(CUDA_SUPPORT),1)
  ifdef BUILD_VERBOSE
 	$(info [OPT] CUDA support enabled (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH)))
@@ -318,6 +339,7 @@ ifeq ($(CUDA_SUPPORT),1)
 else
 	$(info [OPT] CUDA support disabled)
 endif
+
 ifeq ($(S3_SUPPORT),1)
   ifeq ($(S3_AWSCRT),1)
 	$(info [OPT] S3 support enabled (AWS CRT))
@@ -327,34 +349,38 @@ ifeq ($(S3_SUPPORT),1)
 else
 	$(info [OPT] S3 support disabled. (Enable via S3_SUPPORT=1))
 endif
+
 ifeq ($(USE_MIMALLOC),1)
 	$(info [OPT] mimalloc enabled)
 else
 	$(info [OPT] mimalloc disabled)
 endif
+
 ifeq ($(ALTHTTPSVC_SUPPORT),1)
 	$(info [OPT] Alternative HTTP service enabled)
 else
 	$(info [OPT] Alternative HTTP service disabled)
 endif
+
 ifeq ($(HDFS_SUPPORT),1)
 	$(info [OPT] HDFS support enabled. (HADOOP_HOME: $(HADOOP_HOME); JAVA_HOME: $(JAVA_HOME)))
 else
 	$(info [OPT] HDFS support disabled)
 endif
+
 ifneq ($(NCURSES_SUPPORT),1)
 	$(info [OPT] ncurses disabled)
 endif
 
+
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
-	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe $(EXE_UNSTRIPPED) \
-		$(EXE_UNSTRIPPED).exe
+	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe
 else
 	@echo "[DELETE] OBJECTS, DEPENDENCY_FILES, EXECUTABLES"
-	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe $(EXE_UNSTRIPPED) \
-		$(EXE_UNSTRIPPED).exe
+	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe
 endif
+
 
 clean-externals:
 ifdef BUILD_VERBOSE
@@ -363,6 +389,7 @@ ifdef BUILD_VERBOSE
 	rm -rf $(EXTERNAL_PATH)/uWebSockets
 	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	rm -rf $(EXTERNAL_PATH)/mimalloc
+	rm -rf $(EXTERNAL_PATH)/libbacktrace
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -f $(EXTERNAL_PATH)/alpine-chroot-install
@@ -370,7 +397,9 @@ else
 	@rm -rf $(EXTERNAL_PATH)/uWebSockets
 	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
 	@rm -rf $(EXTERNAL_PATH)/mimalloc
+	@rm -rf $(EXTERNAL_PATH)/libbacktrace
 endif
+
 
 clean-packaging:
 ifdef BUILD_VERBOSE
@@ -392,7 +421,9 @@ else
 	@bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
 endif
 
+
 clean-all: clean clean-externals clean-packaging clean-buildhelpers
+
 
 install: all
 	@echo "Installing elbencho..."
@@ -418,6 +449,7 @@ install: all
 	@echo "  command might drop $(INST_PATH) from PATH. In case sudo is needed, the"
 	@echo "  absolute path can be used. Or alternatively use a rpm/deb package."
 
+
 uninstall:
 	rm -f $(INST_PATH)/$(EXE_NAME)
 	rm -f $(INST_PATH)/$(EXE_NAME)-chart
@@ -427,6 +459,7 @@ uninstall:
 	rm -f $(INST_PATH)/graph_sweep.sh
 	rm -f /etc/bash_completion.d/$(EXE_NAME)
 	rm -f /etc/bash_completion.d/$(EXE_NAME)-chart
+
 
 # prepare generic part of build-root (not the .rpm or .deb specific part)
 prepare-buildroot: | all clean-packaging
@@ -450,6 +483,7 @@ prepare-buildroot: | all clean-packaging
 	cp --preserve contrib/storage_sweep/mtelbencho.sh $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 	cp --preserve contrib/storage_sweep/graph_sweep.sh $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
 
+
 rpm: | prepare-buildroot
 	@echo "[PACKAGING] PREPARE RPM PACKAGE"
 
@@ -464,6 +498,7 @@ rpm: | prepare-buildroot
 	@echo
 	@echo "All done. Your package is here:"
 	@find $(PACKAGING_PATH)/RPMS -name $(EXE_NAME)*.rpm
+
 
 deb: | prepare-buildroot
 	@echo "[PACKAGING] PREPARE DEB PACKAGE"
@@ -488,14 +523,16 @@ deb: | prepare-buildroot
 	@echo "All done. Your package is here:"
 	@find $(PACKAGING_PATH) -name $(EXE_NAME)*.deb
 
+
 version:
 	@echo $(EXE_VERSION)
+
 
 help:
 	@echo 'Optional Build Features:'
 	@echo '   ALTHTTPSVC_SUPPORT=0|1  - Build with support for alternative HTTP service.'
 	@echo '                             (Default: 0)'
-	@echo '   BACKTRACE_SUPPORT=0|1   - Build with backtrace support. (Default: 1)'
+	@echo '   BACKTRACE_SUPPORT=0|1   - Build with backtrace support. (Default: detect)'
 	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
 	@echo '                             CUDA to work with GPU memory. By default, CUDA'
 	@echo '                             support will be enabled when CUDA development files'
@@ -561,10 +598,13 @@ help:
 	@echo
 	@echo 'Note: Use "make clean-all" when changing any optional build features.'
 
+
 .PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
 features-info help prepare-buildroot rpm version
 
+
 .DEFAULT_GOAL := all
+
 
 # Include dependency files
 ifneq ($(DEPENDENCY_FILES),)
