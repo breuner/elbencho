@@ -109,7 +109,7 @@ LIB_BOOST_SYSTEM_DETECTED = $(shell \
     then printf '%s\n' '$(LDFLAGS_BOOST_SYSTEM)'; \
     fi)
 
-LDFLAGS_BOOST += $(LIB_BOOST_SYSTEM_DETECTED)
+LDFLAGS += $(LIB_BOOST_SYSTEM_DETECTED)
 
 ####### END BOOST LIB "boost_system" ########
 

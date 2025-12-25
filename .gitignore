@@ -27,6 +27,7 @@
 
 # Visual Studio Code
 .vscode/
+.clang-format
 
 # Misc
 excluded/

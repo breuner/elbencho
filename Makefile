@@ -168,6 +168,7 @@ ifeq ($(CYGWIN_SUPPORT), 1)
 
   CXX_FLAVOR         := gnu++17
   CXXFLAGS           += -DCYGWIN_SUPPORT
+  LDFLAGS_COMMON     := $(filter-out -gz=zlib, $(LDFLAGS_COMMON))
 endif
 
 # Support build on macOS
