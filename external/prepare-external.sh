@@ -225,8 +225,8 @@ prepare_awssdk()
 		return 0; # AWS SDK build not required, so we're done here
 	fi
 
-	local REQUIRED_TAG="${AWS_REQUIRED_TAG:-"1.11.628-elbencho-tag"}"
-	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/breuner/aws-sdk-cpp.git"}"
+	local REQUIRED_TAG="${AWS_REQUIRED_TAG:-"1.11.712"}"
+	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/aws/aws-sdk-cpp.git"}"
 
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"

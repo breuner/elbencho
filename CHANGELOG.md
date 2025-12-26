@@ -16,6 +16,7 @@
 * Added `nvidia-open` package to CUDA container to have `nvidia-smi` tool available inside container.
 * Changed order of fadvise and madvise processing so that "dontneed" is processed first when combined with other advises like "sequential" or "random".
 * Added compressed minimum amount of debug symbols and automatic download of `libbacktrace` external package to enable backtraces with line numbers on Linux.
+* Updated S3 to latest AWS SDK CPP v1.11.712.
 
 ### Fixes
 * Disabled S3 continue request handler (which allowed for faster termination in case of errors or user interruption) when built with S3_AWSCRT=1 and AWS SDK CPP versions before 1.11.708. (This is as workaround for https://github.com/aws/aws-sdk-cpp/issues/3639.)
