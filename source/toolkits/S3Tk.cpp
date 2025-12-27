@@ -149,7 +149,7 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
  * S3 endpoints get assigned round-robin to workers based on workerRank.
  *
  * For uninit/cleanup later, just use the reset() method of the returned std::shared_ptr to free
- * the associated client object.
+ * the associated client object. This needs to be done before uninitS3Global() is called.
  *
  * @workerRank to select s3 endpoint if multiple endpoints are available in progArgs; otherwise
  *     a clock-based random number will be chosen.
@@ -202,6 +202,7 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
 
 #ifdef S3_AWSCRT
+
     config.useVirtualAddressing = useVirtualAddressing; /* only exists in config of
         s3-crt and not effective in client constructor, but effective there for non-crt s3 client */
     config.partSize = progArgs->getS3MpuSplitSize() ? progArgs->getS3MpuSplitSize() :
@@ -210,6 +211,34 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     config.throughputTargetGbps = progArgs->getS3ThroughputTargetGbps(); /* used for implicit
         calculation of max connections, as S3CrtClient has no explicit number of max connections;
         see aws-c-s3/source/s3_client.c s_get_ideal_connection_number_from_throughput() */
+
+    // create event loop group (async I/O threads)
+    auto eventLoopGroup = std::make_shared<Aws::Crt::Io::EventLoopGroup>(
+        progArgs->getUseS3ClientSingleton() ? 0 /* 0 = "one for each core" */ : 1);
+
+    // create custom hostname resolver for round-robin selection
+    // (note: "8, 30" defaults taken from InitAPI() in Aws.cpp)
+    auto resolver = std::make_shared<Aws::Crt::Io::DefaultHostResolver>(*eventLoopGroup, 8, 30);
+
+    // create bootstrap group with custom event loop and resolver
+    auto bootstrap = std::make_shared<Aws::Crt::Io::ClientBootstrap>(*eventLoopGroup, *resolver);
+
+    /* (note: creating a bootstrap with new per-thread instances is also necessary as workaround for
+        https://github.com/aws/aws-sdk-cpp/issues/3653) */
+    config.clientBootstrap = bootstrap;
+
+    // create tls context to disable SSL certificate verification
+
+    auto tlsCtxOptions = Aws::Crt::Io::TlsContextOptions::InitDefaultClient();
+    tlsCtxOptions.SetVerifyPeer(false); // equivalent of "config.verifySSL=false" for S3CrtClient
+
+    Aws::Crt::Io::TlsContext tlsContext(tlsCtxOptions, Aws::Crt::Io::TlsMode::CLIENT);
+
+    auto tlsConnOptions = std::make_shared<Aws::Crt::Io::TlsConnectionOptions>(
+        tlsContext.NewConnectionOptions() );
+
+    config.tlsConnectionOptions = tlsConnOptions;
+
 #endif // S3_AWSCRT
 
     if(!progArgs->getS3Region().empty() )
