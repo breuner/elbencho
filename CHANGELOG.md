@@ -1,6 +1,8 @@
 # Changelog of elbencho
 
-## v3.0.36 (work in progress)
+## v3.0.38 (work in progress)
+
+## v3.0.37 (Dec 27, 2025)
 
 ### New Features & Enhancements
 * Added tool to summarize elbencho JSON results into a formatted table. (`elbencho-summarize-json`)
