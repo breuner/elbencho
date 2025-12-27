@@ -9,6 +9,10 @@
 * Added support for multiple S3 credentials. (See `--s3credfile` & `--s3credlist`.)
 * Added option to use a single shared S3 client instance instead of separate instances for each worker thread. (See `--s3single`.)
 * Added option for random variance in S3 multi-part upload part sizes. (See `--s3mpusizevar`.)
+* Added option to use S3 virtual bucket addressing. (See `--s3virtaddr`.)
+* Added option to define max number of S3 connections. (See `--s3maxconns`.)
+* Added option to let the S3 CRT client handle the MPU part split internally. (See `--s3mpusplit`.)
+* Added option to define the target throughput for the S3 CRT client for implicit definition of max number of connections. (See `--s3targetgbps`.)
 
 ### General Changes
 * Added config values to `--jsonfile` output.
@@ -19,7 +23,7 @@
 * Updated S3 to latest AWS SDK CPP v1.11.712.
 
 ### Fixes
-* Disabled S3 continue request handler (which allowed for faster termination in case of errors or user interruption) when built with S3_AWSCRT=1 and AWS SDK CPP versions before 1.11.708. (This is as workaround for https://github.com/aws/aws-sdk-cpp/issues/3639.)
+* Disabled S3 continue request handler (which allowed for faster termination in case of errors or user interruption) when built with S3_AWSCRT=1 and AWS SDK CPP versions before 1.11.708. (This is a workaround for https://github.com/aws/aws-sdk-cpp/issues/3639.)
 
 ### Contributors
 * Thanks to John Fragalla, Kiran Modukuri, Tamar Baran, Michael Shustin, Yair Elharrar, Darrell Bishop & GitHub user panghubaobao777 for contributions, helpful comments and suggestions.

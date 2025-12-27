@@ -1,3 +1,6 @@
+# AWS SDK CPP log
+aws_sdk_*.log
+
 # Compiled Dynamic libraries
 *.so
 *.dylib

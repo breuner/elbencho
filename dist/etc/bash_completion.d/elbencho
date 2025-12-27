@@ -21,6 +21,9 @@ _elbencho_opts()
         -w
         "
 
+   # all existing long option names.
+   # note that options with arguments need to be declared additionally below in the corresponding
+   # section for their argument type.
    longopts="
         --allelapsed
         --althttpsvc
@@ -140,6 +143,9 @@ _elbencho_opts()
         --s3listverify
         --s3log
         --s3logprefix
+        --s3maxconns
+        --s3mpusizevar
+        --s3mpusplit
         --s3multidel
         --s3multiignore404
         --s3nocompress
@@ -156,6 +162,8 @@ _elbencho_opts()
         --s3sessiontoken
         --s3sseckey
         --s3statdirs
+        --s3targetgbps
+        --s3virtaddr
         --sendbuf
         --servers
         --serversfile
@@ -196,7 +204,7 @@ _elbencho()
     opts="$(_elbencho_opts)"
 
     case "${prev}" in
-        # options that take a string argument
+        # options that take a string or numeric argument
         -b)
         ;&
         --block)
@@ -287,6 +295,12 @@ _elbencho()
         ;&
         --s3logprefix)
         ;&
+        --s3maxconns)
+        ;&
+        --s3mpusizevar)
+        ;&
+        --s3mpusplit)
+        ;&
         --s3multidel)
         ;&
         --s3objprefix)
@@ -298,6 +312,8 @@ _elbencho()
         --s3sessiontoken)
         ;&
         --s3sseckey)
+        ;&
+        --s3targetgbps)
         ;&
         --sendbuf)
         ;&
@@ -325,7 +341,7 @@ _elbencho()
             return 0
         ;;
 
-        # options that take a file/dir argument
+        # options that take a file/dir path argument
         -c)
         ;&
         --clientsfile)

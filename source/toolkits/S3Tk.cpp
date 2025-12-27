@@ -168,6 +168,8 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     size_t numParallelRequests = progArgs->getUseS3ClientSingleton() ?
         progArgs->getNumThreads() * progArgs->getIODepth() : progArgs->getIODepth();
+    unsigned maxConnections = progArgs->getS3MaxConnections();
+    bool useVirtualAddressing = progArgs->getUseS3VirtualAddressing();
 
     /* note: DefaultExecutor creates a new temporary thread for each async request, so is unbounded
         and has overhead for thread creation. Thus, we only use it without I/O depth (i.e. no async
@@ -184,8 +186,8 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     config.verifySSL = false; // to avoid self-signed certificate errors; ignored by S3CrtClient
     config.enableEndpointDiscovery = false; // to avoid delays for discovery
-    config.maxConnections = numParallelRequests; /* max tcp conns; ignored by S3CrtClient, uses
-        throughputTargetGbps for implicit calculation */
+    config.maxConnections = maxConnections ? maxConnections : numParallelRequests; /* max tcp conns;
+        ignored by S3CrtClient, which uses throughputTargetGbps for implicit calculation */
     config.retryStrategy = std::make_shared<InterruptibleRetryStrategy>(
         isInterruptionRequested); // note: restryStrategy is not used by S3CrtClient
     config.connectTimeoutMs = 5000;
@@ -200,13 +202,14 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
 
 #ifdef S3_AWSCRT
-    config.useVirtualAddressing = false; /* only exists in config of s3-crt and not effective in
-        client constructor (but effective there for non-crt s3 client) */
-    config.partSize = progArgs->getBlockSize() ? progArgs->getBlockSize() : 5 * 1024 * 1024; /*
-        S3CrtClient would internally split into smaller MPU parts if smaller than blockSize */
-    config.throughputTargetGbps = 100; /* used for implicit calculation of max connections, as
-        S3CrtClient has no explicit number of max connections; see aws-c-s3/source/s3_client.c
-        s_get_ideal_connection_number_from_throughput() */
+    config.useVirtualAddressing = useVirtualAddressing; /* only exists in config of
+        s3-crt and not effective in client constructor, but effective there for non-crt s3 client */
+    config.partSize = progArgs->getS3MpuSplitSize() ? progArgs->getS3MpuSplitSize() :
+        (progArgs->getBlockSize() ? progArgs->getBlockSize() : 5 * 1024 * 1024); /* S3CrtClient
+        internally splits simple PUTs into MPU parts if obj is larger than config.partSize */
+    config.throughputTargetGbps = progArgs->getS3ThroughputTargetGbps(); /* used for implicit
+        calculation of max connections, as S3CrtClient has no explicit number of max connections;
+        see aws-c-s3/source/s3_client.c s_get_ideal_connection_number_from_throughput() */
 #endif // S3_AWSCRT
 
     if(!progArgs->getS3Region().empty() )
@@ -259,7 +262,7 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     // create s3 client for this worker
     std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentialsProvider,
         config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(),
-        false);
+        useVirtualAddressing);
 
     return s3Client;
 }

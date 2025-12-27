@@ -170,7 +170,9 @@ namespace bpt = boost::property_tree;
 #define ARG_S3LISTOBJVERIFY_LONG	"s3listverify"
 #define ARG_S3LOGFILEPREFIX_LONG	"s3logprefix"
 #define ARG_S3LOGLEVEL_LONG			"s3log"
+#define ARG_S3MAXCONNS_LONG         "s3maxconns"
 #define ARG_S3MPUSIZEVAR_LONG       "s3mpusizevar"
+#define ARG_S3MPUSPLITSIZE_LONG     "s3mpusplit"
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
 #define ARG_S3MULTI_IGNORE_404      "s3multiignore404"
 #define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
@@ -191,6 +193,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3CHECKSUM_ALGO_LONG    "s3chksumalgo"  // parameter for x-amz-sdk-checksum-algorithm
 #define ARG_S3SSEKMSKEY_LONG        "s3ssekmskey"
 #define ARG_S3STATDIRS_LONG         "s3statdirs"
+#define ARG_S3TROUGHPUTTARGET_LONG  "s3targetgbps"
+#define ARG_S3VIRTADDRESSING_LONG   "s3virtaddr"
 #define ARG_SENDBUFSIZE_LONG		"sendbuf"
 #define ARG_SERVERS_LONG			"servers"
 #define ARG_SERVERSFILE_LONG		"serversfile"
@@ -494,8 +498,11 @@ class ProgArgs
         bool s3IgnoreMultipartUpload404; // Ignore 404 on retries of MPU completion
 		std::string s3LogfilePrefix; // dir and name prefix of aws sdk log file
 		unsigned short s3LogLevel; // log level for AWS SDK
+        unsigned s3MaxConnections; // max conns per s3 client instance (not eff. for S3CrtClient)
         size_t s3MpuSizeVariance; // random subtract variance in bytes for part sizes of MPU
         std::string s3MpuSizeVarianceOrigStr; // original s3MpuSizeVariance str from user with unit
+        size_t s3MpuSplitSize; // mpu split size by client instead of by blockSize
+        std::string s3MpuSplitSizeOrigStr; // original s3MpuSplitSize str from user with unit
 		bool s3NoCompression; // disable request compression of aws sdk cpp
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
 		std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
@@ -505,6 +512,7 @@ class ProgArgs
 			"2=never" is ignored, because as of aws sdk cpp v1.11.486 signing is always done. */
         std::string s3SSECKey;  // S3 SSE-C key for encryption
         std::string s3SSEKMSKey;  // S3 SSE-KMS key for encryption
+        unsigned s3ThroughputTargetGbps; // S3CrtClient throughput target for number of conns (Gbps)
 		unsigned short servicePort; // HTTP/TCP port for service
 		std::string serversFilePath; // path to file for preprended service hosts
 		std::string serversStr; // prepended to hostsStr in netbench mode
@@ -558,6 +566,7 @@ class ProgArgs
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
 								via buffer possible, such as GPU copy or data verification) */
         bool useS3SSE; // use SSE-S3 encryption method for S3
+		bool useS3VirtualAddressing; // true to use virtual addressing for S3
         bool useStridedAccess; // use strided file access pattern for shared files
 		std::string s3ChecksumAlgoStr;  /* Stores the S3 checksum algorithm value (e.g. "CRC32",
                                             "CRC32C", "SHA1", "SHA256") */
@@ -766,6 +775,8 @@ class ProgArgs
         size_t getS3MpuSizeVariance() const { return s3MpuSizeVariance; }
         bool getS3NoCompression() const { return s3NoCompression; };
         bool getS3NoMpuCompletion() const { return s3NoMpuCompletion; };
+        unsigned getS3MaxConnections() const { return s3MaxConnections; }
+        size_t getS3MpuSplitSize() const { return s3MpuSplitSize; }
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
         const std::string& getS3ObjectPrefix() const { return s3ObjectPrefix; }
         std::string getS3Region() const { return s3Region; }
@@ -773,6 +784,7 @@ class ProgArgs
         unsigned short getS3SignPolicy() const { return s3SignPolicy; }
         std::string getS3SSECKey() const { return s3SSECKey; }
         std::string getS3SSEKMSKey() const { return s3SSEKMSKey; }
+        unsigned getS3ThroughputTargetGbps() const { return s3ThroughputTargetGbps; }
         unsigned short getServicePort() const { return servicePort; }
         bool getShowAllElapsed() const { return showAllElapsed; }
         bool getShowCPUUtilization() const { return showCPUUtilization; }
@@ -813,6 +825,7 @@ class ProgArgs
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
         bool getUseS3SSE() const { return useS3SSE; }
+        bool getUseS3VirtualAddressing() const { return useS3VirtualAddressing; }
         bool getUseStridedAccess() const { return useStridedAccess; }
 		size_t getTimeLimitSecs() const { return timeLimitSecs; }
 		std::string getTreeFilePath() const { return treeFilePath; }

@@ -67,6 +67,10 @@
 #define S3_ENV_SECRET_KEY           "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret
 #define S3_ENV_SESSION_TOKEN        "AWS_SESSION_TOKEN" // environment variable for s3 session token
 
+// Names of features for printVersionAndBuildInfo()
+#define FEATURE_NAME_S3_SUPPORT     "s3"
+#define FEATURE_NAME_S3_AWSCRT      "s3crt"
+
 
 /**
  * Constructor.
@@ -601,11 +605,24 @@ void ProgArgs::defineAllowedArgs()
 			"Path and filename prefix of AWS S3 SDK log file. \"DATE.log\" will get appended to "
 			"the given filename. "
 			"(Default: \"" AWS_SDK_LOGPREFIX_DEFAULT "\" in current working directory)")
+/*s3m*/	(ARG_S3MAXCONNS_LONG, bpo::value(&this->s3MaxConnections),
+            "Max number of connections per S3 client instance. "
+            "(Default: Number of threads sharing the instance times iodepth.) "
+            "[Not effective for builds with feature " FEATURE_NAME_S3_AWSCRT ".]")
 /*s3m*/ (ARG_S3MPUSIZEVAR_LONG, bpo::value(&this->s3MpuSizeVarianceOrigStr),
             "Maximum number of bytes to subtract from part size of multipart uploads for random "
             "variance in part sizes. The last uploaded part will be correspondingly larger to "
             "meet the full given object size. This only works for plain sequential uploads in "
             "objects-per-thread mode, i.e. in combination with \"-" ARG_NUMFILES_SHORT "\".")
+/*s3m*/	(ARG_S3MPUSPLITSIZE_LONG, bpo::value(&this->s3MpuSplitSizeOrigStr),
+            "Normally, S3 MPU part size is defined via the \"-" ARG_BLOCK_SHORT "\" "
+            "parameter and " EXE_NAME " takes care of submitting the individual parts. When "
+            "this option is used, then the AWS S3 client object internally takes care of the "
+            "splitting and submission of the individual parts based on the given split size. "
+            "For this, \"-" ARG_BLOCK_SHORT "\" has to be set to the full object size, but this "
+            "also means each thread needs to allocate the full object size in memory. "
+            "(Default: 0=disabled) [Only effective for builds with feature "
+            FEATURE_NAME_S3_AWSCRT ".]")
 /*s3m*/	(ARG_S3MULTIDELETE_LONG, bpo::value(&this->runS3MultiDelObjNum),
 			"Delete multiple objects in a single DeleteObjects request. This loops on retrieving "
 			"a chunk of objects from a listing request and then deleting the retrieved set of "
@@ -669,6 +686,14 @@ void ProgArgs::defineAllowedArgs()
 			"(Default: 0)")
 /*s3s*/	(ARG_S3STATDIRS_LONG, bpo::bool_switch(&this->runS3StatDirs),
             "Run bucket attributes query phase.")
+/*s3m*/	(ARG_S3TROUGHPUTTARGET_LONG, bpo::value(&this->s3ThroughputTargetGbps),
+            "The throughput target for each S3 client instance in Gbps (gigabits per second) "
+            "based on which the client internally calculates the maximum number of "
+            "connections. (Default: 100) [Only effective for builds with feature "
+            FEATURE_NAME_S3_AWSCRT ".]")
+/*s3v*/	(ARG_S3VIRTADDRESSING_LONG, bpo::bool_switch(&this->useS3VirtualAddressing),
+            "Use S3 virtual addressing, where the bucket name gets prepended as subdomain of "
+            "the S3 server DNS name.")
 #endif // S3_SUPPORT
 /*se*/	(ARG_SENDBUFSIZE_LONG, bpo::value(&this->sockSendBufSizeOrigStr),
 			"In netbench mode, this sets the send buffer size of sockets in bytes. "
@@ -897,6 +922,7 @@ void ProgArgs::defineDefaults()
     this->useS3ClientSingleton = false;
 	this->useS3ObjectPrefixRand = false;
     this->useS3SSE = false;
+    this->useS3VirtualAddressing = false;
 	this->doReadInline = false;
 	this->doStatInline = false;
 	this->nextPhaseDelaySecs = 0;
@@ -916,8 +942,11 @@ void ProgArgs::defineDefaults()
     this->doS3ObjectLockCfg = false;
     this->doS3ObjectLockCfgVerify = false;
 	this->useOpsLogLocking = false;
+    this->s3MaxConnections = 0;
 	this->s3MpuSizeVariance = 0;
     this->s3MpuSizeVarianceOrigStr = "0";
+    this->s3MpuSplitSize = 0;
+    this->s3MpuSplitSizeOrigStr = "0";
 	this->s3NoCompression = false;
 	this->s3NoMpuCompletion = false;
 	this->s3IgnoreMultipartUpload404 = false;
@@ -925,6 +954,7 @@ void ProgArgs::defineDefaults()
     this->s3ChecksumAlgoStr = "";  // Default to empty string (resolved as NOT_SET)
 	this->s3CredentialsFile = "";
 	this->s3CredentialsList = "";
+    this->s3ThroughputTargetGbps = 100;
 }
 
 /**
@@ -1066,6 +1096,7 @@ void ProgArgs::convertUnitStrings()
 	limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
 	netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
     s3MpuSizeVariance = UnitTk::numHumanToBytesBinary(s3MpuSizeVarianceOrigStr, false);
+    s3MpuSplitSize = UnitTk::numHumanToBytesBinary(s3MpuSplitSizeOrigStr, false);
 	sockRecvBufSize = UnitTk::numHumanToBytesBinary(sockRecvBufSizeOrigStr, false);
 	sockSendBufSize = UnitTk::numHumanToBytesBinary(sockSendBufSizeOrigStr, false);
 
@@ -3344,14 +3375,14 @@ void ProgArgs::printVersionAndBuildInfo()
 #endif
 
 #if defined(S3_SUPPORT) && defined(S3_AWSCRT)
-    includedStream << "s3 ";
-    includedStream << "s3crt ";
+    includedStream << FEATURE_NAME_S3_SUPPORT << " ";
+    includedStream << FEATURE_NAME_S3_AWSCRT << " ";
 #elif defined(S3_SUPPORT)
-    includedStream << "s3 ";
-    notIncludedStream << "s3crt ";
+    includedStream << FEATURE_NAME_S3_SUPPORT << " ";
+    notIncludedStream << FEATURE_NAME_S3_AWSCRT << " ";
 #else
-    notIncludedStream << "s3 ";
-    notIncludedStream << "s3crt ";
+    notIncludedStream << FEATURE_NAME_S3_SUPPORT << " ";
+    notIncludedStream << FEATURE_NAME_S3_AWSCRT << " ";
 #endif
 
 #ifdef SYNCFS_SUPPORT
@@ -3467,7 +3498,9 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3CredentialsFile = tree.get<std::string>(ARG_S3CREDFILE_LONG);
     s3CredentialsList = tree.get<std::string>(ARG_S3CREDLIST_LONG);
 	s3EndpointsStr = tree.get<std::string>(ARG_S3ENDPOINTS_LONG);
+    s3MaxConnections = tree.get<unsigned>(ARG_S3MAXCONNS_LONG);
     s3MpuSizeVariance = tree.get<size_t>(ARG_S3MPUSIZEVAR_LONG);
+    s3MpuSplitSize = tree.get<size_t>(ARG_S3MPUSPLITSIZE_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
@@ -3476,6 +3509,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	s3SignPolicy = tree.get<unsigned short>(ARG_S3SIGNPAYLOAD_LONG);
     s3SSECKey = tree.get<std::string>(ARG_S3SSECKEY_LONG);
     s3SSEKMSKey = tree.get<std::string>(ARG_S3SSEKMSKEY_LONG);
+    s3ThroughputTargetGbps = tree.get<unsigned>(ARG_S3TROUGHPUTTARGET_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
@@ -3496,6 +3530,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
     useS3SSE = tree.get<bool>(ARG_S3SSE_LONG);
+    useS3VirtualAddressing = tree.get<bool>(ARG_S3VIRTADDRESSING_LONG);
 	useStridedAccess = tree.get<bool>(ARG_STRIDEDACCESS_LONG);
 
 	// dynamically calculated values for service hosts...
@@ -3614,6 +3649,10 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3ACLVERIFY_LONG, doS3AclVerify);
 	outTree.put(ARG_S3BUCKETACLGET_LONG, runS3BucketAclGet);
 	outTree.put(ARG_S3BUCKETACLPUT_LONG, runS3BucketAclPut);
+    outTree.put(ARG_S3BUCKETTAG_LONG, doS3BucketTag);
+    outTree.put(ARG_S3BUCKETTAGVERIFY_LONG, doS3BucketTagVerify);
+    outTree.put(ARG_S3BUCKETVER_LONG, doS3BucketVersioning);
+    outTree.put(ARG_S3BUCKETVERVERIFY_LONG, doS3BucketVersioningVerify);
     outTree.put(ARG_S3CHECKSUM_ALGO_LONG, s3ChecksumAlgoStr);
     outTree.put(ARG_S3CLIENTSINGLETON_LONG, useS3ClientSingleton);
 	outTree.put(ARG_S3CREDFILE_LONG, s3CredentialsFile);
@@ -3624,13 +3663,18 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJ_LONG, runS3ListObjNum);
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
+    outTree.put(ARG_S3MAXCONNS_LONG, s3MaxConnections);
     outTree.put(ARG_S3MPUSIZEVAR_LONG, s3MpuSizeVariance);
+    outTree.put(ARG_S3MPUSPLITSIZE_LONG, s3MpuSplitSize);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
     outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
     outTree.put(ARG_S3NOMPUCOMPLETION_LONG, s3NoMpuCompletion);
-    outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
+    outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
+    outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
+    outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
     outTree.put(ARG_S3SESSION_TOKEN_LONG, s3SessionToken);
@@ -3638,17 +3682,12 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3SSE_LONG, useS3SSE);
     outTree.put(ARG_S3SSECKEY_LONG, s3SSECKey);
     outTree.put(ARG_S3SSEKMSKEY_LONG, s3SSEKMSKey);
-	outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
-	outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
-	outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
-    outTree.put(ARG_S3BUCKETTAG_LONG, doS3BucketTag);
-    outTree.put(ARG_S3BUCKETTAGVERIFY_LONG, doS3BucketTagVerify);
-    outTree.put(ARG_S3BUCKETVER_LONG, doS3BucketVersioning);
-    outTree.put(ARG_S3BUCKETVERVERIFY_LONG, doS3BucketVersioningVerify);
-    outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
-    outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
-    outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
-    outTree.put(ARG_S3OBJLOCKCFGVERIFY_LONG, doS3ObjectLockCfgVerify);
+    outTree.put(ARG_S3STATDIRS_LONG, runS3StatDirs);
+    outTree.put(ARG_S3TROUGHPUTTARGET_LONG, s3ThroughputTargetGbps);
+    outTree.put(ARG_S3VIRTADDRESSING_LONG, useS3VirtualAddressing);
+    outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
+    outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
+    outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
     outTree.put(ARG_STRIDEDACCESS_LONG, useStridedAccess);
     outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
