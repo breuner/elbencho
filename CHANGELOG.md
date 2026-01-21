@@ -2,6 +2,9 @@
 
 ## v3.0.38 (work in progress)
 
+### General Changes
+* Respect the `AWS_REQUEST_CHECKSUM_CALCULATION` environment variable for S3. Default for checksum calculation is still `when_required` as before, but this can now be changed by setting the environment variable to `when_supported`, which will switch to chunked uploads. (With the `when_suppported` setting, multi-part uploads will switch from fixed content length to chunked encoding and corresponding streaming signatures.)
+
 ## v3.0.37 (Dec 27, 2025)
 
 ### New Features & Enhancements

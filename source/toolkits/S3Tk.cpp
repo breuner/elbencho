@@ -92,12 +92,17 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
         #endif // S3_AWSCRT
 	}
 
-	Aws::InitAPI(*s3SDKOptions);
-
 	/* note: this is to avoid a long delay for the client config trying to contact the
 		AWS instance metadata service to retrieve credentials, although we already set them.
 		this way, it can still manually be overrideen through the environment variable. */
 	setenv("AWS_EC2_METADATA_DISABLED", "true", 0);
+
+    /* disable request checksum overhead if not explicitly requested.
+       (note: this also disables chunked multi-part uploads) */
+	setenv("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required", 0);
+
+	Aws::InitAPI(*s3SDKOptions);
+
 
     // Initialize credential store if multi-credentials are specified
     if(!progArgs->getS3CredentialsFile().empty())
@@ -197,8 +202,6 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     config.requestCompressionConfig.requestMinCompressionSizeBytes = 1;
     config.requestCompressionConfig.useRequestCompression = (progArgs->getS3NoCompression() ?
         Aws::Client::UseRequestCompression::DISABLE : Aws::Client::UseRequestCompression::ENABLE);
-    config.checksumConfig.requestChecksumCalculation =
-        Aws::Client::RequestChecksumCalculation::WHEN_REQUIRED;
 
 
 #ifdef S3_AWSCRT
