@@ -269,7 +269,7 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     {
         // Single credential mode
         credentialsProvider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
-            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret());
+            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret(), progArgs->getS3SessionToken());
 
         LOGGER(Log_DEBUG, "Using single S3 credential. "
             "Worker rank: " << workerRank << std::endl);
