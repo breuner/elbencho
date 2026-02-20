@@ -35,6 +35,16 @@ uint64_t UnitTk::numHumanToBytesBinary(std::string numHuman, bool throwOnEmpty)
 	if(findCommaPos != std::string::npos)
 		throw ProgException("Unable to parse number string containing ',' character: " + numHuman);
 
+	// make sure number string does not contain "-" character. A leading "-" would be silently
+	// cast to a huge value because the return type is uint64_t, and a "-" in the middle
+	// (e.g. "4k-4m" range) would cause atoll to only parse the leading digits while the unit
+	// suffix is taken from the last character, silently resulting in a wrong value.
+	std::size_t findDashPos = numHuman.find("-");
+	if(findDashPos != std::string::npos)
+		throw ProgException("Unable to parse value: " + numHuman + ". "
+			"A positive number is required (e.g. \"4k\"). "
+			"Negative and range values are not supported.");
+
 	// atoll ignores characters at the end
 	uint64_t bytesRes = std::atoll(numHuman.c_str() );
 
