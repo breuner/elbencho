@@ -7800,14 +7800,20 @@ void LocalWorker::anyModeDropCaches()
 	int fd = open(dropCachesPath.c_str(), O_WRONLY);
 
 	if(fd == -1)
-		throw WorkerException(std::string("Opening cache drop command file failed. ") +
+		throw WorkerException(std::string("Opening virtual drop_caches file failed. ") +
 			"Path: " + dropCachesPath + "; "
 			"SysErr: " + strerror(errno) );
 
 	ssize_t writeRes = write(fd, dropCachesValStr.c_str(), dropCachesValStr.size() );
 
 	if(writeRes == -1)
+	{
+		close(fd);
+
 		throw WorkerException(std::string("Writing to cache drop command file failed. ") +
 			"Path: " + dropCachesPath + "; "
 			"SysErr: " + strerror(errno) );
+	}
+
+	close(fd);
 }
