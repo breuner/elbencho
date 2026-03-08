@@ -10,7 +10,8 @@
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
-NUM_PARALLEL_JOBS=1  # Number of parallel "make" jobs, gets set from "make" env vars or cpu cores
+NUM_PARALLEL_JOBS="undefined" # just informational, will be set from "make" env vars if available.
+MAKE_CMD="make" # Will be updated from "make" env vars if this is a sub-make call.
 
 
 # Clone Simple-Web-Server git repo and switch to required tag. Nothing to configure/build/install
@@ -118,7 +119,7 @@ prepare_webserver_uws()
 
 	echo "Building uSockets lib for uWS HTTP server... (parallel jobs: $NUM_PARALLEL_JOBS)"
 	cd "$CLONE_DIR/uSockets" && \
-		make -j "$NUM_PARALLEL_JOBS" && \
+		$MAKE_CMD && \
 		cd "$EXTERNAL_BASE_DIR"
 
 	[ $? -ne 0 ] && exit 1
@@ -245,7 +246,20 @@ prepare_awssdk()
 	if [ ! -d "$CLONE_DIR" ]; then
 		echo "Cloning AWS SDK git repo... [Repo: $GIT_REPO] [Branch: $REQUIRED_TAG]"
 
-		git clone --recursive --depth 1 --branch "$REQUIRED_TAG" \
+		# check existence of special flags in given git version to speed up git clone
+		local CLONE_SPECIAL_FLAGS=""
+
+		git clone --help | grep shallow-submodules >/dev/null
+		if [ "$?" -eq 0 ]; then
+			CLONE_SPECIAL_FLAGS+="--shallow-submodules "
+		fi
+
+		git clone --help | grep jobs >/dev/null
+		if [ "$?" -eq 0 ]; then
+			CLONE_SPECIAL_FLAGS+="--jobs 4 "
+		fi
+
+		git clone $CLONE_SPECIAL_FLAGS --recursive --depth 1 --branch "$REQUIRED_TAG" \
 			"$GIT_REPO" $CLONE_DIR
 		if [ $? -ne 0 ]; then
 			echo "ERROR: Cloning AWS SDK git repo failed." \
@@ -271,7 +285,7 @@ prepare_awssdk()
 			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
 			-DFORCE_SHARED_CRT=OFF -DENABLE_UNITY_BUILD=ON \
 			"-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR" && \
-		make -j "$NUM_PARALLEL_JOBS" install && \
+		$MAKE_CMD install && \
 		cd "$EXTERNAL_BASE_DIR"
 
 	[ $? -ne 0 ] && exit 1
@@ -376,7 +390,7 @@ prepare_mimalloc()
 	mkdir -p "$INSTALL_DIR" && \
 		cd "$INSTALL_DIR" && \
 		cmake .. && \
-		make -j "$NUM_PARALLEL_JOBS" && \
+		$MAKE_CMD && \
 		cd "$EXTERNAL_BASE_DIR" && \
 		return 0
 
@@ -420,7 +434,7 @@ prepare_libbacktrace()
 	mkdir -p "$INSTALL_DIR" && \
 		cd "$CLONE_DIR" && \
 		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared && \
-		make -j "$NUM_PARALLEL_JOBS" install  && \
+		$MAKE_CMD install  && \
 		cd "$EXTERNAL_BASE_DIR" && \
 		return 0
 
@@ -434,13 +448,15 @@ prepare_libbacktrace()
 ########### End of function definitions ############
 
 
-# Get number of parallel jobs from "make" environment variables
-NUM_PARALLEL_JOBS=$(echo " $MAKEFLAGS" | grep -o -e "-j[[:digit:]]\+" | sed s/-j//g)
 
-# Use number of CPU cores if "make" env vars are not set or use "1" as fallback
-if [ -z "$NUM_PARALLEL_JOBS" ]; then
-	# Try to get number of CPU cores macOS style (hw.ncpu) or Linux style (nproc) or fallback to 1
-	NUM_PARALLEL_JOBS="$(uname | grep -q Darwin && sysctl -n hw.ncpu || nproc || echo 1)";
+# If we are in a sub-make call, use the "make" cmd and num of parallel jobs from the parent make.
+if [ ! -z "$MAKELEVEL" ]; then
+	MAKE_CMD="${MAKE:-make}"
+
+	# Get number of parallel jobs from "make" environment variables, just informational.
+	NUM_PARALLEL_JOBS=$(echo " $MAKEFLAGS" | grep -o -e "-j[[:digit:]]\+" | sed s/-j//g)
+
+	[ -z "$NUM_PARALLEL_JOBS" ] && NUM_PARALLEL_JOBS="undefined"
 fi
 
 prepare_webserver_sws

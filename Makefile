@@ -299,13 +299,15 @@ $(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on 
 
 
 externals:
+# Note: The "+" prefix is to let "make" know that it needs to increase the MAKELEVEL env var because
+# there will be sub-make calls in this script.
 ifdef BUILD_VERBOSE
-	PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
+	+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 else
-	@PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
+	@+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
 		$(EXTERNAL_PATH)/prepare-external.sh
