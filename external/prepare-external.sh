@@ -225,7 +225,7 @@ prepare_awssdk()
 		return 0; # AWS SDK build not required, so we're done here
 	fi
 
-	local REQUIRED_TAG="${AWS_REQUIRED_TAG:-"1.11.712"}"
+	local REQUIRED_TAG="${AWS_REQUIRED_TAG:-"1.11.764"}"
 	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/aws/aws-sdk-cpp.git"}"
 
 	local CURRENT_TAG

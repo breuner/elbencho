@@ -5,6 +5,7 @@
 ### General Changes
 * Respect the `AWS_REQUEST_CHECKSUM_CALCULATION` environment variable for S3. Default for checksum calculation is still `when_required` as before, but this can now be changed by setting the environment variable to `when_supported`, which will switch to chunked uploads. (With the `when_suppported` setting, multi-part uploads will switch from fixed content length to chunked encoding and corresponding streaming signatures.)
 * Added check for invalid `-` character in values that don't exect negative numbers or ranges, e.g. filesize or blocksize.
+* Updated S3 to latest AWS SDK CPP v1.11.764.
 
 ### Fixes
 * Drop caches phase did not close file descriptor of virtual "drop_caches" file in "/proc".
