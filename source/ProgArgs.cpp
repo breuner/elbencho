@@ -5,7 +5,6 @@
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
-#include <iterator>
 #include <libgen.h>
 #include <openssl/sha.h>
 #include <regex>
@@ -1288,8 +1287,8 @@ void ProgArgs::checkArgs()
             "\"--" ARG_RWMIXTHREADS_LONG "\"");
 
     if(rwMixThreadsReadPercent && (limitReadBps || limitWriteBps) )
-    throw ProgException("Option \"--" ARG_RWMIXTHREADSPCT_LONG "\" cannot be used together with "
-        "\"--" ARG_LIMITREAD_LONG "\" or \"--" ARG_LIMITWRITE_LONG "\"");
+        throw ProgException("Option \"--" ARG_RWMIXTHREADSPCT_LONG "\" cannot be used together with "
+            "\"--" ARG_LIMITREAD_LONG "\" or \"--" ARG_LIMITWRITE_LONG "\"");
 
     if(rwMixReadPercent && !gpuIDsVec.empty() && !useCuFile)
         throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "

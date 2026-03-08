@@ -29,10 +29,12 @@ aws_sdk_*.log
 .reuse/
 
 # Visual Studio Code
-.clang-format
 .vscode/
 
 # Misc
+.clang-format
+.clang-tidy
+.clangd
 compile_flags.txt
 excluded/
 todo.txt

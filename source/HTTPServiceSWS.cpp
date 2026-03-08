@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
+#include <future>
 #include <libgen.h>
 #include <pwd.h>
 #include <sys/file.h>
@@ -14,9 +15,7 @@
 #include "HTTPServiceSWS.h"
 #include "ProgException.h"
 #include "toolkits/S3Tk.h"
-#include "toolkits/SystemTk.h"
 #include "toolkits/TranslatorTk.h"
-#include "workers/RemoteWorker.h"
 
 
 namespace Web = SimpleWeb;
