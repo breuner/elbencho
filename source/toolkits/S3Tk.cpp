@@ -13,6 +13,7 @@
 #include "toolkits/UnitTk.h"
 
 #ifdef S3_SUPPORT
+    #include "toolkits/S3InterruptibleRetryStrategy.h"
     #include <aws/core/auth/AWSCredentialsProvider.h>
     #include <aws/core/auth/AWSCredentialsProviderChain.h>
     #include <aws/core/Aws.h>
@@ -193,8 +194,9 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     config.enableEndpointDiscovery = false; // to avoid delays for discovery
     config.maxConnections = maxConnections ? maxConnections : numParallelRequests; /* max tcp conns;
         ignored by S3CrtClient, which uses throughputTargetGbps for implicit calculation */
-    config.retryStrategy = std::make_shared<InterruptibleRetryStrategy>(
-        isInterruptionRequested); // note: restryStrategy is not used by S3CrtClient
+    config.retryStrategy = std::make_shared<S3InterruptibleRetryStrategy>(
+        Aws::Client::InitRetryStrategy(),
+        isInterruptionRequested); // note: retryStrategy is not used by S3CrtClient
     config.connectTimeoutMs = 5000;
     config.requestTimeoutMs = 300000;
     config.disableExpectHeader = true;
