@@ -15,6 +15,9 @@
 ### Contributors
 * Thanks to GitHub user bhbmaster (Kostia Khlebopros) for contributions, helpful comments and suggestions.
 
+### Fixes
+* Fixed S3 retry strategy ignoring the `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` environment variables. The custom interruptible retry strategy now wraps the SDK's environment-aware retry strategy instead of hardcoding the default strategy. (Regression introduced in v3.0.33)
+
 ## v3.0.37 (Dec 27, 2025)
 
 ### New Features & Enhancements

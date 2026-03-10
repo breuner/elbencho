@@ -6,7 +6,7 @@
 
 #ifdef S3_SUPPORT
 	#include <aws/core/Aws.h>
-    #include <aws/core/client/DefaultRetryStrategy.h>
+    #include <aws/core/client/ClientConfiguration.h>
     #include <aws/core/utils/HashingUtils.h>
 	#include <aws/core/utils/memory/AWSMemory.h>
 	#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
@@ -75,31 +75,6 @@
             Aws::Utils::Stream::PreallocatedStreamBuf streamBuf;
     };
 
-    /**
-     * A S3 retry strategy that delegates all decisions to DefaultRetryStrategy with its exponential
-     * backoff, but checks for the interrupt flag being set before it delegates.
-     */
-    class InterruptibleRetryStrategy : public Aws::Client::DefaultRetryStrategy
-    {
-        public:
-            InterruptibleRetryStrategy(std::atomic_bool* isInterruptionRequestedPtr) :
-                Aws::Client::DefaultRetryStrategy(),
-                isInterruptionRequestedPtr(isInterruptionRequestedPtr)
-            { }
-
-            bool ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
-                            long attemptedRetries) const override
-            {
-                if(isInterruptionRequestedPtr && isInterruptionRequestedPtr->load() )
-                    return false; // stop retrying if interruption was requested
-
-                // delegate to DefaultRetryStrategy
-                return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
-            }
-
-        private:
-            std::atomic_bool* isInterruptionRequestedPtr; // can be NULL
-    };
 
 #endif // S3_SUPPORT
 
