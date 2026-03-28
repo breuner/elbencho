@@ -8,6 +8,7 @@
 * Updated S3 to latest AWS SDK CPP v1.11.764.
 * Updated AWS SDK CPP git clone command to only do shallow submodule cloning and to use parallel jobs.
 * Updated `make` calls in `prepare-externals.sh` script to not reset the jobserver mode of `make`.
+* Updated mimalloc lib for static builds to latest v3.2.8.
 
 ### Fixes
 * Drop caches phase did not close file descriptor of virtual "drop_caches" file in "/proc".
