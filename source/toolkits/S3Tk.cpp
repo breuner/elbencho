@@ -19,7 +19,6 @@
     #include <aws/core/utils/crypto/MD5.h>
     #include <aws/core/utils/logging/DefaultLogSystem.h>
     #include <aws/core/utils/logging/AWSLogging.h>
-    #include <aws/core/utils/threading/SameThreadExecutor.h>
     #include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
 
     #ifdef S3_AWSCRT
