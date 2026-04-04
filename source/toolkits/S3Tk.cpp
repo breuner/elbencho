@@ -13,7 +13,6 @@
 #include "toolkits/UnitTk.h"
 
 #ifdef S3_SUPPORT
-    #include "toolkits/S3InterruptibleRetryStrategy.h"
     #include <aws/core/auth/AWSCredentialsProvider.h>
     #include <aws/core/auth/AWSCredentialsProviderChain.h>
     #include <aws/core/Aws.h>
@@ -26,6 +25,7 @@
         #include <aws/core/utils/logging/CRTLogSystem.h>
     #endif
 
+    #include "toolkits/S3InterruptibleRetryStrategy.h"
 
     /* print a note for AWS CRT with older SDK versions because of known issue with
         SetContinueRequestHandler: https://github.com/aws/aws-sdk-cpp/issues/3639 */

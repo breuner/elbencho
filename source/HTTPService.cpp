@@ -4,7 +4,6 @@
 #include <arpa/inet.h>
 #include <cstdlib>
 #include <fcntl.h>
-#include <fstream>
 #include <libgen.h>
 #include <netinet/in.h>
 #include <pwd.h>
@@ -13,7 +12,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include "HTTPService.h"
+#include "toolkits/SystemTk.h"
 
 #define SERVICE_LOG_DIR			"/tmp"
 #define SERVICE_LOG_FILEPREFIX	EXE_NAME
