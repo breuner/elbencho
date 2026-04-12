@@ -5,7 +5,7 @@
 ### General Changes
 * Respect the `AWS_REQUEST_CHECKSUM_CALCULATION` environment variable for S3. Default for checksum calculation is still `when_required` as before, but this can now be changed by setting the environment variable to `when_supported`, which will switch to chunked uploads. (With the `when_suppported` setting, multi-part uploads will switch from fixed content length to chunked encoding and corresponding streaming signatures.)
 * Added check for invalid `-` character in values that don't exect negative numbers or ranges, e.g. filesize or blocksize.
-* Updated S3 to latest AWS SDK CPP v1.11.764.
+* Updated S3 to latest AWS SDK CPP v1.11.789.
 * Updated AWS SDK CPP git clone command to only do shallow submodule cloning and to use parallel jobs.
 * Updated `make` calls in `prepare-externals.sh` script to not reset the jobserver mode of `make`.
 * Updated mimalloc lib for static builds to latest v3.2.8.

@@ -32,9 +32,11 @@ aws_sdk_*.log
 .vscode/
 
 # Misc
+.cache/
 .clang-format
 .clang-tidy
 .clangd
 compile_flags.txt
+compile_commands.json
 excluded/
 todo.txt
