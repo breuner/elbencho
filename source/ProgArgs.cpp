@@ -67,6 +67,10 @@
 #define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
 #define S3_ENV_SECRET_KEY           "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret
 #define S3_ENV_SESSION_TOKEN        "AWS_SESSION_TOKEN" // environment variable for s3 session token
+#define S3_ENV_ENDPOINT_URL_S3      "AWS_ENDPOINT_URL_S3" // S3-specific endpoint URL (AWS CLI v2)
+#define S3_ENV_ENDPOINT_URL         "AWS_ENDPOINT_URL" // generic endpoint URL for all AWS services
+#define S3_ENV_REGION               "AWS_REGION" // AWS region (AWS CLI v2 preferred name)
+#define S3_ENV_REGION_DEFAULT       "AWS_DEFAULT_REGION" // AWS region (legacy name)
 
 // Names of features for printVersionAndBuildInfo()
 #define FEATURE_NAME_S3_SUPPORT     "s3"
@@ -575,7 +579,9 @@ void ProgArgs::defineAllowedArgs()
 /*s3e*/	(ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
 			"Comma-separated list of S3 endpoints. When this argument is used, the given "
 			"benchmark paths are used as bucket names. Also see \"--" ARG_S3ACCESSKEY_LONG "\" & "
-			"\"--" ARG_S3ACCESSSECRET_LONG "\". (Format: [http(s)://]hostname[:port])")
+			"\"--" ARG_S3ACCESSSECRET_LONG "\". (This can also be set via the "
+			S3_ENV_ENDPOINT_URL_S3 " or " S3_ENV_ENDPOINT_URL " env variable.) "
+			"(Format: [http(s)://]hostname[:port])")
 /*s3f*/	(ARG_S3FASTGET_LONG, bpo::bool_switch(&this->useS3FastRead),
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
@@ -669,7 +675,8 @@ void ProgArgs::defineAllowedArgs()
 /*s3s*/	(ARG_S3SSEKMSKEY_LONG, bpo::value(&this->s3SSEKMSKey),
             "Key for S3 SSE-KMS. (EXPERIMENTAL)")
 /*s3r*/	(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
-			"S3 region.")
+			"S3 region. (This can also be set via the " S3_ENV_REGION " or "
+			S3_ENV_REGION_DEFAULT " env variable.)")
 /*s3s*/	(ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
 			"S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
 /*s3s*/	(ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
@@ -999,6 +1006,30 @@ void ProgArgs::initImplicitValues()
 
 	if(useBriefLiveStatsNewLine)
 		useBriefLiveStats = true;
+
+	// read s3 endpoint & region from environment variables as fallback when command-line
+	// arguments are not given (matches AWS CLI v2 precedence: arg > env). Not applied when
+	// running as a service, because services inherit these values from the master.
+	if(!runAsService)
+	{
+		if(s3EndpointsStr.empty() )
+		{
+			if(getenv(S3_ENV_ENDPOINT_URL_S3) != NULL)
+				s3EndpointsStr = getenv(S3_ENV_ENDPOINT_URL_S3);
+			else
+			if(getenv(S3_ENV_ENDPOINT_URL) != NULL)
+				s3EndpointsStr = getenv(S3_ENV_ENDPOINT_URL);
+		}
+
+		if(s3Region.empty() )
+		{
+			if(getenv(S3_ENV_REGION) != NULL)
+				s3Region = getenv(S3_ENV_REGION);
+			else
+			if(getenv(S3_ENV_REGION_DEFAULT) != NULL)
+				s3Region = getenv(S3_ENV_REGION_DEFAULT);
+		}
+	}
 
 	// service: check for s3 endpoint override
 	if(!s3EndpointsStr.empty() && runAsService)
@@ -3086,7 +3117,9 @@ void ProgArgs::printHelpS3()
         (ARG_S3CREDLIST_LONG, bpo::value(&this->s3CredentialsList),
             "Comma-separated list of S3 credentials. Each credential in format: access_key:secret_key")
         (ARG_S3ENDPOINTS_LONG, bpo::value(&this->s3EndpointsStr),
-            "Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port])")
+            "Comma-separated list of S3 endpoints. (Format: [http(s)://]hostname[:port]) "
+            "(This can also be set via the " S3_ENV_ENDPOINT_URL_S3 " or "
+            S3_ENV_ENDPOINT_URL " env variable.)")
         (ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
             "S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
         (ARG_S3ACCESSSECRET_LONG, bpo::value(&this->s3AccessSecret),
@@ -3163,7 +3196,8 @@ void ProgArgs::printHelpS3()
 			"the object size as of which multiple threads are used to upload/download an object. "
 			"(Default: 0, which means " FILESHAREBLOCKFACTOR_STR " x blocksize)")
 		(ARG_S3REGION_LONG, bpo::value(&this->s3Region),
-			"S3 region.")
+			"S3 region. (This can also be set via the " S3_ENV_REGION " or "
+			S3_ENV_REGION_DEFAULT " env variable.)")
 		(ARG_NUMAZONES_LONG, bpo::value(&this->numaZonesStr),
 			"Comma-separated list of NUMA zones to bind this process to. If multiple zones are "
 			"given, then worker threads are bound round-robin to the zones. "
