@@ -260,38 +260,38 @@ endif
 
 .c.o:
 ifdef BUILD_VERBOSE
-	$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -o $(@)
+	$(CXX) $(CXXFLAGS) $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(CXX) $(CXXFLAGS) $(@:.o=.c) -c -o $(@)
 else
 	@echo [DEP] $(@:.o=.d)
-	@$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	@$(CXX) $(CXXFLAGS) $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
 	@echo [CXX] $@
-	@$(CXX) $(CXXFLAGS) -c $(@:.o=.c) -o $(@)
+	@$(CXX) $(CXXFLAGS) $(@:.o=.c) -c -o $(@)
 endif
 
 
 .cpp.o:
 ifdef BUILD_VERBOSE
-	$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -o $(@)
+	$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -c -o $(@)
 else
 	@echo [DEP] $(@:.o=.d)
-	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	@$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
 	@echo [CXX] $@
-	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -o $(@)
+	@$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -c -o $(@)
 endif
 
 # This is a special case because we need special compile options to get gcc to enable loop unrolling
 # and SIMD conversion, hence the additional "CXXFLAGS_SPECIAL_SIMD".
 source/toolkits/random/RandAlgoSelectorTk.o: source/toolkits/random/RandAlgoSelectorTk.cpp
 ifdef BUILD_VERBOSE
-	$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) -c $(@:.o=.cpp) -o $(@)
+	$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) $(@:.o=.cpp) -c -o $(@)
 else
 	@echo [DEP] $(@:.o=.d)
-	@$(CXX) $(CXXFLAGS) -c $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	@$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
 	@echo [CXX special SIMD] $@
-	@$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) -c $(@:.o=.cpp) -o $(@)
+	@$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) $(@:.o=.cpp) -c -o $(@)
 endif
 
 
