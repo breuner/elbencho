@@ -769,7 +769,7 @@ void ProgArgs::defineAllowedArgs()
 /*tr*/  (ARG_TREESCAN_LONG, bpo::value(&this->treeScanPath),
             "Path to scan on startup. The discovered entries will be stored in a treefile and "
             "the resulting treefile will be used for the run. Path can be a directory on a POSIX "
-            "filesystem (\"/mnt/mystorage\") or an S3 bucket with optional prefix "
+            "filesystem (\"file:///mnt/mystorage\") or an S3 bucket with optional prefix "
             "(\"s3://mybucket/myprefix\"). The location of the generated treefile can be changed "
             "from the default in \"/var/tmp\" by setting \"--" ARG_TREEFILE_LONG "\". The scan "
             "runs single-threaded. In case of a distributed run with services, the master instance "
@@ -3041,8 +3041,8 @@ void ProgArgs::printHelpBlockDev()
 #endif
 #ifdef CUFILE_SUPPORT
 		std::endl <<
-		"  Stream data from large file into memory of first 2 GPUs via GPUDirect Storage:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 --gds \\" ENDL
+		"  Stream data from large file into memory of all GPUs via GPUDirect Storage:" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids all --gds \\" ENDL
 		"        /mnt/myfs/file1" ENDL
 #endif
 		std::endl;

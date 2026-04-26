@@ -346,7 +346,9 @@ All options in alphabetical order:
   --s3endpoints arg       Comma-separated list of S3 endpoints. When this 
                           argument is used, the given benchmark paths are used 
                           as bucket names. Also see "--s3key" & "--s3secret". 
-                          (Format: [http(s)://]hostname[:port])
+                          (This can also be set via the AWS_ENDPOINT_URL_S3 or 
+                          AWS_ENDPOINT_URL env variable.) (Format: 
+                          [http(s)://]hostname[:port])
   --s3fastget             Send downloaded objects directly to /dev/null instead
                           of a memory buffer. This option is incompatible with 
                           any buffer post-processing options like data 
@@ -373,12 +375,26 @@ All options in alphabetical order:
   --s3logprefix arg       Path and filename prefix of AWS S3 SDK log file. 
                           "DATE.log" will get appended to the given filename. 
                           (Default: "aws_sdk_" in current working directory)
+  --s3maxconns arg        Max number of connections per S3 client instance. 
+                          (Default: Number of threads sharing the instance 
+                          times iodepth.) [Not effective for builds with 
+                          feature s3crt.]
   --s3mpusizevar arg      Maximum number of bytes to subtract from part size of
                           multipart uploads for random variance in part sizes. 
                           The last uploaded part will be correspondingly larger
                           to meet the full given object size. This only works 
                           for plain sequential uploads in objects-per-thread 
                           mode, i.e. in combination with "-N".
+  --s3mpusplit arg        Normally, S3 MPU part size is defined via the "-b" 
+                          parameter and elbencho takes care of submitting the 
+                          individual parts. When this option is used, then the 
+                          AWS S3 client object internally takes care of the 
+                          splitting and submission of the individual parts 
+                          based on the given split size. For this, "-b" has to 
+                          be set to the full object size, but this also means 
+                          each thread needs to allocate the full object size in
+                          memory. (Default: 0=disabled) [Only effective for 
+                          builds with feature s3crt.]
   --s3multidel arg        Delete multiple objects in a single DeleteObjects 
                           request. This loops on retrieving a chunk of objects 
                           from a listing request and then deleting the 
@@ -420,7 +436,8 @@ All options in alphabetical order:
                           (EXPERIMENTAL)
   --s3sseckey arg         Base64-encoded AES-256 encryption key for S3 SSE-C.
   --s3ssekmskey arg       Key for S3 SSE-KMS. (EXPERIMENTAL)
-  --s3region arg          S3 region.
+  --s3region arg          S3 region. (This can also be set via the AWS_REGION 
+                          or AWS_DEFAULT_REGION env variable.)
   --s3secret arg          S3 access secret. (This can also be set via the 
                           AWS_SECRET_ACCESS_KEY env variable.)
   --s3sessiontoken arg    S3 session token. (Optional. This can also be set via
@@ -437,6 +454,13 @@ All options in alphabetical order:
                           effect with current S3 SDK as described in Github 
                           issue 3297. (Default: 0)
   --s3statdirs            Run bucket attributes query phase.
+  --s3targetgbps arg      The throughput target for each S3 client instance in 
+                          Gbps (gigabits per second) based on which the client 
+                          internally calculates the maximum number of 
+                          connections. (Default: 100) [Only effective for 
+                          builds with feature s3crt.]
+  --s3virtaddr            Use S3 virtual addressing, where the bucket name gets
+                          prepended as subdomain of the S3 server DNS name.
   --sendbuf arg           In netbench mode, this sets the send buffer size of 
                           sockets in bytes. (Supports base2 suffixes, e.g. 
                           "2M")
@@ -500,17 +524,18 @@ All options in alphabetical order:
                           many platforms. (Default: 0 for disabled)
   --treescan arg          Path to scan on startup. The discovered entries will 
                           be stored in a treefile and the resulting treefile 
-                          will be used for the run. Path can be a directory 
-                          ("/mnt/mystorage") or an S3 bucket with optional 
-                          prefix ("s3://mybucket/myprefix"). The location of 
-                          the generated treefile can be changed from the 
-                          default in "/var/tmp" by setting "--treefile". The 
-                          scan runs single-threaded. In case of a distributed 
-                          run with services, the master instance (i.e. the host
-                          from which the test gets submitted) will run the 
-                          scan. Only regular files will be used, symlinks and 
-                          other special files will be ignored. S3 prefix from 
-                          scan will not be stored in the treefile, so use 
+                          will be used for the run. Path can be a directory on 
+                          a POSIX filesystem ("file:///mnt/mystorage") or an S3
+                          bucket with optional prefix 
+                          ("s3://mybucket/myprefix"). The location of the 
+                          generated treefile can be changed from the default in
+                          "/var/tmp" by setting "--treefile". The scan runs 
+                          single-threaded. In case of a distributed run with 
+                          services, the master instance (i.e. the host from 
+                          which the test gets submitted) will run the scan. 
+                          Only regular files will be used, symlinks and other 
+                          special files will be ignored. S3 prefix from scan 
+                          will not be stored in the treefile, so use 
                           "--s3objprefix" to set/change prefix for benchmark 
                           runs.
   --trunc                 Truncate files to 0 size when opening for writing.

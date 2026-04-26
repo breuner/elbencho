@@ -1,13 +1,13 @@
 # Changelog of elbencho
 
-## v3.0.38 (work in progress)
+## v3.1.1 (Apr 26, 2026)
 
 ### General Changes
-* Added support for "file://" and "s3://" prefixes to explicitly declare given path arguments as dirs/files on a POSIX filesystem or buckets/objects on S3 object storage.
+* Added support for `file://` and `s3://` prefixes to explicitly declare given path arguments as dirs/files on a POSIX filesystem or buckets/objects on S3 object storage. (For backwards compatibility, usage of prefixes is optional and behavior without prefixes remains the same as before.)
 * Respect the `AWS_REQUEST_CHECKSUM_CALCULATION` environment variable for S3. Default for checksum calculation is still `when_required` as before, but this can now be changed by setting the environment variable to `when_supported`, which will switch to chunked uploads. (With the `when_suppported` setting, multi-part uploads will switch from fixed content length to chunked encoding and corresponding streaming signatures.)
 * S3 endpoint and region can now also be provided via environment variables. `--s3endpoints` falls back to `AWS_ENDPOINT_URL_S3` then `AWS_ENDPOINT_URL`; `--s3region` falls back to `AWS_REGION` then `AWS_DEFAULT_REGION`. Command-line arguments still take precedence. S3 endpoint is only read from envirnment variables if `s3://` prefix is used for benchmark path (to prevent problems with file-based benchmarks when AWS env vars are set).
-* Added support for reading S3 endpoint and credentials from AWS profile config via `AWS_PROFILE` environment variable (if benchmark is explicitly declared as S3 via "s3://" benchmark path prefix).
-* Added check for invalid `-` character in values that don't exect negative numbers or ranges, e.g. filesize or blocksize.
+* Added support for reading S3 endpoint and credentials from AWS profile config via `AWS_PROFILE` environment variable (if benchmark run is explicitly declared as S3 via `s3://` benchmark path prefix).
+* Added check for invalid `-` character in parameter values that don't expect negative numbers or ranges, e.g. filesize or blocksize.
 * Updated S3 to latest AWS SDK CPP v1.11.789.
 * Updated AWS SDK CPP git clone command to only do shallow submodule cloning and to use parallel jobs.
 * Updated `make` calls in `prepare-externals.sh` script to not reset the jobserver mode of `make`.

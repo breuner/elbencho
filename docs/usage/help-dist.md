@@ -22,6 +22,9 @@ Basic Options:
                         mode to coordinate the given service mode hosts. The 
                         given number of threads, dirs and files is per-service 
                         then. (Format: hostname[:port])
+  --hostsfile arg       Path to file containing line-separated service hosts to
+                        use for benchmark. Lines starting with "#" will be 
+                        ignored. (Format: hostname[:port])
   --service             Run as service for distributed mode, waiting for 
                         requests from master.
   --quit                Quit services on given service mode hosts.

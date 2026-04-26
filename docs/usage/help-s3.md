@@ -15,7 +15,9 @@ S3 Service Arguments:
   --s3credlist arg      Comma-separated list of S3 credentials. Each credential
                         in format: access_key:secret_key
   --s3endpoints arg     Comma-separated list of S3 endpoints. (Format: 
-                        [http(s)://]hostname[:port])
+                        [http(s)://]hostname[:port]) (This can also be set via 
+                        the AWS_ENDPOINT_URL_S3 or AWS_ENDPOINT_URL env 
+                        variable.)
   --s3key arg           S3 access key. (This can also be set via the 
                         AWS_ACCESS_KEY_ID env variable.)
   --s3secret arg        S3 access secret. (This can also be set via the 
@@ -63,7 +65,8 @@ Miscellaneous Options:
                         directly as arguments, this defines the object size as 
                         of which multiple threads are used to upload/download 
                         an object. (Default: 0, which means 32 x blocksize)
-  --s3region arg        S3 region.
+  --s3region arg        S3 region. (This can also be set via the AWS_REGION or 
+                        AWS_DEFAULT_REGION env variable.)
   --zones arg           Comma-separated list of NUMA zones to bind this process
                         to. If multiple zones are given, then worker threads 
                         are bound round-robin to the zones. (Hint: See 'lscpu' 
@@ -72,17 +75,17 @@ Miscellaneous Options:
 Examples:
   Create bucket "mybucket":
     $ elbencho --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \
-        -d mybucket
+        -d s3://mybucket
 
   Test 2 threads, each creating 3 directories with 4 10MiB objects inside:
     $ elbencho --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \
-        -w -t 2 -n 3 -N 4 -s 10m -b 5m mybucket
+        -w -t 2 -n 3 -N 4 -s 10m -b 5m s3://mybucket
 
   Delete objects and bucket created by example above:
     $ elbencho --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \
-        -D -F -t 2 -n 3 -N 4 mybucket
+        -D -F -t 2 -n 3 -N 4 s3://mybucket
 
   Shared upload of 4 1GiB objects via 8 threads in 16MiB blocks:
     $ elbencho --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \
-        -w -t 8 -s 1g -b 16m "mybucket/myobject[1-4]"
+        -w -t 8 -s 1g -b 16m "s3://mybucket/myobject[1-4]"
 </code></pre>

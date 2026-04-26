@@ -4,8 +4,8 @@
 
 EXE_NAME           ?= elbencho
 EXE_VER_MAJOR      ?= 3
-EXE_VER_MINOR      ?= 0
-EXE_VER_PATCHLEVEL ?= 38
+EXE_VER_MINOR      ?= 1
+EXE_VER_PATCHLEVEL ?= 1
 EXE_VERSION        ?= $(EXE_VER_MAJOR).$(EXE_VER_MINOR)-$(EXE_VER_PATCHLEVEL)
 EXE                ?= $(BIN_PATH)/$(EXE_NAME)
 

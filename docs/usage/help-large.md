@@ -54,8 +54,8 @@ Examples:
     $ elbencho -r -b 1M -t 8 --gpuids 0,1 \
         /mnt/myfs/file1
 
-  Stream data from large file into memory of first 2 GPUs via GPUDirect Storage:
-    $ elbencho -r -b 1M -t 8 --gpuids 0,1 --gds \
+  Stream data from large file into memory of all GPUs via GPUDirect Storage:
+    $ elbencho -r -b 1M -t 8 --gpuids all --gds \
         /mnt/myfs/file1
 
 </code></pre>
