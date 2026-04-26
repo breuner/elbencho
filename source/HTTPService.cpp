@@ -46,6 +46,10 @@ void HTTPService::daemonize()
 		"p" + std::to_string(progArgs.getServicePort() ) + "." // port
 		"log";
 
+    // keep old log file (if any)
+    std::string oldLogFile = logfile + ".old";
+    rename(logfile.c_str(), oldLogFile.c_str() );
+
 	int logFileFD = open(logfile.c_str(), O_CREAT | O_WRONLY | O_APPEND, SERVICE_LOG_FILEMODE);
 	if(logFileFD == -1)
 	{

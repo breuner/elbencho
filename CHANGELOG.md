@@ -15,6 +15,7 @@
 * Added strict enforcement of connection timeout for pre-flight communication check if service instances based on `--svcwait`.
 * Added timeout (10min) to http client for communication with service instances to prevent hanging infinitely if server got stuck.
 * Added human-readable error strings for common S3/http error codes.
+* Preserve one old service log file (using ".old" suffix) to prevent accidental overwrite of log file on service restart.
 
 ### Fixes
 * Drop caches phase did not close file descriptor of virtual "drop_caches" file in "/proc".
