@@ -11,7 +11,7 @@
 * Updated S3 to latest AWS SDK CPP v1.11.789.
 * Updated AWS SDK CPP git clone command to only do shallow submodule cloning and to use parallel jobs.
 * Updated `make` calls in `prepare-externals.sh` script to not reset the jobserver mode of `make`.
-* Updated mimalloc lib for static builds to latest v3.3.0.
+* Updated mimalloc lib for static builds to latest v3.3.1.
 * Added strict enforcement of connection timeout for pre-flight communication check if service instances based on `--svcwait`.
 * Added timeout (10min) to http client for communication with service instances to prevent hanging infinitely if server got stuck.
 * Added human-readable error strings for common S3/http error codes.
