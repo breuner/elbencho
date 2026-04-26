@@ -105,22 +105,24 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 
 
     // Initialize credential store if multi-credentials are specified
-    if(!progArgs->getS3CredentialsFile().empty())
+    if(!progArgs->getS3CredentialsFile().empty() )
     {
-        S3CredentialStore::getInstance().loadCredentialsFromFile(progArgs->getS3CredentialsFile());
+        S3CredentialStore::getInstance().loadCredentialsFromFile(progArgs->getS3CredentialsFile() );
         LOGGER(Log_DEBUG, "Loaded S3 credentials from file: "
                << progArgs->getS3CredentialsFile() << std::endl);
     }
-    else if(!progArgs->getS3CredentialsList().empty())
+    else
+    if(!progArgs->getS3CredentialsList().empty() )
     {
-        S3CredentialStore::getInstance().loadCredentialsFromList(progArgs->getS3CredentialsList());
+        S3CredentialStore::getInstance().loadCredentialsFromList(progArgs->getS3CredentialsList() );
         LOGGER(Log_DEBUG, "Loaded S3 credentials from command line list" << std::endl);
     }
-    else if(!progArgs->getS3AccessKey().empty() || !progArgs->getS3AccessSecret().empty())
+    else
+    if(!progArgs->getS3AccessKey().empty() || !progArgs->getS3AccessSecret().empty() )
     {
         // Add single credential to store if provided
         S3CredentialStore::getInstance().addCredential(
-            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret());
+            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret() );
         LOGGER(Log_DEBUG, "Using single S3 credential" << std::endl);
     }
 
@@ -165,10 +167,6 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
 std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     size_t workerRank, std::atomic_bool* isInterruptionRequested, std::string* outS3EndpointStr)
 {
-    if(progArgs->getS3EndpointsVec().empty() )
-        throw ProgException(std::string(__func__) + " cannot init S3 client if no S3 endpoints are "
-            "provided.");
-
     S3ClientConfiguration config;
 
     size_t numParallelRequests = progArgs->getUseS3ClientSingleton() ?
@@ -250,14 +248,26 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     // select endpoint...
 
-    const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
-    size_t numEndpoints = endpointsVec.size();
-    std::string endpoint = endpointsVec[workerRank % numEndpoints];
+    if(!progArgs->getS3EndpointsVec().empty() )
+    {
+        const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
+        size_t numEndpoints = endpointsVec.size();
+        std::string endpoint = endpointsVec[workerRank % numEndpoints];
 
-    config.endpointOverride = endpoint;
+        config.endpointOverride = endpoint;
 
-    if(outS3EndpointStr)
-        *outS3EndpointStr = endpoint;
+        if(outS3EndpointStr)
+            *outS3EndpointStr = endpoint;
+    }
+    else
+    { // no endpoint explicitly defined => rely on aws profile settings
+        LOGGER(Log_DEBUG, __func__ << ": " <<
+            "No S3 endpoint explicitly defined, so relying on AWS profile settings. "
+            "Worker rank: " << workerRank << std::endl);
+
+        if(outS3EndpointStr)
+            *outS3EndpointStr = "<using_aws_profile_config>";
+    }
 
     // set credentials...
 
@@ -267,25 +277,24 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentialsProvider;
 
     if(!progArgs->getS3AccessKey().empty() || !progArgs->getS3AccessSecret().empty())
-    {
-        // Single credential mode
+    { // Single credential mode
         credentialsProvider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
-            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret(), progArgs->getS3SessionToken());
+            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret(),
+            progArgs->getS3SessionToken() );
 
         LOGGER(Log_DEBUG, "Using single S3 credential. "
             "Worker rank: " << workerRank << std::endl);
     }
-    else if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty())
-    {
-        // Multi-credential mode (round-robin)
+    else
+    if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty() )
+    { // Multi-credential mode (round-robin)
         credentialsProvider = S3CredentialStore::getInstance().getCredential(workerRank);
 
         LOGGER(Log_DEBUG, "Using multi-credential from store. "
             "Worker rank: " << workerRank << std::endl);
     }
     else
-    {
-        // Fallback: use default chain
+    { // Fallback: use default credential provider chain
         credentialsProvider = std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 
         LOGGER(Log_DEBUG, "Using default AWS credential chain. "

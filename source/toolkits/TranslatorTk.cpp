@@ -12,6 +12,26 @@
 #define TRANSLATORTK_PHASENAME_RWMIXTHR	"MIX-T" // rwmix with separate reader threads
 #define TRANSLATORTK_PHASENAME_NETBENCH "NET" // write/create phase name in netbench mode
 
+
+/**
+ * Get human-readable name of a benchmark mode.
+ *
+ * @return name of benchmark mode.
+ */
+std::string TranslatorTk::benchModeToModeName(BenchMode benchMode)
+{
+    switch(benchMode)
+    {
+        case BenchMode_UNDEFINED: return "UNDEFINED";
+        case BenchMode_POSIX: return "POSIX";
+        case BenchMode_S3: return "S3";
+        case BenchMode_HDFS: return "HDFS";
+        case BenchMode_NETBENCH: return "NETBENCH";
+
+        default: return "UNKNOWN";
+    }
+}
+
 /**
  * Get name of a phase from bench phase.
  *
@@ -24,15 +44,15 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 	{
 		case BenchPhase_IDLE: return PHASENAME_IDLE;
 		case BenchPhase_TERMINATE: return PHASENAME_TERMINATE;
-		case BenchPhase_CREATEDIRS: return progArgs->getS3EndpointsVec().empty() ?
-            PHASENAME_CREATEDIRS : PHASENAME_CREATEBUCKETS;
-		case BenchPhase_DELETEDIRS: return progArgs->getS3EndpointsVec().empty() ?
-            PHASENAME_DELETEDIRS : PHASENAME_DELETEBUCKETS;
+		case BenchPhase_CREATEDIRS: return (progArgs->getBenchMode() == BenchMode_S3) ?
+            PHASENAME_CREATEBUCKETS : PHASENAME_CREATEDIRS;
+		case BenchPhase_DELETEDIRS: return (progArgs->getBenchMode() == BenchMode_S3) ?
+            PHASENAME_DELETEBUCKETS : PHASENAME_DELETEDIRS;
 		case BenchPhase_CREATEFILES:
 		{
 			std::string phaseName;
 
-			if(progArgs->getUseNetBench() )
+			if(progArgs->getBenchMode() == BenchMode_NETBENCH)
 				phaseName = TRANSLATORTK_PHASENAME_NETBENCH;
 			else
 			if(progArgs->hasUserSetRWMixReadThreads() )
@@ -68,12 +88,12 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
 
 			return phaseName;
 		}
-		case BenchPhase_DELETEFILES: return progArgs->getS3EndpointsVec().empty() ?
-            PHASENAME_DELETEFILES : PHASENAME_DELETEOBJECTS;
+		case BenchPhase_DELETEFILES: return (progArgs->getBenchMode() == BenchMode_S3) ?
+            PHASENAME_DELETEOBJECTS : PHASENAME_DELETEFILES;
 		case BenchPhase_SYNC: return PHASENAME_SYNC;
 		case BenchPhase_DROPCACHES: return PHASENAME_DROPCACHES;
-		case BenchPhase_STATFILES: return progArgs->getS3EndpointsVec().empty() ?
-            PHASENAME_STATFILES : PHASENAME_STATOBJECTS;
+		case BenchPhase_STATFILES: return (progArgs->getBenchMode() == BenchMode_S3) ?
+            PHASENAME_STATOBJECTS : PHASENAME_STATFILES;
 		case BenchPhase_PUTBUCKETACL: return PHASENAME_PUTBUCKETACL;
 		case BenchPhase_PUTOBJACL: return PHASENAME_PUTOBJACL;
 		case BenchPhase_GETOBJACL: return PHASENAME_GETOBJACL;
@@ -120,8 +140,8 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
         case BenchPhase_PUT_S3_BUCKET_MD:
         case BenchPhase_DEL_S3_BUCKET_MD:
         {
-            retVal = progArgs->getS3EndpointsVec().empty() ?
-                PHASEENTRYTYPE_DIRS : PHASEENTRYTYPE_BUCKETS;
+            retVal = (progArgs->getBenchMode() == BenchMode_S3) ?
+                PHASEENTRYTYPE_BUCKETS : PHASEENTRYTYPE_DIRS;
         } break;
         case BenchPhase_CREATEFILES:
         case BenchPhase_READFILES:
@@ -138,8 +158,8 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
         case BenchPhase_PUT_S3_OBJECT_MD:
         case BenchPhase_DEL_S3_OBJECT_MD:
         {
-            retVal = progArgs->getS3EndpointsVec().empty() ?
-                PHASEENTRYTYPE_FILES : PHASEENTRYTYPE_OBJECTS;
+            retVal = (progArgs->getBenchMode() == BenchMode_S3) ?
+                PHASEENTRYTYPE_OBJECTS : PHASEENTRYTYPE_FILES;
         } break;
         default:
         { // should never happen
@@ -162,16 +182,16 @@ std::string TranslatorTk::benchPathTypeToStr(BenchPathType pathType, const ProgA
 	switch(pathType)
 	{
 		case BenchPathType_DIR:
-			if(progArgs->getUseHDFS() )
+			if(progArgs->getBenchMode() == BenchMode_HDFS)
 				return "hdfs";
 			else
-			if(!progArgs->getS3EndpointsStr().empty() )
+			if(progArgs->getBenchMode() == BenchMode_S3)
 				return "bucket";
 			else
 				return "dir";
 
 		case BenchPathType_FILE:
-			return progArgs->getS3EndpointsStr().empty() ? "file" : "object";
+			return (progArgs->getBenchMode() == BenchMode_S3) ? "object" : "file";
 		case BenchPathType_BLOCKDEV:
 			return "blockdev";
 		default:
@@ -317,7 +337,7 @@ unsigned short TranslatorTk::flockArgsStrToType(std::string flockArgsStr)
  *
  * @return e.g. "2,6-31,983" or empty string if intVec is empty.
  */
-std::string TranslatorTk::intVectoHumanStr(const IntVec& intVec)
+std::string TranslatorTk::intVecToHumanStr(const IntVec& intVec)
 {
 	int rangeStart;
 	int rangeLast;
@@ -628,8 +648,78 @@ void TranslatorTk::eraseEmptyStringsFromVec(StringVec& inoutVec)
 		inoutVec.end() );
 }
 
-#ifdef S3_SUPPORT
+/**
+ * Remove all BENCHPATH_PREFIX_... prefixes from strings in given inoutVec.
+ */
+ void TranslatorTk::eraseBenchPathPrefixesFromVec(StringVec& inoutVec)
+ {
+     for(std::string& path : inoutVec)
+     {
+        if(path.find(BENCHPATH_PREFIX_POSIX) == 0)
+            path.erase(0, strlen(BENCHPATH_PREFIX_POSIX) );
+        else
+        if(path.find(BENCHPATH_PREFIX_S3) == 0)
+            path.erase(0, strlen(BENCHPATH_PREFIX_S3) );
+     }
+ }
 
+/**
+ * Convert an HTTP error code to a human-readable string.
+ *
+ * @param httpErrorCode the HTTP error code to convert.
+ * @return the human-readable string for the given HTTP error code or "Unknown HTTP error code" if
+ *      the HTTP error code is unknown.
+ */
+const char* TranslatorTk::httpErrorCodeToHumanStr(unsigned httpErrorCode)
+{
+    switch (httpErrorCode)
+    {
+        // 1xx Informational
+        case 100: return "Continue";
+        case 101: return "Switching Protocols";
+
+        // 2xx Success
+        case 200: return "OK";
+        case 201: return "Created";
+        case 202: return "Accepted";
+        case 204: return "No Content";
+
+        // 3xx Redirection
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 303: return "See Other";
+        case 304: return "Not Modified";
+        case 307: return "Temporary Redirect";
+        case 308: return "Permanent Redirect";
+
+        // 4xx Client Error
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 402: return "Payment Required";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 406: return "Not Acceptable";
+        case 408: return "Request Timeout";
+        case 409: return "Conflict";
+        case 410: return "Gone";
+        case 418: return "I'm a teapot"; // RFC 2324
+        case 422: return "Unprocessable Entity";
+        case 429: return "Too Many Requests";
+
+        // 5xx Server Error
+        case 500: return "Internal Server Error";
+        case 501: return "Not Implemented";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        case 504: return "Gateway Timeout";
+        case 505: return "HTTP Version Not Supported";
+
+        default: return "Unknown HTTP error code";
+    }
+}
+
+#ifdef S3_SUPPORT
 
 /**
  * Apply ACL grantee and grants given in progArgs to S3 upload request. Grantee can also be the

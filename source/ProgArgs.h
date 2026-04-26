@@ -14,7 +14,7 @@
 #include "Logger.h"
 #include "PathStore.h"
 #include "toolkits/S3Tk.h"
-#include "toolkits/SystemTk.h"
+#include "toolkits/SystemTk.h" // IWYU pragma: keep (false clangd unused include warning)
 
 
 namespace bpo = boost::program_options;
@@ -26,6 +26,7 @@ namespace bpt = boost::property_tree;
         in the help output otherwise gets too small. */
 #define ARG_ALTHTTPSERVER_LONG		"althttpsvc"
 #define ARG_BENCHLABEL_LONG			"label"
+#define ARG_BENCHMODE_LONG          "benchmode" // internal (not directly set by user)
 #define ARG_BENCHPATHS_LONG			"path"
 #define ARG_BLOCK_LONG	 			"block"
 #define ARG_BLOCK_SHORT 			"b"
@@ -286,11 +287,13 @@ namespace bpt = boost::property_tree;
 #define ARG_S3ACL_GRANTEE_TYPE_URI			"uri"
 #define ARG_S3ACL_GRANTEE_TYPE_GROUP		"group"
 
-
 #define RAND_PREFIX_MARK_CHAR				'%' // name prefix char to replace with random value
 #define RAND_PREFIX_MARKS_SUBSTR			"%%%" // three times RAND_PREFIX_MARK_CHAR
 
 #define ARG_LIVECSV_STDOUT                  "stdout" // special filename value to send to stdout
+
+#define BENCHPATH_PREFIX_POSIX      "file://" // prefix for bench paths on posix-style fs
+#define BENCHPATH_PREFIX_S3         "s3://" // prefix for bench paths on s3
 
 
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
@@ -365,6 +368,7 @@ class ProgArgs
 		bool assignGPUPerService; // assign GPUs from gpuIDsVec round robin per service
 		std::string benchLabel; // user-defined label for benchmark run
 		std::string benchLabelNoCommas; // implict based on benchLabel with commas removed for csv
+        BenchMode benchMode; // current benchmark mode (posix, s3, hdfs, netbench)
 		size_t blockSize; // number of bytes to read/write in a single read()/write() call
 		std::string blockSizeOrigStr; // original blockSize str from user with unit
 		unsigned blockVariancePercent; // % of blocks that should differ between writes
@@ -572,6 +576,7 @@ class ProgArgs
 
 
 		void defineDefaults();
+        void initBenchMode();
 		void initImplicitValues();
 		void convertUnitStrings();
 		void checkArgs();
@@ -631,23 +636,27 @@ class ProgArgs
 #endif // S3_SUPPORT
 
 
-        bool getS3BucketMetadataRequested() const
-            { return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning; }
-        bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
-        bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
-        bool getRunS3PutObjectMetadata() const
-            { return getS3ObjectMetadataRequested() && runCreateFilesPhase; }
+        // getters for indirect values in alphabetic order...
+
         bool getRunS3DelObjectMetadata() const
             { return getS3ObjectMetadataRequested() && runDeleteFilesPhase; }
         bool getRunS3GetBucketMetadata() const { return getS3BucketMetadataRequested(); }
-        bool getRunS3PutBucketMetadata() const
-            { return getS3BucketMetadataRequested() && runCreateDirsPhase; }
         bool getRunS3DelBucketMetadata() const
             { return getS3BucketMetadataRequested() && runDeleteDirsPhase; }
+        bool getRunS3GetObjectMetadata() const { return getS3ObjectMetadataRequested(); }
+        bool getRunS3PutBucketMetadata() const
+            { return getS3BucketMetadataRequested() && runCreateDirsPhase; }
+        bool getRunS3PutObjectMetadata() const
+            { return getS3ObjectMetadataRequested() && runCreateFilesPhase; }
+        bool getS3BucketMetadataRequested() const
+            { return doS3BucketTag || doS3ObjectLockCfg || doS3BucketVersioning; }
+        bool getS3ObjectMetadataRequested() const { return doS3ObjectTag; }
+
 
 		// getters for config options in alphabetic order...
 
 		bool getAssignGPUPerService() const { return assignGPUPerService; }
+        BenchMode getBenchMode() const { return benchMode; }
         unsigned getBlockVariancePercent() const { return blockVariancePercent; }
         std::string getBlockVarianceAlgo() const { return blockVarianceAlgo; }
         size_t getBlockSize() const { return blockSize; }
@@ -812,9 +821,7 @@ class ProgArgs
         bool getUseExtendedLiveCSV() const { return useExtendedLiveCSV; }
         bool getUseExtendedLiveJSON() const { return useExtendedLiveJSON; }
         bool getUseGPUBufReg() const { return useGDSBufReg; }
-        bool getUseHDFS() const { return useHDFS; }
         bool getUseMmap() const { return useMmap; }
-        bool getUseNetBench() const { return useNetBench; }
         bool getUseNoFDSharing() const { return useNoFDSharing; }
         bool getUseOpsLogLocking() const { return useOpsLogLocking; }
         bool getUseRandomUnaligned() const { return useRandomUnaligned; }

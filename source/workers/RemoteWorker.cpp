@@ -242,7 +242,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
 			(progArgs->getRWMixReadPercent() || progArgs->getNumRWMixReadThreads() ||
-				progArgs->getUseNetBench() ) )
+				(progArgs->getBenchMode() == BenchMode_NETBENCH) ) )
 		{
 			atomicLiveOpsReadMix.numEntriesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
@@ -428,6 +428,8 @@ void RemoteWorker::startBenchPhase()
  */
 void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 {
+    const bool isNetBenchMode = (progArgs->getBenchMode() == BenchMode_NETBENCH);
+
 	bool firstRound = true;
 
 	size_t svcUpdateIntervalMS = progArgs->getSvcUpdateIntervalMS();
@@ -489,7 +491,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
 				(progArgs->getRWMixReadPercent() || progArgs->getNumRWMixReadThreads() ||
-					progArgs->getUseNetBench() ) )
+					isNetBenchMode) )
 			{
 				atomicLiveOpsReadMix.numEntriesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);

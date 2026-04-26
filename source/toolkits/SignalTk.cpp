@@ -33,7 +33,7 @@ void SignalTk::registerFaultSignalHandlers(const ProgArgs& progArgs)
 {
 	/* don't register fault signal handlers with local libhdfs usage, because JVM uses them:
 		https://docs.oracle.com/javase/10/troubleshoot/handle-signals-and-exceptions.htm#JSTGD354 */
-	if(progArgs.getUseHDFS() && progArgs.getHostsStr().empty() )
+	if( (progArgs.getBenchMode() == BenchMode_HDFS) && progArgs.getHostsStr().empty() )
 		return;
 
 	std::signal(SIGSEGV, SignalTk::faultSignalHandler);

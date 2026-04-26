@@ -25,14 +25,22 @@ using HttpClient = SimpleWeb::Client<SimpleWeb::HTTP>;
 class RemoteWorker : public Worker
 {
 	public:
-		/**
-		 * @host hostname:port to connect to.
-		 */
-		explicit RemoteWorker(WorkersSharedData* workersSharedData, size_t workerRank,
-			std::string host) :
-			Worker(workersSharedData, workerRank), host(host), httpClient(host) {}
+        /**
+         * @host hostname:port to connect to.
+         */
+        explicit RemoteWorker(WorkersSharedData* workersSharedData, size_t workerRank,
+            std::string host) :
+            Worker(workersSharedData, workerRank), host(host), httpClient(host)
+            {
+                /* Note: Coordinator runs a general connection pre-flight check, so the timeouts
+                    here are intentionally very high and are just to prevent hanging forever in the
+                    unlikely event that host on the other side got stuck completely.
+                    (HTTP server has a 60sec internal request timeout.) */
+                httpClient.config.timeout = 600; // 10min
+                httpClient.config.timeout_connect = 600; // 10min
+            }
 
-		~RemoteWorker() {}
+        ~RemoteWorker() {}
 
 
 	private:

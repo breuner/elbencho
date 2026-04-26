@@ -10,6 +10,7 @@
 #include "Coordinator.h"
 #include "HTTPServiceSWS.h"
 #include "HTTPServiceUWS.h"
+#include "Logger.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "toolkits/S3Tk.h"
@@ -171,6 +172,8 @@ void Coordinator::waitForServicesReady()
         progArgs.getQuitServices() || !progArgs.getSvcReadyWaitSec() )
         return;
 
+    LOGGER(Log_DEBUG, "Starting services ready wait... " << std::endl);
+
     // loop until either all services are reachable or until max wait time exceeded
     for( ; ; )
     {
@@ -181,6 +184,9 @@ void Coordinator::waitForServicesReady()
             try
             {
                 SimpleWeb::Client<SimpleWeb::HTTP> httpClient(host);
+                httpClient.config.timeout = maxWaitSecs;
+                httpClient.config.timeout_connect = maxWaitSecs;
+
                 auto response = httpClient.request("GET", HTTPCLIENTPATH_STATUS);
 
                 if(response->status_code == SimpleWeb::status_code(
@@ -373,7 +379,7 @@ void Coordinator::rotateHosts()
 {
 	if(progArgs.getHostsVec().empty() ||
 		!progArgs.getRotateHostsNum() ||
-		progArgs.getUseNetBench() )
+		(progArgs.getBenchMode() == BenchMode_NETBENCH) )
 		return;
 
 	workerManager.interruptAndNotifyWorkers();

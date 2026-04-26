@@ -15,12 +15,15 @@
 #include <sys/stat.h>
 
 #include "ProgArgs.h"
+#include "Common.h"
+#include "Logger.h"
 #include "ProgException.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/HashTk.h"
 #include "toolkits/NumaTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
 #include "toolkits/S3Tk.h"
+#include "toolkits/StringTk.h"
 #include "toolkits/SystemTk.h"
 #include "toolkits/TerminalTk.h"
 #include "toolkits/TranslatorTk.h"
@@ -60,7 +63,6 @@
 
 #define AWS_SDK_LOGPREFIX_DEFAULT	"aws_sdk_"
 
-#define TREESCAN_PATH_S3_PREFIX     "s3://" // prefix to use s3 bucket for treescan
 #define TREESCAN_OUTFILE_DEFAULT    ("/var/tmp/" EXE_NAME "_" + SystemTk::getUsername() + "_" + \
                                     "treescan.txt")
 
@@ -145,6 +147,7 @@ ProgArgs::ProgArgs(int argc, char** argv) :
 		}
 	}
 
+    initBenchMode();
 	initImplicitValues();
 	convertUnitStrings();
 	checkCSVFileCompatibility();
@@ -765,8 +768,8 @@ void ProgArgs::defineAllowedArgs()
 			"on many platforms. (Default: 0 for disabled)")
 /*tr*/  (ARG_TREESCAN_LONG, bpo::value(&this->treeScanPath),
             "Path to scan on startup. The discovered entries will be stored in a treefile and "
-            "the resulting treefile will be used for the run. Path can be a directory "
-            "(\"/mnt/mystorage\") or an S3 bucket with optional prefix "
+            "the resulting treefile will be used for the run. Path can be a directory on a POSIX "
+            "filesystem (\"/mnt/mystorage\") or an S3 bucket with optional prefix "
             "(\"s3://mybucket/myprefix\"). The location of the generated treefile can be changed "
             "from the default in \"/var/tmp\" by setting \"--" ARG_TREEFILE_LONG "\". The scan "
             "runs single-threaded. In case of a distributed run with services, the master instance "
@@ -810,6 +813,7 @@ void ProgArgs::defineDefaults()
 	/* We define defaults here, because defining them as argsDescription will make them appear in
 		the auto-generated help output in an ugly way. */
 
+    this->benchMode = BenchMode_UNDEFINED;
 	this->numThreads = 1;
 	this->numDataSetThreads = numThreads; // internally set for service mode
 	this->numDirs = 1;
@@ -966,13 +970,53 @@ void ProgArgs::defineDefaults()
 }
 
 /**
+ * Initialize benchmark mode based on user config.
+ */
+void ProgArgs::initBenchMode()
+{
+    StringVec benchPathsVecTmp;
+
+    /* note: at this point, normal benchPathsVec init is not done yet, so it is still empty. thus,
+        we grab a copy directly from the command line arguments here. */
+
+    if(argsVariablesMap.count(ARG_BENCHPATHS_LONG) )
+        benchPathsVecTmp = argsVariablesMap[ARG_BENCHPATHS_LONG].as<StringVec>();
+
+    if(StringTk::checkForPrefix(benchPathsVecTmp, BENCHPATH_PREFIX_POSIX) )
+        benchMode = BenchMode_POSIX;
+    else
+    if(StringTk::checkForPrefix(benchPathsVecTmp, BENCHPATH_PREFIX_S3) || !s3EndpointsStr.empty() )
+        benchMode = BenchMode_S3;
+    else
+    if(useHDFS)
+        benchMode = BenchMode_HDFS;
+    else
+    if(useNetBench)
+        benchMode = BenchMode_NETBENCH;
+
+    // default to posix mode if no other mode is set explicitly and not running as service
+    if( (benchMode == BenchMode_UNDEFINED) && !runAsService)
+        benchMode = BenchMode_POSIX;
+
+    LOGGER(Log_DEBUG, "Benchmark mode: " << TranslatorTk::benchModeToModeName(benchMode) <<
+        std::endl);
+}
+
+/**
  * Initialize implicit values that depend e.g. on user config but are not directly given as user
  * config values.
+ *
+ * NOTE: initBenchMode() must be called before this function.
  */
 void ProgArgs::initImplicitValues()
 {
 	/* note: boost bool type options are always present in map (because they default to false), so
 	    can't just be checked via argsVariablesMap.count(). */
+
+    // sanity check: should never happen
+	if( (benchMode == BenchMode_UNDEFINED) && !runAsService)
+        throw ProgException(std::string(__func__) + ": Internal error: "
+            "Cannot initialize implicit values without benchmark mode being set.");
 
     /* stdout reroute. has to be done as early as possible before any other message gets printed
          to stdout. */
@@ -1007,41 +1051,10 @@ void ProgArgs::initImplicitValues()
 	if(useBriefLiveStatsNewLine)
 		useBriefLiveStats = true;
 
-	// read s3 endpoint & region from environment variables as fallback when command-line
-	// arguments are not given (matches AWS CLI v2 precedence: arg > env). Not applied when
-	// running as a service, because services inherit these values from the master.
-	if(!runAsService)
-	{
-		if(s3EndpointsStr.empty() )
-		{
-			if(getenv(S3_ENV_ENDPOINT_URL_S3) != NULL)
-				s3EndpointsStr = getenv(S3_ENV_ENDPOINT_URL_S3);
-			else
-			if(getenv(S3_ENV_ENDPOINT_URL) != NULL)
-				s3EndpointsStr = getenv(S3_ENV_ENDPOINT_URL);
-		}
-
-		if(s3Region.empty() )
-		{
-			if(getenv(S3_ENV_REGION) != NULL)
-				s3Region = getenv(S3_ENV_REGION);
-			else
-			if(getenv(S3_ENV_REGION_DEFAULT) != NULL)
-				s3Region = getenv(S3_ENV_REGION_DEFAULT);
-		}
-	}
-
-	// service: check for s3 endpoint override
-	if(!s3EndpointsStr.empty() && runAsService)
-	{
-		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
-			"provided by master." << std::endl);
-
-		s3EndpointsServiceOverrideStr = s3EndpointsStr;
-	}
-
-	// read s3 access key & secret from environment variables (if not running as service)
-    if(!s3EndpointsStr.empty() && !runAsService)
+    /* if not running as service, read s3 environment variables */
+    if( ( (benchMode == BenchMode_S3) ||
+        StringTk::checkForPrefix(treeScanPath, BENCHPATH_PREFIX_S3) ) &&
+        !runAsService)
     {
         if(s3AccessKey.empty() && (getenv(S3_ENV_ACCESS_KEY) != NULL) )
             s3AccessKey = getenv(S3_ENV_ACCESS_KEY);
@@ -1052,8 +1065,33 @@ void ProgArgs::initImplicitValues()
         if(s3SessionToken.empty() && (getenv(S3_ENV_SESSION_TOKEN) != NULL) )
             s3SessionToken = getenv(S3_ENV_SESSION_TOKEN);
 
-        s3EndpointsServiceOverrideStr = s3EndpointsStr;
+        if(s3Region.empty() )
+        {
+            if(getenv(S3_ENV_REGION) && strlen(getenv(S3_ENV_REGION) ) )
+                s3Region = getenv(S3_ENV_REGION);
+            else
+            if(getenv(S3_ENV_REGION_DEFAULT) && strlen(getenv(S3_ENV_REGION_DEFAULT) ) )
+                s3Region = getenv(S3_ENV_REGION_DEFAULT);
+        }
+
+        if(s3EndpointsStr.empty() )
+        {
+            if(getenv(S3_ENV_ENDPOINT_URL_S3) && strlen(getenv(S3_ENV_ENDPOINT_URL_S3) ) )
+                s3EndpointsStr = getenv(S3_ENV_ENDPOINT_URL_S3);
+            else
+            if(getenv(S3_ENV_ENDPOINT_URL) && strlen(getenv(S3_ENV_ENDPOINT_URL) ) )
+                s3EndpointsStr = getenv(S3_ENV_ENDPOINT_URL);
+        }
     }
+
+	// service: check for s3 endpoint override
+	if( (benchMode == BenchMode_S3) && runAsService)
+	{
+		LOGGER(Log_NORMAL, "NOTE: S3 endpoints given. These will be used instead of any endpoints "
+			"provided by master." << std::endl);
+
+		s3EndpointsServiceOverrideStr = s3EndpointsStr;
+	}
 
     // csv file: remove commas from user-defined label
 	benchLabelNoCommas = benchLabel;
@@ -1207,11 +1245,11 @@ void ProgArgs::checkArgs()
 	if(!fileShareSize)
 		fileShareSize = FILESHAREBLOCKFACTOR * blockSize;
 
-    /* note: this check/update is here because it has to be after convertS3ParthsToCustomTree()
+    /* note: this check/update is here because it has to be after convertS3PathsToCustomTree()
         (called from parseAndCheckPaths() ) and before loadCustomTreeFile(), so that the update to
         fileShareSize is still effective. */
     if(doInfiniteIOLoop && (fileShareSize != ~0ULL) && (numThreads > 1) && !treeFilePath.empty() &&
-        !s3EndpointsStr.empty() && runCreateFilesPhase)
+        (benchMode == BenchMode_S3) && runCreateFilesPhase)
     {
         LOGGER(Log_NORMAL, "NOTE: Infinite loop cannot be used with S3 shared object "
             "write/upload. Disabling object sharing (\"--" ARG_FILESHARESIZE_LONG "=-1\"). "
@@ -1283,13 +1321,13 @@ void ProgArgs::checkArgs()
 	if(!gpuIDsStr.empty() && useMmap)
 		throw ProgException("Memory mapped IO (mmap) cannot be used with GPUs.");
 
-	if(useRandomOffsets && !s3EndpointsStr.empty() && runCreateFilesPhase)
+	if(useRandomOffsets && (benchMode == BenchMode_S3) && runCreateFilesPhase)
 		LOGGER(Log_NORMAL, "NOTE: S3 write/upload cannot be used with random offsets. "
 			"Falling back to \"--" ARG_REVERSESEQOFFSETS_LONG "\"." << std::endl);
 
     if(doInfiniteIOLoop && (numThreads > 1) &&
         customTree.filesShared.getNumPaths() &&
-        !s3EndpointsStr.empty() && runCreateFilesPhase)
+        (benchMode == BenchMode_S3) && runCreateFilesPhase)
     {
         /* note: just an additional sanity check after customTree.filesShared has been generated.
             the actual note and auto-disable of object sharing is done in another check before
@@ -1297,8 +1335,8 @@ void ProgArgs::checkArgs()
         throw ProgException("S3 write/upload cannot be used with infinite loop for shared objects.");
     }
 
-    if(!ignoreS3PartNum && !s3EndpointsStr.empty() && fileSize && blockSize && runCreateFilesPhase
-        && ( (fileSize / blockSize) > 10000) )
+    if(!ignoreS3PartNum && (benchMode == BenchMode_S3) && fileSize && blockSize &&
+        runCreateFilesPhase && ( (fileSize / blockSize) > 10000) )
         throw ProgException("The specified multi-part upload would exceed 10,000 parts per object. "
             "This exceeds the S3 specification and thus is likely to get rejected by the server. "
             "Consider a smaller object size (\"-" ARG_FILESIZE_SHORT "\") or a larger part block "
@@ -1308,10 +1346,10 @@ void ProgArgs::checkArgs()
             "Part block size: " + std::to_string(blockSize) + "; "
             "Resulting number of parts: " + std::to_string(fileSize / blockSize) );
 
-    if(useCuFile && !s3EndpointsStr.empty() )
+    if(useCuFile && (benchMode == BenchMode_S3) )
         throw ProgException("cuFile API cannot be used with S3");
 
-    if(hasUserSetRWMixPercent() && !s3EndpointsStr.empty() )
+    if(hasUserSetRWMixPercent() && (benchMode == BenchMode_S3) )
         throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
             "Consider \"--" ARG_RWMIXTHREADS_LONG "\" as alternative.");
 
@@ -1419,7 +1457,7 @@ void ProgArgs::checkPathDependentArgs()
 		throw ProgException("S3 MPU size variance can only be used with sequential upload.");
 
 	if( (hasUserSetRWMixPercent() || hasUserSetRWMixReadThreads() ) &&
-		!s3EndpointsStr.empty() &&
+        (benchMode == BenchMode_S3) &&
 		!treeFilePath.empty() )
 		throw ProgException("Options \"--" ARG_RWMIXPERCENT_LONG "\" & "
 			"\"--" ARG_RWMIXTHREADS_LONG "\" cannot be used with S3 custom tree.");
@@ -1597,7 +1635,7 @@ void ProgArgs::parseAndCheckPaths()
 		1) In service mode...
 			a) As benchPathStr from master (using absolute paths).
 			b) As benchPathsServiceOverrideVec, a user-given override list on service start.
-		2) As benchPathsVec from command line.
+		2) In master/standalone mode: As benchPathStr from command line.
 		In all cases, benchPathsVec and benchPathStr will contain the paths afterwards. */
 
 	if(getRunAsService() )
@@ -1610,7 +1648,7 @@ void ProgArgs::parseAndCheckPaths()
 			for(std::string path : benchPathsVec)
 			{
 				// resolve absolute path if path is not an s3 bucket
-				benchPathStr += s3EndpointsStr.empty() ? absolutePath(path) : path;
+				benchPathStr += (benchMode == BenchMode_POSIX) ? absolutePath(path) : path;
 				benchPathStr += std::string(BENCHPATH_DELIMITER)[0];
 			}
 		}
@@ -1624,6 +1662,7 @@ void ProgArgs::parseAndCheckPaths()
 
 		// delete empty string elements from vec (they come from delimiter use at beginning or end)
 		TranslatorTk::eraseEmptyStringsFromVec(benchPathsVec);
+        TranslatorTk::eraseBenchPathPrefixesFromVec(benchPathsVec);
 	}
 	else
 	{ // master or local: take paths from command line as vector
@@ -1636,6 +1675,7 @@ void ProgArgs::parseAndCheckPaths()
 
 		// delete empty string elements from vec (they come from delimiter use at beginning or end)
 		TranslatorTk::eraseEmptyStringsFromVec(benchPathsVec);
+        TranslatorTk::eraseBenchPathPrefixesFromVec(benchPathsVec);
 
 		convertS3PathsToCustomTree();
 
@@ -1644,7 +1684,7 @@ void ProgArgs::parseAndCheckPaths()
 		for(std::string path : benchPathsVec)
 		{
 			// resolve absolute path if path is not an s3 bucket
-			benchPathStr += s3EndpointsStr.empty() ? absolutePath(path) : path;
+			benchPathStr += (benchMode == BenchMode_POSIX) ? absolutePath(path) : path;
 			benchPathStr += std::string(BENCHPATH_DELIMITER)[0];
 		}
 	}
@@ -1661,7 +1701,7 @@ void ProgArgs::parseAndCheckPaths()
     prepareS3ClientSingleton();
 
 	// skip open of local paths for S3/HDFS/NetBench
-	if(!s3EndpointsStr.empty() || useHDFS || useNetBench)
+	if(benchMode != BenchMode_POSIX)
 	{
 		benchPathType = BenchPathType_DIR;
 		return;
@@ -1690,7 +1730,9 @@ void ProgArgs::parseAndCheckPaths()
 void ProgArgs::convertS3PathsToCustomTree()
 {
 	// nothing to do if not s3 mode or already a treefile specified by user
-	if(s3EndpointsStr.empty() || !treeFilePath.empty() || benchPathsVec.empty() )
+	if( (benchMode != BenchMode_S3) ||
+        !treeFilePath.empty() ||
+        benchPathsVec.empty() )
 		return;
 
 	// nothing to do if paths don't contain slashes. (search non-leading slashes, hence pos "1")
@@ -2411,7 +2453,7 @@ void ProgArgs::parseCPUCores()
 
 	LOGGER(Log_DEBUG, __func__ << ": "
 		"numCores: " << std::thread::hardware_concurrency() << "; "
-		"cpu core affinity list before: " << TranslatorTk::intVectoHumanStr(cpuCoresVec) <<
+		"cpu core affinity list before: " << TranslatorTk::intVecToHumanStr(cpuCoresVec) <<
 		std::endl);
 
 	// apply given cores to current thread
@@ -2492,7 +2534,7 @@ void ProgArgs::parseGPUIDs()
 	#endif // CUFILE_SUPPORT
 
 	LOGGER(Log_DEBUG, __func__ << ": "
-		"gpu vec: " << TranslatorTk::intVectoHumanStr(gpuIDsVec) << std::endl);
+		"gpu vec: " << TranslatorTk::intVecToHumanStr(gpuIDsVec) << std::endl);
 }
 
 /**
@@ -2504,25 +2546,32 @@ void ProgArgs::parseGPUIDs()
 void ProgArgs::parseS3Endpoints()
 {
 #ifndef S3_SUPPORT
-	if(!s3EndpointsStr.empty() )
-		throw ProgException("S3 endpoints defined, but built without S3 support.");
+    if(benchMode == BenchMode_S3)
+        throw ProgException("S3 mode selected, but built without S3 support.");
 #endif // S3_SUPPORT
 
-	if(s3EndpointsStr.empty() )
-		return; // nothing to do
+    if( (benchMode != BenchMode_S3) &&
+        !StringTk::checkForPrefix(treeScanPath, BENCHPATH_PREFIX_S3) )
+        return; // nothing to do
 
-	if(!s3EndpointsServiceOverrideStr.empty() && runAsService)
-		s3EndpointsStr = s3EndpointsServiceOverrideStr; // user specified override for service
+    if(!s3EndpointsServiceOverrideStr.empty() && runAsService)
+        s3EndpointsStr = s3EndpointsServiceOverrideStr; // user specified override for service
 
-	// split by given delimiters and expand lists/ranges in square brackets
-	TranslatorTk::splitAndExpandStr(s3EndpointsStr, S3ENDPOINTS_DELIMITERS, s3EndpointsVec);
+    // if we get here then it's either s3 bench mode or s3 treescan or service s3 override...
 
-	// delete empty string elements from vec (they come from delimiter use at beginning or end)
-	TranslatorTk::eraseEmptyStringsFromVec(s3EndpointsVec);
+    // split by given delimiters and expand lists/ranges in square brackets
+    TranslatorTk::splitAndExpandStr(s3EndpointsStr, S3ENDPOINTS_DELIMITERS, s3EndpointsVec);
 
-	if(s3EndpointsVec.empty() )
-		throw ProgException("S3 endpoints defined, but parsing resulted in an empty list: " +
-			s3EndpointsStr);
+    // delete empty string elements from vec (they come from delimiter use at beginning or end)
+    TranslatorTk::eraseEmptyStringsFromVec(s3EndpointsVec);
+
+    if(!s3EndpointsStr.empty() && s3EndpointsVec.empty() )
+        throw ProgException("S3 endpoints defined, but parsing resulted in an empty list: " +
+            s3EndpointsStr);
+
+    if(s3EndpointsVec.empty() )
+        LOGGER(Log_DEBUG, __func__ << ": " <<
+            "No S3 endpoint explicitly defined, so relying on AWS profile settings. " << std::endl);
 }
 
 /**
@@ -2580,21 +2629,21 @@ void ProgArgs::scanCustomTree()
     if(runAsService)
         throw ProgException("Tree scan cannot be used in service instance startup mode.");
 
-    // check if TREESCAN_PATH_LOCAL_PREFIX prefix
-
-    // check for TREESCAN_PATH_S3_PREFIX prefix
-    if(treeScanPath.find(TREESCAN_PATH_S3_PREFIX) == 0)
-    { // found TREESCAN_PATH_S3_PREFIX prefix => we're scanning a bucket
+    // check for BENCHPATH_PREFIX_S3 prefix
+    if(StringTk::checkForPrefix(treeScanPath, BENCHPATH_PREFIX_S3) )
+    {
     #ifndef S3_SUPPORT
         throw ProgException("S3 bucket scan requested, but this build does not include S3 "
             "support.");
     #else
 
-        // erase s3 prefix to isolate bucket name (and optional object prefix)
+        // we're scanning a bucket...
 
-        treeScanPath.erase(0, strlen(TREESCAN_PATH_S3_PREFIX) );
+        LOGGER(Log_DEBUG, "Starting S3 tree scan..." << std::endl);
 
-        // check if objectPrefix is given
+        StringTk::checkAndErasePrefix(treeScanPath, BENCHPATH_PREFIX_S3);
+
+        // isolate objectPrefix (if any)
 
         std::string scanObjectPrefix;
 
@@ -2620,6 +2669,12 @@ void ProgArgs::scanCustomTree()
 
     #endif // S3_SUPPORT
     }
+
+	// we're scanning a POSIX path...
+
+    LOGGER(Log_DEBUG, "Starting POSIX tree scan..." << std::endl);
+
+    StringTk::checkAndErasePrefix(treeScanPath, BENCHPATH_PREFIX_POSIX);
 
     FileTk::scanCustomTree(*this, treeScanPath, treeFilePath);
 }
@@ -2657,8 +2712,9 @@ void ProgArgs::loadCustomTreeFile()
 
 		// load tree of shared files (i.e. files that are greater than blocksize)
 
-		// (note: workers use the same condition to decide special handing of tree file)
-		if(runAsService && !s3EndpointsStr.empty() && runCreateFilesPhase &&
+		/* (note: workers use the same condition in prepareCustomTreePathStores() to decide special
+            handing of tree file) */
+		if(runAsService && (benchMode == BenchMode_S3) && runCreateFilesPhase &&
 			(numDataSetThreads != numThreads) )
 		{
 			/* shared s3 uploads of an object possible, but only among threads within the same
@@ -3210,19 +3266,19 @@ void ProgArgs::printHelpS3()
     	"Examples:" ENDL
 		"  Create bucket \"mybucket\":" ENDL
 		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
-		"        -d mybucket" ENDL
+		"        -d s3://mybucket" ENDL
 		std::endl <<
 		"  Test 2 threads, each creating 3 directories with 4 10MiB objects inside:" ENDL
 		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
-		"        -w -t 2 -n 3 -N 4 -s 10m -b 5m mybucket" ENDL
+		"        -w -t 2 -n 3 -N 4 -s 10m -b 5m s3://mybucket" ENDL
 		std::endl <<
 		"  Delete objects and bucket created by example above:" ENDL
 		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
-		"        -D -F -t 2 -n 3 -N 4 mybucket" ENDL
+		"        -D -F -t 2 -n 3 -N 4 s3://mybucket" ENDL
 		std::endl <<
 		"  Shared upload of 4 1GiB objects via 8 threads in 16MiB blocks:" ENDL
 		"    $ " EXE_NAME " --s3endpoints http://S3SERVER --s3key S3KEY --s3secret S3SECRET \\" ENDL
-		"        -w -t 8 -s 1g -b 16m \"mybucket/myobject[1-4]\"" <<
+		"        -w -t 8 -s 1g -b 16m \"s3://mybucket/myobject[1-4]\"" <<
 		std::endl;
 }
 
@@ -3245,16 +3301,19 @@ void ProgArgs::printHelpDistributed()
 	bpo::options_description argsDistributedBasicDescription(
 		"Basic Options", TerminalTk::getTerminalLineLength(80) );
 
-	argsDistributedBasicDescription.add_options()
-		(ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
-			"List of hosts in service mode (separated by comma, space, or newline) for coordinated "
-			"benchmark. When this argument is used, this program instance runs in master mode to "
-			"coordinate the given service mode hosts. The given number of threads, dirs and files "
-			"is per-service then. (Format: hostname[:port])")
-		(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
-			"Run as service for distributed mode, waiting for requests from master.")
-		(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
-			"Quit services on given service mode hosts.")
+    argsDistributedBasicDescription.add_options()
+        (ARG_HOSTS_LONG, bpo::value(&this->hostsStr),
+            "List of hosts in service mode (separated by comma, space, or newline) for coordinated "
+            "benchmark. When this argument is used, this program instance runs in master mode to "
+            "coordinate the given service mode hosts. The given number of threads, dirs and files "
+            "is per-service then. (Format: hostname[:port])")
+        (ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
+            "Path to file containing line-separated service hosts to use for benchmark. Lines "
+            "starting with \"#\" will be ignored. (Format: hostname[:port])")
+        (ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
+            "Run as service for distributed mode, waiting for requests from master.")
+        (ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
+            "Quit services on given service mode hosts.")
     ;
 
     std::cout << argsDistributedBasicDescription << std::endl;
@@ -3458,6 +3517,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	// note: alphabetical order by variable name ("benchLabel", "benchPathStr" etc)
 
 	benchLabel = tree.get<std::string>(ARG_BENCHLABEL_LONG);
+    benchMode = (BenchMode)tree.get<unsigned short>(ARG_BENCHMODE_LONG);
 	benchPathStr = tree.get<std::string>(ARG_BENCHPATHS_LONG);
 	blockSize = tree.get<size_t>(ARG_BLOCK_LONG);
 	blockVarianceAlgo = tree.get<std::string>(ARG_BLOCKVARIANCEALGO_LONG);
@@ -3623,6 +3683,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_BLOCKVARIANCE_LONG, blockVariancePercent);
 	outTree.put(ARG_BLOCKVARIANCEALGO_LONG, blockVarianceAlgo);
 	outTree.put(ARG_BENCHLABEL_LONG, benchLabel);
+    outTree.put(ARG_BENCHMODE_LONG, benchMode);
 	outTree.put(ARG_BENCHPATHS_LONG, benchPathStr);
 	outTree.put(ARG_CREATEDIRS_LONG, runCreateDirsPhase);
 	outTree.put(ARG_CREATEFILES_LONG, runCreateFilesPhase);

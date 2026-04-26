@@ -251,7 +251,7 @@ class NumaTk
 		 */
 		static std::string getCurrentCPUAffinityStrHuman()
 		{
-			return TranslatorTk::intVectoHumanStr(NumaTk::getCurrentCPUAffinityVec() );
+			return TranslatorTk::intVecToHumanStr(NumaTk::getCurrentCPUAffinityVec() );
 		}
 
 		/**

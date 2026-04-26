@@ -81,7 +81,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.0.37"
+#define HTTP_PROTOCOLVERSION	"3.0.38"
 
 /**
  * Default access mode bits for new files.
@@ -124,6 +124,17 @@ typedef std::vector<uint64_t> UInt64Vec;
 	#define IF_LIKELY(condition)	if(__builtin_expect(!!(condition), 1) )
 #endif
 
+/**
+ * Current benchmark mode.
+ */
+ enum BenchMode
+ {
+    BenchMode_UNDEFINED = 0,
+    BenchMode_POSIX,
+    BenchMode_S3,
+    BenchMode_HDFS,
+    BenchMode_NETBENCH,
+ };
 
 /**
  * Current benchmark phase.

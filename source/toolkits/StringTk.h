@@ -26,6 +26,10 @@ class StringTk
 		static bool verifyRandomS3TagValue(std::string s3TagValue, std::string objectName,
 			unsigned checksumLen=2);
 
+        static bool checkForPrefix(const std::string& str, const std::string prefix);
+        static bool checkAndErasePrefix(std::string& str, const std::string prefix);
+		static bool checkForPrefix(const StringVec& vec, const std::string prefix);
+
 	private:
 		StringTk() {}
 

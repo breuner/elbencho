@@ -335,7 +335,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 {
 	if(benchPathType == BenchPathType_DIR)
 	{
-		if(progArgs.getUseNetBench() )
+		if(progArgs.getBenchMode() == BenchMode_NETBENCH)
 		{
 			// note: keep this in sync with Statistics::printDryRunInfoNetBench()
 
@@ -367,7 +367,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 				case BenchPhase_READFILES:
 				{
 					if( (benchPhase == BenchPhase_READFILES) &&
-						!progArgs.getS3EndpointsVec().empty() &&
+						(progArgs.getBenchMode() == BenchMode_S3) &&
 						progArgs.getUseS3RandObjSelect() )
 					{ // special case: s3 random object selection is based on randomAmount
 						outNumEntriesPerWorker = 0;

@@ -590,7 +590,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 		( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) ||
 			(workersSharedData.currentBenchPhase == BenchPhase_READFILES) );
 
-	const bool useNetBench = progArgs.getUseNetBench();
+	const bool isNetBenchMode = (progArgs.getBenchMode() == BenchMode_NETBENCH);
 
 	// how many lines we have to show per-worker stats ("+2" for table header and total line)
 	size_t maxNumWorkerLines = liveResults.winHeight - (FULLSCREEN_GLOBALINFO_NUMLINES + 2);
@@ -636,7 +636,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 
 	std::string totalPercentDone = std::to_string(std::min(liveResults.percentDone, (size_t)100) );
 
-	if(useNetBench)
+	if(isNetBenchMode)
 		totalPercentDone = "-";
 
 	stream << boost::format(tableHeadlineFormat)
@@ -676,7 +676,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 		std::string readPercentDone =
 			std::to_string(std::min(liveResults.percentDoneReadMix, (size_t)100) );
 
-		if(useNetBench)
+		if(isNetBenchMode)
 			readPercentDone = "-";
 
 		stream << boost::format(tableHeadlineFormat)
@@ -748,7 +748,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 		workerPercentDoneNum = std::min(workerPercentDoneNum, (size_t)100);
 		workerPercentDoneStr = std::to_string(workerPercentDoneNum);
 
-		if(useNetBench)
+		if(isNetBenchMode)
 		{ // special settings for netbench mode
 			if(i < progArgs.getNumNetBenchServers() )
 			{ // this is a netbench server
@@ -968,7 +968,7 @@ void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
 		(progArgs.getRWMixReadPercent() || progArgs.getNumRWMixReadThreads() ||
-			progArgs.getUseNetBench() ) )
+			(progArgs.getBenchMode() == BenchMode_NETBENCH) ) )
 	{
 		outTree.put(XFER_STATS_NUMENTRIESDONE_RWMIXREAD, liveOpsReadMix.numEntriesDone);
 		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveOpsReadMix.numBytesDone);
@@ -2093,7 +2093,7 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
     if(!progArgs.getHostsVec().empty() )
         configSubtree.put("shared_service_paths", progArgs.getIsServicePathShared() );
 
-    if( progArgs.getS3EndpointsVec().empty() &&
+    if( (progArgs.getBenchMode() != BenchMode_S3) &&
         (progArgs.getBenchPathType() != BenchPathType_BLOCKDEV) )
         configSubtree.put("truncate_files", progArgs.getDoTruncate() );
 
@@ -2351,7 +2351,7 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
 
 		if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
 			(progArgs.getRWMixReadPercent() || progArgs.getNumRWMixReadThreads() ||
-				progArgs.getUseNetBench() ) )
+				(progArgs.getBenchMode() == BenchMode_NETBENCH) ) )
 		{
 			iopsLatHistoReadMix += worker->getIOPSLatencyHistogramReadMix();
 			entriesLatHistoReadMix += worker->getEntriesLatencyHistogramReadMix();
@@ -2365,7 +2365,7 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
 		(progArgs.getRWMixReadPercent() || progArgs.getNumRWMixReadThreads() ||
-			progArgs.getUseNetBench() ) )
+			(progArgs.getBenchMode() == BenchMode_NETBENCH) ) )
 	{
 		outTree.put(XFER_STATS_NUMENTRIESDONE_RWMIXREAD, liveOpsReadMix.numEntriesDone);
 		outTree.put(XFER_STATS_NUMBYTESDONE_RWMIXREAD, liveOpsReadMix.numBytesDone);
@@ -2383,7 +2383,7 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
  */
 void Statistics::printDryRunInfo()
 {
-	if(progArgs.getUseNetBench() )
+	if(progArgs.getBenchMode() == BenchMode_NETBENCH)
 	{
 		printDryRunInfoNetBench();
 		return;

@@ -119,3 +119,53 @@ bool StringTk::verifyRandomS3TagValue(std::string s3TagValue, std::string object
 
 	return (newChecksumStr == checksumStr);
 }
+
+/**
+ * Check if the given string starts with the given prefix.
+ *
+ * @str the string to check.
+ * @prefix the prefix to check for.
+ * @return true if the string starts with the prefix, false otherwise.
+ */
+bool StringTk::checkForPrefix(const std::string& str, const std::string prefix)
+{
+    return str.find(prefix) == 0;
+}
+
+/**
+ * Check if the given string starts with the given prefix and erase the prefix if it exists.
+ *
+ * @str the string to check and erase the prefix from.
+ * @prefix the prefix to check for and erase.
+ * @return true if the prefix was found and erased, false otherwise.
+ */
+bool StringTk::checkAndErasePrefix(std::string& inoutStr, const std::string prefix)
+{
+    bool prefixFound = checkForPrefix(inoutStr, prefix);
+
+    if(prefixFound)
+    {
+        inoutStr.erase(0, prefix.length() );
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Check if the given string vector contains any strings that start with the given prefix.
+ *
+ * @vec the string vector to check.
+ * @prefix the prefix to check for.
+ * @return true if any string in the vector starts with the prefix, false otherwise.
+ */
+bool StringTk::checkForPrefix(const StringVec& vec, const std::string prefix)
+{
+    for(const std::string& str : vec)
+    {
+        if(checkForPrefix(str, prefix) )
+            return true;
+    }
+
+    return false;
+}

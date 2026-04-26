@@ -3,20 +3,25 @@
 ## v3.0.38 (work in progress)
 
 ### General Changes
+* Added support for "file://" and "s3://" prefixes to explicitly declare given path arguments as dirs/files on a POSIX filesystem or buckets/objects on S3 object storage.
 * Respect the `AWS_REQUEST_CHECKSUM_CALCULATION` environment variable for S3. Default for checksum calculation is still `when_required` as before, but this can now be changed by setting the environment variable to `when_supported`, which will switch to chunked uploads. (With the `when_suppported` setting, multi-part uploads will switch from fixed content length to chunked encoding and corresponding streaming signatures.)
-* S3 endpoint and region can now also be provided via environment variables to match AWS CLI v2 behavior. `--s3endpoints` falls back to `AWS_ENDPOINT_URL_S3` then `AWS_ENDPOINT_URL`; `--s3region` falls back to `AWS_REGION` then `AWS_DEFAULT_REGION`. Command-line arguments still take precedence.
+* S3 endpoint and region can now also be provided via environment variables. `--s3endpoints` falls back to `AWS_ENDPOINT_URL_S3` then `AWS_ENDPOINT_URL`; `--s3region` falls back to `AWS_REGION` then `AWS_DEFAULT_REGION`. Command-line arguments still take precedence. S3 endpoint is only read from envirnment variables if `s3://` prefix is used for benchmark path (to prevent problems with file-based benchmarks when AWS env vars are set).
+* Added support for reading S3 endpoint and credentials from AWS profile config via `AWS_PROFILE` environment variable (if benchmark is explicitly declared as S3 via "s3://" benchmark path prefix).
 * Added check for invalid `-` character in values that don't exect negative numbers or ranges, e.g. filesize or blocksize.
 * Updated S3 to latest AWS SDK CPP v1.11.789.
 * Updated AWS SDK CPP git clone command to only do shallow submodule cloning and to use parallel jobs.
 * Updated `make` calls in `prepare-externals.sh` script to not reset the jobserver mode of `make`.
 * Updated mimalloc lib for static builds to latest v3.3.0.
+* Added strict enforcement of connection timeout for pre-flight communication check if service instances based on `--svcwait`.
+* Added timeout (10min) to http client for communication with service instances to prevent hanging infinitely if server got stuck.
+* Added human-readable error strings for common S3/http error codes.
 
 ### Fixes
 * Drop caches phase did not close file descriptor of virtual "drop_caches" file in "/proc".
 * Fixed S3 retry strategy ignoring the `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` environment variables. (Regression introduced in v3.0.33)
 
 ### Contributors
-* Thanks to GitHub user bhbmaster (Kostia Khlebopros) for contributions, helpful comments and suggestions.
+* Thanks to GitHub user bhbmaster (Kostia Khlebopros), Github user roolerzz (Hemant Sethi), Github user panghubaobao777, Github user alexh-vst, Github user blakegolliher (Blake Golliher), Andrew Way, Xiaoyu Yao, Chuck Cancilla, Sam Li for contributions, helpful comments and suggestions.
 
 ## v3.0.37 (Dec 27, 2025)
 

@@ -28,6 +28,7 @@ class TranslatorTk
 		static void expandSquareBracketsStr(std::string rangeStr, StringVec& outStrVec);
 
 	public:
+        static std::string benchModeToModeName(BenchMode benchMode);
 		static std::string benchPhaseToPhaseName(BenchPhase benchPhase, const ProgArgs* progArgs);
         static std::string benchPhaseToPhaseEntryType(BenchPhase benchPhase,
             const ProgArgs* progArgs, bool firstToUpper=false);
@@ -36,7 +37,7 @@ class TranslatorTk
 		static unsigned fadviseArgsStrToFlags(std::string fadviseArgsStr);
 		static unsigned madviseArgsStrToFlags(std::string madviseArgsStr);
         static unsigned short flockArgsStrToType(std::string flockArgsStr);
-		static std::string intVectoHumanStr(const IntVec& intVec);
+		static std::string intVecToHumanStr(const IntVec& intVec);
 		static bool expandSquareBrackets(StringVec& inoutStrVec);
 		static bool replaceCommasOutsideOfSquareBrackets(std::string& inoutStr,
 			std::string replacementStr);
@@ -44,6 +45,8 @@ class TranslatorTk
 		static void splitAndExpandStr(std::string str, std::string delimiters,
 			StringVec& outVec);
 		static void eraseEmptyStringsFromVec(StringVec& inoutVec);
+        static void eraseBenchPathPrefixesFromVec(StringVec& inoutVec);
+		static const char* httpErrorCodeToHumanStr(unsigned httpErrorCode);
 
 #ifdef S3_SUPPORT
         template <typename S3CANNEDACLTYPE, typename S3REQUEST>

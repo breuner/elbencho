@@ -214,21 +214,17 @@ void LocalWorker::run()
 					case BenchPhase_DELETEDIRS:
 					case BenchPhase_STATDIRS:
 					{
-						if(progArgs->getBenchPathType() != BenchPathType_DIR)
-							throw WorkerException("Directory creation and deletion are not "
-								"available in file and block device mode.");
+                        if(progArgs->getBenchPathType() != BenchPathType_DIR)
+                            throw WorkerException("Directory creation and deletion are not "
+                                "available in file and block device mode.");
 
-						if(progArgs->getUseHDFS() )
-							hdfsDirModeIterateDirs();
-						else
-						if(progArgs->getS3EndpointsVec().empty() )
-						{
-							progArgs->getTreeFilePath().empty() ?
-								dirModeIterateDirs() : dirModeIterateCustomDirs();
-						}
-						else
-							s3ModeIterateBuckets();
-
+                        if(progArgs->getBenchMode() == BenchMode_HDFS)
+                            hdfsDirModeIterateDirs();
+                        else
+                        if(progArgs->getBenchMode() == BenchMode_S3)
+                            s3ModeIterateBuckets();
+                        else
+                            dirModeIterateDirs();
 					} break;
 
                     case BenchPhase_GET_S3_BUCKET_MD:
@@ -241,28 +237,28 @@ void LocalWorker::run()
 					case BenchPhase_CREATEFILES:
 					case BenchPhase_READFILES:
 					{
-						if(progArgs->getBenchPathType() == BenchPathType_DIR)
-						{
-							if(progArgs->getUseNetBench() )
-								netbenchDoTransfer();
-							else
-							if(progArgs->getUseHDFS() )
-								hdfsDirModeIterateFiles();
-							else
-							if(progArgs->getS3EndpointsVec().empty() )
-								progArgs->getTreeFilePath().empty() ?
-									dirModeIterateFiles() : dirModeIterateCustomFiles();
-							else
-								progArgs->getTreeFilePath().empty() ?
-									s3ModeIterateObjects() : s3ModeIterateCustomObjects();
-						}
-						else
-						{
+                        if(progArgs->getBenchPathType() == BenchPathType_DIR)
+                        {
+                            if(progArgs->getBenchMode() == BenchMode_NETBENCH)
+                                netbenchDoTransfer();
+                            else
+                            if(progArgs->getBenchMode() == BenchMode_HDFS)
+                                hdfsDirModeIterateFiles();
+                            else
+                            if(progArgs->getBenchMode() == BenchMode_S3)
+                                progArgs->getTreeFilePath().empty() ?
+                                    s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+                            else
+                                progArgs->getTreeFilePath().empty() ?
+                                    dirModeIterateFiles() : dirModeIterateCustomFiles();
+                        }
+                        else
+                        {
                             if(progArgs->getUseRandomOffsets() || progArgs->getUseStridedAccess() )
                                 fileModeIterateFilesRand();
                             else
-								fileModeIterateFilesSeq();
-						}
+                                fileModeIterateFilesSeq();
+                        }
 					} break;
 
                     case BenchPhase_GET_S3_OBJECT_MD:
@@ -275,19 +271,19 @@ void LocalWorker::run()
 
 					case BenchPhase_STATFILES:
 					{
-						if(progArgs->getBenchPathType() != BenchPathType_DIR)
-							throw WorkerException("File stat operation not available in file and "
-								"block device mode.");
+                        if(progArgs->getBenchPathType() != BenchPathType_DIR)
+                            throw WorkerException("File stat operation not available in file and "
+                                "block device mode.");
 
-						if(progArgs->getUseHDFS() )
-							hdfsDirModeIterateFiles();
-						else
-						if(progArgs->getS3EndpointsVec().empty() )
-							progArgs->getTreeFilePath().empty() ?
-								dirModeIterateFiles() : dirModeIterateCustomFiles();
-						else
-							progArgs->getTreeFilePath().empty() ?
-								s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+                        if(progArgs->getBenchMode() == BenchMode_HDFS)
+                            hdfsDirModeIterateFiles();
+                        else
+                        if(progArgs->getBenchMode() == BenchMode_S3)
+                            progArgs->getTreeFilePath().empty() ?
+                                s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+                        else
+                            progArgs->getTreeFilePath().empty() ?
+                                dirModeIterateFiles() : dirModeIterateCustomFiles();
 					} break;
 
 					case BenchPhase_PUTBUCKETACL:
@@ -324,20 +320,20 @@ void LocalWorker::run()
 
 					case BenchPhase_DELETEFILES:
 					{
-						if(progArgs->getBenchPathType() == BenchPathType_DIR)
-						{
-							if(progArgs->getUseHDFS() )
-								hdfsDirModeIterateFiles();
-							else
-							if(progArgs->getS3EndpointsVec().empty() )
-								progArgs->getTreeFilePath().empty() ?
-									dirModeIterateFiles() : dirModeIterateCustomFiles();
-							else
-								progArgs->getTreeFilePath().empty() ?
-									s3ModeIterateObjects() : s3ModeIterateCustomObjects();
-						}
-						else
-							fileModeDeleteFiles();
+                        if(progArgs->getBenchPathType() == BenchPathType_DIR)
+                        {
+                            if(progArgs->getBenchMode() == BenchMode_HDFS)
+                                hdfsDirModeIterateFiles();
+                            else
+                            if(progArgs->getBenchMode() == BenchMode_S3)
+                                progArgs->getTreeFilePath().empty() ?
+                                    s3ModeIterateObjects() : s3ModeIterateCustomObjects();
+                            else
+                                progArgs->getTreeFilePath().empty() ?
+                                    dirModeIterateFiles() : dirModeIterateCustomFiles();
+                        }
+                        else
+                            fileModeDeleteFiles();
 					} break;
 
 					case BenchPhase_SYNC:
@@ -500,7 +496,7 @@ void LocalWorker::initS3Client()
 {
 #ifdef S3_SUPPORT
 
-	if(progArgs->getS3EndpointsVec().empty() )
+	if(progArgs->getBenchMode() != BenchMode_S3)
 		return; // nothing to do
 
     if(progArgs->getUseS3ClientSingleton() )
@@ -558,7 +554,7 @@ void LocalWorker::uninitS3Client()
 {
 #ifdef S3_SUPPORT
 
-	if(progArgs->getS3EndpointsVec().empty() )
+    if(progArgs->getBenchMode() != BenchMode_S3)
 		return; // nothing to do
 
 	// s3Client is a std::shared_ptr, so reset() will cleanup the client object
@@ -604,7 +600,7 @@ void LocalWorker::uninitHDFS()
  */
 void LocalWorker::initNetBench()
 {
-	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+	if(!progArgs->getRunAsService() || (progArgs->getBenchMode() != BenchMode_NETBENCH) )
 		return; // nothing to do
 
 	const size_t hostIndex =
@@ -624,7 +620,7 @@ void LocalWorker::initNetBench()
  */
 void LocalWorker::initNetBenchServer()
 {
-	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+	if(!progArgs->getRunAsService() || (progArgs->getBenchMode() != BenchMode_NETBENCH) )
 		return; // nothing to do
 
 	const unsigned listenTimeoutMS = NETBENCH_CONNECT_TIMEOUT_SEC * 1000;
@@ -803,7 +799,7 @@ void LocalWorker::initNetBenchClient()
  */
 void LocalWorker::uninitNetBench()
 {
-	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+	if(!progArgs->getRunAsService() || (progArgs->getBenchMode() != BenchMode_NETBENCH) )
 		return; // nothing to do
 
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
@@ -834,7 +830,7 @@ void LocalWorker::uninitNetBench()
  */
 void LocalWorker::uninitNetBenchAfterPhaseDone()
 {
-	if(!progArgs->getRunAsService() || !progArgs->getUseNetBench() )
+	if(!progArgs->getRunAsService() || (progArgs->getBenchMode() != BenchMode_NETBENCH) )
 		return; // nothing to do
 
 	const size_t localWorkerRank = workerRank - progArgs->getRankOffset();
@@ -1189,7 +1185,7 @@ void LocalWorker::nullifyPhaseFunctionPointers()
 void LocalWorker::initPhaseFunctionPointers()
 {
     const size_t ioDepth = progArgs->getIODepth();
-    const bool useHDFS = progArgs->getUseHDFS();
+    const bool useHDFS = (progArgs->getBenchMode() == BenchMode_HDFS);
     const bool useMmap = progArgs->getUseMmap();
     const bool useCuFileAPI = progArgs->getUseCuFile();
     const BenchPathType benchPathType = progArgs->getBenchPathType();
@@ -1365,7 +1361,7 @@ void LocalWorker::allocIOBuffer()
 	if(!progArgs->getBlockSize() )
 		return; // nothing to do here
 
-	if(!progArgs->getS3EndpointsStr().empty() && !progArgs->getRunCreateFilesPhase() &&
+	if( (progArgs->getBenchMode() == BenchMode_S3) && !progArgs->getRunCreateFilesPhase() &&
 		progArgs->getUseS3FastRead() )
 		return; // nothing to do if read to /dev/null is set and no writes to be done
 
@@ -1535,7 +1531,7 @@ void LocalWorker::prepareCustomTreePathStores()
 	progArgs->getCustomTreeFilesNonShared().getWorkerSublistNonShared(workerRank,
 		numDataSetThreads, throwOnSmallerThanBlockSize, customTreeFiles);
 
-	if(progArgs->getRunAsService() && !progArgs->getS3EndpointsStr().empty() &&
+	if(progArgs->getRunAsService() && (progArgs->getBenchMode() == BenchMode_S3) &&
 		progArgs->getRunCreateFilesPhase() && (numDataSetThreads != numThreads) )
 	{
 		/* shared s3 uploads of an object possible, but only among threads within the same
@@ -4233,7 +4229,9 @@ void LocalWorker::s3ModeThrowOnError(
         (objectName.empty() ? std::string("") : ("Object: " + objectName + "\n" )) <<
         "Exception: " << s3Error.GetExceptionName() << std::endl <<
         "Message: " << s3Error.GetMessage() << std::endl <<
-        "HTTP Error Code: " << (int)s3Error.GetResponseCode() << std::endl <<
+        "HTTP Error Code: " << (int)s3Error.GetResponseCode() << " (" <<
+            TranslatorTk::httpErrorCodeToHumanStr( (int)s3Error.GetResponseCode() ) << ")" <<
+            std::endl <<
         "Request ID: " << s3Error.GetRequestId() << std::endl;
 
     throw WorkerException(errStr.str());
@@ -6972,7 +6970,7 @@ void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName
 bool LocalWorker::getS3ModeDoReverseSeqFallback()
 {
 	if(progArgs->getUseRandomOffsets() &&
-		!progArgs->getS3EndpointsVec().empty() &&
+		(progArgs->getBenchMode() == BenchMode_S3) &&
 		(benchPhase == BenchPhase_CREATEFILES) )
 		return true;
 
