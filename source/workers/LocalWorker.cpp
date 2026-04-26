@@ -224,7 +224,8 @@ void LocalWorker::run()
                         if(progArgs->getBenchMode() == BenchMode_S3)
                             s3ModeIterateBuckets();
                         else
-                            dirModeIterateDirs();
+                            progArgs->getTreeFilePath().empty() ?
+                                dirModeIterateDirs() : dirModeIterateCustomDirs();
 					} break;
 
                     case BenchPhase_GET_S3_BUCKET_MD:
