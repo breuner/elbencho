@@ -1,5 +1,7 @@
 # Changelog of elbencho
 
+## v3.1.2 (work in progress)
+
 ## v3.1.1 (Apr 26, 2026)
 
 ### General Changes
