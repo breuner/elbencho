@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elbencho-cluster
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: elbencho
+  template:
+    metadata:
+      labels:
+        app: elbencho
+    spec:
+      # =======================================================================
+      # SCHEDULING OPTIONS: Node Anti-Affinity
+      # Choose ONE of the following strategies to distribute pods across nodes.
+      # =======================================================================
+      affinity:
+        podAntiAffinity:
+
+          # --- OPTION 1: PREFERRED (Soft) ---
+          # Tries to place pods on different nodes, but allows stacking if
+          # there are more pods than physical nodes. (Good for testing)
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - elbencho
+              topologyKey: kubernetes.io/hostname
+
+          # --- OPTION 2: REQUIRED (Hard) ---
+          # Strictly enforces one pod per node. Will leave pods in 'Pending'
+          # state if there aren't enough physical nodes available.
+          # Uncomment the block below (and comment out OPTION 1) to use:
+          #requiredDuringSchedulingIgnoredDuringExecution:
+          #- labelSelector:
+          #    matchExpressions:
+          #    - key: app
+          #      operator: In
+          #      values:
+          #      - elbencho
+          #  topologyKey: kubernetes.io/hostname
+
+      containers:
+      - name: elbencho
+        image: breuner/elbencho:latest
+        command: ["/bin/sh", "-c", "elbencho --service --foreground"]
+        volumeMounts:
+        - name: benchmark-data
+          mountPath: /benchmark-data
+
+      # =======================================================================
+      # STORAGE OPTIONS: Benchmark Target Volume
+      # Choose ONE of the following volume types to mount into the pods.
+      # =======================================================================
+      volumes:
+      - name: benchmark-data
+
+        # --- OPTION 1: hostPath (Use existing shared filesystem from host) ---
+        # Mounts a specific directory from the physical host.
+        hostPath:
+          path: /mnt/storage/elbencho-data
+          type: DirectoryOrCreate
+
+        # --- OPTION 2: NFS Shared Filesystem (Basic) ---
+        # Mounts an external NFS share directly into the pods.
+        # NOTE: Inline NFS does NOT support custom mount options like 'nconnect'.
+        # For advanced mount options, use OPTION 3 (PVC) combined with a PV.
+        #nfs:
+        #  server: 192.168.1.100      # Replace with your NFS server IP
+        #  path: /export/benchmark    # Replace with your NFS exported path
+
+        # --- OPTION 3: PersistentVolumeClaim (Advanced NFS & Others) ---
+        # Uses a PVC to request storage from the cluster.
+        # This is REQUIRED if you want to use NFS mount options like 'nconnect'.
+        # You will need to deploy a PV and PVC (see nfs-pv-pvc.yaml) first.
+        #persistentVolumeClaim:
+        #  claimName: elbencho-nfs-pvc
+

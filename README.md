@@ -108,7 +108,7 @@ Now comes the fun part: It's time to find out what your system can deliver.
 
 The built-in help (`elbencho --help`) provides many usage examples. You will be interested in throughput and IOPS, typically for a single client and also for multiple clients. For the latter, see `--hosts` & `--service`.
 
-If your cluster is using Slurm to allocate nodes, you can find examples [here](docs/slurm-examples.md).
+If your cluster is using Slurm to allocate nodes, you can find examples [here](docs/slurm-examples.md). Kubernetes/K8s examples are available [here](docs/k8s-examples.md).
 
 If GPU data transfer performance is critical for you, e.g. because you are running DeepLearning applications, you will also want to include GPUs in your read/write benchmarks (`--gpuids`).
 

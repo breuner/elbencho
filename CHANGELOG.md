@@ -2,6 +2,13 @@
 
 ## v3.1.2 (work in progress)
 
+### General Changes
+* Added guide for running multi-node benchmarks with shared storage on Kubernetes.
+  * See here: https://github.com/breuner/elbencho/blob/master/docs/k8s-examples.md
+
+### Contributors
+* Thanks to Daniel Drozdowski, Andrew Way, Xiaoyu Yao for helpful comments and suggestions.
+
 ## v3.1.1 (Apr 26, 2026)
 
 ### General Changes
@@ -24,7 +31,7 @@
 * Fixed S3 retry strategy ignoring the `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` environment variables. (Regression introduced in v3.0.33)
 
 ### Contributors
-* Thanks to GitHub user bhbmaster (Kostia Khlebopros), Github user roolerzz (Hemant Sethi), Github user panghubaobao777, Github user alexh-vst, Github user blakegolliher (Blake Golliher), Andrew Way, Xiaoyu Yao, Chuck Cancilla, Sam Li for contributions, helpful comments and suggestions.
+* Thanks to GitHub user bhbmaster (Kostia Khlebopros), Github user roolerzz (Hemant Sethi), Github user panghubaobao777, Github user alexh-vst, Github user blakegolliher (Blake Golliher), Chuck Cancilla, Sam Li for contributions, helpful comments and suggestions.
 
 ## v3.0.37 (Dec 27, 2025)
 

@@ -1,0 +1,48 @@
+# =======================================================================
+# NFS Persistent Volume (PV)
+# This is where advanced mount options like 'nconnect' are defined.
+# =======================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: elbencho-nfs-pv
+spec:
+  capacity:
+    storage: 100Gi  # Arbitrary size, NFS doesn't strictly enforce this
+  accessModes:
+    - ReadWriteMany # Allows multiple pods on multiple nodes to read/write
+  persistentVolumeReclaimPolicy: Retain
+
+  # ---------------------------------------------------------
+  # MOUNT OPTIONS
+  # Add your specific NFS tuning parameters here
+  # ---------------------------------------------------------
+  mountOptions:
+    - nconnect=4
+    - noatime
+    - nfsvers=4
+
+  nfs:
+    server: 192.168.1.100      # Replace with your actual NFS Server IP
+    path: /export/benchmark    # Replace with your actual Export Path
+
+---
+# =======================================================================
+# NFS Persistent Volume Claim (PVC)
+# The pods use this claim to request the volume defined above.
+# =======================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elbencho-nfs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  # Binds this claim specifically to the PV created above
+  volumeName: elbencho-nfs-pv
+  # Use an empty storage class to prevent dynamic provisioners from taking over
+  storageClassName: ""
+
