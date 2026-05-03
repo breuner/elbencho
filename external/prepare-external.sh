@@ -336,7 +336,7 @@ prepare_awssdk()
 # Prepare git clone and required tag.
 prepare_mimalloc()
 {
-	local REQUIRED_TAG="v3.3.1"
+	local REQUIRED_TAG="v3.3.2"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/mimalloc"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/mimalloc/build"
