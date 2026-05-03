@@ -6,6 +6,7 @@
 * Added guide for running multi-node benchmarks with shared storage on Kubernetes.
   * See here: https://github.com/breuner/elbencho/blob/master/docs/k8s-examples.md
 * Updated mimalloc lib for static builds to latest v3.3.2.
+* Wait 5sec after first CTRL+C press before resetting interrupt signal handler to have some time for graceful shutdown.
 
 ### Contributors
 * Thanks to Daniel Drozdowski, Andrew Way, Xiaoyu Yao for helpful comments and suggestions.

@@ -4,7 +4,7 @@
 #include "ProgArgs.h"
 #include "WorkersSharedData.h"
 
-bool WorkersSharedData::gotUserInterruptSignal = false;
+uint32_t WorkersSharedData::gotUserInterruptSignalT = 0;
 bool WorkersSharedData::isPhaseTimeExpired = false;
 
 

@@ -16,6 +16,10 @@
 #include "toolkits/S3Tk.h"
 #include "toolkits/SignalTk.h"
 #include "workers/WorkerException.h"
+#include "workers/WorkersSharedData.h"
+
+
+#define SIGINT_GRACEFUL_SHUTDOWN_TIME_SECS  5 // secs to wait in case of repeated interrupt sigs
 
 
 /**
@@ -229,7 +233,7 @@ void Coordinator::waitForServicesReady()
  */
 void Coordinator::checkInterruptionBetweenPhases()
 {
-	if(WorkersSharedData::gotUserInterruptSignal)
+	if(WorkersSharedData::gotUserInterruptSignalT)
 		throw ProgInterruptedException("Terminating due to interrupt signal.");
 
 	if(WorkersSharedData::isPhaseTimeExpired)
@@ -402,16 +406,37 @@ void Coordinator::rotateHosts()
 }
 
 /**
- * Set interrupted flag as a friendly ask for coordinator/workers to self-terminate. Also resets
- * to default signal handler, so that next attempt to interrupt will be successful if friendly way
+ * Set interrupted flag as a friendly ask for coordinator/workers to self-terminate. On repeated
+ * interrupt signals, we wait for a grace period before actually interrupting before resetting to
+ * default signal handler, so that next attempt to interrupt will be successful if friendly way
  * did not work out.
+ *
+ * The wait time is because we want to give the components a chance to self-terminate gracefully
+ * by sending stop requests to remove service instances and by switching out of live stats
+ * full-screen mode.
  */
 void Coordinator::handleInterruptSignal(int signal)
 {
-	// reset signal handler to default, so that next interrupt request will definitely interrupt
-	std::signal(signal, SIG_DFL);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
 
-	WorkersSharedData::gotUserInterruptSignal = true;
+    if(!WorkersSharedData::gotUserInterruptSignalT)
+    { // first interrupt signal => set timestamp to engage graceful shutdown
+
+        WorkersSharedData::gotUserInterruptSignalT = ts.tv_sec;
+
+        return;
+    }
+
+    // repeated interrupt signal => check if enough time has passed to engage graceful shutdown
+
+    uint32_t timeSinceFirstInterrupt = ts.tv_sec - WorkersSharedData::gotUserInterruptSignalT;
+
+    if(timeSinceFirstInterrupt > SIGINT_GRACEFUL_SHUTDOWN_TIME_SECS)
+    {
+        // reset signal handler to default, so that next interrupt request will definitely interrupt
+        std::signal(signal, SIG_DFL);
+    }
 }
 
 /**

@@ -33,7 +33,8 @@ namespace buuids = boost::uuids;
 class WorkersSharedData
 {
 	public:
-		static bool gotUserInterruptSignal; // main thread SIGINT/SIGTERM handler sets this to true
+		static uint32_t gotUserInterruptSignalT; /* main thread SIGINT/SIGTERM handler sets this to
+            !=0 (monotonic clock secs) on ctrl+c so that we can attempt graceful shutdown */
 		static bool isPhaseTimeExpired; // expired progArgs::timeLimitSecs sets this to true
 
 		ThreadGroup* threadGroup;

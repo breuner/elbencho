@@ -57,7 +57,7 @@ bool WorkerManager::checkWorkersDoneUnlocked(size_t* outNumWorkersDone)
 		throw WorkerException("Worker encountered error");
 	}
 
-	IF_UNLIKELY(WorkersSharedData::gotUserInterruptSignal)
+	IF_UNLIKELY(WorkersSharedData::gotUserInterruptSignalT)
 		interruptAndNotifyWorkersUnlocked();
 
 	if(*outNumWorkersDone == workerVec.size() )
