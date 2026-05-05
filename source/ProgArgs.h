@@ -378,7 +378,6 @@ class ProgArgs
 		std::string configFilePath; // Configuration input using a config file (empty for none)
 		std::string cpuCoresStr; // comma-separated cpu cores that this process may run on
 		IntVec cpuCoresVec; // list from cpuCoresStr broken down into individual elements
-		std::string csvFilePath; // phase results file path for csv format (or empty for none)
 		bool disableLiveStats; // disable live stats
 		bool disablePathBracketsExpansion; // true to disable square brackets expansion for paths
 		bool doDirectVerify; // verify data integrity by reading immediately after write
@@ -424,7 +423,6 @@ class ProgArgs
 		uint64_t integrityCheckSalt; // salt to add to data integrity checksum (0 disables check)
 		bool interruptServices; // send interrupt msg to given hosts to stop current phase
 		size_t iterations; // Number of iterations of the same benchmark
-		std::string jsonFilePath; // phase results file path for json format (or empty for none)
 		unsigned short logLevel; // filter level for log messages (higher will not be logged)
 		uint64_t limitReadBps; // read limit per thread in bytes per sec
 		std::string limitReadBpsOrigStr; // original limitReadBps str from user with unit
@@ -466,7 +464,9 @@ class ProgArgs
 		std::string randomAmountOrigStr; // original randomAmount str from user with unit
 		std::string randOffsetAlgo; // rand algo for random offsets
 		size_t rankOffset; // offset for worker rank numbers
-		std::string resFilePath; // results output file path (or empty for no results file)
+		std::string resFilePathCSV; // phase results file path for csv format (or empty for none)
+		std::string resFilePathJSON; // phase results file path for json format (or empty for none)
+		std::string resFilePathTXT; // results output file path (or empty for no results file)
 		unsigned short rotateHostsNum; // number by which to rotate hosts between phases
 		bool runAsService; // run as service for remote coordination by master
 		bool runCreateDirsPhase; // create directories
@@ -669,7 +669,6 @@ class ProgArgs
 		const PathStore& getCustomTreeDirs() const { return customTree.dirs; }
 		const PathStore& getCustomTreeFilesNonShared() const { return customTree.filesNonShared; }
 		const PathStore& getCustomTreeFilesShared() const { return customTree.filesShared; }
-        std::string getCSVFilePath() const { return csvFilePath; }
         bool getDisableLiveStats() const { return disableLiveStats; }
         bool getDoDirSharing() const { return doDirSharing; }
         bool getDoDirectVerify() const { return doDirectVerify; }
@@ -713,7 +712,6 @@ class ProgArgs
         bool getInterruptServices() const { return interruptServices; }
 		bool getIsServicePathShared() const { return !noSharedServicePath; }
         size_t getIterations() const { return iterations; }
-        std::string getJSONFilePath() const { return jsonFilePath; }
         uint64_t getLimitReadBps() const { return limitReadBps; }
         uint64_t getLimitWriteBps() const { return limitWriteBps; }
         std::string getLiveCSVFilePath() const { return liveCSVFilePath; }
@@ -744,7 +742,9 @@ class ProgArgs
         std::string getRandOffsetAlgo() const { return randOffsetAlgo; }
 		uint64_t getRandomAmount() const { return randomAmount; }
         size_t getRankOffset() const { return rankOffset; }
-        std::string getResFilePath() const { return resFilePath; }
+        std::string getResFilePathCSV() const { return resFilePathCSV; }
+        std::string getResFilePathJSON() const { return resFilePathJSON; }
+        std::string getResFilePathTXT() const { return resFilePathTXT; }
         unsigned getRotateHostsNum() const { return rotateHostsNum; }
         bool getRunAsService() const { return runAsService; }
         bool getRunCreateDirsPhase() const { return runCreateDirsPhase; }

@@ -1,8 +1,9 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <boost/algorithm/string.hpp>
 #include <fcntl.h>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <libgen.h>
@@ -65,6 +66,19 @@
 
 #define TREESCAN_OUTFILE_DEFAULT    ("/var/tmp/" EXE_NAME "_" + SystemTk::getUsername() + "_" + \
                                     "treescan.txt")
+
+#define RESFILE_DIR_BASE_DEFAULT    "/var/tmp"
+#define RESFILE_DIR_USER_DEFAULT    (RESFILE_DIR_BASE_DEFAULT "/" EXE_NAME "_" + \
+                                    SystemTk::getUsername() + "_" "result")
+#define RESFILE_TXT_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" "result" "_" + \
+                                    SystemTk::getUsername() + "_" + \
+                                    SystemTk::getCurrentDateYYYYMMDD() + ".txt")
+#define RESFILE_CSV_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" "result" "_" + \
+                                    SystemTk::getUsername() + "_" + \
+                                    SystemTk::getCurrentDateYYYYMMDD() + ".csv")
+#define RESFILE_JSON_PATH_DEFAULT   (RESFILE_DIR_USER_DEFAULT +  "/" EXE_NAME "_" "result" "_" + \
+                                    SystemTk::getUsername() + "_" + \
+                                    SystemTk::getCurrentDateYYYYMMDD() + ".json")
 
 #define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
 #define S3_ENV_SECRET_KEY           "AWS_SECRET_ACCESS_KEY" // environment variable for s3 secret
@@ -248,10 +262,12 @@ void ProgArgs::defineAllowedArgs()
 #endif // COREBIND_SUPPORT
 /*cp*/	(ARG_CPUUTIL_LONG, bpo::bool_switch(&this->showCPUUtilization),
 			"Show CPU utilization in phase stats results.")
-/*cs*/	(ARG_CSVFILE_LONG, bpo::value(&this->csvFilePath),
-			"Path to file for end results in csv format. This way, results can be imported e.g. "
-			"into MS Excel. If the file exists, results will be appended. (See also \"--"
-			ARG_CSVLIVEFILE_LONG "\" for progress results in csv format.)")
+/*cs*/  (ARG_CSVFILE_LONG, bpo::value(&this->resFilePathCSV),
+            "Path to file for end results in csv format. This way, results can be imported e.g. "
+            "into MS Excel. If the file exists, results will be appended. (See also \"--"
+            ARG_CSVLIVEFILE_LONG "\" for progress results in csv format.) "
+            "(Default: Store in \"" RESFILE_DIR_BASE_DEFAULT "\" under a subdir that contains the "
+            "username.)")
 #ifdef CUFILE_SUPPORT
 /*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
 			"Use cuFile API for reads/writes to/from GPU memory, also known as GPUDirect Storage "
@@ -353,10 +369,12 @@ void ProgArgs::defineAllowedArgs()
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
 			"Depth of I/O queue per thread for asynchronous I/O. Setting this to 2 or higher "
 			"turns on async I/O. (Default: 1)")
-/*jso*/ (ARG_JSONFILE_LONG, bpo::value(&this->jsonFilePath),
+/*jso*/ (ARG_JSONFILE_LONG, bpo::value(&this->resFilePathJSON),
             "Path to file for end results in json format. If the file exists, results will be "
             "appended. (See also \"--" ARG_JSONLIVEFILE_LONG "\" for progress results in json "
-            "format.) (EXPERIMENTAL: Output format can still change.)")
+            "format.) (EXPERIMENTAL: Output format can still change.) "
+            "(Default: Store in \"" RESFILE_DIR_BASE_DEFAULT "\" under a subdir that contains the "
+            "username.)")
 /*la*/	(ARG_BENCHLABEL_LONG, bpo::value(&this->benchLabel),
 			"Custom label to identify benchmark run in result files.")
 /*la*/	(ARG_LATENCY_LONG, bpo::bool_switch(&this->showLatency),
@@ -505,9 +523,11 @@ void ProgArgs::defineAllowedArgs()
 			"Netbench mode server response size in bytes. Servers will send this amount of data as "
 			"response to each received block from a client. (Default: 1; "
 			"supports base2 suffixes, e.g. \"2M\")")
-/*re*/	(ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePath),
-			"Path to file for human-readable results, similar to console output. If the file "
-			"exists, new results will be appended.")
+/*re*/  (ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePathTXT),
+            "Path to file for human-readable results, similar to console output. If the file "
+            "exists, new results will be appended. "
+            "(Default: Store in \"" RESFILE_DIR_BASE_DEFAULT "\" under a subdir that contains the "
+            "username.)")
 /*ro*/	(ARG_ROTATEHOSTS_LONG, bpo::value(&this->rotateHostsNum),
 			"Number by which to rotate hosts between phases to avoid caching effects. (Default: 0)")
 /*rw*/	(ARG_RWMIXPERCENT_LONG, bpo::value(&this->rwMixReadPercent),
@@ -1031,6 +1051,22 @@ void ProgArgs::initImplicitValues()
 
         // override stdout with stderr, so that all normal log messages go to stderr
         dup2(STDERR_FILENO, STDOUT_FILENO);
+    }
+
+    if(!runAsService)
+    {
+        std::string userResDir = RESFILE_DIR_USER_DEFAULT;
+
+        mkdir(userResDir.c_str(), S_IRWXU);
+
+        if(resFilePathTXT.empty() )
+            resFilePathTXT = RESFILE_TXT_PATH_DEFAULT;
+
+        if(resFilePathCSV.empty() )
+            resFilePathCSV = RESFILE_CSV_PATH_DEFAULT;
+
+        if(resFilePathJSON.empty() )
+            resFilePathJSON = RESFILE_JSON_PATH_DEFAULT;
     }
 
 	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
@@ -4053,17 +4089,17 @@ void ProgArgs::checkServiceBenchPathInfos(BenchPathInfoVec& benchPathInfos)
  */
 void ProgArgs::checkCSVFileCompatibility()
 {
-	if(csvFilePath.empty() )
+	if(resFilePathCSV.empty() )
 		return; // nothing to do
 
-	if(FileTk::checkFileEmpty(csvFilePath) )
+	if(FileTk::checkFileEmpty(resFilePathCSV) )
 		return; // no csv file yet or file is empty, so nothing to do
 
 	std::string lineStr;
 
-	std::ifstream fileStream(csvFilePath.c_str() );
+	std::ifstream fileStream(resFilePathCSV.c_str() );
 	if(!fileStream)
-		throw ProgException("Opening csv file for compatibility check failed: " + csvFilePath);
+		throw ProgException("Opening csv file for compatibility check failed: " + resFilePathCSV);
 
 	// read first line
 	std::getline(fileStream, lineStr);
@@ -4076,7 +4112,7 @@ void ProgArgs::checkCSVFileCompatibility()
 			"Was this file generated by a different " EXE_NAME " version? "
 			"Found commas: " + std::to_string(numCommas) + "; "
 			"Expected commas: " + std::to_string(CSVFILE_EXPECTED_COMMAS) + "; "
-			"File: " + csvFilePath);
+			"File: " + resFilePathCSV);
 }
 
 /**

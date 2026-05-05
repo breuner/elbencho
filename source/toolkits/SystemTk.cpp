@@ -1,13 +1,34 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <chrono>
+#include <iomanip>
 #include <pwd.h>
+#include <sstream>
 #include <string>
 #include <sys/file.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include "SystemTk.h"
 
+/**
+ * Get the current date in YYYMMDD format.
+ */
+std::string SystemTk::getCurrentDateYYYYMMDD()
+{
+    auto now = std::chrono::system_clock::now();
+
+    std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+
+    std::tm* local_tm = std::localtime(&now_time_t);
+
+    // 4. Format the time using std::put_time with %Y%m%d
+    std::ostringstream ss;
+    ss << std::put_time(local_tm, "%Y%m%d");
+
+    return ss.str();
+}
 
 /**
  * Get effective username of this process. If username can't be retrieved, then return "u" plus

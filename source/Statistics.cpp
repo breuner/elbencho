@@ -998,15 +998,15 @@ void Statistics::printPhaseResultsTableHeader()
 	printPhaseResultsTableHeaderToStream(std::cout);
 
 	// print to human-readable results file (if specified by user)
-	if(!progArgs.getResFilePath().empty() )
+	if(!progArgs.getResFilePathTXT().empty() )
 	{
 		std::ofstream fileStream;
 
-		fileStream.open(progArgs.getResFilePath(), std::ofstream::app);
+		fileStream.open(progArgs.getResFilePathTXT(), std::ofstream::app);
 
 		if(!fileStream)
 		{
-			std::cerr << "ERROR: Opening results file failed: " << progArgs.getResFilePath() <<
+			std::cerr << "ERROR: Opening results file failed: " << progArgs.getResFilePathTXT() <<
 				std::endl;
 
 			return;
@@ -1050,7 +1050,7 @@ void Statistics::printPhaseResultsTableHeader()
 
 		if(!fileStream)
 		{
-			std::cerr << "ERROR: Writing to results file failed: " << progArgs.getResFilePath() <<
+			std::cerr << "ERROR: Writing to results file failed: " << progArgs.getResFilePathTXT() <<
 				std::endl;
 
 			return;
@@ -1058,16 +1058,16 @@ void Statistics::printPhaseResultsTableHeader()
 	}
 
 	// print to CSV results file (if specified by user)
-	if(!progArgs.getCSVFilePath().empty() && progArgs.getPrintCSVLabels() &&
-		FileTk::checkFileEmpty(progArgs.getCSVFilePath() ) )
+	if(!progArgs.getResFilePathCSV().empty() && progArgs.getPrintCSVLabels() &&
+		FileTk::checkFileEmpty(progArgs.getResFilePathCSV() ) )
 	{
 		std::ofstream fileStream;
 
-		fileStream.open(progArgs.getCSVFilePath(), std::ofstream::app);
+		fileStream.open(progArgs.getResFilePathCSV(), std::ofstream::app);
 
 		if(!fileStream)
 		{
-			std::cerr << "ERROR: Opening CSV results file failed: " << progArgs.getCSVFilePath() <<
+			std::cerr << "ERROR: Opening CSV results file failed: " << progArgs.getResFilePathCSV() <<
 				std::endl;
 
 			return;
@@ -1090,7 +1090,7 @@ void Statistics::printPhaseResultsTableHeader()
 		if(!fileStream)
 		{
 			std::cerr << "ERROR: Writing to CSV results file failed: " <<
-				progArgs.getResFilePath() << std::endl;
+				progArgs.getResFilePathTXT() << std::endl;
 
 			return;
 		}
@@ -1156,15 +1156,15 @@ void Statistics::printPhaseResults()
 
 
 	// print to results file (if specified by user)
-	if(!progArgs.getResFilePath().empty() )
+	if(!progArgs.getResFilePathTXT().empty() )
 	{
 		std::ofstream fileStream;
 
-		fileStream.open(progArgs.getResFilePath(), std::ofstream::app);
+		fileStream.open(progArgs.getResFilePathTXT(), std::ofstream::app);
 
 		if(!fileStream)
 		{
-			std::cerr << "ERROR: Opening results file failed: " << progArgs.getResFilePath() <<
+			std::cerr << "ERROR: Opening results file failed: " << progArgs.getResFilePathTXT() <<
 				std::endl;
 
 			return;
@@ -1179,15 +1179,15 @@ void Statistics::printPhaseResults()
 	}
 
 	// print to results CSV file (if specified by user)
-	if(genRes && !progArgs.getCSVFilePath().empty() )
+	if(genRes && !progArgs.getResFilePathCSV().empty() )
 	{
 		std::ofstream fileStream;
 
-		fileStream.open(progArgs.getCSVFilePath(), std::ofstream::app);
+		fileStream.open(progArgs.getResFilePathCSV(), std::ofstream::app);
 
 		if(!fileStream)
 		{
-			std::cerr << "ERROR: Opening results CSV file failed: " << progArgs.getCSVFilePath() <<
+			std::cerr << "ERROR: Opening results CSV file failed: " << progArgs.getResFilePathCSV() <<
 				std::endl;
 
 			return;
@@ -1206,7 +1206,7 @@ void Statistics::printPhaseResults()
 	}
 
     // print to results JSON file (if specified by user)
-    if(genRes && !progArgs.getJSONFilePath().empty() )
+    if(genRes && !progArgs.getResFilePathJSON().empty() )
         printPhaseResultsAsJSON(phaseResults);
 }
 
@@ -2277,11 +2277,11 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
     {
         std::ofstream fileStream;
 
-        fileStream.open(progArgs.getJSONFilePath(), std::ofstream::app);
+        fileStream.open(progArgs.getResFilePathJSON(), std::ofstream::app);
 
         if(!fileStream)
         {
-            std::cerr << "ERROR: Opening results JSON file failed: " << progArgs.getJSONFilePath() <<
+            std::cerr << "ERROR: Opening results JSON file failed: " << progArgs.getResFilePathJSON() <<
                 std::endl;
 
             return;
@@ -2292,7 +2292,7 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
     catch(const std::exception& e)
     {
         throw ProgException("Error writing JSON result file. "
-            "File: " + progArgs.getJSONFilePath() + "; " +
+            "File: " + progArgs.getResFilePathJSON() + "; " +
             "Error: " + e.what() );
     }
 }

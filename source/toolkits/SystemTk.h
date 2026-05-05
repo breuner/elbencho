@@ -10,6 +10,7 @@
 class SystemTk
 {
 	public:
+        static std::string getCurrentDateYYYYMMDD();
 		static std::string getUsername();
 
 	private:
