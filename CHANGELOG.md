@@ -8,6 +8,7 @@
 * Updated mimalloc lib for static builds to latest v3.3.2.
 * Wait 5sec after first CTRL+C press before resetting interrupt signal handler to have some time for graceful shutdown.
 * Keep result text/csv/json files in `/var/tmp` by default if no other path has been set.
+* Auto-disable fullscreen live stats (and print hint) when detecting GNU screen session without "altscreen on", because the terminal contents (including previously printed results) cannot be correctly restored without altscreen.
 
 ### Contributors
 * Thanks to Daniel Drozdowski, Andrew Way, Xiaoyu Yao for helpful comments and suggestions.

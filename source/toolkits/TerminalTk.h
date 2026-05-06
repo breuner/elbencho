@@ -19,6 +19,7 @@ class TerminalTk
 		static bool resetConsoleBuffering();
 		static bool rewriteConsoleLine(std::string lineStr);
 		static bool clearConsoleLine();
+        static bool isScreenSessionWithoutAltscreen();
 
 	private:
 		TerminalTk() {}

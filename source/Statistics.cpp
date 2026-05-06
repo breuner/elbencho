@@ -876,32 +876,44 @@ void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
  */
 void Statistics::printLiveStats()
 {
-	bool showConsoleStats = !progArgs.getDisableLiveStats() &&
-		(TerminalTk::isStdoutTTY() || progArgs.getUseBriefLiveStatsNewLine() );
+    bool showConsoleStats = !progArgs.getDisableLiveStats() &&
+        (TerminalTk::isStdoutTTY() || progArgs.getUseBriefLiveStatsNewLine() );
 
-	prepLiveCSVFile();
+    prepLiveCSVFile();
 
-	if(!showConsoleStats)
-	{
-		if(liveCSVFileFD == -1)
-			return; // nohting to do here
+    if(!showConsoleStats)
+    {
+        if(liveCSVFileFD == -1)
+            return; // nohting to do here
 
-		loopNoConsoleLiveStats();
+        loopNoConsoleLiveStats();
 
-		return;
-	}
+        return;
+    }
 
-	#ifdef NCURSES_SUPPORT
-		if( (!progArgs.getUseBriefLiveStats() ) &&
-			( (progArgs.getHostsVec().size() > 1) ||
-			  (progArgs.getHostsVec().empty() && (progArgs.getNumThreads() > 1) ) ) )
-		{
-			loopFullScreenLiveStats();
-			return;
-		}
-	#endif // NCURSES_SUPPORT
+    #ifdef NCURSES_SUPPORT
+        if( (!progArgs.getUseBriefLiveStats() ) &&
+            ( (progArgs.getHostsVec().size() > 1) ||
+            (progArgs.getHostsVec().empty() && (progArgs.getNumThreads() > 1) ) ) )
+        {
+            if(TerminalTk::isScreenSessionWithoutAltscreen() )
+            { // GNU screen without "altscreen" can't restore console contents after fullscreen
+                LOGGER(Log_NORMAL, "NOTE: Disabling fullscreen live stats because of GNU screen "
+                    "session without altscreen support. Restart GNU screen with \"altscreen on\" "
+                    "in your \"~/.screenrc\" (or add \"--live1\" to prevent this message)." <<
+                    std::endl);
 
-	loopSingleLineLiveStats();
+                goto single_line_stats;
+            }
+
+            loopFullScreenLiveStats();
+
+            return;
+        }
+    #endif // NCURSES_SUPPORT
+
+single_line_stats:
+    loopSingleLineLiveStats();
 }
 
 /**

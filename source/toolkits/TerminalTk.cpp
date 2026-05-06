@@ -1,13 +1,15 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <cstring>
-#include <errno.h>
+#include <fstream>
+#include <iostream>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
-#include "ProgException.h"
+
 #include "toolkits/TerminalTk.h"
+
 
 /**
  * Check if stdout is a tty. Intended to find out if live stats can be enabled.
@@ -115,4 +117,56 @@ bool TerminalTk::rewriteConsoleLine(std::string lineStr)
 bool TerminalTk::clearConsoleLine()
 {
     return rewriteConsoleLine(std::string() );
+}
+
+/**
+ * Check if we are currently in a GNU screen session (based on "STY" env var) without "altscreen"
+ * feature enabled, which means e.g. switching to fullscreen live stats and back will not work
+ * cleanly.
+ *
+ * There is no direct check for the altscreen feature available and it's off by default, so best we
+ * can do is check the user's personal screen config file and the global screen config file.
+ *
+ * @return true if we are in a gnu screen session without altscreen support.
+ */
+bool TerminalTk::isScreenSessionWithoutAltscreen()
+{
+    // GNU screen sets the STY env var, so we can use that to detect screen
+    const char* sty = std::getenv("STY");
+    if(!sty)
+        return false;
+
+    /* helper lambda to scan a screenrc file for the altscreen setting; returns true if
+        "altscreen on" found in given file, false otherwise */
+    auto check_config_file = [](const std::string& path)
+    {
+        std::ifstream file(path);
+        if(!file.is_open() )
+            return false;
+
+        std::string line;
+        while (std::getline(file, line))
+        {
+            // trim leading whitespace
+            line.erase(0, line.find_first_not_of(" \t") );
+
+            // check if line starts with "altscreen on"
+            if (line.rfind("altscreen on", 0) == 0)
+                return true;
+        }
+
+        return false;
+    };
+
+    // check the user's local config first
+    const char* home = std::getenv("HOME");
+    if(home && check_config_file(std::string(home) + "/.screenrc") )
+        return false; // altscreen is on in personal config
+
+    // check the global config as a fallback
+    if (check_config_file("/etc/screenrc"))
+        return false; // altscreen is on in global config
+
+    // neither in global conf nor in personal conf => altscreen is off by default
+    return true;
 }
