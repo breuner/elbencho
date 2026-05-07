@@ -10,10 +10,10 @@ Elbencho can be used with the Slurm Workload Manager in [interactive mode](#inte
 
 In this example, we use an interactive Slurm session on 3 nodes to write a single shared 10GiB file from all 3 nodes, assuming `/mnt/shared` is a shared filesystem mountpoint on all 3 nodes.
 
-First, let's get an interactive session on 3 nodes:
+First, let's get an exclusive interactive session on 3 nodes:
 
 ```bash
-srun --nodes 3 --pty bash -i
+srun --nodes=3 --ntasks-per-node=1 --exclusive --cpu-bind=none --pty bash -i
 ```
 
 Inside the interactive session, use  `srun` to start elbencho in service mode on all allocated nodes:
@@ -62,7 +62,7 @@ srun elbencho --service --foreground &
 
 echo "Starting benchmark... ($(date))"
 
-elbencho --hosts "$HOSTNAMES" --svcwait 10 --resfile elbencho-result.txt -w -s 10g -b 1m --direct /mnt/shared/testfile >/dev/null
+elbencho --hosts "$HOSTNAMES" --svcwait 10 --resfile elbencho-result.txt -w -s 10g -b 1m -t 4 --direct /mnt/shared/testfile
 
 echo "Benchmark finished. ($(date))"
 
@@ -76,6 +76,6 @@ elbencho --quit --hosts "$HOSTNAMES"
 That's it. Now we just need to submit our job script to the batch queue and can afterwards check the `elbencho-result.txt` file for the result:
 
 ```bash
-sbatch --nodes=3 --job-name=elbencho elbencho-batch-job.sh
+sbatch --nodes=3 --ntasks-per-node=1 --exclusive --cpu-bind=none --job-name=elbencho elbencho-batch-job.sh
 ```
 
