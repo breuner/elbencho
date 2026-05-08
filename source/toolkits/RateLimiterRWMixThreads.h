@@ -60,11 +60,14 @@ class RateLimiterRWMixThreads
      * For reader threads. Wait (sleep) if rate limit exceeded, otherwise return immediately.
      *
      * @nextBlockSize size of next read block.
+     * @return true if we had to wait, false if we are good to go immediately.
      */
-    void waitRead(size_t nextBlockSize, std::atomic_bool& isInterruptionRequested)
+    bool waitRead(size_t nextBlockSize, std::atomic_bool& isInterruptionRequested)
     {
         const unsigned maxWaitTimeoutSecs = 600; // max time to wait; exceeding this means error
         const unsigned sleepMS = 20; // short sleep time to check for interrupt
+
+        bool hadToWait = false; // return value
 
         std::chrono::steady_clock::time_point waitStartT = std::chrono::steady_clock::now();
 
@@ -84,10 +87,12 @@ class RateLimiterRWMixThreads
                 readWaitCondition.notify_all();
 
                 numBytesRead += nextBlockSize;
-                return;
+                return hadToWait;
             }
 
             // we can't read right now => check timeout and then sleep until someone wakes us up
+
+            hadToWait = true;
 
             IF_UNLIKELY(isInterruptionRequested)
                 throw WorkerInterruptedException(
@@ -124,11 +129,14 @@ class RateLimiterRWMixThreads
      * For writer threads. Wait (sleep) if rate limit exceeded, otherwise return immediately.
      *
      * @nextBlockSize size of next write block.
+     * @return true if we had to wait, false if we are good to go immediately.
      */
-    void waitWrite(size_t nextBlockSize, std::atomic_bool& isInterruptionRequested)
+    bool waitWrite(size_t nextBlockSize, std::atomic_bool& isInterruptionRequested)
     {
         const unsigned maxWaitTimeoutSecs = 600; // max time to wait; exceeding this means error
         const unsigned sleepMS = 20; // short sleep time to check for interrupt
+
+        bool hadToWait = false; // return value
 
         std::chrono::steady_clock::time_point waitStartT = std::chrono::steady_clock::now();
 
@@ -148,10 +156,12 @@ class RateLimiterRWMixThreads
                 writeWaitCondition.notify_all();
 
                 numBytesWrite += nextBlockSize;
-                return;
+                return hadToWait;
             }
 
             // we can't write right now => check timeout and then sleep until someone wakes us up
+
+            hadToWait = true;
 
             IF_UNLIKELY(isInterruptionRequested)
                 throw WorkerInterruptedException(

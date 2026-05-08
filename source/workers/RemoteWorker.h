@@ -5,7 +5,6 @@
 #define WORKERS_REMOTEWORKER_H_
 
 #include <client_http.hpp>
-#include <ctype.h>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>

@@ -1,10 +1,9 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #ifndef WORKERS_LOCALWORKER_H_
 #define WORKERS_LOCALWORKER_H_
 
-#include <ctype.h>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
@@ -71,7 +70,7 @@ typedef void (LocalWorker::*BLOCK_MODIFIER)(char* hostIOBuf, char* gpuIOBuf, siz
 	off_t fileOffset);
 
 // preRWRateLimiter
-typedef void (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
+typedef bool (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
     std::atomic_bool& isInterruptionRequested);
 
 
@@ -340,13 +339,13 @@ class LocalWorker : public Worker
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 
-        void noOpRateLimiter(size_t rwSize,
+        bool noOpRateLimiter(size_t rwSize,
             std::atomic_bool& isInterruptionRequested);
-        void preRWRateLimiter(size_t rwSize,
+        bool preRWRateLimiter(size_t rwSize,
             std::atomic_bool& isInterruptionRequested);
-        void preRWRateBalanceLimiterForReaders(size_t rwSize,
+        bool preRWRateBalanceLimiterForReaders(size_t rwSize,
             std::atomic_bool& isInterruptionRequested);
-        void preRWRateBalanceLimiterForWriters(size_t rwSize,
+        bool preRWRateBalanceLimiterForWriters(size_t rwSize,
             std::atomic_bool& isInterruptionRequested);
 };
 

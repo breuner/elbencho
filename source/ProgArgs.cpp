@@ -3,7 +3,6 @@
 
 #include <boost/algorithm/string.hpp>
 #include <fcntl.h>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <libgen.h>
@@ -1425,6 +1424,13 @@ void ProgArgs::checkArgs()
 
     if( (flockType == ARG_FLOCK_FULL) && (ioDepth > 1) && runCreateFilesPhase)
         throw ProgException("Full file write locks cannot be used together with async IO");
+
+    if( (ioDepth > 1) && (limitReadBps || limitWriteBps) && (benchMode == BenchMode_POSIX) )
+    { /* note: we don't check for "showLatency" & friends here because latency is always shown
+        in csv/json */
+        LOGGER(Log_NORMAL, "NOTE: Using rate limiter with \"iodepth > 1\" can result in some "
+        "I/Os being dropped from latency stats." << std::endl);
+    }
 
     if(!hostsVec.empty() )
         return;

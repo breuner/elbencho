@@ -13,9 +13,10 @@
 
 ### Fixes
 * Fixed invalid internal vector element access when posix locks are used with random I/O patterns and benchmark path is a file.
+* Fixed latency calculation when rate limiter is used with low live stats interval and iodepth > 1.
 
 ### Contributors
-* Thanks to Daniel Drozdowski, Andrew Way, Xiaoyu Yao, David Micallef for helpful comments and suggestions.
+* Thanks to Daniel Drozdowski, Andrew Way, Xiaoyu Yao, David Micallef, John P Kellner for helpful comments and suggestions.
 
 ## v3.1.1 (Apr 26, 2026)
 

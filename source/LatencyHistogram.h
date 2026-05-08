@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #ifndef LATENCYHISTOGRAM_H_
@@ -6,8 +6,8 @@
 
 #include <atomic>
 #include <cmath>
-#include <ctype.h>
 #include <vector>
+
 #include "ProgArgs.h"
 #include "workers/WorkersSharedData.h"
 

@@ -1,12 +1,12 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <chrono>
 #include <thread>
 #include <string>
 #include <sstream>
+
 #include "RemoteWorker.h"
-#include "toolkits/TranslatorTk.h"
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
 
@@ -479,15 +479,23 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			atomicLiveOps.numIOPSDone = statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
-			liveLatency.numAvgIOLatValues =
-				statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS);
-			liveLatency.avgIOLatMicroSecsSum =
-				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS);
+            uint64_t numAvgIOLatValues = statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS);
+            if(numAvgIOLatValues)
+            { /* this is for rate limiter, where some updates might not have new values, but we
+                don't want to show 0 lat in live stats, so we keep previous value */
+                    liveLatency.avgIOLatMicroSecsSum =
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS);
+                liveLatency.numAvgIOLatValues = numAvgIOLatValues;
+            }
 
-			liveLatency.numAvgEntriesLatValues =
-				statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES);
-			liveLatency.avgEntriesLatMicroSecsSum =
-				statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES);
+            uint64_t numAvgEntriesLatValues = statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES);
+            if(numAvgEntriesLatValues)
+            { /* this is for rate limiter, where some updates might not have new values, but we
+                don't want to show 0 lat in live stats, so we keep previous value */
+                    liveLatency.avgEntriesLatMicroSecsSum =
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES);
+                liveLatency.numAvgEntriesLatValues = numAvgEntriesLatValues;
+            }
 
 			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
 				(progArgs->getRWMixReadPercent() || progArgs->getNumRWMixReadThreads() ||
@@ -500,16 +508,26 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				atomicLiveOpsReadMix.numIOPSDone =
 					statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
 
-				liveLatency.numAvgIOLatReadMixValues =
-					statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD);
-				liveLatency.avgIOLatReadMixMicroSecsSum =
-					statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD);
+                uint64_t numAvgIOLatReadMixValues =
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD);
+                if(numAvgIOLatReadMixValues)
+                { /* this is for rate limiter, where some updates might not have new values, but we
+                    don't want to show 0 lat in live stats, so we keep previous value */
+                    liveLatency.avgIOLatReadMixMicroSecsSum =
+                        statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD);
+                    liveLatency.numAvgIOLatReadMixValues = numAvgIOLatReadMixValues;
+                }
 
-				liveLatency.numAvgEntriesLatReadMixValues =
-					statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD);
-				liveLatency.avgEntriesLatReadMixMicrosSecsSum =
-					statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD);
-			}
+                uint64_t numAvgEntriesLatReadMixValues =
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD);
+                if(numAvgEntriesLatReadMixValues)
+                { /* this is for rate limiter, where some updates might not have new values, but we
+                    don't want to show 0 lat in live stats, so we keep previous value */
+                    liveLatency.avgEntriesLatReadMixMicrosSecsSum =
+                        statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD);
+                    liveLatency.numAvgEntriesLatReadMixValues = numAvgEntriesLatReadMixValues;
+                }
+            }
 
 			IF_UNLIKELY(numWorkersDoneWithError)
 			{

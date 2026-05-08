@@ -5,6 +5,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <chrono>
+
 #include "ProgException.h"
 #include "Statistics.h"
 #include "toolkits/FileTk.h"
@@ -12,7 +13,6 @@
 #include "toolkits/TranslatorTk.h"
 #include "workers/RemoteWorker.h"
 #include "workers/Worker.h"
-#include "workers/WorkerException.h"
 
 #ifdef NCURSES_SUPPORT
 	#include <ncurses.h>

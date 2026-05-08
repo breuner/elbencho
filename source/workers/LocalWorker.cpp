@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <chrono>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 
+#include "Common.h"
 #include "LocalWorker.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
@@ -1835,13 +1837,16 @@ int64_t LocalWorker::aioBlockSized()
         libaioContext.iocbVec[ioVecIdx].data = (void*)ioVecIdx; /* the vec index of this request;
             ioctl.data is caller's private data returned after io_getevents as ioEvents[].data */
 
-		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+        libaioContext.ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-		libaioContext.ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
+        bool hadToWait = ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+        IF_UNLIKELY(hadToWait) // invalidate start time of all pending due to rate limiter wait
+            for(std::chrono::steady_clock::time_point& startT : libaioContext.ioStartTimeVec)
+                startT = std::chrono::steady_clock::time_point::min();
 
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize,
-			currentOffset);
-		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
+        ((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize,
+            currentOffset);
+        ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
         FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandlesIdx], fileLockType,
             currentOffset, blockSize, libaioContext.iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
@@ -1949,13 +1954,21 @@ int64_t LocalWorker::aioBlockSized()
 			if(	(ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) &&
 				(globalBenchPhase == BenchPhase_CREATEFILES) )
 			{ // this is a read in a write phase => inc rwmix read stats
-				iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+                // don't count latency if this I/O had to wait for rate limiter
+                IF_LIKELY(libaioContext.ioStartTimeVec[ioVecIdx] !=
+                    std::chrono::steady_clock::time_point::min() )
+                    iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+
 				atomicLiveOpsReadMix.numBytesDone += ioEvents[eventIdx].res;
 				atomicLiveOpsReadMix.numIOPSDone++;
 			}
 			else
 			{
-				iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+                // don't count latency if this I/O had to wait for rate limiter
+                IF_LIKELY(libaioContext.ioStartTimeVec[ioVecIdx] !=
+                    std::chrono::steady_clock::time_point::min() )
+                    iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
 				atomicLiveOps.numBytesDone += ioEvents[eventIdx].res;
 				atomicLiveOps.numIOPSDone++;
 			}
@@ -1985,13 +1998,16 @@ int64_t LocalWorker::aioBlockSized()
 				currentOffset);
 			ioEvents[eventIdx].obj->data = (void*)ioVecIdx; // caller's private data
 
-			((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+            libaioContext.ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
 
-			libaioContext.ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
+            bool hadToWait = ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+            IF_UNLIKELY(hadToWait) // invalidate start time of all pending due to rate limiter wait
+                for(std::chrono::steady_clock::time_point& startT : libaioContext.ioStartTimeVec)
+                    startT = std::chrono::steady_clock::time_point::min();
 
-			((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
-				blockSize, currentOffset);
-			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
+            ((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
+                blockSize, currentOffset);
+            ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
             FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandlesIdx], fileLockType,
                 currentOffset, blockSize,
@@ -2330,36 +2346,44 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 
 /**
  * Noop for cases where no rate limit selected by user.
+ *
+ * @return true if we had to wait, false if we are good to go immediately.
  */
-void LocalWorker::noOpRateLimiter(size_t rwSize, std::atomic_bool& isInterruptionRequested)
+bool LocalWorker::noOpRateLimiter(size_t rwSize, std::atomic_bool& isInterruptionRequested)
 {
-	return; // noop
+    return false; // noop
 }
 
 /**
  * Rate limiter before writes/reads in case rate limit was selected by user.
+ *
+ * @return true if we had to wait, false if we are good to go immediately.
  */
-void LocalWorker::preRWRateLimiter(size_t rwSize, std::atomic_bool& isInterruptionRequested)
+bool LocalWorker::preRWRateLimiter(size_t rwSize, std::atomic_bool& isInterruptionRequested)
 {
-	rateLimiter.wait(rwSize);
+    return rateLimiter.wait(rwSize);
 }
 
 /**
  * Rate limiter before reads in case rwmix threads rate balance was selected by user.
+ *
+ * @return true if we had to wait, false if we are good to go immediately.
  */
-void LocalWorker::preRWRateBalanceLimiterForReaders(size_t rwSize,
+bool LocalWorker::preRWRateBalanceLimiterForReaders(size_t rwSize,
     std::atomic_bool& isInterruptionRequested)
 {
-    rateLimiterRWMixThreads.waitRead(rwSize, isInterruptionRequested);
+    return rateLimiterRWMixThreads.waitRead(rwSize, isInterruptionRequested);
 }
 
 /**
  * Rate limiter before writes in case rwmix threads rate balance was selected by user.
+ *
+ * @return true if we had to wait, false if we are good to go immediately.
  */
-void LocalWorker::preRWRateBalanceLimiterForWriters(size_t rwSize,
+bool LocalWorker::preRWRateBalanceLimiterForWriters(size_t rwSize,
     std::atomic_bool& isInterruptionRequested)
 {
-    rateLimiterRWMixThreads.waitWrite(rwSize, isInterruptionRequested);
+    return rateLimiterRWMixThreads.waitWrite(rwSize, isInterruptionRequested);
 }
 
 /**

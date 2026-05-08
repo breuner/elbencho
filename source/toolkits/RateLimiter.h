@@ -28,12 +28,14 @@ class RateLimiter
 		this->startT = std::chrono::steady_clock::now();
 	}
 
-	/**
-	 * Wait (sleep) if rate limit exceeded, otherwise return immediately.
-	 *
-	 * @nextSize whatever the rate limited unit is (e.g. bytes)
-	 */
-	void wait(size_t nextSize)
+    /**
+     * Wait (sleep) if rate limit exceeded, otherwise return immediately.
+     *
+     * @nextSize whatever the rate limited unit is (e.g. bytes)
+     *
+     * @return true if we had to wait, false if we are good to go immediately.
+     */
+	bool wait(size_t nextSize)
 	{
 		std::chrono::steady_clock::time_point nowT = std::chrono::steady_clock::now();
 		std::chrono::microseconds elapsedMicroSec =
@@ -44,7 +46,7 @@ class RateLimiter
 		{ // 1s elapsed without exceeding the rate limit => reset for next second
 			numDoneThisSec = nextSize;
 			startT = std::chrono::steady_clock::now();
-			return;
+			return false;
 		}
 		else
 		IF_UNLIKELY( (numDoneThisSec + nextSize) > limitPerSec)
@@ -53,11 +55,12 @@ class RateLimiter
 
 			numDoneThisSec = nextSize;
 			startT = std::chrono::steady_clock::now();
-			return;
+			return true;
 		}
 		else
 		{ // rate limit not exceeded yet => proceed
 			numDoneThisSec += nextSize;
+            return false;
 		}
 
 	}
