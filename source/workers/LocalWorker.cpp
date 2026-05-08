@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <fcntl.h>
@@ -1696,7 +1696,7 @@ int64_t LocalWorker::rwBlockSized()
 		{ // this is a read, but could be a rwmix read thread
 			isRWMixRead = (benchPhase != globalBenchPhase);
 
-            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
                 currentOffset, currentBlockSize, false /*isWrite*/, false /*isUnlock*/, NULL);
 
 			rwRes = ((*this).*funcPositionalRead)(
@@ -1708,7 +1708,7 @@ int64_t LocalWorker::rwBlockSized()
 		{ // this is a rwmix read
 			isRWMixRead = true;
 
-            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
                 currentOffset, currentBlockSize, false /*isWrite*/, false /*isUnlock*/, NULL);
 
             rwRes = ((*this).*funcPositionalRead)(
@@ -1716,7 +1716,7 @@ int64_t LocalWorker::rwBlockSized()
 		}
 		else
 		{ // this is a plain write
-            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
                 currentOffset, currentBlockSize, true /*isWrite*/, false /*isUnlock*/, NULL);
 
 			rwRes = ((*this).*funcPositionalWrite)(
@@ -1734,7 +1734,7 @@ int64_t LocalWorker::rwBlockSized()
 
 			fileHandles.errorFDVecIdx = fileHandleIdx;
 
-	        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+	        FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
 	            currentOffset, currentBlockSize, true /*ignored*/, true /*isUnlock*/, NULL);
 
 	        return (rwRes < 0) ?
@@ -1742,7 +1742,7 @@ int64_t LocalWorker::rwBlockSized()
 				(rwOffsetGen->getNumBytesTotal() - rwOffsetGen->getNumBytesLeftToSubmit() );
 		}
 
-        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandleIdx], fileLockType,
+        FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
             currentOffset, currentBlockSize, true /*ignored*/, true /*isUnlock*/, NULL);
 
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
@@ -1843,7 +1843,7 @@ int64_t LocalWorker::aioBlockSized()
 			currentOffset);
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
-        FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+        FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandlesIdx], fileLockType,
             currentOffset, blockSize, libaioContext.iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
             false /*isUnlock*/, NULL);
 
@@ -1851,7 +1851,7 @@ int64_t LocalWorker::aioBlockSized()
             &libaioContext.iocbPointerVec[ioVecIdx] );
         IF_UNLIKELY(submitRes != 1)
         {
-            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandlesIdx], fileLockType,
                 currentOffset, blockSize, true /*ignored*/, true /*isUnlock*/, NULL);
 
             throw WorkerException(std::string("Async IO submission (io_submit) failed. ") +
@@ -1993,7 +1993,7 @@ int64_t LocalWorker::aioBlockSized()
 				blockSize, currentOffset);
 			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
-            FileTk::flock<WorkerException>(fileHandles.fdVec[fileHandlesIdx], fileLockType,
+            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandlesIdx], fileLockType,
                 currentOffset, blockSize,
                 libaioContext.iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
                 false /*isUnlock*/, NULL);

@@ -101,7 +101,9 @@ class LocalWorker : public Worker
 			CuFileHandleDataVec threadCuFileHandleDataVec; /* separate cuFile handles
 															(progArgs::useNoFDSharing) */
 
-			IntVec fdVec; // fd of current file in dir mode
+            IntVec fdVec; /* don't use directly, use fdVecPtr instead; fd of current file in dir
+                mode and seq(!) file/bdev mode; use fdVecPtr instead because it's always valid
+                independent of mode */
 			const IntVec* fdVecPtr{NULL}; /* for funcPositionalRW; fdVec in dir mode,
 				progArgs fdVec in file/bdev mode */
 			ssize_t errorFDVecIdx{-1}; // set by low-level funcs to "!=-1" where no path available

@@ -11,6 +11,9 @@
 * Auto-disable fullscreen live stats (and print hint) when detecting GNU screen session without "altscreen on", because the terminal contents (including previously printed results) cannot be correctly restored without altscreen.
 * Updated Slurm batch job example to use `--foreground &` for compatibility with Slurm configs that don't allow background services and added `--exclusive` parameter to ensure only one elbencho service is started per node.
 
+### Fixes
+* Fixed invalid internal vector element access when posix locks are used with random I/O patterns and benchmark path is a file.
+
 ### Contributors
 * Thanks to Daniel Drozdowski, Andrew Way, Xiaoyu Yao, David Micallef for helpful comments and suggestions.
 
