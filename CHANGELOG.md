@@ -11,6 +11,7 @@
 * Auto-disable fullscreen live stats (and print hint) when detecting GNU screen session without "altscreen on", because the terminal contents (including previously printed results) cannot be correctly restored without altscreen.
 * Updated Slurm batch job example to use `--foreground &` for compatibility with Slurm configs that don't allow background services and added `--exclusive` parameter to ensure only one elbencho service is started per node.
 * Added new option `--svcping` to show service live stats reponse time in fullscreen live stats.
+* Service stats refresh interval is now more aggressive for short test runtimes to achieve higher accuracy for "first done" result of short runs. (Starts at 25ms and then increases up to `--svcupint` value. `--svcupint` can still be used to enfore a value lower than 25ms if needed.)
 
 ### Fixes
 * Fixed invalid internal vector element access when posix locks are used with random I/O patterns and benchmark path is a file.

@@ -430,24 +430,16 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 {
     const bool isNetBenchMode = (progArgs->getBenchMode() == BenchMode_NETBENCH);
 
-	bool firstRound = true;
-
-	size_t svcUpdateIntervalMS = progArgs->getSvcUpdateIntervalMS();
-	if(svcUpdateIntervalMS > (progArgs->getLiveStatsSleepMS() / 2) )
-		svcUpdateIntervalMS = progArgs->getLiveStatsSleepMS() / 2;
-
-	std::chrono::milliseconds sleepMS(svcUpdateIntervalMS );
-	std::chrono::milliseconds firstRoundSleepMS( std::min(500, (int)(sleepMS.count() / 2) ) ); /*
-		shorter first round sleep to have results when live stats get printed for the first time */
-	std::chrono::steady_clock::time_point lastSleepT = workersSharedData->phaseStartT;
+    std::chrono::steady_clock::time_point lastRefreshT = workersSharedData->phaseStartT;
 
 	while(numWorkersDone < progArgs->getNumThreads() )
 	{
-		lastSleepT += firstRound ? firstRoundSleepMS : sleepMS;
-		std::this_thread::sleep_until(lastSleepT);
+        lastRefreshT = calcNextRefreshTime(lastRefreshT);
 
-		if(checkInterruption)
-			checkInterruptionRequest();
+        std::this_thread::sleep_until(lastRefreshT); // wait until it's time for next refresh
+
+        if(checkInterruption)
+            checkInterruptionRequest();
 
 		try
 		{
@@ -549,11 +541,16 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			if(numWorkersDone && svcHasTriggeredStonewall && workerGotPhaseWork &&
 				!stoneWallTriggered)
 			{ // stonewall triggered
+
+                /* wait 5ms to give the other RemoteWorkers time to retrieve their stats for this
+                    stonewall round. */
+                if(progArgs->getHostsVec().size() )
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5) );
+
 				for(Worker* worker : *workersSharedData->workerVec)
 					worker->createStoneWallStats();
 			}
 
-			firstRound = false;
 		}
 		catch(Web::system_error& e)
 		{
@@ -667,4 +664,39 @@ std::string RemoteWorker::frameHostErrorMsg(std::string msg)
 		"=== [ END ] ===";
 
 	return stream.str();
+}
+
+/**
+ * Calculate the next service stats refresh time based on the current round. Lower round numbers
+ * will use a more aggressive/shorter refresh interval, which then gets more relaxed in later rounds
+ * up to max service update interval from ProgArgs.
+ *
+ * @param lastRefreshT the result of the last call to this function or phase start time for the
+ *      first call.
+ * @return the time for the next refresh.
+ */
+std::chrono::steady_clock::time_point RemoteWorker::calcNextRefreshTime(
+    std::chrono::steady_clock::time_point& lastRefreshT)
+{
+    std::chrono::milliseconds lastRefreshPhaseElapsedT =
+        std::chrono::duration_cast<std::chrono::milliseconds>
+        (lastRefreshT - workersSharedData->phaseStartT);
+
+    // try to achieve less than 10% error for short runs, thus div by 11 to take ping into account
+    unsigned svcUpdateIntervalMS = lastRefreshPhaseElapsedT.count() / 11;
+
+    unsigned minRefreshIntervalMS = 25; /* 25ms as min just because values below 25ms seem too
+        aggressive, but still possible to manually set a lower value through ProgArgs due to max
+        check afterwards. */
+
+    if(svcUpdateIntervalMS < minRefreshIntervalMS)
+        svcUpdateIntervalMS = minRefreshIntervalMS;
+
+    unsigned maxRefreshIntervalMS = std::min(progArgs->getSvcUpdateIntervalMS(),
+        progArgs->getLiveStatsSleepMS() / 2);
+
+    if(svcUpdateIntervalMS > maxRefreshIntervalMS)
+        svcUpdateIntervalMS = maxRefreshIntervalMS;
+
+    return lastRefreshT + std::chrono::milliseconds(svcUpdateIntervalMS);
 }

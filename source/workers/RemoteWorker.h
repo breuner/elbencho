@@ -70,6 +70,8 @@ class RemoteWorker : public Worker
 		void waitForBenchPhaseCompletion(bool checkInterruption);
 		void interruptBenchPhase(bool allowExceptionThrow, bool logSuccessMsg=false);
 		std::string frameHostErrorMsg(std::string string);
+        std::chrono::steady_clock::time_point calcNextRefreshTime(
+            std::chrono::steady_clock::time_point& lastRefreshT);
 
 
 	// inliners
