@@ -206,6 +206,7 @@ namespace bpt = boost::property_tree;
 #define ARG_STATFILESINLINE_LONG	"statinline"
 #define ARG_STRIDEDACCESS_LONG      "strided"
 #define ARG_SVCPASSWORDFILE_LONG    "svcpwfile"
+#define ARG_SVCSHOWPING_LONG        "svcping"
 #define ARG_SVCUPDATEINTERVAL_LONG	"svcupint"
 #define ARG_SVCREADYWAITSECS_LONG   "svcwait"
 #define ARG_SYNCPHASE_LONG			"sync"
@@ -535,6 +536,7 @@ class ProgArgs
         std::string svcPasswordFile; // protect against unauthorized service commands
         std::string svcPasswordHash; // implicitly set if svcPasswordFile is given, empty otherwise
         size_t svcReadyWaitSec; // startup wait time for services to be ready in seconds
+        bool svcShowPing; // show service response time in fullscreen live stats
         size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
 		std::string treeFilePath; // path to file containing custom tree (list of dirs and files)
 		uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
@@ -806,6 +808,7 @@ class ProgArgs
         std::string getSvcPasswordFile() const { return svcPasswordFile; }
         std::string getSvcPasswordHash() const { return svcPasswordHash; }
         size_t getSvcReadyWaitSec() const { return svcReadyWaitSec; }
+        bool getSvcShowPing() const { return svcShowPing; }
         size_t getSvcUpdateIntervalMS() const { return svcUpdateIntervalMS; }
         time_t getStartTime() const { return startTime; }
         int getStdoutDupFD() const { return stdoutDupFD; }

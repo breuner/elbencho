@@ -45,6 +45,7 @@ class RemoteWorker : public Worker
 	private:
 		std::string host; // hostname:port to connect to
 		HttpClient httpClient;
+		unsigned pingMicroSecs{0}; // response time of last request in microseconds
 
 		size_t numWorkersDone{0};// number of threads that are through with current phase
 		size_t numWorkersDoneWithError{0}; // number of threads that failed the current phase
@@ -73,6 +74,7 @@ class RemoteWorker : public Worker
 
 	// inliners
 	public:
+        unsigned getPingMicroSecs() const { return pingMicroSecs; }
 		size_t getNumWorkersDone() const { return numWorkersDone; }
 		size_t getNumWorkersDoneWithError() const { return numWorkersDoneWithError; }
 		const BenchPathInfo& getBenchPathInfo() const { return benchPathInfo; }
@@ -92,6 +94,8 @@ class RemoteWorker : public Worker
 		virtual void resetStats() override
 		{
 			Worker::resetStats();
+
+			pingMicroSecs = 0;
 
 			numWorkersDone = 0;
 			numWorkersDoneWithError = 0;

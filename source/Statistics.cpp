@@ -5,6 +5,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <chrono>
+#include <string>
 
 #include "ProgException.h"
 #include "Statistics.h"
@@ -783,10 +784,13 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 		if(!progArgs.getHostsVec().empty() )
 		{ // add columns for remote mode
 			RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(workerVec[i]);
+            std::string pingStr = !progArgs.getSvcShowPing() ? std::string() :
+                " (ping: " + std::to_string(remoteWorker->getPingMicroSecs() ) + "us)";
+
 			stream << boost::format(remoteTableHeadlineFormat)
 				% (progArgs.getNumThreads() - remoteWorker->getNumWorkersDone() )
 				% remoteWorker->getCPUUtilLive()
-				% (progArgs.getHostsVec()[i] + netbenchServiceSuffixStr);
+				% (progArgs.getHostsVec()[i] + netbenchServiceSuffixStr + pingStr);
 		}
 
 		printFullScreenLiveStatsLine(stream, liveResults.winWidth, true);

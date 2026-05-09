@@ -755,6 +755,8 @@ void ProgArgs::defineAllowedArgs()
             "files or block devices.")
 /*sv*/	(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
 			"Show elapsed time to completion of each service instance ordered by slowest thread.")
+/*sv*/	(ARG_SVCSHOWPING_LONG, bpo::bool_switch(&this->svcShowPing),
+            "Show response time of service instances in fullscreen live stats.")
 /*sv*/  (ARG_SVCPASSWORDFILE_LONG, bpo::value(&this->svcPasswordFile),
             "Path to a text file containing a single line of text as shared secret between service "
             "instances and master. This is to prevent unauthorized requests to service instances.")
@@ -891,6 +893,7 @@ void ProgArgs::defineDefaults()
 	this->runStatFilesPhase = false;
 	this->showCPUUtilization = false;
     this->svcReadyWaitSec = 5;
+    this->svcShowPing = false;
 	this->svcUpdateIntervalMS = 500;
 	this->doTruncToSize = false;
 	this->doPreallocFile = false;

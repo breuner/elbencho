@@ -172,6 +172,7 @@ _elbencho_opts()
         --size
         --start
         --stat
+        --svcping
         --svcpwfile
         --svcupint
         --svcwait

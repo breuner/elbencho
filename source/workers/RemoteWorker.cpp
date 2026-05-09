@@ -451,6 +451,8 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 
 		try
 		{
+            std::chrono::steady_clock::time_point reqStartT = std::chrono::steady_clock::now();
+
 			auto response = httpClient.request("GET", HTTPCLIENTPATH_STATUS);
 
 			IF_UNLIKELY(response->status_code != Web::status_code(Web::StatusCode::success_ok) )
@@ -461,6 +463,13 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 					"Phase: Wait for benchmark completion; "
 					"HTTP status code: " + response->status_code);
 			}
+
+            // calc request latency
+            std::chrono::steady_clock::time_point reqEndT = std::chrono::steady_clock::now();
+            pingMicroSecs = std::chrono::duration_cast<std::chrono::microseconds>
+                (reqEndT - reqStartT).count();
+
+            // process response...
 
 			bpt::ptree statusTree;
 			bpt::read_json(response->content, statusTree);
