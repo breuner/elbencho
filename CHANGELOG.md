@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.1.2 (work in progress)
+## v3.1.3 (May 18, 2026)
 
 ### New Features & Enhancements
 * Fullscreen live stats are now based on new framework (ftxui instead of ncurses) with support for arrow key navigation in long lists of threads/services and option to drop out of fullscreen mode without canceling the current run.

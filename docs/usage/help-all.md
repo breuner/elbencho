@@ -51,7 +51,9 @@ All options in alphabetical order:
   --csvfile arg           Path to file for end results in csv format. This way,
                           results can be imported e.g. into MS Excel. If the 
                           file exists, results will be appended. (See also 
-                          "--livecsv" for progress results in csv format.)
+                          "--livecsv" for progress results in csv format.) 
+                          (Default: Store in "/var/tmp" under a subdir that 
+                          contains the username.)
   --cufile                Use cuFile API for reads/writes to/from GPU memory, 
                           also known as GPUDirect Storage (GDS).
   --cufiledriveropen      Explicitly initialize cuFile lib and open the 
@@ -143,7 +145,9 @@ All options in alphabetical order:
   --jsonfile arg          Path to file for end results in json format. If the 
                           file exists, results will be appended. (See also 
                           "--livejson" for progress results in json format.) 
-                          (EXPERIMENTAL: Output format can still change.)
+                          (EXPERIMENTAL: Output format can still change.) 
+                          (Default: Store in "/var/tmp" under a subdir that 
+                          contains the username.)
   --label arg             Custom label to identify benchmark run in result 
                           files.
   --lat                   Show minimum, average and maximum latency for 
@@ -280,7 +284,8 @@ All options in alphabetical order:
                           base2 suffixes, e.g. "2M")
   --resfile arg           Path to file for human-readable results, similar to 
                           console output. If the file exists, new results will 
-                          be appended.
+                          be appended. (Default: Store in "/var/tmp" under a 
+                          subdir that contains the username.)
   --rotatehosts arg       Number by which to rotate hosts between phases to 
                           avoid caching effects. (Default: 0)
   --rwmixpct arg          Percentage of blocks that should be read in a write 
@@ -488,6 +493,8 @@ All options in alphabetical order:
                           if given benchmark paths are files or block devices.
   --svcelapsed            Show elapsed time to completion of each service 
                           instance ordered by slowest thread.
+  --svcping               Show response time of service instances in fullscreen
+                          live stats.
   --svcpwfile arg         Path to a text file containing a single line of text 
                           as shared secret between service instances and 
                           master. This is to prevent unauthorized requests to 
