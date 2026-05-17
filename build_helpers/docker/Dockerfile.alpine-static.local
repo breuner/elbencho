@@ -17,9 +17,9 @@ ENV ELBENCHO_MARCH=${ELBENCHO_MARCH}
 ENV NUM_JOBS=${NUM_JOBS}
 
 RUN apk add bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
-    cmake curl-dev curl-static openssl-libs-static ncurses-static \
-    boost-static ncurses zlib-static libretls-static nghttp2-static nghttp3-static \
-    brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
+    cmake curl-dev curl-static openssl-libs-static \
+    boost-static zlib-static libretls-static nghttp2-static nghttp3-static \
+    brotli-static sudo tar libidn2-static libunistring-static \
     libpsl-static c-ares-dev zstd-static && \
     apk update && apk upgrade
 
@@ -51,7 +51,7 @@ FROM alpine:3 AS installer
 
 COPY --from=builder /usr/local/bin/elbencho /usr/local/bin
 
-RUN apk add boost-regex boost-program_options libaio libcurl libstdc++ ncurses \
+RUN apk add boost-regex boost-program_options libaio libcurl libstdc++ \
         numactl && \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho
 

@@ -49,7 +49,7 @@ class WorkerManager
 		size_t& getNumWorkersDoneWithError() { return workersSharedData.numWorkersDoneWithError; }
 
 		void getPhaseNumEntriesAndBytes(size_t& outNumEntriesPerThread,
-			uint64_t& outNumBytesPerThread)
+			uint64_t& outNumBytesPerThread) const
 		{
 			getPhaseNumEntriesAndBytes(progArgs, workersSharedData.currentBenchPhase,
 				progArgs.getBenchPathType(), outNumEntriesPerThread, outNumBytesPerThread);

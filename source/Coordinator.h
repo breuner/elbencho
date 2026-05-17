@@ -19,12 +19,14 @@ class Coordinator
 
 		int main();
 
+        static void registerInterruptSignalHandlers();
+        static void handleInterruptSignal(int signal);
+
 	private:
 		ProgArgs& progArgs;
 		WorkerManager workerManager;
 		Statistics statistics{progArgs, workerManager};
 
-		static void handleInterruptSignal(int signal);
 
 		void waitForUserDefinedStartTime();
 		void waitForServicesReady();
@@ -33,7 +35,6 @@ class Coordinator
 		void runSyncAndDropCaches();
 		void runBenchmarks();
 		void rotateHosts();
-		void registerInterruptSignalHandlers();
 };
 
 #endif /* COORDINATOR_H_ */

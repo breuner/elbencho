@@ -21,11 +21,12 @@ std::string SystemTk::getCurrentDateYYYYMMDD()
 
     std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
 
-    std::tm* local_tm = std::localtime(&now_time_t);
+    struct tm timeInfo;
+    localtime_r(&now_time_t, &timeInfo);
 
-    // 4. Format the time using std::put_time with %Y%m%d
+    // format the time string
     std::ostringstream ss;
-    ss << std::put_time(local_tm, "%Y%m%d");
+    ss << std::put_time(&timeInfo, "%Y%m%d");
 
     return ss.str();
 }

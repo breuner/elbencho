@@ -2,16 +2,22 @@
 
 ## v3.1.2 (work in progress)
 
-### General Changes
+### New Features & Enhancements
+* Fullscreen live stats are now based on new framework (ftxui instead of ncurses) with support for arrow key navigation in long lists of threads/services and option to drop out of fullscreen mode without canceling the current run.
+* Keep result text/csv/json files in `/var/tmp` by default if no other path has been set for `--resfile` & friends.
 * Added guide for running multi-node benchmarks with shared storage on Kubernetes.
   * See here: https://github.com/breuner/elbencho/blob/master/docs/k8s-examples.md
+* Added new option `--svcping` to show service live stats reponse time in fullscreen live stats.
+* Service stats refresh interval is now more adaptive for short test runtimes to achieve higher accuracy for "first done" result of short runs. (Starts at 25ms and then increases up to `--svcupint` value. `--svcupint` can still be used to enfore a value lower than 25ms if needed.)
+
+### General Changes
 * Updated mimalloc lib for static builds to latest v3.3.2.
 * Wait 5sec after first CTRL+C press before resetting interrupt signal handler to have some time for graceful shutdown.
-* Keep result text/csv/json files in `/var/tmp` by default if no other path has been set.
 * Auto-disable fullscreen live stats (and print hint) when detecting GNU screen session without "altscreen on", because the terminal contents (including previously printed results) cannot be correctly restored without altscreen.
 * Updated Slurm batch job example to use `--foreground &` for compatibility with Slurm configs that don't allow background services and added `--exclusive` parameter to ensure only one elbencho service is started per node.
-* Added new option `--svcping` to show service live stats reponse time in fullscreen live stats.
-* Service stats refresh interval is now more aggressive for short test runtimes to achieve higher accuracy for "first done" result of short runs. (Starts at 25ms and then increases up to `--svcupint` value. `--svcupint` can still be used to enfore a value lower than 25ms if needed.)
+* Switched Docker Hub "latest" tag from Ubuntu 24.04 to Ubuntu 26.04.
+* Minor improvement to live stats accuracy for cases where the main stats thread does not wake up as scheduled due to high CPU load.
+* Added missing opslog entry (only for start, not for end of ops) for async writes/reads based on libaio.
 
 ### Fixes
 * Fixed invalid internal vector element access when posix locks are used with random I/O patterns and benchmark path is a file.

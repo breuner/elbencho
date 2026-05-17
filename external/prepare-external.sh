@@ -1,12 +1,13 @@
 #!/bin/bash
 #
 # Prepare git clones and checkout the required tags of external sources.
-# Simple-Web-Server will always be prepared when this is called.
-# AWS SDK CPP will only be prepared when PREP_AWS_SDK=1 is set.
-# (S3_AWSCRT=1 controls build options for the AWS SDK CPP.)
-# Mimalloc will only be prepared when PREP_MIMALLOC=1 is set.
-# uWebSockets will only be prepared when PREP_UWS=1 is set.
-# libbacktrace will only b prepared when PREP_LIBBACKTRACE=1 is set.
+# * Simple-Web-Server will always be prepared when this is called.
+# * AWS SDK CPP will only be prepared when PREP_AWS_SDK=1 is set.
+#   (S3_AWSCRT=1 controls build options for the AWS SDK CPP.)
+# * Mimalloc will only be prepared when PREP_MIMALLOC=1 is set.
+# * uWebSockets will only be prepared when PREP_UWS=1 is set.
+# * libbacktrace will only be prepared when PREP_LIBBACKTRACE=1 is set.
+# * ftxui will always be prepared.
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
@@ -283,7 +284,7 @@ prepare_awssdk()
 	cd "$CLONE_DIR" && \
 		cmake . "${cmake_build_opts[@]}" -DBUILD_SHARED_LIBS=OFF -DCPP_STANDARD=17 \
 			-DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
-			-DFORCE_SHARED_CRT=OFF -DENABLE_UNITY_BUILD=ON \
+			-DFORCE_SHARED_CRT=OFF -DENABLE_UNITY_BUILD=ON -DAWS_SDK_WARNINGS_ARE_ERRORS=OFF \
 			"-DCMAKE_INSTALL_PREFIX=$INSTALL_DIR" && \
 		$MAKE_CMD install && \
 		cd "$EXTERNAL_BASE_DIR"
@@ -333,7 +334,7 @@ prepare_awssdk()
 	return 0
 }
 
-# Prepare git clone and required tag.
+# Prepare git clone and required tag of mimalloc.
 prepare_mimalloc()
 {
 	local REQUIRED_TAG="v3.3.2"
@@ -401,7 +402,7 @@ prepare_mimalloc()
 	return 0
 }
 
-# Prepare git clone and required tag.
+# Prepare git clone and required tag of libbacktrace.
 prepare_libbacktrace()
 {
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/libbacktrace"
@@ -445,6 +446,64 @@ prepare_libbacktrace()
 	return 0
 }
 
+# Prepare git clone and required tag of ftxui.
+prepare_ftxui()
+{
+	local REQUIRED_TAG="v6.1.9"
+	local CURRENT_TAG
+	local CLONE_DIR="${EXTERNAL_BASE_DIR}/ftxui"
+	local BUILD_DIR="${EXTERNAL_BASE_DIR}/ftxui/build"
+
+	# change to external subdir if we were called from somewhere else
+	cd "$EXTERNAL_BASE_DIR" || exit 1
+
+	# clone if directory does not exist yet
+	if [ ! -d "$CLONE_DIR" ]; then
+		echo "Cloning ftxui git repo..."
+		git clone https://github.com/ArthurSonzogni/ftxui $CLONE_DIR
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
+	fi
+
+	# directory exists, check if we already have the lib.
+	# (this is the fast path for dependency calls from Makefile)
+	cd "$CLONE_DIR" && \
+		CURRENT_TAG="$(git describe --tags)" && \
+		if [ "$CURRENT_TAG" = "$REQUIRED_TAG" ] && [ -f build/libftxui-component.a ] ; then
+			# Already exists, so nothing to do
+			return 0;
+		fi && \
+		cd "$EXTERNAL_BASE_DIR"
+
+	# check out required tag
+	# (fetching is relevant in case we update to a new required tag.)
+	echo "Checking out ftxui tag ${REQUIRED_TAG}..."
+
+	cd "$CLONE_DIR" && \
+		git fetch -q --all && \
+		git checkout -q ${REQUIRED_TAG} && \
+		cd "$EXTERNAL_BASE_DIR"
+
+	[ $? -ne 0 ] && exit 1
+
+	# we need to build it...
+
+	echo "Configure, build and install... (parallel jobs: $NUM_PARALLEL_JOBS)"
+	mkdir -p "$BUILD_DIR" && \
+		cd "$BUILD_DIR" && \
+		cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF .. && \
+		$MAKE_CMD && \
+		cd "$EXTERNAL_BASE_DIR" && \
+		return 0
+
+	[ $? -ne 0 ] && exit 1
+
+	echo "DONE: ftxui prepared."
+
+	return 0
+}
+
 ########### End of function definitions ############
 
 
@@ -476,3 +535,5 @@ fi
 if [ "$PREP_LIBBACKTRACE" = "1" ]; then
 	prepare_libbacktrace
 fi
+
+prepare_ftxui

@@ -1,26 +1,80 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <algorithm>
 #include <boost/format.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <chrono>
+#include <exception>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <ostream>
+#include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "Common.h"
+#include "Coordinator.h"
 #include "ProgException.h"
 #include "Statistics.h"
+#include "ftxui/dom/elements.hpp"
 #include "toolkits/FileTk.h"
+#include "toolkits/SignalTk.h"
 #include "toolkits/TerminalTk.h"
-#include "toolkits/TranslatorTk.h"
 #include "workers/RemoteWorker.h"
 #include "workers/Worker.h"
 
-#ifdef NCURSES_SUPPORT
-	#include <ncurses.h>
-	#undef OK // defined by ncurses.h, but conflicts with AWS SDK using OK in enum in HttpResponse.h
-#endif
+#define FULLSCREEN_WORKERS_TITLE_PADDING_SIZE       1 // 1 right
+#define FULLSCREEN_HEADER_TITLE_PADDING_SIZE        1 // 1 right
 
-#define FULLSCREEN_GLOBALINFO_NUMLINES		1 // lines for global info (to calc per-worker lines)
+#define FULLSCREEN_HEADER_TITLE_PHASE               "Phase:"
+#define FULLSCREEN_HEADER_TITLE_CPU                 "CPU%:"
+#define FULLSCREEN_HEADER_TITLE_ACTIVE              "Active:"
+#define FULLSCREEN_HEADER_TITLE_ELAPSED             "Elapsed:"
+#define FULLSCREEN_HEADER_TITLE_LATENCY             "Latency:"
+
+#define FULLSCREEN_WORKERS_TITLE_RANK               "Rank"
+#define FULLSCREEN_WORKERS_TITLE_COMPLETION_PCT     "%"
+#define FULLSCREEN_WORKERS_TITLE_TRANSFERRED        "DoneMiB"
+#define FULLSCREEN_WORKERS_TITLE_THROUGHPUT         "MiB/s"
+#define FULLSCREEN_WORKERS_TITLE_IOPS               "IOPS"
+#define FULLSCREEN_WORKERS_TITLE_ENTRIES_DONE       liveResults.entryTypeUpperCase
+#define FULLSCREEN_WORKERS_TITLE_ENTRIES_PER_SEC    (liveResults.entryTypeUpperCase + "/s")
+#define FULLSCREEN_WORKERS_TITLE_DIRS_DONE          "Dirs"
+#define FULLSCREEN_WORKERS_TITLE_DIRS_PER_SEC       "Dirs/s"
+#define FULLSCREEN_WORKERS_TITLE_ACTIVE             "Act"
+#define FULLSCREEN_WORKERS_TITLE_CPU                "CPU"
+#define FULLSCREEN_WORKERS_TITLE_SERVICE            "Service"
+
+
+/**
+ * return "std::to_string(VAL_B ? (VAL_A / VAL_B) : 0)" to prevent div by zero.
+ */
+#define SAFE_DIV_BY_ZERO_STR(VAL_A, VAL_B)          std::to_string( \
+                                                    (VAL_B) ? ( (VAL_A) / (VAL_B) ) : 0)
+
+/**
+ * Assign an element to a 2D std::vector by row and column index and automatically grow the 2D
+ * vector for this element if needed.
+ */
+#define VEC2D_SET_AUTOGROW(VEC, ROW_IDX, COL_IDX, VALUE)   \
+    do \
+    { \
+        const unsigned rowIdxCpy = ROW_IDX; /* to let caller use "i++" safely */ \
+        const unsigned colIdxCpy = COL_IDX; /* to let caller use "i++" safely */ \
+        \
+        IF_UNLIKELY(VEC.size() < (rowIdxCpy+1) ) \
+            VEC.resize(rowIdxCpy+1); \
+        \
+        IF_UNLIKELY(VEC[rowIdxCpy].size() < (colIdxCpy+1) ) \
+            VEC[rowIdxCpy].resize(colIdxCpy+1); \
+        \
+        VEC[rowIdxCpy][colIdxCpy] = VALUE; \
+    } while(false)
+
 
 
 Statistics::~Statistics()
@@ -238,40 +292,48 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 /**
  * Print single line version of live stats until workers are done with phase.
  *
+ * Note: the handover case from loopFullScreenLiveStats() is special because we need to calculate
+ *      the next result not based on previously zero'ed live stats like we normally do at phase
+ *      start but rather based on the last result that loopFullScreenLiveStats() got and
+ *      correspondingly the next wake up time is also based on the last wake up at which
+ *      loopFullScreenLiveStats() refreshed the given live stats.
+ *
+ * @param customLiveResults for handover from loopFullScreenLiveStats(), otherwise NULL.
+ * @param customLastRefreshT for handover from loopFullScreenLiveStats(), otherwise NULL.
+ * @param customNextRefreshT for handover from loopFullScreenLiveStats(), otherwise NULL.
  * @throw ProgException on error
  * @throw WorkerException if worker encountered error is detected
  */
-void Statistics::loopSingleLineLiveStats()
+void Statistics::loopSingleLineLiveStats(LiveResults* customLiveResults,
+    std::chrono::steady_clock::time_point* customLastRefreshT,
+    std::chrono::steady_clock::time_point* customNextRefreshT)
 {
-	std::chrono::milliseconds sleepMS(progArgs.getLiveStatsSleepMS() );
-	std::chrono::steady_clock::time_point nextWakeupT = workersSharedData.phaseStartT;
+    using SteadyClock = std::chrono::steady_clock;
+
+    std::chrono::milliseconds statsRefreshIntervalMS(progArgs.getLiveStatsSleepMS() );
+	SteadyClock::time_point lastStatsRefreshT = customLastRefreshT ?
+        *customLastRefreshT : workersSharedData.phaseStartT;
+	SteadyClock::time_point nextStatsRefreshT = customNextRefreshT ?
+        *customNextRefreshT : (workersSharedData.phaseStartT + statsRefreshIntervalMS);
 	const bool useLiveStatsNewLine = progArgs.getUseBriefLiveStatsNewLine();
 
-	LiveResults liveResults;
+	LiveResults liveResults(progArgs, workerManager, workersSharedData);
 
-    liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
-        workersSharedData.currentBenchPhase, &progArgs);
-    liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
-        workersSharedData.currentBenchPhase, &progArgs);
-    liveResults.entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
-        workersSharedData.currentBenchPhase, &progArgs, true);
+    if(customLiveResults)
+        liveResults = *customLiveResults;
 
-	workerManager.getPhaseNumEntriesAndBytes(
-		liveResults.numEntriesPerWorker, liveResults.numBytesPerWorker);
+    if(!customLiveResults)
+        liveCpuUtil.update(); // init (further updates in loop below)
 
-	liveCpuUtil.update(); // init (further updates in loop below)
+    if(!useLiveStatsNewLine)
+        disableConsoleBuffering();
 
-	if(!useLiveStatsNewLine)
-		disableConsoleBuffering();
-
-	while(true)
+    while(true)
 	{
-		nextWakeupT += sleepMS; // prepare for next wait round
-
 		std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
 
 		bool workersDone = workersSharedData.condition.wait_until(
-			lock, nextWakeupT,
+			lock, nextStatsRefreshT,
 			[&, this]
 			{ return workerManager.checkWorkersDoneUnlocked(&liveResults.numWorkersDone); } );
 		if(workersDone)
@@ -281,13 +343,26 @@ void Statistics::loopSingleLineLiveStats()
 
 		workerManager.checkPhaseTimeLimit(); // (interrupts workers if time limit exceeded)
 
-		liveCpuUtil.update(); // update local cpu util
-		updateLiveStatsRemoteInfo(liveResults); // update info for master mode
-		updateLiveStatsLiveOps(liveResults); // update live ops and percent done
+        // live stats refresh (& init-once of fullscreen mode)...
 
-		printLiveStatsCSV(liveResults); // live stats csv file
+        SteadyClock::time_point nowT = SteadyClock::now();
 
-		printSingleLineLiveStatsLine(liveResults);
+        if(nowT >= nextStatsRefreshT)
+        {
+            std::chrono::milliseconds elapsedRefreshMS =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    nowT - lastStatsRefreshT); // calc real elapsed time
+            lastStatsRefreshT = nowT;
+            nextStatsRefreshT += statsRefreshIntervalMS; // prepare for next wait round
+
+            liveCpuUtil.update(); // update local cpu util
+            updateLiveStatsRemoteInfo(liveResults); // update info for master mode
+            updateLiveStatsLiveOps(liveResults, elapsedRefreshMS.count() ); // upd live ops & %done
+
+            printLiveStatsCSV(liveResults); // live stats csv file
+
+            printSingleLineLiveStatsLine(liveResults);
+        }
 	}
 
 workers_done:
@@ -307,31 +382,23 @@ workers_done:
  */
 void Statistics::loopNoConsoleLiveStats()
 {
-	std::chrono::milliseconds sleepMS(progArgs.getLiveStatsSleepMS() );
-	std::chrono::steady_clock::time_point nextWakeupT = workersSharedData.phaseStartT;
+    using SteadyClock = std::chrono::steady_clock;
 
-	LiveResults liveResults;
+    std::chrono::milliseconds statsRefreshIntervalMS(progArgs.getLiveStatsSleepMS() );
+	SteadyClock::time_point lastStatsRefreshT = workersSharedData.phaseStartT;
+	SteadyClock::time_point nextStatsRefreshT =
+        workersSharedData.phaseStartT + statsRefreshIntervalMS;
 
-    liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
-        workersSharedData.currentBenchPhase, &progArgs);
-    liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
-        workersSharedData.currentBenchPhase, &progArgs);
-    liveResults.entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
-        workersSharedData.currentBenchPhase, &progArgs, true);
-
-	workerManager.getPhaseNumEntriesAndBytes(
-		liveResults.numEntriesPerWorker, liveResults.numBytesPerWorker);
+	LiveResults liveResults(progArgs, workerManager, workersSharedData);
 
 	liveCpuUtil.update(); // init (further updates in loop below)
 
 	while(true)
 	{
-		nextWakeupT += sleepMS; // prepare for next wait round
-
 		std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
 
 		bool workersDone = workersSharedData.condition.wait_until(
-			lock, nextWakeupT,
+			lock, nextStatsRefreshT,
 			[&, this]
 			{ return workerManager.checkWorkersDoneUnlocked(&liveResults.numWorkersDone); } );
 		if(workersDone)
@@ -341,11 +408,24 @@ void Statistics::loopNoConsoleLiveStats()
 
 		workerManager.checkPhaseTimeLimit(); // (interrupts workers if time limit exceeded)
 
-		liveCpuUtil.update(); // update local cpu util
-		updateLiveStatsRemoteInfo(liveResults); // update info for master mode
-		updateLiveStatsLiveOps(liveResults); // update live ops and percent done
+        // live stats refresh (& init-once of fullscreen mode)...
 
-		printLiveStatsCSV(liveResults); // live stats csv file
+        SteadyClock::time_point nowT = SteadyClock::now();
+
+        if(nowT >= nextStatsRefreshT)
+        {
+            std::chrono::milliseconds elapsedRefreshMS =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    nowT - lastStatsRefreshT); // calc real elapsed time
+            lastStatsRefreshT = nowT;
+            nextStatsRefreshT += statsRefreshIntervalMS; // prepare for next wait round
+
+            liveCpuUtil.update(); // update local cpu util
+            updateLiveStatsRemoteInfo(liveResults); // update info for master mode
+            updateLiveStatsLiveOps(liveResults, elapsedRefreshMS.count() ); // upd live ops & %done
+
+            printLiveStatsCSV(liveResults); // live stats csv file
+        }
 	}
 
 workers_done:
@@ -353,7 +433,254 @@ workers_done:
 	return;
 }
 
-#ifdef NCURSES_SUPPORT
+/**
+ * Generate ftxui renderer lambda for fullscreen live stats.
+ */
+ std::function<ftxui::Element()> Statistics::fullscreenGenerateFtxuiRenderer(
+    LiveResults& liveResults, LiveStatsUIState& uiState)
+{
+    using namespace ftxui;
+
+    std::vector<StringVec>& headerStatsTxtTable = uiState.headerStatsTxtTable;
+    std::vector<StringVec>& workerStatsTxtTable = uiState.workerStatsTxtTable;
+
+    return [&]()
+    {
+        // short path if no update requested yet
+        // (forced update happens through cachedView.reset() )
+        if(uiState.cachedView)
+            return uiState.cachedView;
+
+        // render global info header lines...
+
+        std::vector<Element> headerRows;
+
+        for(int rowIdx = 0; rowIdx < (int)headerStatsTxtTable.size(); rowIdx++)
+        {
+            std::vector<Element> headerColumns; // Cells for the current row
+            for(int colIdx = 0; colIdx < (int)headerStatsTxtTable[rowIdx].size(); colIdx++)
+            {
+                auto cell_content = text(headerStatsTxtTable[rowIdx][colIdx]);
+
+                // even column numbers are keys/names, odd numbers are values
+                if( (colIdx % 2) == 0)
+                { // "key/name" column
+                    cell_content = cell_content | bold;
+                    cell_content = hbox( {cell_content, text(" ") } );
+                }
+                else
+                { // "value" column
+                    cell_content = hbox( {cell_content, text("  ") } ) | align_right;
+
+                    // min cell width
+                    if(checkIfVec2DLeftElemEquals(headerStatsTxtTable, rowIdx, colIdx,
+                        FULLSCREEN_HEADER_TITLE_CPU) )
+                        cell_content = cell_content | size(WIDTH, GREATER_THAN,
+                            3 + FULLSCREEN_HEADER_TITLE_PADDING_SIZE);
+                }
+
+                headerColumns.push_back(std::move(cell_content) );
+            }
+
+            // wrap the columns into a horizontal box (one row)
+            headerRows.push_back(hbox(std::move(headerColumns) ) );
+        }
+
+        // render worker stats table...
+
+        std::vector<std::vector<Element> > workerElements;
+        for(int rowIdx = 0; rowIdx < (int)workerStatsTxtTable.size(); rowIdx++)
+        {
+            std::vector<Element> row;
+            for(int colIdx = 0; colIdx < (int)workerStatsTxtTable[rowIdx].size(); colIdx++)
+            {
+                auto cell_content = text(workerStatsTxtTable[rowIdx][colIdx]);
+
+                // add padding on both sides
+                cell_content = hbox( { cell_content, text(" ") } );
+
+                // focus highlight
+                if( (rowIdx == uiState.selectedRow) && (colIdx == uiState.selectedColumn) )
+                    cell_content = cell_content | focus;
+
+                // right-align
+                if(workerStatsTxtTable[0][colIdx] != FULLSCREEN_WORKERS_TITLE_SERVICE)
+                    cell_content = cell_content | align_right;
+
+                // apply min cell width based on column title...
+
+                unsigned minCellWidth = 0;
+
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_RANK)
+                    minCellWidth = 5;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_COMPLETION_PCT)
+                    minCellWidth = 3;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_TRANSFERRED)
+                    minCellWidth = 10;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_THROUGHPUT)
+                    minCellWidth = 10;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_IOPS)
+                    minCellWidth = 10;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_ENTRIES_DONE)
+                    minCellWidth = 10;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_ENTRIES_PER_SEC)
+                    minCellWidth = 10;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_DIRS_DONE)
+                    minCellWidth = 10;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_DIRS_PER_SEC)
+                    minCellWidth = 10;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_ACTIVE)
+                    minCellWidth = 4;
+                else
+                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_CPU)
+                    minCellWidth = 3;
+
+                if(minCellWidth)
+                    cell_content = cell_content | size(WIDTH, GREATER_THAN,
+                        minCellWidth + FULLSCREEN_WORKERS_TITLE_PADDING_SIZE);
+
+                row.push_back(std::move(cell_content) );
+            }
+
+            /* add empty flex element on right side to each row to have inverted header
+                extend to the far right side of the terminal */
+            row.push_back(text("") | flex);
+
+            workerElements.push_back(std::move(row) );
+        }
+
+        auto workerTable = Table(std::move(workerElements) );
+
+        // format special rows in worker table
+        IF_LIKELY(!workerStatsTxtTable.empty() )
+        {
+            workerTable.SelectRow(0).Decorate(inverted);
+            workerTable.SelectRow(uiState.selectedRow).Decorate(bold);
+        }
+
+        // render footer...
+
+        std::string footerText = printFullScreenLiveStatsFooter();
+
+        // note: "flex" for "workerTable" makes the table span the full vertical space
+        uiState.cachedView = vbox(
+        {
+            vbox(std::move(headerRows) ),
+            separator(),
+            vscroll_indicator( xframe( yframe( workerTable.Render() ) ) ) | flex,
+            separator(),
+            text(std::move(footerText) ) | center
+        } );
+
+        return uiState.cachedView;
+    };
+}
+
+/**
+ * Generate ftxui event handler for key press events in fullscreen live stats mode.
+ */
+ std::function<bool(ftxui::Event event)> Statistics::fullscreenGenerateFtxuiEventHandler(
+    LiveStatsUIState& uiState)
+{
+    using namespace ftxui;
+
+    return [&](Event event)
+    {
+        int maxRow = (int)uiState.workerStatsTxtTable.size() - 1;
+        int maxCol = uiState.workerStatsTxtTable.empty() ?
+            0 : ( (int)uiState.workerStatsTxtTable[0].size() - 1);
+
+        if(event == Event::CtrlC)
+        { // fullscreen ftxui catches Ctrl+C as Event::CtrlC (so no SIGINT for this)
+            Coordinator::handleInterruptSignal(SIGINT);
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::Escape )
+        {
+            uiState.switchToSingleLine = true;
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::Character( 'q' ) || event == Event::Character( 'Q' ) )
+        {
+            workerManager.interruptAndNotifyWorkers();
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::ArrowUp )
+        {
+            uiState.selectedRow = std::max( 1, uiState.selectedRow - 1 );
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::ArrowDown )
+        {
+            uiState.selectedRow = std::min( maxRow, uiState.selectedRow + 1 );
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::ArrowLeft )
+        {
+            uiState.selectedColumn = std::max( 0, uiState.selectedColumn - 1 );
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::ArrowRight )
+        {
+            uiState.selectedColumn = std::min( maxCol, uiState.selectedColumn + 1 );
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::PageUp )
+        {
+            uiState.selectedRow = std::max( 1, uiState.selectedRow - 10 );
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::PageDown )
+        {
+            uiState.selectedRow = std::min( maxRow, uiState.selectedRow + 10 );
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::Home )
+        {
+            uiState.selectedRow = 1;
+            uiState.selectedColumn = 0;
+            uiState.cachedView.reset();
+            return true;
+        }
+        else
+        if( event == Event::End )
+        {
+            uiState.selectedRow = maxRow;
+            uiState.selectedColumn = maxCol;
+            uiState.cachedView.reset();
+            return true;
+        }
+
+        return false;
+    };
+}
 
 /**
  * Print whole screen version of live stats until workers are done with phase.
@@ -363,27 +690,31 @@ workers_done:
  */
 void Statistics::loopFullScreenLiveStats()
 {
-	std::chrono::milliseconds sleepMS(progArgs.getLiveStatsSleepMS() );
-	std::chrono::steady_clock::time_point nextWakeupT = workersSharedData.phaseStartT;
-	bool ncursesInitialized = false;
+    using namespace ftxui;
+    using SteadyClock = std::chrono::steady_clock;
 
-	LiveResults liveResults;
+	std::chrono::milliseconds statsRefreshIntervalMS(progArgs.getLiveStatsSleepMS() );
+    std::chrono::milliseconds keyCheckIntervalMS(200); // key press event check
+	SteadyClock::time_point lastStatsRefreshT = workersSharedData.phaseStartT;
+	SteadyClock::time_point nextStatsRefreshT =
+        workersSharedData.phaseStartT + statsRefreshIntervalMS;
+	bool ftxuiInitialized = false;
+    LiveStatsUIState uiState;
+    std::unique_ptr<ScreenInteractive> screen;
+    std::unique_ptr<Loop> ftxuiMainLoop;
 
-    liveResults.phaseName = TranslatorTk::benchPhaseToPhaseName(
-        workersSharedData.currentBenchPhase, &progArgs);
-    liveResults.phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
-        workersSharedData.currentBenchPhase, &progArgs);
-    liveResults.entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
-        workersSharedData.currentBenchPhase, &progArgs, true);
-
-	workerManager.getPhaseNumEntriesAndBytes(
-		liveResults.numEntriesPerWorker, liveResults.numBytesPerWorker);
+	LiveResults liveResults(progArgs, workerManager, workersSharedData);
 
 	liveCpuUtil.update(); // init (further updates in loop below)
 
-	while(true)
+    // live stats update loop...
+    while(true)
 	{
-		nextWakeupT += sleepMS; // prepare for next wait round
+        SteadyClock::time_point nextKeyCheckT = SteadyClock::now() + keyCheckIntervalMS;
+        SteadyClock::time_point nextWakeupT = std::min(nextKeyCheckT, nextStatsRefreshT);
+
+        IF_UNLIKELY(!ftxuiInitialized)
+            nextWakeupT = nextStatsRefreshT; // don't handle keys if UI not initialized yet
 
 		std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
 
@@ -398,115 +729,156 @@ void Statistics::loopFullScreenLiveStats()
 		}
 		catch(std::exception& e)
 		{
-			if(ncursesInitialized)
-				endwin();
+			if(ftxuiInitialized)
+				screen->Exit();
 
 			throw;
 		}
 
 		lock.unlock(); // U N L O C K
 
-		// delayed ncurses init (here instead of before loop to avoid empty screen for first wait)
-		IF_UNLIKELY(!ncursesInitialized)
-		{
-			// (note: initscr() terminates the process on error, hence newterm() here instead)
-			SCREEN* initRes = newterm(getenv("TERM"), stdout, stdin); // init curses mode
-			if(!initRes)
-			{
-				std::cerr << "NOTE: ncurses terminal init for fullscreen live statistics failed. "
-					"Falling back to \"--" ARG_BRIEFLIVESTATS_LONG "\"." <<
-					std::endl;
 
-				loopSingleLineLiveStats();
+        workerManager.checkPhaseTimeLimit(); // (interrupts workers if time limit exceeded)
 
-				return;
-			}
+        // live stats refresh (& init-once of fullscreen mode)...
 
-			curs_set(0); // hide cursor
+        SteadyClock::time_point nowT = SteadyClock::now();
 
-			ncursesInitialized = true;
-		}
+        if(nowT >= nextStatsRefreshT)
+        {
+            std::chrono::milliseconds elapsedRefreshMS =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    nowT - lastStatsRefreshT); // calc real elapsed time
+            lastStatsRefreshT = nowT;
+            nextStatsRefreshT += statsRefreshIntervalMS; // prepare for next wait round
+            uiState.cachedView.reset(); // force re-render of view
 
-		workerManager.checkPhaseTimeLimit(); // (interrupts workers if time limit exceeded)
+            liveCpuUtil.update(); // update local cpu util
+            updateLiveStatsRemoteInfo(liveResults); // update info for master mode
+            updateLiveStatsLiveOps(liveResults, elapsedRefreshMS.count() ); // upd live ops & %done
 
-		liveCpuUtil.update(); // update local cpu util
-		updateLiveStatsRemoteInfo(liveResults); // update info for master mode
-		updateLiveStatsLiveOps(liveResults); // update live ops and percent done
+            // live stats csv file update
+            printLiveStatsCSV(liveResults);
 
-		printLiveStatsCSV(liveResults); // live stats csv file
+            // print global info table
+            printFullScreenLiveStatsGlobalInfo(liveResults, uiState.headerStatsTxtTable);
 
-		getmaxyx(stdscr, liveResults.winHeight, liveResults.winWidth); // update screen dimensions
+            // print table of per-worker results
+            printFullScreenLiveStatsWorkerTable(liveResults, uiState.workerStatsTxtTable);
 
-		clear(); // clear screen buffer. (actual screen clear/repaint when refresh() called.)
+            // delayed ftxui fullscreen init
+            // (this is here instead of before loop to avoid empty screen for first wait interval)
+            IF_UNLIKELY(!ftxuiInitialized)
+            { // run the init-once steps of ftxui fullscreen mode
 
-		// print global info...
-		printFullScreenLiveStatsGlobalInfo(liveResults);
+                try
+                {
+                    /* note: we have to use a ScreenInteractive constructor based on "new" to bypass
+                        the deleted move constructor of ScreenInteractive (based on C++17's
+                        guaranteed copy elision). */
+                    screen = std::unique_ptr<ScreenInteractive>(
+                        new ScreenInteractive(ScreenInteractive::Fullscreen() ) );
+                }
+                catch(std::exception& e)
+                {
+                    std::cerr << "NOTE: fullscreen init for live statistics failed. "
+                        "Falling back to \"--" ARG_BRIEFLIVESTATS_LONG "\"." << std::endl;
 
-		// print table of per-worker results
-		printFullScreenLiveStatsWorkerTable(liveResults);
+                    loopSingleLineLiveStats(&liveResults, &nextStatsRefreshT);
 
-		refresh(); // clear and repaint screen
-	}
+                    return;
+                }
+
+                ftxuiInitialized = true;
+
+                // disable mouse tracking so that mouse can be used to select and copy text
+                screen->TrackMouse(false);
+
+                // renderer for UI based on header stats and worker stats plain text tables
+                auto renderer = Renderer(fullscreenGenerateFtxuiRenderer(liveResults, uiState) );
+
+                // event handler for navigation keys
+                auto component = CatchEvent(renderer,
+                    fullscreenGenerateFtxuiEventHandler(uiState) );
+
+                // custom loop to render screen updates exactly when we want to (via RunOnce() )
+                ftxuiMainLoop = std::make_unique<Loop>(screen.get(), component);
+
+                // ftxui registers its own signal handler, so we reset this back to our handler here
+                SignalTk::registerFaultSignalHandlers(progArgs);
+                Coordinator::registerInterruptSignalHandlers();
+
+            } // end of !ftxuiInitialized
+
+        } // end of live stats update
+
+        // update the UI...
+
+        IF_LIKELY(ftxuiInitialized)
+        {
+            // push custom event into the ftxui queue to prevent blocking of RunOnce()
+            screen->Post(Event::Custom);
+
+            // process ftxui event queue and render the terminal frame
+            ftxuiMainLoop->RunOnce();
+
+            // ctrl+c or fatal error => stop workers
+            if(ftxuiMainLoop->HasQuitted() )
+                workerManager.interruptAndNotifyWorkers();
+
+            if(uiState.switchToSingleLine || ftxuiMainLoop->HasQuitted() )
+                break;
+        }
+    }
 
 
 workers_done:
 
-	if(ncursesInitialized)
-		endwin(); // end curses mode
+    // cleanup (& enter single line mode if requested by user)
+    if(ftxuiInitialized)
+    {
+        screen->Exit();
+        ftxuiMainLoop.reset();
+        screen.reset();
+        ftxuiInitialized = false;
+
+        if(uiState.switchToSingleLine)
+            loopSingleLineLiveStats(&liveResults, &lastStatsRefreshT, &nextStatsRefreshT);
+    }
 }
 
-/**
- * Print a single line of fullscreen live stats to the ncurses buffer, taking the line length
- * into account by reducing the length if it exceeds the console line length.
- *
- * @stream buffer containing the line to print to ncurses buffer; will be cleared after contents
- * 		have been added to ncurses buffer.
- * @lineLength the maximum line length that max not be exceeded.
- * @fillIfShorter if stream buffer length is shorter than line length then fill it up with spaces
- * 		to match given line length.
- */
-void Statistics::printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
-	bool fillIfShorter)
-{
-	std::string lineStr(stream.str() );
-
-	// cut off or fill as requested
-	if( (lineStr.length() > lineLength) ||
-		(fillIfShorter && (lineStr.length() < lineLength) ) )
-		lineStr.resize(lineLength, ' ');
-
-	// add to ncurses buffer
-	addstr(lineStr.c_str() );
-
-	// add newline only if string doesn't fill up the complete line
-	if(lineStr.length() < lineLength)
-		addch('\n');
-
-	// clear stream for next round
-	stream.str(std::string() );
-}
 
 /**
- * Print global info lines of whole screen live stats.
+ * Print global info lines of fullscreen live stats.
  */
-void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults)
+void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults,
+    std::vector<StringVec>& outHeaderStatsTxtTable)
 {
-	std::chrono::seconds elapsedSec =
+    unsigned colIdx = 0; // current column index
+    unsigned rowIdx = 0; // current row index
+
+    std::chrono::seconds elapsedSec =
 				std::chrono::duration_cast<std::chrono::seconds>
 				(std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
 
-	std::ostringstream stream;
-
-	stream << boost::format("Phase: %||  CPU: %|3|%%  Active: %||  Elapsed: %||")
-		% liveResults.phaseName
-		% (unsigned) liveCpuUtil.getCPUUtilPercent()
-		% (workerVec.size() - liveResults.numWorkersDone)
-		% UnitTk::elapsedSecToHumanStr(elapsedSec.count() );
-
-	printFullScreenLiveStatsLine(stream, liveResults.winWidth, false);
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_PHASE);
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, liveResults.phaseName);
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_CPU);
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++,
+        std::to_string( (unsigned) liveCpuUtil.getCPUUtilPercent() ) );
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_ACTIVE);
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++,
+        std::to_string((workerVec.size() - liveResults.numWorkersDone) ) );
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_ELAPSED);
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++,
+        UnitTk::elapsedSecToHumanStr(elapsedSec.count() ) );
 
 	if(!progArgs.getShowLatency() )
 		return;
+
+    // new row, reset column
+    rowIdx++;
+    colIdx = 0;
 
 	// latency
 
@@ -514,15 +886,17 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
 		liveResults.newLiveOpsReadMix.numEntriesDone);
 	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
 
-	stream << "Latency: ";
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_LATENCY);
+
+    std::ostringstream latStream;
 
 	if(!isRWMixPhase)
 	{
 		if(progArgs.getBenchPathType() != BenchPathType_DIR)
-			stream << UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum);
+			latStream << UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum);
 		else
 		{ // BenchPathType_DIR
-			stream <<
+			latStream <<
 				"IO=" <<
 				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
 				" " <<
@@ -532,7 +906,7 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
 	}
 	else
 	{ // rwmix
-		stream <<
+		latStream <<
 			"IO ["
 			"wr=" <<
 			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
@@ -543,18 +917,18 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
 
 		if(progArgs.getBenchPathType() == BenchPathType_DIR)
 		{
-			stream << "  "; // double space as separator
+			latStream << "  "; // double space as separator
 
 			if(!isRWMixThreadsPhase)
 			{
-				stream <<
+				latStream <<
 					liveResults.entryTypeUpperCase << "=" <<
 					UnitTk::latencyUsToHumanStr(
 						liveResults.liveLatency.avgEntriesLatMicroSecsSum);
 			}
 			else
 			{
-				stream <<
+				latStream <<
 					liveResults.entryTypeUpperCase <<
 					" ["
 					"wr=" <<
@@ -569,18 +943,15 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
 		}
 	}
 
-	printFullScreenLiveStatsLine(stream, liveResults.winWidth, false);
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, latStream.str() );
 }
 
 /**
- * Print table of per-worker results for whole screen live stats (plus headline and total line).
+ * Print table of per-worker results for fullscreen live stats (plus headline and total line).
  */
-void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults)
+void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults,
+    std::vector<StringVec>& statsTableData)
 {
-	const char tableHeadlineFormat[] = "%|5| %|3| %|10| %|10| %|10|";
-	const char dirModeTableHeadlineFormat[] = " %|10| %|10|"; // appended to standard table fmt
-	const char remoteTableHeadlineFormat[] = " %|4| %|3| %||"; // appended to standard table format
-
 	const bool isRWMixPhase = (liveResults.newLiveOpsReadMix.numBytesDone ||
 		liveResults.newLiveOpsReadMix.numEntriesDone);
 	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
@@ -593,136 +964,140 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 
 	const bool isNetBenchMode = (progArgs.getBenchMode() == BenchMode_NETBENCH);
 
-	// how many lines we have to show per-worker stats ("+2" for table header and total line)
-	size_t maxNumWorkerLines = liveResults.winHeight - (FULLSCREEN_GLOBALINFO_NUMLINES + 2);
+    unsigned colIdx = 0; // current column index
+    unsigned rowIdx = 0; // current row index
 
-	std::ostringstream stream;
+    // print table headline...
 
-	// print table headline...
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_RANK);
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_COMPLETION_PCT);
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_TRANSFERRED);
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_THROUGHPUT);
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_IOPS);
 
-	attron(A_STANDOUT); // highlight table headline
-	stream << boost::format(tableHeadlineFormat)
-		% "Rank"
-		% "%"
-		% "DoneMiB"
-		% "MiB/s"
-		% "IOPS";
+    if(progArgs.getBenchPathType() == BenchPathType_DIR)
+    { // add columns for dir mode
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, liveResults.entryTypeUpperCase);
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+            (liveResults.entryTypeUpperCase + "/s") );
+    }
 
-	if(progArgs.getBenchPathType() == BenchPathType_DIR)
-	{ // add columns for dir mode
-		stream << boost::format(dirModeTableHeadlineFormat)
-			% liveResults.entryTypeUpperCase
-			% (liveResults.entryTypeUpperCase + "/s");
-	}
+    if(showDirStats)
+    { // add columns for dir stats in file write/read phase of dir mode
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_DIRS_DONE);
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_DIRS_PER_SEC);
+    }
 
-	if(showDirStats)
-	{ // add columns for dir stats in file write/read phase of dir mode
-		stream << boost::format(dirModeTableHeadlineFormat)
-			% "Dirs"
-			% "Dirs/s";
-	}
+    if(!progArgs.getHostsVec().empty() )
+    { // add columns for remote mode
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_ACTIVE);
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_CPU);
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_SERVICE);
+    }
 
-	if(!progArgs.getHostsVec().empty() )
-	{ // add columns for remote mode
-		stream << boost::format(remoteTableHeadlineFormat)
-			% "Act"
-			% "CPU"
-			% "Service";
-	}
+    // new row, reset column
+    rowIdx++;
+    colIdx = 0;
 
-	printFullScreenLiveStatsLine(stream, liveResults.winWidth, true);
-	attroff(A_STANDOUT); // disable highlighting
+    // print total for all workers...
 
-	// print total for all workers...
+    std::string totalPercentDone = std::to_string(std::min(liveResults.percentDone, (size_t)100) );
 
-	std::string totalPercentDone = std::to_string(std::min(liveResults.percentDone, (size_t)100) );
+    if(isNetBenchMode)
+        totalPercentDone = "-";
 
-	if(isNetBenchMode)
-		totalPercentDone = "-";
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, (isRWMixPhase ? "Write" : "Total") );
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, totalPercentDone);
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+		std::to_string(liveResults.newLiveOps.numBytesDone / (1024*1024) ) );
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+		std::to_string(liveResults.liveOpsPerSec.numBytesDone / (1024*1024) ) );
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+		std::to_string(liveResults.liveOpsPerSec.numIOPSDone) );
 
-	stream << boost::format(tableHeadlineFormat)
-		% (isRWMixPhase ? "Write" : "Total")
-		% totalPercentDone
-		% (liveResults.newLiveOps.numBytesDone / (1024*1024) )
-		% (liveResults.liveOpsPerSec.numBytesDone / (1024*1024) )
-		% liveResults.liveOpsPerSec.numIOPSDone;
+    if(progArgs.getBenchPathType() == BenchPathType_DIR)
+    { // add columns for dir mode
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+			std::to_string(liveResults.newLiveOps.numEntriesDone) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+			std::to_string(liveResults.liveOpsPerSec.numEntriesDone) );
+    }
 
-	if(progArgs.getBenchPathType() == BenchPathType_DIR)
-	{ // add columns for dir mode
-		stream << boost::format(dirModeTableHeadlineFormat)
-			% liveResults.newLiveOps.numEntriesDone
-			% liveResults.liveOpsPerSec.numEntriesDone;
-	}
+    if(showDirStats)
+    { // add columns for dir stats in file write/read phase of dir mode
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+            SAFE_DIV_BY_ZERO_STR(liveResults.newLiveOps.numEntriesDone, progArgs.getNumFiles() ) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+            SAFE_DIV_BY_ZERO_STR(
+                liveResults.liveOpsPerSec.numEntriesDone, progArgs.getNumFiles() ) );
+    }
 
-	if(showDirStats)
-	{ // add columns for dir stats in file write/read phase of dir mode
-		stream << boost::format(dirModeTableHeadlineFormat)
-			% (liveResults.newLiveOps.numEntriesDone / progArgs.getNumFiles() )
-			% (liveResults.liveOpsPerSec.numEntriesDone / progArgs.getNumFiles() );
-	}
+    if(!progArgs.getHostsVec().empty() )
+    { // add columns for remote mode
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+			std::to_string(liveResults.numRemoteThreadsLeft) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+			std::to_string(liveResults.percentRemoteCPU) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, "");
+    }
 
-	if(!progArgs.getHostsVec().empty() )
-	{ // add columns for remote mode
-		stream << boost::format(remoteTableHeadlineFormat)
-			% liveResults.numRemoteThreadsLeft
-			% liveResults.percentRemoteCPU
-			% "";
-	}
+    // new row, reset column
+    rowIdx++;
+    colIdx = 0;
 
-	printFullScreenLiveStatsLine(stream, liveResults.winWidth, true);
+    // print rwmix read line for all workers...
+    if(isRWMixPhase)
+    {
+        std::string readPercentDone =
+            std::to_string(std::min(liveResults.percentDoneReadMix, (size_t)100) );
 
-	// print rwmix read line for all workers...
-	if(isRWMixPhase)
-	{
-		std::string readPercentDone =
-			std::to_string(std::min(liveResults.percentDoneReadMix, (size_t)100) );
+        if(isNetBenchMode)
+            readPercentDone = "-";
 
-		if(isNetBenchMode)
-			readPercentDone = "-";
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, "Read");
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, readPercentDone);
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+            std::to_string(liveResults.newLiveOpsReadMix.numBytesDone / (1024*1024) ) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+            std::to_string(liveResults.liveOpsPerSecReadMix.numBytesDone / (1024*1024) ) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+            std::to_string(liveResults.liveOpsPerSecReadMix.numIOPSDone) );
 
-		stream << boost::format(tableHeadlineFormat)
-			% "Read"
-			% readPercentDone
-			% (liveResults.newLiveOpsReadMix.numBytesDone / (1024*1024) )
-			% (liveResults.liveOpsPerSecReadMix.numBytesDone / (1024*1024) )
-			% liveResults.liveOpsPerSecReadMix.numIOPSDone;
+        if(progArgs.getBenchPathType() == BenchPathType_DIR)
+        { // add columns for dir mode
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, (isRWMixThreadsPhase ?
+                std::to_string(liveResults.newLiveOpsReadMix.numEntriesDone) : "-") );
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, (isRWMixThreadsPhase ?
+                std::to_string(liveResults.liveOpsPerSecReadMix.numEntriesDone) : "-") );
+        }
 
-		if(progArgs.getBenchPathType() == BenchPathType_DIR)
-		{ // add columns for dir mode
-			stream << boost::format(dirModeTableHeadlineFormat)
-				% (isRWMixThreadsPhase ?
-					std::to_string(liveResults.newLiveOpsReadMix.numEntriesDone) : "-")
-				% (isRWMixThreadsPhase ?
-					std::to_string(liveResults.liveOpsPerSecReadMix.numEntriesDone) : "-");
-		}
+        if(showDirStats)
+        { // add columns for dir stats in file write/read phase of dir mode
+            size_t numFiles = progArgs.getNumFiles();
 
-		if(showDirStats)
-		{ // add columns for dir stats in file write/read phase of dir mode
-			size_t numFiles = progArgs.getNumFiles();
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, (isRWMixThreadsPhase ?
+                SAFE_DIV_BY_ZERO_STR(liveResults.newLiveOpsReadMix.numEntriesDone, numFiles) :
+                "-") );
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, (isRWMixThreadsPhase ?
+                SAFE_DIV_BY_ZERO_STR(liveResults.liveOpsPerSecReadMix.numEntriesDone, numFiles) :
+                "-") );
+        }
 
-			stream << boost::format(dirModeTableHeadlineFormat)
-				% (isRWMixThreadsPhase ?
-					std::to_string(liveResults.newLiveOpsReadMix.numEntriesDone / numFiles) :
-					"-")
-				% (isRWMixThreadsPhase ?
-					std::to_string(liveResults.liveOpsPerSecReadMix.numEntriesDone / numFiles) :
-					"-");
-		}
+        if(!progArgs.getHostsVec().empty() )
+        { // add columns for remote mode
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, "-");
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, "-");
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, "");
+        }
 
-		if(!progArgs.getHostsVec().empty() )
-		{ // add columns for remote mode
-			stream << boost::format(remoteTableHeadlineFormat)
-				% "-"
-				% "-"
-				% "";
-		}
-
-		printFullScreenLiveStatsLine(stream, liveResults.winWidth, true);
-	}
+        // new row, reset column
+        rowIdx++;
+        colIdx = 0;
+    }
 
 	// print individual worker result lines...
 
-	for(size_t i=0; i < std::min(workerVec.size(), maxNumWorkerLines); i++)
+	for(size_t i=0; i < workerVec.size(); i++)
 	{
 		LiveOps workerDone; // total numbers
 		LiveOps workerDonePerSec; // difference to last round
@@ -760,44 +1135,69 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 				netbenchServiceSuffixStr = " [client]";
 		}
 
-		stream << boost::format(tableHeadlineFormat)
-			% i
-			% workerPercentDoneStr
-			% (workerDone.numBytesDone / (1024*1024) )
-			% (workerDonePerSec.numBytesDone / (1024*1024) )
-			% workerDonePerSec.numIOPSDone;
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(i) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, workerPercentDoneStr);
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+			std::to_string(workerDone.numBytesDone / (1024*1024) ) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+            std::to_string(workerDonePerSec.numBytesDone / (1024*1024) ) );
+        VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+			std::to_string(workerDonePerSec.numIOPSDone) );
 
-		if(progArgs.getBenchPathType() == BenchPathType_DIR)
-		{ // add columns for dir mode
-			stream << boost::format(dirModeTableHeadlineFormat)
-				% workerDone.numEntriesDone
-				% workerDonePerSec.numEntriesDone;
-		}
+        if(progArgs.getBenchPathType() == BenchPathType_DIR)
+        { // add columns for dir mode
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerDone.numEntriesDone) );
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerDonePerSec.numEntriesDone) );
+        }
 
-		if(showDirStats)
-		{ // add columns for dir stats in file write/read phase of dir mode
-			stream << boost::format(dirModeTableHeadlineFormat)
-				% (workerDone.numEntriesDone / progArgs.getNumFiles() )
-				% (workerDonePerSec.numEntriesDone / progArgs.getNumFiles() );
-		}
+        if(showDirStats)
+        { // add columns for dir stats in file write/read phase of dir mode
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+                SAFE_DIV_BY_ZERO_STR(workerDone.numEntriesDone, progArgs.getNumFiles() ) );
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+                SAFE_DIV_BY_ZERO_STR(workerDonePerSec.numEntriesDone, progArgs.getNumFiles() ) );
+        }
 
-		if(!progArgs.getHostsVec().empty() )
-		{ // add columns for remote mode
-			RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(workerVec[i]);
+        if(!progArgs.getHostsVec().empty() )
+        { // add columns for remote mode
+            RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(workerVec[i]);
             std::string pingStr = !progArgs.getSvcShowPing() ? std::string() :
                 " (ping: " + std::to_string(remoteWorker->getPingMicroSecs() ) + "us)";
 
-			stream << boost::format(remoteTableHeadlineFormat)
-				% (progArgs.getNumThreads() - remoteWorker->getNumWorkersDone() )
-				% remoteWorker->getCPUUtilLive()
-				% (progArgs.getHostsVec()[i] + netbenchServiceSuffixStr + pingStr);
-		}
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+                std::to_string(progArgs.getNumThreads() - remoteWorker->getNumWorkersDone() ) );
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(remoteWorker->getCPUUtilLive() ) );
+            VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+                (progArgs.getHostsVec()[i] + netbenchServiceSuffixStr + pingStr) );
+        }
 
-		printFullScreenLiveStatsLine(stream, liveResults.winWidth, true);
+        // new row, reset column
+        rowIdx++;
+        colIdx = 0;
 	}
 }
 
-#endif // NCURSES_SUPPORT
+/**
+ * Generate footer line for fullscreen live stats view.
+ */
+ std::string Statistics::printFullScreenLiveStatsFooter()
+ {
+    std::ostringstream stream;
+
+    std::time_t currentTime = std::time(NULL);
+
+    struct tm localTimeInfo;
+    localtime_r(&currentTime, &localTimeInfo);
+
+    stream << "[ <ESC>: Exit Fullscreen <CTRL+C>: Cancel \u2191\u2193: Browse ] | " <<
+        std::put_time(&localTimeInfo, "%X %Y-%m-%d") << " | "
+        EXE_NAME << " v" EXE_VERSION;
+
+    return stream.str();
+ }
 
 /**
  * In master mode, update number of remote threads left in liveResults and avg cpu; otherwise do
@@ -825,19 +1225,22 @@ void Statistics::updateLiveStatsRemoteInfo(LiveResults& liveResults)
 
 /**
  * Update liveOps and percentDone of liveResults for current round of live stats.
+ *
+ * @param elapsedMS elapsed time since last update, usually this is
+ *      progArgs.getLiveStatsSleepMS() plus some potential small thread wake up delay.
  */
-void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults)
+void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedMS)
 {
 	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
 
 	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
-	(liveResults.liveOpsPerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
+	(liveResults.liveOpsPerSec *= 1000) /= elapsedMS;
 
 	liveResults.lastLiveOps = liveResults.newLiveOps;
 
 	liveResults.liveOpsPerSecReadMix =
 		liveResults.newLiveOpsReadMix - liveResults.lastLiveOpsReadMix;
-	(liveResults.liveOpsPerSecReadMix *= 1000) /= progArgs.getLiveStatsSleepMS();
+	(liveResults.liveOpsPerSecReadMix *= 1000) /= elapsedMS;
 
 	liveResults.lastLiveOpsReadMix = liveResults.newLiveOpsReadMix;
 
@@ -895,26 +1298,24 @@ void Statistics::printLiveStats()
         return;
     }
 
-    #ifdef NCURSES_SUPPORT
-        if( (!progArgs.getUseBriefLiveStats() ) &&
-            ( (progArgs.getHostsVec().size() > 1) ||
-            (progArgs.getHostsVec().empty() && (progArgs.getNumThreads() > 1) ) ) )
-        {
-            if(TerminalTk::isScreenSessionWithoutAltscreen() )
-            { // GNU screen without "altscreen" can't restore console contents after fullscreen
-                LOGGER(Log_NORMAL, "NOTE: Disabling fullscreen live stats because of GNU screen "
-                    "session without altscreen support. Restart GNU screen with \"altscreen on\" "
-                    "in your \"~/.screenrc\" (or add \"--live1\" to prevent this message)." <<
-                    std::endl);
+	if( (!progArgs.getUseBriefLiveStats() ) &&
+		( (progArgs.getHostsVec().size() > 1) ||
+		(progArgs.getHostsVec().empty() && (progArgs.getNumThreads() > 1) ) ) )
+	{
+		if(TerminalTk::isScreenSessionWithoutAltscreen() )
+		{ // GNU screen without "altscreen" can't restore console contents after fullscreen
+			LOGGER(Log_NORMAL, "NOTE: Disabling fullscreen live stats because of GNU screen "
+				"session without altscreen support. Restart GNU screen with \"altscreen on\" "
+				"in your \"~/.screenrc\" (or add \"--live1\" to prevent this message)." <<
+				std::endl);
 
-                goto single_line_stats;
-            }
+			goto single_line_stats;
+		}
 
-            loopFullScreenLiveStats();
+		loopFullScreenLiveStats();
 
-            return;
-        }
-    #endif // NCURSES_SUPPORT
+		return;
+	}
 
 single_line_stats:
     loopSingleLineLiveStats();
@@ -1032,8 +1433,10 @@ void Statistics::printPhaseResultsTableHeader()
 
 		std::time_t currentTime = std::time(NULL);
 
-		fileStream << "ISO DATE: " << std::put_time(std::localtime(&currentTime), "%FT%T%z") <<
-			std::endl;
+        struct tm localTimeInfo;
+        localtime_r(&currentTime, &localTimeInfo);
+
+		fileStream << "ISO DATE: " << std::put_time(&localTimeInfo, "%FT%T%z") << std::endl;
 
 		// print user-defined label
 
@@ -1123,10 +1526,13 @@ void Statistics::printPhaseStartISODateToStringVec(StringVec& outLabelsVec,
     auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
         workersSharedData.phaseStartLocalT.time_since_epoch()).count() % 1000;
 
+    struct tm localTimeInfo;
+    localtime_r(&time, &localTimeInfo);
+
     std::stringstream dateStream;
-    dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+    dateStream << std::put_time(&localTimeInfo, "%FT%T") << "."
         << std::setfill('0') << std::setw(3) << milliseconds
-        << std::put_time(std::localtime(&time), "%z");
+        << std::put_time(&localTimeInfo, "%z");
 
     outLabelsVec.push_back("ISO date");
     outResultsVec.push_back(dateStream.str() );
@@ -2059,10 +2465,13 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
     auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
         workersSharedData.phaseStartLocalT.time_since_epoch()).count() % 1000;
 
+    struct tm localTimeInfo;
+    localtime_r(&time, &localTimeInfo);
+
     std::stringstream dateStream;
-    dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+    dateStream << std::put_time(&localTimeInfo, "%FT%T") << "."
         << std::setfill('0') << std::setw(3) << milliseconds
-        << std::put_time(std::localtime(&time), "%z");
+        << std::put_time(&localTimeInfo, "%z");
 
     ptree.put("iso_start_date", dateStream.str() );
 
@@ -2615,10 +3024,13 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
     auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
         now.time_since_epoch()).count() % 1000;
 
+    struct tm localTimeInfo;
+    localtime_r(&time, &localTimeInfo);
+
     std::stringstream dateStream;
-    dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+    dateStream << std::put_time(&localTimeInfo, "%FT%T") << "."
         << std::setfill('0') << std::setw(3) << milliseconds
-        << std::put_time(std::localtime(&time), "%z");
+        << std::put_time(&localTimeInfo, "%z");
 
 	std::chrono::milliseconds elapsedMS =
 				std::chrono::duration_cast<std::chrono::milliseconds>
@@ -2815,4 +3227,24 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 	ssize_t writeRes = write(liveCSVFileFD, stream.str().c_str(), streamLen);
 
 	if(writeRes) {} // only exists to mute compiler warning about unused write() result
+}
+
+/**
+ * Check if the value left (i.e. column - 1) of the current element equals the given string value.
+ *
+ * @return true if equal, false otherwise.
+ */
+bool Statistics::checkIfVec2DLeftElemEquals(std::vector<StringVec>& vec, int row, int column,
+    const char* value)
+{
+    IF_UNLIKELY( (int)vec.size() < (row + 1) )
+        return false; // vec doesn't have enough rows
+
+    IF_UNLIKELY( (int)vec[row].size() < (column + 1) )
+        return false; // row doesn't have enough columns
+
+    IF_UNLIKELY(column == 0)
+        return false;
+
+    return (vec[row][column-1] == value);
 }

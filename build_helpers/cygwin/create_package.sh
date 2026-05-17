@@ -7,7 +7,7 @@
 #
 # These are the required cygwin packages for the build process:
 #   $ setup-x86_64.exe -q --packages=\
-#     bash,vim,cmake,gcc-g++,git,libboost-devel,libncurses-devel,libssl-devel,make,procps-ng,zip
+#     bash,vim,cmake,gcc-g++,git,libboost-devel,libssl-devel,make,procps-ng,zip
 
 PACKAGING_PATH="./packaging/cygwin"
 PACKAGE_NAME="elbencho-windows.zip"

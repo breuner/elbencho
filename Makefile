@@ -36,7 +36,6 @@ ALTHTTPSVC_SUPPORT ?= 0
 COREBIND_SUPPORT   ?= 1
 LIBAIO_SUPPORT     ?= 1
 LIBNUMA_SUPPORT    ?= 1
-NCURSES_SUPPORT    ?= 1
 SYNCFS_SUPPORT     ?= 1
 S3_AWSCRT          ?= 0
 S3_SUPPORT         ?= 0
@@ -44,7 +43,7 @@ SYSCALLH_SUPPORT   ?= 1
 THREADNAME_SUPPORT ?= 1
 
 CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
-	-DNCURSES_NOMACROS -DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
+	-DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
 	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
 	-Wall -Wunused-variable -Woverloaded-virtual -Wextra -Wno-unused-parameter -fmessage-length=0 \
 	-fno-strict-aliasing -pthread -ggdb -std=$(CXX_FLAVOR)
@@ -143,17 +142,9 @@ ifeq ($(HDFS_SUPPORT), 1)
 	-L $(JAVA_HOME)/lib/amd64/server -l jvm
 endif
 
-# Support for ncurses
-ifeq ($(NCURSES_SUPPORT), 1)
-CXXFLAGS += -DNCURSES_SUPPORT
-
-  ifeq ($(BUILD_STATIC), 1)
-    LDFLAGS += -lncursesw
-  else # dynamic linking
-    LDFLAGS += -lncurses
-  endif
-
-endif
+# Support for ftxui
+CXXFLAGS += -I $(EXTERNAL_PATH)/ftxui/include
+LDFLAGS += -L $(EXTERNAL_PATH)/ftxui/build -l ftxui-component -l ftxui-dom -l ftxui-screen
 
 # Support build in Cygwin environment
 ifeq ($(CYGWIN_SUPPORT), 1)
@@ -371,10 +362,6 @@ else
 	$(info [OPT] HDFS support disabled)
 endif
 
-ifneq ($(NCURSES_SUPPORT),1)
-	$(info [OPT] ncurses disabled)
-endif
-
 
 clean: clean-packaging clean-buildhelpers
 ifdef BUILD_VERBOSE
@@ -388,19 +375,21 @@ endif
 clean-externals:
 ifdef BUILD_VERBOSE
 	rm -f $(EXTERNAL_PATH)/alpine-chroot-install
+	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
+	rm -rf $(EXTERNAL_PATH)/ftxui
+	rm -rf $(EXTERNAL_PATH)/libbacktrace
+	rm -rf $(EXTERNAL_PATH)/mimalloc
 	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
 	rm -rf $(EXTERNAL_PATH)/uWebSockets
-	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
-	rm -rf $(EXTERNAL_PATH)/mimalloc
-	rm -rf $(EXTERNAL_PATH)/libbacktrace
 else
 	@echo "[DELETE] EXTERNALS"
 	@rm -f $(EXTERNAL_PATH)/alpine-chroot-install
+	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
+	@rm -rf $(EXTERNAL_PATH)/ftxui
+	@rm -rf $(EXTERNAL_PATH)/libbacktrace
+	@rm -rf $(EXTERNAL_PATH)/mimalloc
 	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
 	@rm -rf $(EXTERNAL_PATH)/uWebSockets
-	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
-	@rm -rf $(EXTERNAL_PATH)/mimalloc
-	@rm -rf $(EXTERNAL_PATH)/libbacktrace
 endif
 
 
@@ -552,8 +541,6 @@ help:
 	@echo '                             $$HADDOP_HOME/include/hdfs.h and'
 	@echo '                             $$JAVA_HOME/lib/server/libjvm.so can be found.'
 	@echo '                             (Default: 0)'
-	@echo '   NCURSES_SUPPORT=0|1     - Link against ncurses for fullscreen live stats'
-	@echo '                             support. (Default: 1)'
 	@echo '   S3_AWSCRT=0|1           - Build S3 support based on AWS Common Runtime (CRT)'
 	@echo '                             instead of external libraries like libcurl. Only'
 	@echo '                             effective together with S3_SUPPORT=1. Not'

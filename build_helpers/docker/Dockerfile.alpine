@@ -5,7 +5,7 @@
 FROM alpine:3 AS builder
 
 RUN apk add bash boost-dev cmake curl-dev gcc g++ git libaio-dev make \
-        numactl-dev ncurses ncurses-dev sudo
+        numactl-dev sudo
 
 RUN cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
@@ -16,7 +16,7 @@ FROM alpine:3
 
 COPY --from=builder /usr/local/bin/elbencho /usr/local/bin
 
-RUN apk add boost-regex boost-program_options jq libaio libcurl libstdc++ ncurses \
+RUN apk add boost-regex boost-program_options jq libaio libcurl libstdc++ \
         numactl && \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho && \
     /usr/local/bin/elbencho --version

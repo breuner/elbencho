@@ -52,13 +52,13 @@ Building elbencho requires a C++17 compatible compiler, such as gcc version 7.x 
 ### Dependencies for Debian/Ubuntu
 
 ```bash
-sudo apt -y install build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev lintian libssl-dev uuid-dev zlib1g-dev
+sudo apt -y install build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libnuma-dev lintian libssl-dev uuid-dev zlib1g-dev
 ```
 
 ### Dependencies for RHEL/CentOS/Rocky
 
 ```bash
-sudo yum -y install boost-devel cmake gcc-c++ git libaio-devel libarchive libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build zlib zlib-devel
+sudo yum -y install boost-devel cmake gcc-c++ git libaio-devel libarchive libcurl-devel libuuid-devel make numactl-devel openssl-devel rpm-build zlib zlib-devel
 ```
 
 #### On RHEL / CentOS 7.x: Prepare Environment with newer gcc Version

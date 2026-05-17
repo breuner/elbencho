@@ -5,13 +5,13 @@
 # Run docker build from elbencho repository root dir like this:
 # docker build -t elbencho-local -f build_helpers/docker/Dockerfile.alpine.local .
 
-FROM alpine:3 as builder
+FROM alpine:3 AS builder
 
 ARG NUM_JOBS
 ENV NUM_JOBS=${NUM_JOBS}
 
 RUN apk add bash boost-dev cmake curl-dev gcc g++ git libaio-dev make \
-        numactl-dev ncurses ncurses-dev sudo
+        numactl-dev sudo
 
 COPY ./ /root/elbencho
 
@@ -32,7 +32,7 @@ FROM alpine:3
 
 COPY --from=builder /usr/local/bin/elbencho /usr/local/bin
 
-RUN apk add boost-regex boost-program_options jq libaio libcurl libstdc++ ncurses \
+RUN apk add boost-regex boost-program_options jq libaio libcurl libstdc++ \
         numactl && \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho && \
     /usr/local/bin/elbencho --version

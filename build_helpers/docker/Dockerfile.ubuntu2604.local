@@ -3,7 +3,7 @@
 # Run docker build from elbencho repository root dir like this:
 # docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2204.local .
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 ARG NUM_JOBS
 ENV NUM_JOBS=${NUM_JOBS}
@@ -28,7 +28,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     make S3_SUPPORT=1 -j $NUM_JOBS && \
     make deb
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 

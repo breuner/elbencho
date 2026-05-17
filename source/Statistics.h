@@ -1,14 +1,26 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #ifndef STATISTICS_H_
 #define STATISTICS_H_
 
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/event.hpp>
+#include <ftxui/component/loop.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
+#include <ftxui/dom/table.hpp>
+#include <functional>
+#include <vector>
+
 #include "CPUUtil.h"
+#include "Common.h"
 #include "LiveLatency.h"
 #include "ProgArgs.h"
+#include "toolkits/TranslatorTk.h"
 #include "workers/WorkerManager.h"
 #include "workers/WorkersSharedData.h"
+
 
 class PhaseResults
 {
@@ -36,11 +48,25 @@ class PhaseResults
 };
 
 /**
- * For whole screen live stats
+ * Phase values for live stats
  */
 class LiveResults
 {
 	public:
+        LiveResults(const ProgArgs& progArgs, const WorkerManager& workerManager,
+            const WorkersSharedData& workersSharedData)
+        {
+            this->phaseName = TranslatorTk::benchPhaseToPhaseName(
+                workersSharedData.currentBenchPhase, &progArgs);
+            this->phaseEntryType = TranslatorTk::benchPhaseToPhaseEntryType(
+                workersSharedData.currentBenchPhase, &progArgs);
+            this->entryTypeUpperCase = TranslatorTk::benchPhaseToPhaseEntryType(
+                workersSharedData.currentBenchPhase, &progArgs, true);
+
+            workerManager.getPhaseNumEntriesAndBytes(
+                this->numEntriesPerWorker, this->numBytesPerWorker);
+        }
+
 		std::string phaseName; // read, write, mkdirs etc
 		std::string phaseEntryType; // files or dirs
 		std::string entryTypeUpperCase; // phaseEntryType uppercase
@@ -65,6 +91,21 @@ class LiveResults
 
 		LiveLatency liveLatency; // avg latency across all workers for current live stats interval
 };
+
+/**
+ * Rendering state info for ftxui fullscreen live stats GUI.
+ */
+class LiveStatsUIState
+{
+    public:
+        bool switchToSingleLine = false; // true if user wants to continue without fullscreen
+        int selectedRow = 1;
+        int selectedColumn = 0;
+        std::vector<StringVec> headerStatsTxtTable; // all live stats values as plain text
+        std::vector<StringVec> workerStatsTxtTable; // all live stats values as plain text
+        ftxui::Element cachedView; // to prevent expensive UI redraw for quick key press check
+};
+
 
 class Statistics
 {
@@ -118,26 +159,34 @@ class Statistics
 		void printLiveCountdownLine(unsigned long long waittimeSec);
 
 		void printSingleLineLiveStatsLine(LiveResults& liveResults);
-		void loopSingleLineLiveStats();
+        void loopSingleLineLiveStats(LiveResults* customLiveResults = NULL,
+            std::chrono::steady_clock::time_point* customLastRefreshT = NULL,
+            std::chrono::steady_clock::time_point* customNextRefreshT = NULL);
 
-	#ifdef NCURSES_SUPPORT
-		void printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults);
-		void printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults);
-		void printFullScreenLiveStatsLine(std::ostringstream& stream, unsigned lineLength,
-			bool fillIfShorter);
+		void printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResults,
+			std::vector<StringVec>& outHeaderStatsTxtTable);
+		void printFullScreenLiveStatsWorkerTable(const LiveResults& liveResults,
+            std::vector<StringVec>& statsTableData);
+        std::string printFullScreenLiveStatsFooter();
+        std::function<ftxui::Element()> fullscreenGenerateFtxuiRenderer(
+            LiveResults& liveResults, LiveStatsUIState& uiState);
+        std::function<bool(ftxui::Event event)> fullscreenGenerateFtxuiEventHandler(
+            LiveStatsUIState& uiState);
 		void loopFullScreenLiveStats();
-	#endif // NCURSES_SUPPORT
 
 		void loopNoConsoleLiveStats();
 
 		void updateLiveStatsRemoteInfo(LiveResults& liveResults);
-		void updateLiveStatsLiveOps(LiveResults& liveResults);
+		void updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedMS);
 
 		void printDryRunPhaseInfo(BenchPhase benchPhase);
 		void printDryRunInfoNetBench();
 
 		void prepLiveCSVFile();
 		void printLiveStatsCSV(const LiveResults& liveResults);
+
+        bool checkIfVec2DLeftElemEquals(std::vector<StringVec>& vec, int row, int column,
+            const char* value);
 
 	// inliners
 	public:

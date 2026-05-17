@@ -84,9 +84,9 @@ chmod +x "$ALPINE_SCRIPT_PATH"
 sudo "$ALPINE_SCRIPT_PATH" -b "$CHROOT_VERSION" -a "$BUILD_ARCH" \
   -d "$(realpath "$CHROOT_PATH")" -i $(pwd) -p \
   "bash boost-dev build-base gcc g++ git libaio-dev make numactl-dev \
-        cmake curl-dev curl-static openssl-libs-static ncurses-static \
-        boost-static ncurses zlib-static libretls-static nghttp2-static nghttp3-static \
-        brotli-static ncurses-dev sudo tar libidn2-static libunistring-static \
+        cmake curl-dev curl-static openssl-libs-static \
+        boost-static zlib-static libretls-static nghttp2-static nghttp3-static \
+        brotli-static sudo tar libidn2-static libunistring-static \
         libpsl-static c-ares-dev zstd-static"
 
 if [ $? -ne 0 ]; then

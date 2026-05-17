@@ -5,7 +5,7 @@ FROM centos:7 AS builder
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo && \
     sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo && \
     yum -y update && \
-    yum install -y boost-devel centos-release-scl gcc-c++ git libaio-devel libcurl-devel libuuid-devel make ncurses-devel numactl-devel openssl-devel rpm-build && \
+    yum install -y boost-devel centos-release-scl gcc-c++ git libaio-devel libcurl-devel libuuid-devel make numactl-devel openssl-devel rpm-build && \
     sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo && \
     sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo && \
     yum install -y devtoolset-11 && \

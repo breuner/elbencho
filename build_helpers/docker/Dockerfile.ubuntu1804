@@ -2,10 +2,15 @@
 
 FROM ubuntu:18.04 AS builder
 
+# note: special cmake repo is because ftxui requires v3.12
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \
+    apt -y install apt-transport-https ca-certificates gnupg wget && \
+    wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null && \
+    echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ bionic main' | tee /etc/apt/sources.list.d/kitware.list && \
+    apt update && \
     apt -y upgrade && \
-    apt install -y build-essential debhelper devscripts fakeroot gcc-8 g++-8 git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libncurses-dev libnuma-dev libssl-dev lintian && \
+    apt install -y build-essential cmake debhelper devscripts fakeroot gcc-8 g++-8 git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libnuma-dev libssl-dev lintian && \
     cd /root && git clone https://github.com/breuner/elbencho.git && \
     cd elbencho && \
     CC=gcc-8 CXX=g++-8 make -j "$(nproc)" && \

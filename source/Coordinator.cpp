@@ -441,6 +441,9 @@ void Coordinator::handleInterruptSignal(int signal)
 
 /**
  * Register handler of SIGINT/SIGTERM.
+ *
+ * Note: This method is "public" because Statistics.cpp needs to call it after ftxui has been
+ * 	initialized.
  */
 void Coordinator::registerInterruptSignalHandlers()
 {

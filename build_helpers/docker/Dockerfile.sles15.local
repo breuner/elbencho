@@ -8,7 +8,7 @@ FROM registry.suse.com/bci/bci-base:15.7 AS builder
 COPY ./ /root/elbencho
 
 RUN zypper update -y && \
-    zypper install -y cmake gcc-c++ gcc14-c++ git libaio-devel libboost_program_options-devel libboost_system-devel libboost_thread-devel libcurl-devel libnuma-devel libuuid-devel make ncurses-devel openssl-devel rpm-build && \
+    zypper install -y cmake gcc-c++ gcc14-c++ git libaio-devel libboost_program_options-devel libboost_system-devel libboost_thread-devel libcurl-devel libnuma-devel libuuid-devel make openssl-devel rpm-build && \
     cd /root/elbencho && \
     CC=gcc-14 CXX=g++-14 make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm

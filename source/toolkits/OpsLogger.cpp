@@ -73,10 +73,13 @@ void OpsLogger::logOpJSON(std::string opName, std::string entryName,
 	auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
 		now.time_since_epoch()).count() % 1000;
 
+    struct tm localTimeInfo;
+    localtime_r(&time, &localTimeInfo);
+
 	std::stringstream dateStream;
-	dateStream << std::put_time(std::localtime(&time), "%FT%T") << "."
+	dateStream << std::put_time(&localTimeInfo, "%FT%T") << "."
 		<< std::setfill('0') << std::setw(3) << milliseconds
-		<< std::put_time(std::localtime(&time), "%z");
+		<< std::put_time(&localTimeInfo, "%z");
 
 	dprintf(logFileFD,
 		"{ "

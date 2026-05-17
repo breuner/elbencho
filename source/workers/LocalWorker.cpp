@@ -2290,6 +2290,8 @@ void LocalWorker::aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t c
 
 #else // LIBAIO_SUPPORT
 
+    OPLOG_PRE_OP("aiowrite", std::to_string(fd), offset, count);
+
 	io_prep_pwrite(iocb, fd, buf, count, offset);
 
 #endif // LIBAIO_SUPPORT
@@ -2307,6 +2309,8 @@ void LocalWorker::aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t co
 		"libaio support.");
 
 #else // LIBAIO_SUPPORT
+
+    OPLOG_PRE_OP("aioread", std::to_string(fd), offset, count);
 
 	io_prep_pread(iocb, fd, buf, count, offset);
 
@@ -2337,9 +2341,17 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 	// note: workerRank is used to have skew between different worker threads
 	// note: this same logic is used in preWriteBufRandRefill/preWriteBufRandRefillFast
 	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixReadPercent() )
-		io_prep_pwrite(iocb, fd, buf, count, offset);
+    {
+        OPLOG_PRE_OP("aiowrite", std::to_string(fd), offset, count);
+
+        io_prep_pwrite(iocb, fd, buf, count, offset);
+    }
 	else
-		io_prep_pread(iocb, fd, buf, count, offset);
+    {
+        OPLOG_PRE_OP("aioread", std::to_string(fd), offset, count);
+
+        io_prep_pread(iocb, fd, buf, count, offset);
+    }
 
 #endif // LIBAIO_SUPPORT
 }

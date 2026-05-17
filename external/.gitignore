@@ -1,6 +1,7 @@
 alpine-chroot-install
 aws-sdk-cpp/
 aws-sdk-cpp_install/
+ftxui/
 libbacktrace/
 mimalloc/
 Simple-Web-Server/
