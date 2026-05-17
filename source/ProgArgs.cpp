@@ -66,17 +66,23 @@
 #define TREESCAN_OUTFILE_DEFAULT    ("/var/tmp/" EXE_NAME "_" + SystemTk::getUsername() + "_" + \
                                     "treescan.txt")
 
-#define RESFILE_DIR_BASE_DEFAULT    "/var/tmp"
-#define RESFILE_DIR_USER_DEFAULT    (RESFILE_DIR_BASE_DEFAULT "/" EXE_NAME "_" + \
+#ifdef CYGWIN_SUPPORT
+    #define RESFILE_DIR_BASE_DEFAULT    std::string(getenv("TEMP") ? \
+                                        getenv("TEMP") : "C:/Windows/Temp")
+#else
+    #define RESFILE_DIR_BASE_DEFAULT    std::string("/var/tmp")
+#endif // CYGWIN_SUPPORT
+
+#define RESFILE_DIR_USER_DEFAULT    (RESFILE_DIR_BASE_DEFAULT + "/" EXE_NAME "_" + \
                                     SystemTk::getUsername() + "_" "result")
-#define RESFILE_TXT_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" "result" "_" + \
-                                    SystemTk::getUsername() + "_" + \
+#define RESFILE_TXT_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" \
+                                    "result" "_" + SystemTk::getUsername() + "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".txt")
-#define RESFILE_CSV_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" "result" "_" + \
-                                    SystemTk::getUsername() + "_" + \
+#define RESFILE_CSV_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" \
+                                    "result" "_" + SystemTk::getUsername() + "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".csv")
-#define RESFILE_JSON_PATH_DEFAULT   (RESFILE_DIR_USER_DEFAULT +  "/" EXE_NAME "_" "result" "_" + \
-                                    SystemTk::getUsername() + "_" + \
+#define RESFILE_JSON_PATH_DEFAULT   (RESFILE_DIR_USER_DEFAULT +  "/" EXE_NAME "_" \
+                                    "result" "_" + SystemTk::getUsername() + "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".json")
 
 #define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
@@ -265,7 +271,7 @@ void ProgArgs::defineAllowedArgs()
             "Path to file for end results in csv format. This way, results can be imported e.g. "
             "into MS Excel. If the file exists, results will be appended. (See also \"--"
             ARG_CSVLIVEFILE_LONG "\" for progress results in csv format.) "
-            "(Default: Store in \"" RESFILE_DIR_BASE_DEFAULT "\" under a subdir that contains the "
+            "(Default: Store in \"/var/tmp\" under a subdir that contains the "
             "username.)")
 #ifdef CUFILE_SUPPORT
 /*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
@@ -372,7 +378,7 @@ void ProgArgs::defineAllowedArgs()
             "Path to file for end results in json format. If the file exists, results will be "
             "appended. (See also \"--" ARG_JSONLIVEFILE_LONG "\" for progress results in json "
             "format.) (EXPERIMENTAL: Output format can still change.) "
-            "(Default: Store in \"" RESFILE_DIR_BASE_DEFAULT "\" under a subdir that contains the "
+            "(Default: Store in \"/var/tmp\" under a subdir that contains the "
             "username.)")
 /*la*/	(ARG_BENCHLABEL_LONG, bpo::value(&this->benchLabel),
 			"Custom label to identify benchmark run in result files.")
@@ -525,7 +531,7 @@ void ProgArgs::defineAllowedArgs()
 /*re*/  (ARG_RESULTSFILE_LONG, bpo::value(&this->resFilePathTXT),
             "Path to file for human-readable results, similar to console output. If the file "
             "exists, new results will be appended. "
-            "(Default: Store in \"" RESFILE_DIR_BASE_DEFAULT "\" under a subdir that contains the "
+            "(Default: Store in \"/var/tmp\" under a subdir that contains the "
             "username.)")
 /*ro*/	(ARG_ROTATEHOSTS_LONG, bpo::value(&this->rotateHostsNum),
 			"Number by which to rotate hosts between phases to avoid caching effects. (Default: 0)")
