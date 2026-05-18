@@ -28,7 +28,9 @@ docker run -v /data:/data -it breuner/elbencho /data/mytestfile -s 10G -w
 
 ### Distributed Mode
 
-If you want to use elbencho's distributed mode for coordinated throughput tests from multiple nodes, the easiest way is to use Docker's `--net=host` option to make the elbencho service inside the container available under the IP address of the host on which it is running. Also, you will want to prevent the service from going into background (because otherwise Docker will think it can stop the container instance) and instead detach the container to run in the background (`--foreground` & `-d`).
+> **_NOTE:_**  A Kubernetes/K8s example is available [here](https://github.com/breuner/elbencho/blob/master/docs/k8s-examples.md).
+
+If you want to use elbencho's distributed mode for coordinated throughput tests from multiple nodes, the easiest way is to use Docker's `--net=host` option to make the elbencho service inside the container available under the IP address of the host on which it is running. Also, you will want to prevent the service from going into background (because otherwise Docker will think it can stop the container instance) and instead detach the container to run in the background (`elbencho --foreground` & `docker run -d`).
 
 Run this command on all nodes that should participate in your distributed storage benchmarks:
 
@@ -61,34 +63,28 @@ If you don't have `nvidia-docker`, you can alternatively use `docker run --gpus 
 
 ## Docker Image Flavors
 
-The default image (tagged "latest") is based on Ubuntu 24.04.
+The default image (tagged "`latest`") is based Ubuntu 26.04. It contains the latest stable release version of elbencho, while the other image tags ("`master-*`") contain builds based on the Github master branch.
 
-The Ubuntu and CentOS based images contain the full `.deb` / `.rpm` package installation. To use e.g. one of the contained elbencho tools, simply specify the tool name as an alternative entrypoint:
+The Ubuntu and RHEL-clone based images contain the full `.deb` / `.rpm` package installation with the corresponding additional tools. To use e.g. one of the contained elbencho tools, simply specify the tool name as an alternative entrypoint:
 
 ```bash
-docker run -it --entrypoint elbencho-scan-path breuner/elbencho:master-ubuntu2404 --help
+docker run -it --entrypoint elbencho-scan-path breuner/elbencho --help
 ```
 
-The Alpine Linux based image is optimized for minimum size and only contains the elbencho main executable, no other tools.
+The Alpine Linux based image (tagged "`master-alpine`") is optimized for minimum size and only contains the elbencho main executable, no other tools.
 
 ### S3 Support
 
-Images with stable version tags include S3 support as of elbencho v2.0. Additionally, the following image tags based on the master branch include S3 support:
-- latest
-- master-alpine
-- master-centos7, master-centos8, master-rocky9
-- master-sles15
-- master-ubuntu2004, master-ubuntu2204, master-ubuntu2404
-- master-ubuntu-cuda-multiarch
+S3 support is included in the images tagged "`latest`", "`master-alpine`", "`master-ubuntu-cuda-multiarch`" and in the images with stable version number tags.
 
 ### Local Image Builds
 
-To build docker images from your local elbencho git clone (e.g. because you modified the sources or want to build a particular previous version), you can find the corresponding dockerfiles in the `build_helpers/docker` subdir with a `.local` extension. To build a Ubuntu 22.04 image from your local sources, run this command:
+To build docker images from your local elbencho git clone (e.g. because you modified the sources or want to build a particular previous version), you can find the corresponding dockerfiles in the `build_helpers/docker` subdir with a `.local` extension. To build a Ubuntu image from your local sources, run this command:
 
 ```bash
-docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2404.local .
+docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2604.local .
 ```
 
 ### ARM64 & Multi-Platform
 
-The image tags "latest" and "master-ubuntu-cuda-multiarch" support amd64 (aka x86_64) and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs.
+The image tags "`latest`" and "`master-ubuntu-cuda-multiarch`" support amd64 (aka x86_64) and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs. (Other image tags might be available for only one of these platforms.)
