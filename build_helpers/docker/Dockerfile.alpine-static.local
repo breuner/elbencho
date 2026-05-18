@@ -45,7 +45,9 @@ RUN cd /root/elbencho && \
     make -j $NUM_JOBS \
         ALTHTTPSVC_SUPPORT=0 S3_SUPPORT=1 \
         S3_AWSCRT=0 USE_MIMALLOC=1 BUILD_STATIC=1 && \
-    make install
+    make install && \
+    cd .. && \
+    tar -czf elbencho-compiled.tar.gz elbencho
 
 FROM alpine:3 AS installer
 
@@ -56,17 +58,38 @@ RUN apk add boost-regex boost-program_options libaio libcurl libstdc++ \
     ln -s /usr/local/bin/elbencho /usr/bin/elbencho
 
 ###### Optional stages start #####
-# These stages are specifically to prepare the tar file for extraction
+# These stages are specifically to prepare the tar/deb/rpm file for extraction.
+# Alpine doesn't bring the tools for deb package build, so we build the deb
+# and rpm package on Ubuntu.
+# We copy the elbencho build dir via a tar file to preserve mtimes, so that
+# Ubuntu's "make deb/rpm" doesn't run the compile steps again.
 
-FROM alpine:3 AS prep-extract-tar
+FROM ubuntu:latest AS prep-extract-tar
 
 COPY --from=builder /usr/local/bin/elbencho /tmp
+COPY --from=builder /root/elbencho-compiled.tar.gz /tmp
 
-RUN echo "Preparing tar file for extraction..." && \
+RUN echo "Preparing Ubuntu tar/deb/rpm env..." && \
+    export DEBIAN_FRONTEND=noninteractive && \
+    apt update && \
+    apt -y install build-essential cmake debhelper devscripts fakeroot git lintian rpm tar && \
     cd /tmp && \
     mkdir export && \
-    tar -czf export/elbencho-static-$(uname -m).tar.gz elbencho && \
-    ./elbencho --version
+    echo "Preparing tar file for extraction..." && \
+    tar -czvf export/elbencho-static-$(uname -m).tar.gz elbencho && \
+    echo "Preparing deb file for extraction..." && \
+    mkdir elbencho-compiled && \
+    cd elbencho-compiled && \
+    tar -xf /tmp/elbencho-compiled.tar.gz && \
+    cd elbencho && \
+    make deb && \
+    cp -v packaging/elbencho*.deb /tmp/export/ && \
+    echo "Preparing rpm file for extraction..." && \
+    make rpm && \
+    cp -v packaging/RPMS/*/elbencho*.rpm /tmp/export/ && \
+    echo "Confirming no rebuild has happened (deb/rpm binary identical to original binary)..." && \
+    diff bin/elbencho /tmp/elbencho && \
+    /tmp/elbencho --version
 
 FROM scratch AS export-tar
 

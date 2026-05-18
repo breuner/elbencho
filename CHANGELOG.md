@@ -2,6 +2,9 @@
 
 ## v3.1.4 (work in progress)
 
+### General Changes
+* Updated Alpine static build Dockerfile to support arm64 static release build deb/rpm packaging.
+
 ## v3.1.3 (May 18, 2026)
 
 ### New Features & Enhancements
