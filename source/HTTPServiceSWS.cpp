@@ -317,8 +317,9 @@ void HTTPServiceSWS::defineServerResourcePrepareFile(HttpServer& server)
             struct tm localTimeInfo;
             localtime_r(&currentTime, &localTimeInfo);
 
-			std::cout << "Receiving tree file from master... "
-				"(ISO DATE: " << std::put_time(&localTimeInfo, "%FT%T%z") << ")" << std::endl;
+            std::cout << "Receiving file from master: '" << path << "'; "
+                "Remote Endpoint: '" << request->remote_endpoint() << "'; "
+                "ISO Date: " << std::put_time(&localTimeInfo, "%FT%T%z") << std::endl;
 
 			// prepare our upload directory
 
@@ -417,8 +418,9 @@ void HTTPServiceSWS::defineServerResourcePreparePhase(HttpServer& server)
             struct tm localTimeInfo;
             localtime_r(&currentTime, &localTimeInfo);
 
-			std::cout << "Preparing new benchmark phase... "
-				"(ISO DATE: " << std::put_time(&localTimeInfo, "%FT%T%z") << ")" << std::endl;
+            std::cout << "Preparing new benchmark run... "
+                "Remote Endpoint: '" << request->remote_endpoint() << "'; "
+                "ISO Date: " << std::put_time(&localTimeInfo, "%FT%T%z") << std::endl;
 
 			// read config values as json
 

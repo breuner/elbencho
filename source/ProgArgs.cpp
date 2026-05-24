@@ -17,6 +17,7 @@
 #include "ProgArgs.h"
 #include "Common.h"
 #include "Logger.h"
+#include "PathStore.h"
 #include "ProgException.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/HashTk.h"
@@ -28,6 +29,7 @@
 #include "toolkits/TerminalTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
+#include "workers/LocalWorker.h"
 
 #ifdef CUDA_SUPPORT
     #include <cuda_runtime.h>
@@ -63,25 +65,18 @@
 
 #define AWS_SDK_LOGPREFIX_DEFAULT	"aws_sdk_"
 
-#define TREESCAN_OUTFILE_DEFAULT    ("/var/tmp/" EXE_NAME "_" + SystemTk::getUsername() + "_" + \
-                                    "treescan.txt")
+#define TREESCAN_OUTFILE_DEFAULT    (ELBENCHO_VAR_TMP + "/" + EXE_NAME "_" + \
+                                    SystemTk::getUsername() + "_" + "treescan.txt")
 
-#ifdef CYGWIN_SUPPORT
-    #define RESFILE_DIR_BASE_DEFAULT    std::string(getenv("TEMP") ? \
-                                        getenv("TEMP") : "C:/Windows/Temp")
-#else
-    #define RESFILE_DIR_BASE_DEFAULT    std::string("/var/tmp")
-#endif // CYGWIN_SUPPORT
-
-#define RESFILE_DIR_USER_DEFAULT    (RESFILE_DIR_BASE_DEFAULT + "/" EXE_NAME "_" + \
+#define RESFILE_DIR_USER_DEFAULT    (ELBENCHO_VAR_TMP + "/" EXE_NAME "_" + \
                                     SystemTk::getUsername() + "_" "result")
-#define RESFILE_TXT_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" \
+#define RESFILE_TXT_PATH_DEFAULT    (ELBENCHO_VAR_TMP + "/" EXE_NAME "_" \
                                     "result" "_" + SystemTk::getUsername() + "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".txt")
-#define RESFILE_CSV_PATH_DEFAULT    (RESFILE_DIR_USER_DEFAULT + "/" EXE_NAME "_" \
+#define RESFILE_CSV_PATH_DEFAULT    (ELBENCHO_VAR_TMP + "/" EXE_NAME "_" \
                                     "result" "_" + SystemTk::getUsername() + "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".csv")
-#define RESFILE_JSON_PATH_DEFAULT   (RESFILE_DIR_USER_DEFAULT +  "/" EXE_NAME "_" \
+#define RESFILE_JSON_PATH_DEFAULT   (ELBENCHO_VAR_TMP +  "/" EXE_NAME "_" \
                                     "result" "_" + SystemTk::getUsername() + "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".json")
 
@@ -644,6 +639,9 @@ void ProgArgs::defineAllowedArgs()
             "Max number of connections per S3 client instance. "
             "(Default: Number of threads sharing the instance times iodepth.) "
             "[Not effective for builds with feature " FEATURE_NAME_S3_AWSCRT ".]")
+/*s3m*/	(ARG_S3MPUSHARING_LONG, bpo::bool_switch(&this->useS3MPUSharing),
+            "Use shared multipart upload mode for S3 objects from multiple clients. For this mode, "
+            "object names need to be given as parameters (e.g. \"mybucket/myobj[1-10]\").")
 /*s3m*/ (ARG_S3MPUSIZEVAR_LONG, bpo::value(&this->s3MpuSizeVarianceOrigStr),
             "Maximum number of bytes to subtract from part size of multipart uploads for random "
             "variance in part sizes. The last uploaded part will be correspondingly larger to "
@@ -786,9 +784,13 @@ void ProgArgs::defineAllowedArgs()
 			ARG_HELPMULTIFILE_LONG "\" with the exception of file size and number of dirs/files, "
 			"as these are defined in the treefile. (Note: The file list will be split across "
 			"worker threads, but dir create/delete is not fully parallel, so don't use this for "
-			"dir create/delete performance testing.)")
+			"dir create/delete performance testing.) (Note: In this mode, the write/read phase "
+            "files counter only counts files that have not been split across multiple workers.)")
 /*tr*/	(ARG_TREERANDOMIZE_LONG, bpo::bool_switch(&this->useCustomTreeRandomize),
 			"In custom tree mode: Randomize file order. Default is order by file size.")
+/*tr*/	(ARG_TREEROUNDROBIN_LONG, bpo::bool_switch(&this->useCustomTreeRoundRobin),
+            "In custom tree mode: Assign file blocks round-robin to workers. Default is to "
+            "maximize consecutive ranges per worker.")
 /*tr*/	(ARG_TREEROUNDUP_LONG, bpo::value(&this->treeRoundUpSizeOrigStr),
 			"When loading a treefile, round up all contained file sizes to a multiple of the given "
 			"size. This is useful for \"--" ARG_DIRECTIO_LONG "\" with its alignment requirements "
@@ -927,6 +929,7 @@ void ProgArgs::defineDefaults()
     this->runS3BucketAclPut = false;
     this->runS3ListObjNum = 0;
     this->runS3ListObjParallel = false;
+    this->runS3MPUSharingCompletionPhase = false;
     this->runS3MultiDelObjNum = 0;
     this->runS3StatDirs = false;
     this->runStatFilesPhase = false;
@@ -973,6 +976,7 @@ void ProgArgs::defineDefaults()
     this->useBriefLiveStats = false;
     this->useBriefLiveStatsNewLine = false;
     this->useCustomTreeRandomize = false;
+    this->useCustomTreeRoundRobin = false;
     this->useCuFile = false;
     this->useCuFileDriverOpen = false;
     this->useCuHostBufReg = false;
@@ -990,6 +994,7 @@ void ProgArgs::defineDefaults()
     this->useRWMixReadThreads = false;
     this->useS3ClientSingleton = false;
     this->useS3FastRead = false;
+    this->useS3MPUSharing = false;
     this->useS3ObjectPrefixRand = false;
     this->useS3RandObjSelect = false;
     this->useS3SSE = false;
@@ -1138,6 +1143,19 @@ void ProgArgs::initImplicitValues()
 
 		s3EndpointsServiceOverrideStr = s3EndpointsStr;
 	}
+
+    if(useS3MPUSharing)
+    {
+		LOGGER(Log_DEBUG, "Serice MPU sharing mode: Disabling normal S3 MPU completion, setting "
+            "share size to '1', enabling block round robin assignment and enabling MPU completion "
+            "phase." << std::endl);
+
+        s3NoMpuCompletion = true;
+        fileShareSize = 1;
+        fileShareSizeOrigStr = "1";
+        useCustomTreeRoundRobin = true;
+        runS3MPUSharingCompletionPhase = true;
+    }
 
     // csv file: remove commas from user-defined label
 	benchLabelNoCommas = benchLabel;
@@ -1308,6 +1326,8 @@ void ProgArgs::checkArgs()
 	scanCustomTree();
 
 	loadCustomTreeFile();
+
+    precreateS3MpuSharingUploadIDs(); // requires customTree to be initialized
 
 	if(useCuFile && (ioDepth > 1) )
 		throw ProgException("cuFile API does not support \"IO depth > 1\"");
@@ -2768,7 +2788,7 @@ void ProgArgs::loadCustomTreeFile()
 		/* (note: workers use the same condition in prepareCustomTreePathStores() to decide special
             handing of tree file) */
 		if(runAsService && (benchMode == BenchMode_S3) && runCreateFilesPhase &&
-			(numDataSetThreads != numThreads) )
+			(numDataSetThreads != numThreads) && !useS3MPUSharing)
 		{
 			/* shared s3 uploads of an object possible, but only among threads within the same
 				service instance (due to the uploadID not beeing shared among service instances).
@@ -2800,6 +2820,76 @@ void ProgArgs::loadCustomTreeFile()
 			customTree.filesNonShared.sortByFileSize();
 		}
 	}
+}
+
+/**
+ * Precreate the s3 mpu upload IDs for shared mpu mode between services.
+ *
+ * This generates an MPU ID for each file in the treefile, so treeFilePath needs to be processed
+ * before calling this.
+ */
+void ProgArgs::precreateS3MpuSharingUploadIDs()
+{
+    if(!useS3MPUSharing)
+        return; // nothing to do
+
+    if(benchMode != BenchMode_S3)
+        throw ProgException("S3 MPU sharing mode selected but benchmark mode is not S3.");
+
+    if(!runCreateFilesPhase)
+        throw ProgException("S3 MPU sharing mode selected but write phase not selected.");
+
+    if(hostsVec.empty() )
+        throw ProgException("S3 MPU sharing mode selected but no service instances given.");
+
+    if(treeFilePath.empty() )
+        throw ProgException("S3 MPU sharing mode selected but no shared objects defined.");
+
+    if(fileSize <= blockSize) // no simple puts in svc mpu sharing mode
+        throw ProgException("S3 MPU sharing mode selected but object size is not larger than "
+            "part block size");
+
+    if(fileSize < (blockSize * hostsVec.size() * numThreads) ) // at least one part per thread
+        throw ProgException("S3 MPU sharing mode selected but object size is less than "
+            "one part for each thread. (size < block_size x num_hosts x num_threads)");
+
+    if(customTree.filesNonShared.getNumPaths() ) // no non-mpu uploads in svc mpu sharing mode
+        throw ProgException("Found non-shared objects in custom tree. This is not allowed in MPU "
+            "sharing mode.");
+
+    if(!customTree.filesShared.getNumPaths() ) // mpu sharing requires shared objs
+        throw ProgException("Missing shared objects in custom tree. This is not allowed in MPU "
+            "sharing mode.");
+
+#ifndef S3_SUPPORT
+    throw ProgException("S3 MPU sharing mode selected, but built without S3 support.");
+#else
+
+    S3Tk::initS3Global(this);
+
+    std::shared_ptr<S3Client> s3Client = S3Tk::initS3Client(this);
+
+    const PathList& pathList = customTree.filesShared.getPaths();
+
+    S3Tk::precreateMpuIDs(this, s3Client, benchPathsVec[0], s3ObjectPrefix, pathList,
+        s3MpuSharingUploadIDs);
+
+    s3Client.reset(); // std::shared_ptr, so reset() deletes the s3 client object
+
+    if(s3MpuSharingUploadIDs.empty() )
+        throw ProgException("S3 MPU IDs list is empty after precreation step.");
+
+    std::ofstream fileStream(S3_IMPLICIT_MPUSHAING_PATH, std::ofstream::trunc);
+    if(!fileStream)
+        throw ProgException("Opening output MPU IDs file failed: " + S3_IMPLICIT_MPUSHAING_PATH);
+
+    for(const std::string& mpuID : s3MpuSharingUploadIDs)
+        fileStream << mpuID << std::endl;
+
+
+#endif // S3_SUPPORT
+
+
 }
 
 /**
@@ -3625,6 +3715,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	runS3BucketAclPut = tree.get<bool>(ARG_S3BUCKETACLPUT_LONG);
 	runS3ListObjNum = tree.get<uint64_t>(ARG_S3LISTOBJ_LONG);
 	runS3ListObjParallel = tree.get<bool>(ARG_S3LISTOBJPARALLEL_LONG);
+    runS3MPUSharingCompletionPhase = tree.get<bool>(ARG_S3MPUSHARINGCOMPL_LONG);
 	runS3MultiDelObjNum = tree.get<uint64_t>(ARG_S3MULTIDELETE_LONG);
 	s3IgnoreMultipartUpload404 = tree.get<bool>(ARG_S3MULTI_IGNORE_404);
 	runS3StatDirs = tree.get<bool>(ARG_S3STATDIRS_LONG);
@@ -3659,6 +3750,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
 	useCuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
 	useCustomTreeRandomize = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
+    useCustomTreeRoundRobin = tree.get<bool>(ARG_TREEROUNDROBIN_LONG);
 	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
 	useGDSBufReg = tree.get<bool>(ARG_GDSBUFREG_LONG);
 	useHDFS = tree.get<bool>(ARG_HDFS_LONG);
@@ -3670,6 +3762,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useRandomOffsets = tree.get<bool>(ARG_RANDOMOFFSETS_LONG);
     useS3ClientSingleton = tree.get<bool>(ARG_S3CLIENTSINGLETON_LONG);
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
+    useS3MPUSharing = tree.get<bool>(ARG_S3MPUSHARING_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
     useS3SSE = tree.get<bool>(ARG_S3SSE_LONG);
     useS3VirtualAddressing = tree.get<bool>(ARG_S3VIRTADDRESSING_LONG);
@@ -3807,6 +3900,8 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3LISTOBJPARALLEL_LONG, runS3ListObjParallel);
 	outTree.put(ARG_S3LISTOBJVERIFY_LONG, doS3ListObjVerify);
     outTree.put(ARG_S3MAXCONNS_LONG, s3MaxConnections);
+    outTree.put(ARG_S3MPUSHARING_LONG, useS3MPUSharing);
+    outTree.put(ARG_S3MPUSHARINGCOMPL_LONG, runS3MPUSharingCompletionPhase);
     outTree.put(ARG_S3MPUSIZEVAR_LONG, s3MpuSizeVariance);
     outTree.put(ARG_S3MPUSPLITSIZE_LONG, s3MpuSplitSize);
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
@@ -3836,6 +3931,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);
 	outTree.put(ARG_TREERANDOMIZE_LONG, useCustomTreeRandomize);
+    outTree.put(ARG_TREEROUNDROBIN_LONG, useCustomTreeRoundRobin);
 	outTree.put(ARG_TREEROUNDUP_LONG, treeRoundUpSize);
 	outTree.put(ARG_VERIFYDIRECT_LONG, doDirectVerify);
 
@@ -3968,6 +4064,8 @@ void ProgArgs::resetBenchPath()
 
 	s3EndpointsVec.clear();
 	netBenchServersVec.clear();
+
+    LocalWorker::resetSingletons();
 
 #ifdef CUFILE_SUPPORT
 	if(isCuFileDriverOpen)

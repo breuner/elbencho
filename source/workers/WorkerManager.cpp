@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "Common.h"
 #include "toolkits/SignalTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "LocalWorker.h"
@@ -434,6 +435,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 				case BenchPhase_STATFILES:
 				case BenchPhase_PUTOBJACL:
 				case BenchPhase_GETOBJACL:
+                case BenchPhase_S3MPUCOMPLETE:
 				{
 					outNumEntriesPerWorker =
 						(numFilesNonShared + numFilesShared) / numDataSetThreads;

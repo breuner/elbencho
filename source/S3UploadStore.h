@@ -6,7 +6,6 @@
 
 #ifdef S3_SUPPORT
 
-#include <atomic>
 #include <aws/core/Aws.h>
 #include <aws/core/utils/memory/stl/AWSString.h>
 #include <aws/core/utils/StringUtils.h>
@@ -17,8 +16,6 @@
 #include <mutex>
 #include <string>
 
-#include "Logger.h"
-#include "workers/WorkerException.h"
 #include "toolkits/S3Tk.h"
 
 
@@ -85,7 +82,8 @@ typedef S3UploadMap::const_iterator S3UploadMapConstIter;
 class S3UploadStore
 {
 	public:
-        void setProgArgs(const ProgArgs* progArgs);
+        void setProgArgs(const ProgArgs* progArgs, size_t workerRank);
+		void loadSvcMPUSharingFile();
 		std::string getMultipartUploadID(const std::string& bucketName,
 			const std::string& objectName, std::shared_ptr<S3Client> s3Client,
 			OpsLogger& opsLog);
@@ -95,6 +93,7 @@ class S3UploadStore
 			const S3::CompletedPart& completedPart);
 		void getNextUnfinishedUpload(std::string& outBucketName, std::string& outObjectName,
 			std::string& outUploadID);
+        void reset();
 
 	private:
 		const ProgArgs* progArgs{NULL};

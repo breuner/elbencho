@@ -64,7 +64,8 @@ class RemoteWorker : public Worker
 		virtual void run() override;
 
 		void finishPhase(bool allowExceptionThrow);
-		void prepareRemoteFile();
+		void prepareRemoteFiles();
+		void prepareRemoteFile(std::string localFilePath, std::string remoteFilename);
 		void preparePhase();
 		void startBenchPhase();
 		void waitForBenchPhaseCompletion(bool checkInterruption);

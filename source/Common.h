@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #ifndef COMMON_H_
@@ -35,8 +35,10 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define _STRINGIZE(value)		#value
 
 
-// human-readable benchmark phase name
-
+/**
+ * Human-readable benchmark phase names for enum BenchPhase.
+ * TranslatorTk::benchPhaseToPhaseName() does the conversion.
+ */
 #define PHASENAME_IDLE          "IDLE"
 #define PHASENAME_TERMINATE     "QUIT"
 #define PHASENAME_CREATEDIRS    "MKDIRS"
@@ -59,6 +61,7 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_GETOBJACL     "GETOBJACL"
 #define PHASENAME_PUTBUCKETACL  "PUTBACL"
 #define PHASENAME_GETBUCKETACL  "GETBACL"
+#define PHASENAME_S3MPUCOMPLETE "MPUCOMPL"
 
 // special S3 metadata phases for multiple metadata operation types
 #define PHASENAME_GETOBJECTMETADATA     "GETOBJMD"
@@ -69,7 +72,11 @@ typedef std::vector<uint64_t> UInt64Vec;
 #define PHASENAME_DELBUCKETMETADATA     "DELBUCKETMD"
 
 
-// human-readable entry type in current benchmark phase
+/**
+ * Human-readable entry type in current benchmark phase.
+ *
+ * TranslatorTk::benchPhaseToPhaseEntryType() returns these based on enum BenchPhase.
+ */
 
 #define PHASEENTRYTYPE_DIRS     "dirs"
 #define PHASEENTRYTYPE_FILES    "files"
@@ -81,7 +88,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.1.1"
+#define HTTP_PROTOCOLVERSION	"3.1.2"
 
 /**
  * Default access mode bits for new files.
@@ -125,6 +132,18 @@ typedef std::vector<uint64_t> UInt64Vec;
 #endif
 
 /**
+ * std::string() macro to change "/var/tmp" to %TEMP% env var on windows.
+ * (no trailing slash included.)
+ */
+#ifdef CYGWIN_SUPPORT
+    #define ELBENCHO_VAR_TMP        std::string(getenv("TEMP") ? \
+                                        getenv("TEMP") : "C:/Windows/Temp")
+#else
+    #define ELBENCHO_VAR_TMP        std::string("/var/tmp")
+#endif // CYGWIN_SUPPORT
+
+
+/**
  * Current benchmark mode.
  */
  enum BenchMode
@@ -138,6 +157,15 @@ typedef std::vector<uint64_t> UInt64Vec;
 
 /**
  * Current benchmark phase.
+ *
+ * Each phase needs to:
+ * - be in Coordinator::runBenchmarks() for phase execution ordering
+ * - have a PHASENAME_xx definition for the human-readable name
+ *   - (incl conversion via TranslatorTk::benchPhaseToPhaseName() )
+ * - be in TranslatorTk::benchPhaseToPhaseEntryType() for conversion to entry type
+ * - be in WorkerManager::getPhaseNumEntriesAndBytes for progress reporting
+ * - be in RemoteWorker::run to be sent to service instances
+ * - be in LocalWorker::run to call the appropriate action method
  */
 enum BenchPhase
 {
@@ -165,6 +193,7 @@ enum BenchPhase
     BenchPhase_GET_S3_BUCKET_MD,
     BenchPhase_PUT_S3_BUCKET_MD,
     BenchPhase_DEL_S3_BUCKET_MD,
+	BenchPhase_S3MPUCOMPLETE,
 };
 
 

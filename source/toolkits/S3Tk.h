@@ -4,6 +4,9 @@
 #ifndef TOOLKITS_S3TK_H_
 #define TOOLKITS_S3TK_H_
 
+#include "PathStore.h"
+#include "workers/WorkerException.h"
+
 #ifdef S3_SUPPORT
 	#include <aws/core/Aws.h>
     #include <aws/core/client/ClientConfiguration.h>
@@ -97,6 +100,9 @@ class S3Tk
         static Aws::String computeKeyMD5(const Aws::String& key);
         static void scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
             std::string bucketName, std::string objectPrefix, std::string outTreeFilePath);
+        static void precreateMpuIDs(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
+            std::string bucketName, std::string objectPrefix, const PathList& pathList,
+            StringVec& outMpuIDs);
 
 #endif // S3_SUPPORT
 

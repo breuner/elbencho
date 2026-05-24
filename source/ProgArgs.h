@@ -173,6 +173,8 @@ namespace bpt = boost::property_tree;
 #define ARG_S3MAXCONNS_LONG         "s3maxconns"
 #define ARG_S3MPUSIZEVAR_LONG       "s3mpusizevar"
 #define ARG_S3MPUSPLITSIZE_LONG     "s3mpusplit"
+#define ARG_S3MPUSHARING_LONG       "s3mpusharing"
+#define ARG_S3MPUSHARINGCOMPL_LONG  "s3mpucomplphase" // implicitly set
 #define ARG_S3MULTIDELETE_LONG		"s3multidel"
 #define ARG_S3MULTI_IGNORE_404      "s3multiignore404"
 #define ARG_S3NOCOMPRESS_LONG       "s3nocompress"
@@ -213,6 +215,7 @@ namespace bpt = boost::property_tree;
 #define ARG_TIMELIMITSECS_LONG		"timelimit"
 #define ARG_TREEFILE_LONG			"treefile"
 #define ARG_TREERANDOMIZE_LONG		"treerand"
+#define ARG_TREEROUNDROBIN_LONG     "treeroundrob"
 #define ARG_TREEROUNDUP_LONG		"treeroundup"
 #define ARG_TREESCAN_LONG           "treescan"
 #define ARG_TRUNCATE_LONG			"trunc"
@@ -225,13 +228,17 @@ namespace bpt = boost::property_tree;
 #define ARGDEFAULT_SERVICEPORT_STR	STRINGIZE(ARGDEFAULT_SERVICEPORT)
 
 
-#define SERVICE_UPLOAD_BASEPATH(servicePort)	("/var/tmp/" EXE_NAME "_" + \
+#define SERVICE_UPLOAD_BASEPATH(servicePort)	(ELBENCHO_VAR_TMP + "/" + EXE_NAME "_" + \
 												SystemTk::getUsername() + "_" + \
 												"p" + std::to_string(servicePort) )
 #define SERVICE_UPLOAD_TREEFILE					"treefile.txt"
-#define S3_IMPLICIT_TREEFILE_PATH				("/var/tmp/" EXE_NAME "_" + \
+#define S3_IMPLICIT_TREEFILE_PATH				(ELBENCHO_VAR_TMP + "/" + EXE_NAME "_" + \
 												SystemTk::getUsername() + "_" + \
 												"treefile_implicit.txt")
+#define SERVICE_UPLOAD_MPUSHARINGFILE           "mpufile.txt"
+#define S3_IMPLICIT_MPUSHAING_PATH				(ELBENCHO_VAR_TMP + "/" + EXE_NAME "_" + \
+                                                SystemTk::getUsername() + "_" + \
+                                                "mpufile_implicit.txt")
 
 
 // flags for fadvise
@@ -360,6 +367,7 @@ class ProgArgs
         std::shared_ptr<S3Client> s3ClientSingleton; // shared singleton s3 client for workers
         std::atomic_bool s3IsInterruptionRequested{false}; // interrupt for s3 singleton lambdas
         std::string s3SingletonEndpointStr; // endpoint string for singleton s3 client
+        StringVec s3MpuSharingUploadIDs; // ProgArgs precreated MPU IDs for mpu sharing mode
 #endif // S3_SUPPORT
 
 		int stdoutDupFD; // dup of stdout file descriptor if overridden e.g. due to csv to stdout
@@ -483,6 +491,7 @@ class ProgArgs
         bool runS3StatDirs; // HeadBucket (and other bucket MD ops, goes well with doS3BucketTag)
 		uint64_t runS3ListObjNum; // run seq list objects phase if >0, given number is listing limit
 		bool runS3ListObjParallel; // multi-threaded object listing (requires "-n" / "-N")
+        bool runS3MPUSharingCompletionPhase; // run separate mpu compl phase after svc mpu sharing
 		uint64_t runS3MultiDelObjNum; // run S3 multi del phase if >0; number is multi del limit
 		bool runServiceInForeground; // true to not daemonize service process into background
 		bool runStatFilesPhase; // stat files
@@ -552,6 +561,7 @@ class ProgArgs
 		bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
 		bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
 		bool useCustomTreeRandomize; // randomize order of custom tree files
+        bool useCustomTreeRoundRobin; // assign blocks round-robin to workers
 		bool useDirectIO; // open files with O_DIRECT
 		bool useExtendedLiveCSV; // false for total/aggregate results only, true for per-worker
 		bool useExtendedLiveJSON; // false for total/aggregate results only, true for per-worker
@@ -566,6 +576,7 @@ class ProgArgs
 		bool useRWMixPercent; // implicitly set in case of rwmixpct (even if ==0)
 		bool useRWMixReadThreads; // implicitly set in case of rwmixthr (even if ==0)
         bool useS3ClientSingleton; // use singleton S3 client for all threads
+        bool useS3MPUSharing; // use s3 shared mpu mode from multiple clients
 		bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
 		bool useS3RandObjSelect; // random object selection for each read
 		bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
@@ -601,7 +612,7 @@ class ProgArgs
 		void scanCustomTree();
 		void loadCustomTreeFile();
 		void loadServicePasswordFile();
-		void splitCustomTreeForSharedS3Upload();
+        void precreateS3MpuSharingUploadIDs();
 		std::string absolutePath(std::string pathStr);
 		BenchPathType findBenchPathType(std::string pathStr);
 		bool checkPathExists(std::string pathStr);
@@ -755,6 +766,7 @@ class ProgArgs
         bool getRunDeleteFilesPhase() const { return runDeleteFilesPhase; }
         bool getRunDropCachesPhase() const { return runDropCachesPhase; }
         bool getRunListObjParallelPhase() const { return runS3ListObjParallel; }
+        bool getRunS3MPUSharingCompletionPhase() const { return runS3MPUSharingCompletionPhase; }
         bool getRunListObjPhase() const { return (runS3ListObjNum > 0); }
         bool getRunMultiDelObjPhase() const { return (runS3MultiDelObjNum > 0); }
         bool getRunReadPhase() const { return runReadPhase; }
@@ -820,6 +832,7 @@ class ProgArgs
         bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
         bool getUseCuHostBufReg() const { return useCuHostBufReg; }
         bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
+        bool getUseCustomTreeRoundRobin() const { return useCustomTreeRoundRobin; }
         bool getUseDirectIO() const { return useDirectIO; }
         bool getUseExtendedLiveCSV() const { return useExtendedLiveCSV; }
         bool getUseExtendedLiveJSON() const { return useExtendedLiveJSON; }
@@ -831,6 +844,7 @@ class ProgArgs
         bool getUseRandomOffsets() const { return useRandomOffsets; }
         bool getUseS3ClientSingleton() const { return useS3ClientSingleton; }
         bool getUseS3FastRead() const { return useS3FastRead; }
+        bool getUseS3MPUSharing() const { return useS3MPUSharing; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
         bool getUseS3SSE() const { return useS3SSE; }

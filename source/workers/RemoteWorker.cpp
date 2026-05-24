@@ -7,6 +7,8 @@
 #include <sstream>
 
 #include "RemoteWorker.h"
+#include "Common.h"
+#include "ProgArgs.h"
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
 
@@ -36,7 +38,7 @@ void RemoteWorker::run()
 
 		// preparation phase
 		applyNumaAndCoreBinding();
-		prepareRemoteFile();
+		prepareRemoteFiles();
 		preparePhase();
 
 		// signal coordinator that our preparations phase is done (and ignore elapsed ms)
@@ -83,6 +85,7 @@ void RemoteWorker::run()
                 case BenchPhase_GET_S3_BUCKET_MD:
                 case BenchPhase_PUT_S3_BUCKET_MD:
                 case BenchPhase_DEL_S3_BUCKET_MD:
+				case BenchPhase_S3MPUCOMPLETE:
 				{
 					startBenchPhase();
 
@@ -282,29 +285,41 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
  *
  * @throw WorkerException on error, e.g. http client problem
  */
-void RemoteWorker::prepareRemoteFile()
+ void RemoteWorker::prepareRemoteFiles()
+ {
+    if(progArgs->getInterruptServices() || progArgs->getQuitServices() )
+        return; // nothing to prepare here
+
+    std::string treeFilePath = progArgs->getTreeFilePath();
+    if(!treeFilePath.empty() )
+        prepareRemoteFile(treeFilePath, SERVICE_UPLOAD_TREEFILE);
+
+    if(progArgs->getUseS3MPUSharing() )
+        prepareRemoteFile(S3_IMPLICIT_MPUSHAING_PATH, SERVICE_UPLOAD_MPUSHARINGFILE);
+ }
+
+/**
+ * Upload files to service host (such as a custom tree file, if given) so that they are
+ * available for the benchmark preparation phase.
+ *
+ * @throw WorkerException on error, e.g. http client problem
+ */
+void RemoteWorker::prepareRemoteFile(std::string localFilePath, std::string remoteFilename)
 {
-	if(progArgs->getInterruptServices() || progArgs->getQuitServices() )
-		return; // nothing to prepare here
-
-	std::string treeFilePath = progArgs->getTreeFilePath();
-	if(treeFilePath.empty() )
-		return; // nothing to do here
-
 	// open tree file as stream
-	std::ifstream treeFileStream(treeFilePath);
+	std::ifstream fileStream(localFilePath);
 
-	if(!treeFileStream)
-		throw WorkerException("Unable to read custom tree file. Path: " + treeFilePath);
+	if(!fileStream)
+		throw WorkerException("Unable to read custom tree file. Path: " + localFilePath);
 
 	try
 	{
 		std::string requestPath = HTTPCLIENTPATH_PREPAREFILE "?"
 			XFER_PREP_PROTCOLVERSION "=" HTTP_PROTOCOLVERSION "&"
-			XFER_PREP_FILENAME "=" SERVICE_UPLOAD_TREEFILE "&"
+			XFER_PREP_FILENAME "=" + remoteFilename + "&"
             XFER_PREP_AUTHORIZATION "=" + progArgs->getSvcPasswordHash();
 
-		auto response = httpClient.request("POST", requestPath, treeFileStream);
+		auto response = httpClient.request("POST", requestPath, fileStream);
 
 		IF_UNLIKELY(response->status_code != Web::status_code(Web::StatusCode::success_ok) )
 		{
@@ -316,13 +331,16 @@ void RemoteWorker::prepareRemoteFile()
 		IF_UNLIKELY(response->content.size() )
 			throw WorkerException(
 				"Service sent unexpected non-empty reply as remote file preparation result. "
-				"Service: " + host);
+				"Service: " + host + "; " +
+                "Remote filename: " + remoteFilename);
 	}
 	catch(Web::system_error& e)
 	{
 		throw WorkerException(
 			std::string("Communication error in remote file preparation phase: ") + e.what() + ". "
-			"Service: " + host);
+			"Service: " + host + "; " +
+            "Local path: " + localFilePath + "; "
+            "Remote filename: " + remoteFilename);
 	}
 }
 

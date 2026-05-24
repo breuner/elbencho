@@ -2,6 +2,11 @@
 
 ## v3.1.4 (work in progress)
 
+### New Features & Enhancements
+* Added option for shared S3 multi-part uploads from multiple clients. In this mode, MPU creation is done by the controller instance and MPU completion is done in a separate phase after write/upload. (See `--s3mpusharing`.)
+* Added custom tree mode option to assign work on a per-block basis round-robin to threads. (See `--treeroundrob`.)
+* Added platform-dependent support for worker thread names, e.g. in `ps` or `top` output. (Build feature name is `threadname`.)
+
 ### General Changes
 * Updated Alpine static build Dockerfile to support arm64 static release build deb/rpm packaging.
 

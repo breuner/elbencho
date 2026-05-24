@@ -45,7 +45,6 @@ void OpsLogger::closeLogFile()
  *
  * Most likely you don't want to call this directly. Call the OPLOG() macro instead.
  *
- * @workerRank rank of LocalWorker thread.
  * @opName the name of the I/O operation to log (e.g. open, read, s3put).
  * @entryName the name of the dir/file/object to which the operation is applied.
  * @offset the offset of the operation within the file/object if applicable, e.g. for a read
@@ -84,7 +83,7 @@ void OpsLogger::logOpJSON(std::string opName, std::string entryName,
 	dprintf(logFileFD,
 		"{ "
 		"\"date\": \"%s\", "
-		"\"worker_rank\": %zu, "
+		"\"worker_rank\": %zd, "
 		"\"op_name\": \"%s\", "
 		"\"entry_name\": \"%s\", "
 		"\"offset\": %" PRIu64 ", "

@@ -3,18 +3,87 @@
 
 #ifdef S3_SUPPORT
 
+#include <memory>
+
+#include "Logger.h"
+#include "PathStore.h"
 #include "ProgArgs.h"
 #include "S3UploadStore.h"
 #include "toolkits/OpsLogger.h"
 #include "toolkits/TranslatorTk.h"
+#include "workers/WorkerException.h"
 
 /**
  * Initialize progArgs pointer. This has to be done before doing an S3 request.
+ *
+ * This also loads the mpu sharing file (if called by local worker rank 0) and uses the custom tree
+ * if service mpu sharing is set in progArgs.
  */
-void S3UploadStore::setProgArgs(const ProgArgs* progArgs)
+void S3UploadStore::setProgArgs(const ProgArgs* progArgs, size_t workerRank)
 {
     // note: no mutex needed here because each worker will set to same progArgs in prep phase
     this->progArgs = progArgs;
+
+    // only first local worker needs to populate the mpu store
+    size_t workerRankLocal = workerRank - progArgs->getRankOffset();
+	if(progArgs->getUseS3MPUSharing() && !workerRankLocal)
+		loadSvcMPUSharingFile();
+}
+
+/**
+ * Load services MPU sharing file and progArgs treefile (which contains all objects and is not
+ * randomized) to populate internal MPU IDs.
+ *
+ * @throw WorkerException on error, e.g. failed server communication.
+ */
+ void S3UploadStore::loadSvcMPUSharingFile()
+{
+    const PathStore& pathStore = progArgs->getCustomTreeFilesShared();
+    const PathList& pathList = pathStore.getPaths();
+    const std::string bucketName = progArgs->getBenchPaths()[0];
+    const std::string objectPrefix = progArgs->getS3ObjectPrefix();
+	const unsigned short servicePort = progArgs->getServicePort();
+
+    // (sanity check; should never happen)
+    if(pathList.empty() )
+        throw WorkerException("Found empty shared paths list in MPU sharing mode.");
+
+    std::ifstream file(SERVICE_UPLOAD_BASEPATH(servicePort) + "/" + SERVICE_UPLOAD_MPUSHARINGFILE);
+    if(!file.is_open() )
+        throw WorkerException(std::string("Opening MPU IDs file failed: ") +
+            SERVICE_UPLOAD_MPUSHARINGFILE);
+
+    // load shared MPU IDs from line (newline-separated)...
+
+    PathListCIter pathListIter = pathList.begin();
+    std::string fileLineStr;
+
+    while(std::getline(file, fileLineStr) )
+    {
+        // ignore empty lines
+        if(fileLineStr.empty() )
+            continue;
+
+        // path list length must match mpu ids list length
+        if(pathListIter == pathList.end() )
+            throw WorkerException("Shared MPU IDs list is longer than treefile list");
+
+        // insert new elem with its uploadID...
+
+        std::string objectName = objectPrefix + pathListIter->path;
+        S3UploadKey key(bucketName, objectName);
+
+        S3UploadElem& elem = map[key];
+
+        elem.uploadID = fileLineStr;
+        elem.completedParts = std::make_unique<Aws::Vector<S3::CompletedPart>>();
+
+		pathListIter++;
+    }
+
+    // path list length must match mpu ids list length
+    if(pathListIter != pathList.end() )
+        throw WorkerException("Treefile list longer than shared MPU IDs list");
 }
 
 /**
@@ -57,11 +126,14 @@ std::string S3UploadStore::getMultipartUploadID(const std::string& bucketName,
 	{
 		auto s3Error = createMultipartUploadOutcome.GetError();
 
-		throw WorkerException(std::string("Multipart upload creation failed. ") +
-			"Bucket: " + bucketName + "; "
-			"Exception: " + s3Error.GetExceptionName() + "; " +
-			"Message: " + s3Error.GetMessage() );
-	}
+        throw WorkerException(std::string("Multipart upload creation failed. ") +
+            "Bucket: " + bucketName + "; "
+            "Exception: " + s3Error.GetExceptionName() + "; " +
+            "Message: " + s3Error.GetMessage() + "; " +
+            "HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) + " (" +
+                TranslatorTk::httpErrorCodeToHumanStr( (int)s3Error.GetResponseCode() ) + "); "
+            "Request ID: " + s3Error.GetRequestId() );
+    }
 
 	// insert new elem with its uploadID
 
@@ -108,7 +180,11 @@ std::unique_ptr<Aws::Vector<S3::CompletedPart>> S3UploadStore::addCompletedPart(
 
 	elem.numBytesDone += numProgressBytes;
 
-	if(elem.numBytesDone < objectTotalSize)
+    LOGGER_DEBUG_BUILD(__func__ << ":" << __LINE__ << ": "
+		"elem.numBytesDone: " << elem.numBytesDone << "; "
+        "objectTotalSize: " << objectTotalSize << std::endl);
+
+	if( (elem.numBytesDone < objectTotalSize) || progArgs->getS3NoMpuCompletion() )
 		return std::unique_ptr<Aws::Vector<S3::CompletedPart>>(nullptr); // not finished yet
 
 	// ready for completion => remove object from map and transfer parts vec ownership to caller
@@ -148,5 +224,14 @@ void S3UploadStore::getNextUnfinishedUpload(std::string& outBucketName, std::str
 	map.erase(iter);
 }
 
+/**
+ * Called by ProgArgs to reset/clear store for services after benchmark completion.
+ *
+ * Note: Not thread-safe, so can only be called while no workers are running.
+ */
+void S3UploadStore::reset()
+{
+    map.clear();
+}
 
 #endif // S3_SUPPORT

@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "Coordinator.h"
+#include "Common.h"
 #include "HTTPServiceSWS.h"
 #include "HTTPServiceUWS.h"
 #include "Logger.h"
@@ -315,6 +316,7 @@ void Coordinator::runBenchmarks()
 		BenchPhaseConfig { BenchPhase_STATDIRS, progArgs.getRunS3StatDirs() },
         BenchPhaseConfig { BenchPhase_GET_S3_BUCKET_MD, progArgs.getRunS3GetBucketMetadata() },
 		BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
+        BenchPhaseConfig { BenchPhase_S3MPUCOMPLETE, progArgs.getRunS3MPUSharingCompletionPhase() },
         BenchPhaseConfig { BenchPhase_PUTOBJACL, progArgs.getRunS3AclPut() },
         BenchPhaseConfig { BenchPhase_PUT_S3_OBJECT_MD, progArgs.getRunS3PutObjectMetadata() },
 		BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },

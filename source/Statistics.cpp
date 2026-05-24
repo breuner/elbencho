@@ -49,6 +49,7 @@
 #define FULLSCREEN_WORKERS_TITLE_CPU                "CPU"
 #define FULLSCREEN_WORKERS_TITLE_SERVICE            "Service"
 
+#define PHASERESULTS_CONSOLE_SEPARATOR_LINE         "---"
 
 /**
  * return "std::to_string(VAL_B ? (VAL_A / VAL_B) : 0)" to prevent div by zero.
@@ -615,7 +616,7 @@ workers_done:
         else
         if( event == Event::Character( 'q' ) || event == Event::Character( 'Q' ) )
         {
-            workerManager.interruptAndNotifyWorkers();
+            Coordinator::handleInterruptSignal(SIGINT);
             uiState.cachedView.reset();
             return true;
         }
@@ -1569,16 +1570,19 @@ void Statistics::printPhaseResults()
 {
 	PhaseResults phaseResults = {}; // zero init
 
-	bool genRes = generatePhaseResults(phaseResults);
+    bool genRes = generatePhaseResults(phaseResults);
 
-	if(!genRes)
-		std::cout << "Skipping stats print due to unavailable worker results." << std::endl;
-	else
-		printPhaseResultsToStream(phaseResults, std::cout); // print to console
+    if(!genRes)
+        std::cout << "Phase: " << TranslatorTk::benchPhaseToPhaseName(
+            workersSharedData.currentBenchPhase, &progArgs) << ": "
+            "Skipping stats print due to unavailable worker results." << std::endl <<
+            PHASERESULTS_CONSOLE_SEPARATOR_LINE << std::endl;
+    else
+        printPhaseResultsToStream(phaseResults, std::cout); // print to console
 
 
-	// print to results file (if specified by user)
-	if(!progArgs.getResFilePathTXT().empty() )
+    // print to results file (if specified by user)
+    if(!progArgs.getResFilePathTXT().empty() )
 	{
 		std::ofstream fileStream;
 
@@ -2140,7 +2144,7 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 	}
 
 	// print horizontal separator between phases
-	outStream << "---" << std::endl;
+	outStream << PHASERESULTS_CONSOLE_SEPARATOR_LINE << std::endl;
 }
 
 /**

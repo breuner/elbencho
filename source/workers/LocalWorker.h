@@ -233,6 +233,7 @@ class LocalWorker : public Worker
 		void s3ModeIterateObjects();
 		void s3ModeIterateObjectsRand();
 		void s3ModeIterateCustomObjects();
+        void s3ModeIterateAndCompleteMpuIDs();
 
 #ifdef S3_SUPPORT
         template <typename R>
@@ -261,7 +262,9 @@ class LocalWorker : public Worker
 			uint64_t objectTotalSize);
         void s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName, std::string objectName,
             uint64_t objectTotalSize);
-		bool s3AbortMultipartUpload(std::string bucketName, std::string objectName,
+        void s3ModeQueryAndFinishMultipartUpload(std::string bucketName,
+            std::string objectName, std::string uploadID, uint64_t expectedTotalSize);
+		bool s3ModeAbortMultipartUpload(std::string bucketName, std::string objectName,
 			std::string uploadID);
 		void s3ModeAbortUnfinishedSharedUploads();
 		void s3ModeDownloadObject(std::string bucketName, std::string objectName,
@@ -347,6 +350,22 @@ class LocalWorker : public Worker
             std::atomic_bool& isInterruptionRequested);
         bool preRWRateBalanceLimiterForWriters(size_t rwSize,
             std::atomic_bool& isInterruptionRequested);
+
+    public:
+        // inliners
+
+        /**
+         * Called by ProgArgs to reset singleton members.
+         */
+        static void resetSingletons()
+        {
+        #ifdef S3_SUPPORT
+            s3SharedUploadStore.reset();
+        #endif // S3_SUPPORT
+
+            serverSocketVec.clear(); // (actual cleanup in uninitNetBenchAfterPhaseDone() )
+        }
+
 };
 
 

@@ -218,6 +218,12 @@ ifeq ($(SYSCALLH_SUPPORT), 1)
   CXXFLAGS += -DSYSCALLH_SUPPORT
 endif
 
+# support for naming threads (e.g. in 'ps' or 'top' output)
+# Note: Gets set by macOS/Darwin detection, so needs to come after that
+ifeq ($(THREADNAME_SUPPORT), 1)
+  CXXFLAGS += -DTHREADNAME_SUPPORT
+endif
+
 # Include build helpers for auto detection
 include build_helpers/AutoDetection.mk
 

@@ -145,6 +145,7 @@ _elbencho_opts()
         --s3logprefix
         --s3maxconns
         --s3mpusizevar
+        --s3mpusharing
         --s3mpusplit
         --s3multidel
         --s3multiignore404
@@ -182,6 +183,7 @@ _elbencho_opts()
         --treefile
         --treerand
         --treeroundup
+        --treeroundrob
         --treescan
         --trunc
         --trunctosize

@@ -8,6 +8,7 @@
 #include <iterator>
 #include <random>
 #include <sstream>
+#include "Common.h"
 #include "Logger.h"
 #include "PathStore.h"
 #include "ProgException.h"
@@ -373,6 +374,11 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 		uint64_t firstFileBlock = currentBlockIdx;
 		uint64_t lastFileBlock = firstFileBlock + numFileBlocks - 1;
 
+        // sanity check: should never happen
+        IF_UNLIKELY(!pathsIter->totalLen)
+        throw ProgException(__func__ + std::string("Found path with 0 length. ") +
+            "Path: " + pathsIter->path);
+
 		// check if this file is still before our relevant range start
 		if(lastFileBlock < startBlock)
 		{
@@ -438,6 +444,82 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 	}
 
 	outPathStore.numBlocksTotal += thisWorkerNumBlocks;
+}
+
+/**
+ * Get worker-specific list from global PathStore. Blocks will get assigned round-robin to the
+ * workers, meaning there won't be any ranges larger than blocksize.
+ *
+ * Note: This method assumes that it's called on the global list, where all path ranges start at
+ * zero and range length equals file size.
+ *
+ * Note: This method assumes that each file has at least one block, so not zero length.
+ *
+ * @workerRank the rank of this worker for which to get the sublist.
+ * @numDataSetThreads as defined in ProgArgs.
+ * @throwOnSliceSmallerBlock true to throw an exception if a file slice is found that is smaller
+ * 		than the given block size; this is useful for random IO checks.
+ * @outPathStore the store to which the result list should be added.
+ *
+ * @throw ProgException if throwOnSliceSmallerBlock condition found.
+ */
+void PathStore::getWorkerSublistSharedRoundRobin(unsigned workerRank, unsigned numDataSetThreads,
+    bool throwOnSliceSmallerBlock, PathStore& outPathStore) const
+{
+    if(paths.empty() )
+        return;
+
+    const unsigned numThreads = numDataSetThreads; // just a shorthand
+
+    LOGGER(Log_DEBUG, "get sublist shared RR - workerRank: " << workerRank << "; "
+        "dataSetThreads: " << numThreads << "; "
+        "blocksTotal: " << numBlocksTotal << std::endl);
+
+    uint64_t currentBlockIdx = 0;
+
+    // iterate over all blocks of all paths to find relevant ones for this worker
+    for(PathList::const_iterator pathsIter = paths.begin(); pathsIter != paths.end(); pathsIter++)
+    {
+        // sanity check: should never happen
+        IF_UNLIKELY(!pathsIter->totalLen)
+        throw ProgException(__func__ + std::string("Found path with 0 length. ") +
+            "Path: " + pathsIter->path);
+
+        // iterator over all blocks of this path to find relevant ones for this worker
+        for(uint64_t offset = 0; offset < pathsIter->totalLen; offset += blockSize)
+        {
+            // check if this is a block for us
+            if(workerRank == (currentBlockIdx % numThreads) )
+            {
+                // prepare path element with relevant range
+                PathStoreElem pathElem = *pathsIter;
+                pathElem.rangeStart = offset;
+
+                uint64_t fileSizeLeft = pathsIter->totalLen - offset;
+
+                if(throwOnSliceSmallerBlock && (fileSizeLeft < blockSize) )
+                    throw ProgException("Found file slice that is smaller than block size. "
+                        "Consider using \"--" ARG_TREEROUNDUP_LONG "\". "
+                        "(\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
+                        "File: " + pathsIter->path + "; "
+                        "FileSize: " + std::to_string(pathsIter->totalLen) + "; "
+                        "BlockSize: " + std::to_string(blockSize) );
+
+                if(fileSizeLeft < blockSize)
+                    pathElem.rangeLen = fileSizeLeft; // partial block
+                else
+                    pathElem.rangeLen = blockSize; // full block
+
+                // add to outPathStore
+                outPathStore.paths.push_back(pathElem);
+                outPathStore.numPaths++;
+                outPathStore.numBytesTotal += (fileSizeLeft < blockSize) ? fileSizeLeft : blockSize;
+                outPathStore.numBlocksTotal++;
+            }
+
+            currentBlockIdx++;
+        }
+    }
 }
 
 /**

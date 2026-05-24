@@ -350,6 +350,9 @@ void S3Tk::scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3
     size_t numObjsFound = 0;
     uint64_t numBytesFound = 0;
 
+    OpsLogger opsLog(progArgs, -1);
+    opsLog.openLogFile();
+
     std::ofstream fileStream;
 
     fileStream.open(outTreeFilePath, std::ofstream::out | std::ofstream::trunc);
@@ -378,7 +381,13 @@ void S3Tk::scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3
             if(!nextContinuationToken.empty() )
                 listRequest.SetContinuationToken(nextContinuationToken);
 
+            OPLOG_PRE_OP("S3ListObjectsV2", bucketName + "/" + objectPrefix, 0,
+                listRequest.GetMaxKeys() );
+
             S3::ListObjectsV2Outcome listOutcome = s3Client->ListObjectsV2(listRequest);
+
+            OPLOG_POST_OP("S3ListObjectsV2", bucketName + "/" + objectPrefix, 0,
+                listOutcome.GetResult().GetKeyCount(), !listOutcome.IsSuccess() );
 
             IF_UNLIKELY(!listOutcome.IsSuccess() )
             {
@@ -442,6 +451,35 @@ void S3Tk::scanCustomTree(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3
         "Objects: " << numObjsFound << "; "
         "Elapsed: " << (time(NULL) - startT) << "s" << std::endl;
 
+}
+
+/**
+ * Retrieves an MPU ID for each object in the given pathList and adds it to outMpuIDs.
+ */
+void S3Tk::precreateMpuIDs(const ProgArgs* progArgs, std::shared_ptr<S3Client> s3Client,
+    std::string bucketName, std::string objectPrefix, const PathList& pathList,
+    StringVec& outMpuIDs)
+{
+    OpsLogger opsLog(progArgs, -1);
+    opsLog.openLogFile();
+
+    S3UploadStore s3UploadStore;
+    s3UploadStore.setProgArgs(progArgs, -1);
+
+    for(const PathStoreElem& currentPathElem : pathList)
+    {
+        std::string objectName = objectPrefix + currentPathElem.path;
+
+        Aws::String uploadID = s3UploadStore.getMultipartUploadID(bucketName, objectName, s3Client,
+            opsLog);
+
+        outMpuIDs.push_back(uploadID);
+
+        LOGGER(Log_DEBUG, "Precreated MPU ID. " <<
+            "Bucket: " << bucketName << "; "
+            "Obj: " << objectName << "; "
+            "MpuID: " << uploadID << std::endl);
+    }
 }
 
 #endif // S3_SUPPORT

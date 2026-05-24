@@ -54,6 +54,8 @@ class PathStore
 			bool throwOnFileSmallerBlock, PathStore& outPathStore) const;
 		void getWorkerSublistShared(unsigned workerRank, unsigned numDataSetThreads,
 			bool throwOnSliceSmallerBlock, PathStore& outPathStore) const;
+        void getWorkerSublistSharedRoundRobin(unsigned workerRank, unsigned numDataSetThreads,
+            bool throwOnSliceSmallerBlock, PathStore& outPathStore) const;
 
 		static std::string generateFileLine(std::string path, uint64_t fileSize);
 

@@ -100,7 +100,9 @@ void SignalTk::faultSignalHandler(int sig)
 	std::signal(sig, SIG_DFL); /* Reset the handler to its default only after we're done with
 		backtrace logging, otherwise the next caller might terminate before we logged. */
 
-	throw ProgException(stream.str() + backtraceStr);
+    /* now that we reset the signal handler to default, the cpu will rerun the same op when we
+        exit this handler and trigger the process termination and a core dump (if configured). */
+    return;
 }
 
 /**

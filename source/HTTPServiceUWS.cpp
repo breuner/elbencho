@@ -210,8 +210,8 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
             struct tm localTimeInfo;
             localtime_r(&currentTime, &localTimeInfo);
 
-			std::cout << "Receiving tree file from master... "
-				"(ISO DATE: " << std::put_time(&localTimeInfo, "%FT%T%z") << ")" << std::endl;
+			std::cout << "Receiving tree file from master: '" << path << "' "
+				"ISO Date: " << std::put_time(&localTimeInfo, "%FT%T%z") << std::endl;
 
 			// prepare our upload directory
 
@@ -336,8 +336,8 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
             struct tm localTimeInfo;
             localtime_r(&currentTime, &localTimeInfo);
 
-			std::cout << "Preparing new benchmark phase... "
-				"(ISO DATE: " << std::put_time(&localTimeInfo, "%FT%T%z") << ")" << std::endl;
+			std::cout << "Preparing new benchmark run... "
+				"ISO Date: " << std::put_time(&localTimeInfo, "%FT%T%z") << std::endl;
 
 			// incrementally receive posted data chunks
 			// (onData gets called after handler return, when uWS::HttpRequest no longer exists)

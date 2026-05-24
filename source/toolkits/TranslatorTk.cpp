@@ -4,6 +4,7 @@
 #include <boost/algorithm/string.hpp>
 #include <iterator>
 #include <regex>
+#include "Common.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "TranslatorTk.h"
@@ -108,6 +109,7 @@ std::string TranslatorTk::benchPhaseToPhaseName(BenchPhase benchPhase, const Pro
         case BenchPhase_GET_S3_BUCKET_MD: return PHASENAME_GETBUCKETMETADATA;
         case BenchPhase_PUT_S3_BUCKET_MD: return PHASENAME_PUTBUCKETMETADATA;
         case BenchPhase_DEL_S3_BUCKET_MD: return PHASENAME_DELBUCKETMETADATA;
+        case BenchPhase_S3MPUCOMPLETE: return PHASENAME_S3MPUCOMPLETE;
 		default:
 		{ // should never happen
 			throw ProgException("Phase name requested for unknown/invalid phase type: " +
@@ -157,6 +159,7 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
         case BenchPhase_GET_S3_OBJECT_MD:
         case BenchPhase_PUT_S3_OBJECT_MD:
         case BenchPhase_DEL_S3_OBJECT_MD:
+        case BenchPhase_S3MPUCOMPLETE:
         {
             retVal = (progArgs->getBenchMode() == BenchMode_S3) ?
                 PHASEENTRYTYPE_OBJECTS : PHASEENTRYTYPE_FILES;
