@@ -772,6 +772,10 @@ void Statistics::loopFullScreenLiveStats()
             IF_UNLIKELY(!ftxuiInitialized)
             { // run the init-once steps of ftxui fullscreen mode
 
+                // wipe input buffer before ftxui init
+                // (this is because e.g. <ESC> before ftxui init would lead to invalid events)
+                tcflush(STDIN_FILENO, TCIFLUSH);
+
                 try
                 {
                     /* note: we have to use a ScreenInteractive constructor based on "new" to bypass
@@ -785,7 +789,8 @@ void Statistics::loopFullScreenLiveStats()
                     std::cerr << "NOTE: fullscreen init for live statistics failed. "
                         "Falling back to \"--" ARG_BRIEFLIVESTATS_LONG "\"." << std::endl;
 
-                    loopSingleLineLiveStats(&liveResults, &nextStatsRefreshT);
+                        loopSingleLineLiveStats(&liveResults, &lastStatsRefreshT,
+                            &nextStatsRefreshT);
 
                     return;
                 }
@@ -1299,9 +1304,7 @@ void Statistics::printLiveStats()
         return;
     }
 
-	if( (!progArgs.getUseBriefLiveStats() ) &&
-		( (progArgs.getHostsVec().size() > 1) ||
-		(progArgs.getHostsVec().empty() && (progArgs.getNumThreads() > 1) ) ) )
+	if(!progArgs.getUseBriefLiveStats() )
 	{
 		if(TerminalTk::isScreenSessionWithoutAltscreen() )
 		{ // GNU screen without "altscreen" can't restore console contents after fullscreen
