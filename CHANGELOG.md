@@ -11,6 +11,9 @@
 * Updated Alpine static build Dockerfile to support arm64 static release build deb/rpm packaging.
 * Show fullscreen live stats by default also for single thread / single host for consistency.
 
+### Fixes
+* Fixed possible div by 0 in case of very laggy statistics thread wake-up. (Regression from v3.1.3)
+
 ## v3.1.3 (May 18, 2026)
 
 ### New Features & Enhancements

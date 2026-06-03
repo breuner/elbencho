@@ -353,8 +353,13 @@ void Statistics::loopSingleLineLiveStats(LiveResults* customLiveResults,
             std::chrono::milliseconds elapsedRefreshMS =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     nowT - lastStatsRefreshT); // calc real elapsed time
-            lastStatsRefreshT = nowT;
+
             nextStatsRefreshT += statsRefreshIntervalMS; // prepare for next wait round
+
+            IF_UNLIKELY(!elapsedRefreshMS.count() )
+                continue; // skip this 0-elapsed round due to very laggy wake-up of stats thread
+
+            lastStatsRefreshT = nowT;
 
             liveCpuUtil.update(); // update local cpu util
             updateLiveStatsRemoteInfo(liveResults); // update info for master mode
@@ -418,8 +423,13 @@ void Statistics::loopNoConsoleLiveStats()
             std::chrono::milliseconds elapsedRefreshMS =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     nowT - lastStatsRefreshT); // calc real elapsed time
-            lastStatsRefreshT = nowT;
+
             nextStatsRefreshT += statsRefreshIntervalMS; // prepare for next wait round
+
+            IF_UNLIKELY(!elapsedRefreshMS.count() )
+                continue; // skip this 0-elapsed round due to very laggy wake-up of stats thread
+
+            lastStatsRefreshT = nowT;
 
             liveCpuUtil.update(); // update local cpu util
             updateLiveStatsRemoteInfo(liveResults); // update info for master mode
@@ -750,8 +760,14 @@ void Statistics::loopFullScreenLiveStats()
             std::chrono::milliseconds elapsedRefreshMS =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     nowT - lastStatsRefreshT); // calc real elapsed time
-            lastStatsRefreshT = nowT;
+
             nextStatsRefreshT += statsRefreshIntervalMS; // prepare for next wait round
+
+            IF_UNLIKELY(!elapsedRefreshMS.count() )
+                continue; // skip this 0-elapsed round due to very laggy wake-up of stats thread
+
+            lastStatsRefreshT = nowT;
+
             uiState.cachedView.reset(); // force re-render of view
 
             liveCpuUtil.update(); // update local cpu util
@@ -1237,6 +1253,15 @@ void Statistics::updateLiveStatsRemoteInfo(LiveResults& liveResults)
  */
 void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedMS)
 {
+    // sanity check (to prevent div by zero): should never happen
+    IF_UNLIKELY(!elapsedMS)
+    {
+        std::string backtraceStr = SignalTk::logBacktrace();
+        throw ProgException(__func__ + std::string(" called with elapsedMS=0. ") +
+            "This should never happen. "
+            "Backtrace: \n" + backtraceStr);
+    }
+
 	getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
 
 	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
