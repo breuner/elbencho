@@ -864,6 +864,18 @@ workers_done:
         screen.reset();
         ftxuiInitialized = false;
 
+        std::chrono::milliseconds elapsedStatsTimeMS =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            SteadyClock::now() - workersSharedData.phaseStartT); // calc real elapsed time
+
+        /* check if we had at least 2 ftxui refresh cycles (to prevent bleeding of special
+            terminal response chars from ftxui's terminal queries into the user shell after exit) */
+        if(elapsedStatsTimeMS.count() < (statsRefreshIntervalMS.count() * 2) )
+        {
+            usleep(50000); // 50ms delay to give terminal time to respond
+            tcflush(STDIN_FILENO, TCIFLUSH); // discard chars in input stream
+        }
+
         if(uiState.switchToSingleLine)
             loopSingleLineLiveStats(&liveResults, &lastStatsRefreshT, &nextStatsRefreshT);
     }

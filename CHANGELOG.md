@@ -12,7 +12,8 @@
 * Show fullscreen live stats by default also for single thread / single host for consistency.
 
 ### Fixes
-* Fixed possible div by 0 in case of very laggy statistics thread wake-up. (Regression from v3.1.3)
+* Fixed possible div by zero in case of very laggy statistics thread wake-up. (Regression from v3.1.3)
+* Fixed ftxui terminal query response chars appearing in shell after short runs. (Regression from v3.1.3)
 
 ## v3.1.3 (May 18, 2026)
 
