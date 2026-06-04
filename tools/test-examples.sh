@@ -10,6 +10,8 @@ LOOP_BACKING_FILES=("backing1" "backing2")
 LOOP_BACKING_FILE_SIZE="$((10*1024*1024))"
 LOOPDEV_PATHS=() # array of loop device paths based on LOOP_BACKING_FILES
 RANDOM_IO_FILENAME_PREFIX="testfile" # filename prefix for random IO tests
+SERVICE_PORT_START=${SERVICE_PORT_START:="1711"} # first port for the multiple service instances
+SERVICE_PORTS=( $SERVICE_PORT_START $(( $SERVICE_PORT_START + 1 )) )
 
 SKIP_BLOCKDEV_TESTS=0 # user-defined. 1 means skip block device tests.
 SKIP_MULTIFILE_TESTS=0 # user-defined. 1 means skip multi-file tests.
@@ -290,9 +292,9 @@ cleanup_multifile()
 # Start services.
 start_distributed_services()
 {
-  cmd="${EXE_PATH} --service --zone 0 --port 1711"
+  cmd="${EXE_PATH} --service --zone 0 --port ${SERVICE_PORTS[0]}"
 
-  echo "Starting local service on port 1711, bound to NUMA zone 0:"
+  echo "Starting local service on port ${SERVICE_PORTS[0]}, bound to NUMA zone 0:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
 
   $cmd
@@ -302,9 +304,9 @@ start_distributed_services()
     exit 1
   fi
 
-  cmd="${EXE_PATH} --service --core 0 --port 1712"
+  cmd="${EXE_PATH} --service --core 0 --port ${SERVICE_PORTS[1]}"
 
-  echo "Starting local service on port 1712 without NUMA binding:"
+  echo "Starting local service on port ${SERVICE_PORTS[1]} without NUMA binding:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
 
   $cmd
@@ -320,7 +322,7 @@ start_distributed_services()
 # creating 8 dirs per thread, each containing 16 1MiB files.
 test_distributed_master()
 {
-  cmd="${EXE_PATH} --hosts localhost:[1711-1712] "
+  cmd="${EXE_PATH} --hosts localhost:[${SERVICE_PORTS[0]}-${SERVICE_PORTS[1]}] "
   cmd+="-t 4 -d -n 8 -w -r -N 16 -s 4k -F -D --verify 1 --no0usecerr $BASE_DIR"
 
   echo "Run master to coordinate benchmarks on localhost services, using 4 threads per"
@@ -339,9 +341,9 @@ test_distributed_master()
 # Stop services.
 stop_distributed_services()
 {
-  cmd="${EXE_PATH} --hosts localhost:1711,localhost:1712 --quit"
+  cmd="${EXE_PATH} --hosts localhost:${SERVICE_PORTS[0]},localhost:${SERVICE_PORTS[1]} --quit"
 
-  echo "Stopping local services on ports 1711 and 1712:"
+  echo "Stopping local services on ports ${SERVICE_PORTS[0]} and ${SERVICE_PORTS[1]}:"
   echo "  $ ${cmd/"$EXE_PATH"/"$EXE_NAME"}"
 
   $cmd
