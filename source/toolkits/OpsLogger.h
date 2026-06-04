@@ -10,24 +10,26 @@
 #include <sys/file.h>
 
 #include "Common.h"
-//#include "ProgArgs.h"
-#include "workers/WorkerException.h"
 #include "workers/WorkersSharedData.h"
 
 
 #define OPSLOGFILE_MODE		(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 
-// macro to avoid function call overhead if ops logging is not enabled
+// macro to avoid function call overhead if ops logging is not enabled; saves/restores errno
 #define OPLOG(opsLogger, opName, entryName, offset, length, isOpFinished, isError) \
-	do { \
-		IF_UNLIKELY(opsLogger.isEnabled() ) \
-		{ \
-			opsLogger.logOpJSON(opName, entryName, offset, length, isOpFinished, \
-				isError); \
-		} \
-	} while(0)
+    do { \
+        IF_UNLIKELY(opsLogger.isEnabled() ) \
+        { \
+            const int errnoCopy = errno; \
+            \
+            opsLogger.logOpJSON(opName, entryName, offset, length, isOpFinished, \
+                isError); \
+            \
+            errno = errnoCopy; /* restore to not spoil val for callers that check after opslog */ \
+        } \
+    } while(0)
 
-// convenience wrappers to log before/after an op
+// convenience wrappers to log before/after an op; saves/restores errno
 #define OPLOG_PRE_OP(opName, entryName, offset, length) \
             OPLOG(opsLog, opName, entryName, offset, length, false, false)
 #define OPLOG_POST_OP(opName, entryName, offset, length, isError) \

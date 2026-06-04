@@ -7375,34 +7375,44 @@ int LocalWorker::getDirModeOpenFlags(BenchPhase benchPhase)
 int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
 		unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileSize)
 {
-	const bool useMmap = progArgs->getUseMmap();
-	const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
+    const bool useMmap = progArgs->getUseMmap();
+    const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
 
     OPLOG_PRE_OP("openat", currentPath, 0, 0);
 
-	int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
+    int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
 
     OPLOG_POST_OP("openat", currentPath, 0, 0, fd == -1);
 
-	IF_UNLIKELY(fd == -1)
-		throw WorkerException(std::string("File open failed. ") +
-			"Path: " + currentPath + "; "
-			"SysErr: " + strerror(errno) );
+    IF_UNLIKELY(fd == -1)
+    {
+        if( (errno == ENOENT) && (openFlags & O_CREAT) && !progArgs->getRunCreateDirsPhase() &&
+            (progArgs->getNumDirs() || !progArgs->getCustomTreeDirs().getNumPaths() ) &&
+            (progArgs->getBenchPathType() == BenchPathType_DIR) )
+            throw WorkerException(std::string("File create/open failed. ") +
+                "Did you forget to enable directory creation ('--" ARG_CREATEDIRS_LONG "')? "  +
+                "Path: " + currentPath + "; "
+                "SysErr: " + strerror(errno) );
+        else
+            throw WorkerException(std::string("File open failed. ") +
+                "Path: " + currentPath + "; "
+                "SysErr: " + strerror(errno) );
+    }
 
-	// try block to ensure file close on error
-	try
-	{
-		if(benchPhase == BenchPhase_CREATEFILES)
-		{
-			if(progArgs->getDoTruncToSize() )
-			{
-				int truncRes = ftruncate(fd, fileSize);
-				if(truncRes == -1)
-					throw WorkerException("Unable to set file size through ftruncate. "
-						"Path: " + currentPath + "; "
-						"Size: " + std::to_string(fileSize) + "; "
-						"SysErr: " + strerror(errno) );
-			}
+    // try block to ensure file close on error
+    try
+    {
+        if(benchPhase == BenchPhase_CREATEFILES)
+        {
+            if(progArgs->getDoTruncToSize() )
+            {
+                int truncRes = ftruncate(fd, fileSize);
+                if(truncRes == -1)
+                    throw WorkerException("Unable to set file size through ftruncate. "
+                        "Path: " + currentPath + "; "
+                        "Size: " + std::to_string(fileSize) + "; "
+                        "SysErr: " + strerror(errno) );
+            }
 
             if(progArgs->getDoPreallocFile() )
             {
@@ -7421,31 +7431,31 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
                             "SysErr: " + strerror(preallocRes) );
                 #endif // linux
             }
-		}
+        }
 
-		FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(), currentPath.c_str() );
+        FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(), currentPath.c_str() );
 
-		// create memory mapping
-		if(useMmap)
-		{
-			int protectionMode = (benchPhase == BenchPhase_READFILES) ?
-				PROT_READ : (PROT_WRITE | PROT_READ);
+        // create memory mapping
+        if(useMmap)
+        {
+            int protectionMode = (benchPhase == BenchPhase_READFILES) ?
+                PROT_READ : (PROT_WRITE | PROT_READ);
 
-			fileHandles.mmapVec[0] =  (char*)FileTk::mmapAndMadvise<WorkerException>(
-				fileSize, protectionMode, MAP_SHARED, fd, progArgs->getMadviseFlags(),
-				currentPath.c_str() );
-		}
+            fileHandles.mmapVec[0] =  (char*)FileTk::mmapAndMadvise<WorkerException>(
+                fileSize, protectionMode, MAP_SHARED, fd, progArgs->getMadviseFlags(),
+                currentPath.c_str() );
+        }
 
-		return fd;
-	}
-	catch(WorkerException& e)
-	{
-		// release memory mapping
-		if(useMmap)
-		{
-			munmap(fileHandles.mmapVec[0], fileSize);
-			fileHandles.mmapVec[0] = (char*)MAP_FAILED;
-		}
+        return fd;
+    }
+    catch(WorkerException& e)
+    {
+        // release memory mapping
+        if(useMmap)
+        {
+            munmap(fileHandles.mmapVec[0], fileSize);
+            fileHandles.mmapVec[0] = (char*)MAP_FAILED;
+        }
 
         OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
 
@@ -7453,14 +7463,14 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 
         OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
 
-		if(closeRes == -1)
-			ERRLOGGER(Log_NORMAL, "File close failed. " <<
-				"Path: " << currentPath << "; " <<
-				"FD: " << std::to_string(fd) << "; " <<
-				"SysErr: " << strerror(errno) << std::endl);
+        if(closeRes == -1)
+            ERRLOGGER(Log_NORMAL, "File close failed. " <<
+                "Path: " << currentPath << "; " <<
+                "FD: " << std::to_string(fd) << "; " <<
+                "SysErr: " << strerror(errno) << std::endl);
 
-		throw;
-	}
+        throw;
+    }
 }
 
 /**
