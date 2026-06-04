@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.1.4 (work in progress)
+## v3.1.5 (June 04, 2026)
 
 ### New Features & Enhancements
 * Added option for shared S3 multi-part uploads from multiple clients. In this mode, MPU creation is done by the controller instance and MPU completion is done in a separate phase after write/upload. (See `--s3mpusharing`.)
