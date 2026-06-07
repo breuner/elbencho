@@ -4,6 +4,8 @@
 
 ### General Changes
 * Enabled override of bool settings in config file on command line via "--someBoolOptionArg=false".
+* Show time limit in full screen live stats.
+* Extended ftxui terminal query response chars drain time to 500ms.
 
 ## v3.1.5 (June 04, 2026)
 

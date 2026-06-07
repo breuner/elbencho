@@ -871,8 +871,8 @@ workers_done:
         /* check if we had at least 2 ftxui refresh cycles (to prevent bleeding of special
             terminal response chars from ftxui's terminal queries into the user shell after exit) */
         if(elapsedStatsTimeMS.count() < (statsRefreshIntervalMS.count() * 2) )
-        {
-            usleep(50000); // 50ms delay to give terminal time to respond
+        { // temporary work-around until ftxui v7 gets released and fixes this issue
+            usleep(500000); // 500ms delay to give terminal time to respond
             tcflush(STDIN_FILENO, TCIFLUSH); // discard chars in input stream
         }
 
@@ -891,9 +891,14 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
     unsigned colIdx = 0; // current column index
     unsigned rowIdx = 0; // current row index
 
+    const size_t timeLimitSecs = progArgs.getTimeLimitSecs();
     std::chrono::seconds elapsedSec =
-				std::chrono::duration_cast<std::chrono::seconds>
-				(std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
+                std::chrono::duration_cast<std::chrono::seconds>
+                (std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
+    std::string elapsedTimeStr = UnitTk::elapsedSecToHumanStr(elapsedSec.count() );
+
+    if(timeLimitSecs)
+        elapsedTimeStr += " / " + UnitTk::elapsedSecToHumanStr(timeLimitSecs);
 
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_PHASE);
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, liveResults.phaseName);
@@ -904,8 +909,7 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++,
         std::to_string((workerVec.size() - liveResults.numWorkersDone) ) );
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_ELAPSED);
-    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++,
-        UnitTk::elapsedSecToHumanStr(elapsedSec.count() ) );
+    VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, elapsedTimeStr);
 
 	if(!progArgs.getShowLatency() )
 		return;
