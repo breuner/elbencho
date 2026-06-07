@@ -2,6 +2,9 @@
 
 ## v3.1.6 (work in progress)
 
+### General Changes
+* Enabled override of bool settings in config file on command line via "--someBoolOptionArg=false".
+
 ## v3.1.5 (June 04, 2026)
 
 ### New Features & Enhancements

@@ -39,31 +39,31 @@
 	#include <cufile.h>
 #endif
 
-#define DIRECTIO_MINSIZE			512 // min size in bytes for direct IO
+#define DIRECTIO_MINSIZE            512 // min size in bytes for direct IO
 
-#define BENCHPATH_DELIMITER			",\n\r@" // delimiters for user-defined bench dir paths
-#define HOSTLIST_DELIMITERS			", \n\r" // delimiters for hosts string (comma or space)
-#define HOST_PORT_SEPARATOR			":" // separator for hostname:port
-#define ZONELIST_DELIMITERS			", " // delimiters for numa zones string (comma or space)
-#define GPULIST_DELIMITERS			", \n\r" // delimiters for gpuIDs string
-#define S3ENDPOINTS_DELIMITERS		", \n\r" // delimiters for S3 endpoints list string
-#define NETDEV_DELIMITERS			", \n\r" // delimiters for net dev list string
+#define BENCHPATH_DELIMITER         ",\n\r@" // delimiters for user-defined bench dir paths
+#define HOSTLIST_DELIMITERS         ", \n\r" // delimiters for hosts string (comma or space)
+#define HOST_PORT_SEPARATOR         ":" // separator for hostname:port
+#define ZONELIST_DELIMITERS         ", " // delimiters for numa zones string (comma or space)
+#define GPULIST_DELIMITERS          ", \n\r" // delimiters for gpuIDs string
+#define S3ENDPOINTS_DELIMITERS      ", \n\r" // delimiters for S3 endpoints list string
+#define NETDEV_DELIMITERS           ", \n\r" // delimiters for net dev list string
 
-#define ENDL						<< std::endl << // just to make help text print lines shorter
+#define ENDL                        << std::endl << // just to make help text print lines shorter
 
-#define FILESHAREBLOCKFACTOR		32 // in custom tree mode, blockSize factor as of which to share
-#define FILESHAREBLOCKFACTOR_STR	STRINGIZE(FILESHAREBLOCKFACTOR)
+#define FILESHAREBLOCKFACTOR        32 // in custom tree mode, blockSize factor as of which to share
+#define FILESHAREBLOCKFACTOR_STR    STRINGIZE(FILESHAREBLOCKFACTOR)
 
-#define CSVFILE_EXPECTED_COMMAS		54 // to check if existing csv was written with other version
+#define CSVFILE_EXPECTED_COMMAS     54 // to check if existing csv was written with other version
 
-#define NETBENCH_PORT_OFFSET		1000 // offset from service port for netbench listen socket
-#define NETBENCH_PORT_OFFSET_STR	STRINGIZE(NETBENCH_PORT_OFFSET)
+#define NETBENCH_PORT_OFFSET        1000 // offset from service port for netbench listen socket
+#define NETBENCH_PORT_OFFSET_STR    STRINGIZE(NETBENCH_PORT_OFFSET)
 
-#define NUMAZONES_ALL_ARG			"all" // shortcut for user to select all numa zones
-#define CPUCORES_ALL_ARG			"all" // shortcut for user to select all cpu cores
-#define GPUIDS_ALL_ARG				"all" // shortcut for user to select all gpus
+#define NUMAZONES_ALL_ARG           "all" // shortcut for user to select all numa zones
+#define CPUCORES_ALL_ARG            "all" // shortcut for user to select all cpu cores
+#define GPUIDS_ALL_ARG              "all" // shortcut for user to select all gpus
 
-#define AWS_SDK_LOGPREFIX_DEFAULT	"aws_sdk_"
+#define AWS_SDK_LOGPREFIX_DEFAULT   "aws_sdk_"
 
 #define TREESCAN_OUTFILE_DEFAULT    (ELBENCHO_VAR_TMP + "/" + EXE_NAME "_" + \
                                     SystemTk::getUsername() + "_" + "treescan.txt")
@@ -101,71 +101,93 @@
  * @throw ProgException if config is invalid.
  */
 ProgArgs::ProgArgs(int argc, char** argv) :
-	argsGenericDescription("", TerminalTk::getTerminalLineLength(80) )
+    argsGenericDescription("", TerminalTk::getTerminalLineLength(80) )
 {
-	this->argc = argc;
-	this->argv = argv;
+    std::vector<std::string> modifiedArgsStrings;
+    std::vector<const char*> modifiedArgv;
+    std::set<std::string> disabledBoolArgs;
 
-	progPath = absolutePath(argv[0] );
+    this->argc = argc;
+    this->argv = argv;
 
-	defineDefaults();
-	defineAllowedArgs();
+    progPath = absolutePath(argv[0] );
 
-	try
-	{
-		// parse user-given command line args
+    defineDefaults();
+    defineAllowedArgs();
 
-		bpo::options_description argsDescription;
-		argsDescription.add(argsGenericDescription).add(argsHiddenDescription);
+    try
+    {
+        // parse user-given command line args
 
-		bpo::positional_options_description positionalArgsDescription;
-		positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
+        bpo::options_description argsDescription;
+        argsDescription.add(argsGenericDescription).add(argsHiddenDescription);
 
-		bpo::store(bpo::command_line_parser(argc, argv).
-			options(argsDescription).
-			positional(positionalArgsDescription).
-			run(),
-			argsVariablesMap);
-		bpo::notify(argsVariablesMap);
-	}
-	catch(bpo::too_many_positional_options_error& e)
-	{
-		throw ProgException(std::string("Too many positional options error: ") + e.what() );
-	}
-	catch(bpo::error_with_option_name& e)
-	{
-		throw ProgException(std::string("Error for option name: ") + e.what() );
-	}
-	catch(std::exception& e)
-	{
-		throw ProgException(std::string("Arguments error: ") + e.what() );
-	}
+        bpo::positional_options_description positionalArgsDescription;
+        positionalArgsDescription.add(ARG_BENCHPATHS_LONG, -1); // "-1" means "all positional args"
 
-	LoggerBase::setFilterLevel( (LogLevel)logLevel);
+        interceptBoolArgOverrides(argsDescription, modifiedArgsStrings, modifiedArgv,
+            disabledBoolArgs);
 
-	if(hasUserRequestedHelp() || hasUserRequestedVersion() )
-		return;
+        bpo::store(bpo::command_line_parser(modifiedArgv.size(), modifiedArgv.data() ).
+            options(argsDescription).
+            positional(positionalArgsDescription).
+            run(),
+            argsVariablesMap);
 
-	bpo::options_description configFileOptions;
-	configFileOptions.add(argsGenericDescription); // Adding same conf options from file that are available from cl
+        bpo::notify(argsVariablesMap);
+    }
+    catch(bpo::too_many_positional_options_error& e)
+    {
+        throw ProgException(std::string("Too many positional options error: ") + e.what() );
+    }
+    catch(bpo::error_with_option_name& e)
+    {
+        throw ProgException(std::string("Error for option name: ") + e.what() );
+    }
+    catch(std::exception& e)
+    {
+        throw ProgException(std::string("Arguments error: ") + e.what() );
+    }
 
-	if(!configFilePath.empty())
-	{
-		std::ifstream ifs{configFilePath.c_str() };
-		if(!ifs)
-			throw ProgException(std::string("Cannot open config file: " + configFilePath) );
-		else
-		{
-			bpo::store(bpo::parse_config_file(ifs, configFileOptions), argsVariablesMap);
-			bpo::notify(argsVariablesMap);
-		}
-	}
+    LoggerBase::setFilterLevel( (LogLevel)logLevel);
+
+    if(hasUserRequestedHelp() || hasUserRequestedVersion() )
+        return;
+
+    bpo::options_description configFileOptions;
+    configFileOptions.add(argsGenericDescription); // allow all command line options in conf file
+
+    // read config file
+    if(!configFilePath.empty() )
+    {
+        std::ifstream ifs{configFilePath.c_str() };
+        if(!ifs)
+            throw ProgException(std::string("Cannot open config file: " + configFilePath) );
+        else
+        {
+            bpo::parsed_options parsedConfig = bpo::parse_config_file(ifs, configFileOptions);
+
+            // omit "--someBoolArg=false" command line overrides
+            if(!disabledBoolArgs.empty() )
+            {
+                std::vector<bpo::option> filteredOptions;
+                for (const auto& opt : parsedConfig.options)
+                    if (disabledBoolArgs.find(opt.string_key) == disabledBoolArgs.end() )
+                        filteredOptions.push_back(opt);
+
+                parsedConfig.options = filteredOptions;
+            }
+
+            bpo::store(parsedConfig, argsVariablesMap);
+            bpo::notify(argsVariablesMap);
+        }
+    }
 
     initBenchMode();
-	initImplicitValues();
-	convertUnitStrings();
-	checkCSVFileCompatibility();
-	checkArgs();
+    initImplicitValues();
+    convertUnitStrings();
+    checkCSVFileCompatibility();
+    checkArgs();
 }
 
 ProgArgs::~ProgArgs()
@@ -1002,6 +1024,86 @@ void ProgArgs::defineDefaults()
     this->useStridedAccess = false;
     this->treeRoundUpSize = 0;
     this->treeRoundUpSizeOrigStr = "0";
+}
+
+/**
+ * Find bool progam args that got set to "false" on command line.
+ *
+ * Background: Boost program options can only set bool args to true. The alternative way of setting
+ * values does not work with non-option args like paths. Thus, we need a work-around to provide
+ * a way to override bool values (like enabled direct IO) from the command line if they are are set
+ * in a config file...
+ *
+ * This intercepts command line arguments to manually process boolean overrides (e.g. "--direct=0"
+ * or "-r=false").
+ * It strips out explicitly disabled booleans and normalizes explicitly enabled booleans so that
+ * boost::program_options can process them safely without complaining about a value for a bool
+ * option that should not have a value.
+ * This way, we can later filter them out when we read the config file, so that they never get set
+ * to true.
+ *
+ * Note: Intentionally different from boost's "bpo::value<bool>" with "->implicit_value", here we
+ *  only allow values within the same arg, not as a separate arg, to avoid any ambiguity with
+ *  non-option arguments like benchmark paths in the args list.
+ *
+ * @param outModifiedArgv argv without the bool options with values, which would be seen as invalid
+ *			by the boost option parser.
+ * @param outDisabledBoolArgs the overriden bool options that shall not be used from a config file
+ */
+void ProgArgs::interceptBoolArgOverrides(const bpo::options_description& argsDescription,
+    StringVec& outModifiedArgsStrings, std::vector<const char*>& outModifiedArgv,
+    StringSet& outDisabledBoolArgs)
+{
+    for( int i = 0; i < argc; ++i )
+    {
+        std::string argStr = argv[i];
+
+        // look for options with an '=' sign
+        size_t eqPos = argStr.find( '=' );
+        if( eqPos != std::string::npos && argStr.rfind( "-", 0 ) == 0 )
+        {
+            std::string key;
+            std::string val = argStr.substr( eqPos + 1 );
+            const bpo::option_description* optDesc = nullptr;
+
+            if( argStr.rfind( "--", 0 ) == 0 )
+            { // long option: e.g. "--direct=0" or "--write=false"
+                key = argStr.substr( 2, eqPos - 2 );
+                optDesc = argsDescription.find_nothrow( key, true ); // true = allow approx match
+            }
+            else
+            if( eqPos == 2 )
+            { // short option: e.g. "-r=0" or "-w=false"
+                key = argStr.substr( 0, 2 ); // Includes the dash: "-r"
+                optDesc =
+                    argsDescription.find_nothrow( key, false ); // strict match for short options
+            }
+
+            // check if this key corresponds to a known bool_switch
+            if( optDesc && optDesc->semantic()->max_tokens() == 0 )
+            {
+                std::string canonicalName = optDesc->long_name(); // safely gets "read" from "-r"
+
+                if( val == "0" || val == "false" || val == "no" || val == "off" )
+                {
+                    outDisabledBoolArgs.insert( canonicalName ); // remember it was disabled
+
+                    continue; // omit this disabled bool arg from modifiedArgv
+                }
+                else
+                if( val == "1" || val == "true" || val == "yes" || val == "on" )
+                { // having the option set without a value is equivalent to true, so remove value
+                    outModifiedArgsStrings.push_back( "--" + canonicalName );
+                    outModifiedArgv.push_back( outModifiedArgsStrings.back().c_str() );
+
+                    continue;
+                }
+            }
+        }
+
+        // this is not an intercepted bool argument, so keep it as-is
+        outModifiedArgv.push_back( argv[i] );
+    }
 }
 
 /**
