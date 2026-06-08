@@ -7,6 +7,12 @@
 * Show time limit in full screen live stats.
 * Extended ftxui terminal query response chars drain time to 500ms.
 
+### Fixes
+* Added missing include file for builds with S3 support on macOS.
+
+### Contributors
+* Thanks to Gerald Yong for helpful comments and suggestions.
+
 ## v3.1.5 (June 04, 2026)
 
 ### New Features & Enhancements

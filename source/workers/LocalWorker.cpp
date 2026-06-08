@@ -22,46 +22,47 @@
 #include "workers/Worker.h"
 
 #ifdef CUDA_SUPPORT
-	#include <cuda_runtime.h>
+    #include <cuda_runtime.h>
 #endif
 
 #ifdef S3_SUPPORT
-	#include <aws/core/auth/AWSCredentialsProvider.h>
-	#include <aws/core/utils/HashingUtils.h>
-	#include <aws/core/utils/memory/stl/AWSString.h>
-	#include <aws/core/utils/StringUtils.h>
-	#include <aws/core/utils/threading/Executor.h>
-	#include <aws/core/utils/UUID.h>
-	#include INCLUDE_AWS_S3(model/AbortMultipartUploadRequest.h)
-	#include INCLUDE_AWS_S3(model/BucketLocationConstraint.h)
-	#include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
-	#include INCLUDE_AWS_S3(model/CreateBucketRequest.h)
-	#include INCLUDE_AWS_S3(model/CreateMultipartUploadRequest.h)
-	#include INCLUDE_AWS_S3(model/DeleteBucketRequest.h)
-	#include INCLUDE_AWS_S3(model/DeleteBucketTaggingRequest.h)
-	#include INCLUDE_AWS_S3(model/DeleteObjectRequest.h)
+    #include <aws/core/auth/AWSCredentialsProvider.h>
+    #include <aws/core/utils/HashingUtils.h>
+    #include <aws/core/utils/memory/stl/AWSString.h>
+    #include <aws/core/utils/StringUtils.h>
+    #include <aws/core/utils/threading/Executor.h>
+    #include <aws/core/utils/UUID.h>
+    #include INCLUDE_AWS_S3(model/AbortMultipartUploadRequest.h)
+    #include INCLUDE_AWS_S3(model/BucketLocationConstraint.h)
+    #include INCLUDE_AWS_S3(model/CompleteMultipartUploadRequest.h)
+    #include INCLUDE_AWS_S3(model/CreateBucketRequest.h)
+    #include INCLUDE_AWS_S3(model/CreateMultipartUploadRequest.h)
+    #include INCLUDE_AWS_S3(model/DeleteBucketRequest.h)
+    #include INCLUDE_AWS_S3(model/DeleteBucketTaggingRequest.h)
+    #include INCLUDE_AWS_S3(model/DeleteObjectRequest.h)
     #include INCLUDE_AWS_S3(model/DeleteObjectTaggingRequest.h)
-	#include INCLUDE_AWS_S3(model/DeleteObjectsRequest.h)
-	#include INCLUDE_AWS_S3(model/GetBucketAclRequest.h)
-	#include INCLUDE_AWS_S3(model/GetBucketTaggingRequest.h)
-	#include INCLUDE_AWS_S3(model/GetObjectAclRequest.h)
-	#include INCLUDE_AWS_S3(model/GetObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/DeleteObjectsRequest.h)
+    #include INCLUDE_AWS_S3(model/GetBucketAclRequest.h)
+    #include INCLUDE_AWS_S3(model/GetBucketTaggingRequest.h)
+    #include INCLUDE_AWS_S3(model/GetObjectAclRequest.h)
+    #include INCLUDE_AWS_S3(model/GetObjectRequest.h)
     #include INCLUDE_AWS_S3(model/GetObjectTaggingRequest.h)
     #include INCLUDE_AWS_S3(model/GetObjectLockConfigurationRequest.h)
     #include INCLUDE_AWS_S3(model/GetBucketVersioningRequest.h)
-	#include INCLUDE_AWS_S3(model/HeadObjectRequest.h)
-	#include INCLUDE_AWS_S3(model/HeadBucketRequest.h)
-	#include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
+    #include INCLUDE_AWS_S3(model/HeadObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/HeadBucketRequest.h)
+    #include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
+    #include INCLUDE_AWS_S3(model/ListPartsRequest.h)
 	#include INCLUDE_AWS_S3(model/Object.h)
     #include INCLUDE_AWS_S3(model/ObjectLockRule.h)
-	#include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
-	#include INCLUDE_AWS_S3(model/PutBucketTaggingRequest.h)
-	#include INCLUDE_AWS_S3(model/PutObjectAclRequest.h)
-	#include INCLUDE_AWS_S3(model/PutObjectRequest.h)
+    #include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
+    #include INCLUDE_AWS_S3(model/PutBucketTaggingRequest.h)
+    #include INCLUDE_AWS_S3(model/PutObjectAclRequest.h)
+    #include INCLUDE_AWS_S3(model/PutObjectRequest.h)
     #include INCLUDE_AWS_S3(model/PutObjectTaggingRequest.h)
     #include INCLUDE_AWS_S3(model/PutObjectLockConfigurationRequest.h)
     #include INCLUDE_AWS_S3(model/PutBucketVersioningRequest.h)
-	#include INCLUDE_AWS_S3(model/UploadPartRequest.h)
+    #include INCLUDE_AWS_S3(model/UploadPartRequest.h)
 #endif
 
 #define PATH_BUF_LEN					64
