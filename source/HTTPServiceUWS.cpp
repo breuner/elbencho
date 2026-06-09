@@ -46,6 +46,12 @@ void HTTPServiceUWS::startServer()
 	uWSApp.listen(listenPort,
 		[&](auto *listenSocket)
 		{
+            #ifdef THREADNAME_SUPPORT
+                // set thread name (max 15 chars plus '\0')
+                std::string threadName = "elb-svc-p" + std::to_string(listenPort);
+                pthread_setname_np(pthread_self(), threadName.c_str() );
+            #endif
+
 			if(listenSocket)
 			{
 				globalListenSocket = listenSocket;

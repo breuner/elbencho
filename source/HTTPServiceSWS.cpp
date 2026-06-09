@@ -37,6 +37,7 @@ void HTTPServiceSWS::startServer()
 
 	// prepare http server and its URLs
 
+    unsigned short servicePort = progArgs.getServicePort();
 	HttpServer server;
 
 	defineServerResources(server);
@@ -46,7 +47,7 @@ void HTTPServiceSWS::startServer()
 		as really only IPv6 and no IPv4 on cygwin, so rather force it to IPv4 only on cygwin. */
 	server.config.address = "0.0.0.0";
 #endif
-	server.config.port = progArgs.getServicePort(); // desired port (std::promise confirms this)
+	server.config.port = servicePort; // desired port (std::promise confirms this)
 	std::promise<unsigned short> actualServerPort; // set by HttpServer after startup (0 for error)
 
     server.config.timeout_request = 60; /* conn idle timeout in secs; default is 5 sec, which makes
@@ -58,13 +59,19 @@ void HTTPServiceSWS::startServer()
 
 	std::thread serverThread([&server, &actualServerPort]()
 	{
-		try
+        try
 		{
 			// start server with callback for port
 			server.start([&actualServerPort](unsigned short port)
 			{
-				actualServerPort.set_value(port);
-			});
+                #ifdef THREADNAME_SUPPORT
+                    // set thread name (max 15 chars plus '\0')
+                    std::string threadName = "elb-svc-p" + std::to_string(port);
+                    pthread_setname_np(pthread_self(), threadName.c_str() );
+                #endif
+
+                actualServerPort.set_value(port);
+			} );
 		}
 		catch(std::exception& e)
 		{

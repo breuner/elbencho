@@ -6,6 +6,7 @@
 * Enabled override of bool settings in config file on command line via "--someBoolOptionArg=false".
 * Show time limit in full screen live stats.
 * Extended ftxui terminal query response chars drain time to 500ms.
+* Reduced service stats refresh interval for shorts runs to achieve higher accuracy for "first done" result.
 
 ### Fixes
 * Added missing include file for builds with S3 support on macOS.

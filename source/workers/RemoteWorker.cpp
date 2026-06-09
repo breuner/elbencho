@@ -560,9 +560,11 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				!stoneWallTriggered)
 			{ // stonewall triggered
 
-                /* wait 5ms to give the other RemoteWorkers time to retrieve their stats for this
-                    stonewall round. */
-                if(progArgs->getHostsVec().size() )
+                /* atomically check old val of stonewall trigger and set it to true (to ensure that
+                    other RemoteWorkers don't sleep) */
+                bool stoneWallTriggeredOldVal = stoneWallTriggered.exchange(true);
+
+                if(!stoneWallTriggeredOldVal && progArgs->getHostsVec().size() )
                     std::this_thread::sleep_for(std::chrono::milliseconds(5) );
 
 				for(Worker* worker : *workersSharedData->workerVec)
@@ -700,8 +702,8 @@ std::chrono::steady_clock::time_point RemoteWorker::calcNextRefreshTime(
         std::chrono::duration_cast<std::chrono::milliseconds>
         (lastRefreshT - workersSharedData->phaseStartT);
 
-    // try to achieve less than 10% error for short runs, thus div by 11 to take ping into account
-    unsigned svcUpdateIntervalMS = lastRefreshPhaseElapsedT.count() / 11;
+    /* try to keep inaccuracy small for short runs, thus div by 100 */
+    unsigned svcUpdateIntervalMS = lastRefreshPhaseElapsedT.count() / 100;
 
     unsigned minRefreshIntervalMS = 25; /* 25ms as min just because values below 25ms seem too
         aggressive, but still possible to manually set a lower value through ProgArgs due to max
