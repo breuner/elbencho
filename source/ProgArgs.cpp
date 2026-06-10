@@ -3848,6 +3848,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     s3SSECKey = tree.get<std::string>(ARG_S3SSECKEY_LONG);
     s3SSEKMSKey = tree.get<std::string>(ARG_S3SSEKMSKEY_LONG);
     s3ThroughputTargetGbps = tree.get<unsigned>(ARG_S3TROUGHPUTTARGET_LONG);
+    showThroughputBase10 = tree.get<bool>(ARG_THROUGHPUTBASE10_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
@@ -4033,6 +4034,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
     outTree.put(ARG_STRIDEDACCESS_LONG, useStridedAccess);
     outTree.put(ARG_SYNCPHASE_LONG, runSyncPhase);
+    outTree.put(ARG_THROUGHPUTBASE10_LONG, showThroughputBase10);
 	outTree.put(ARG_TRUNCATE_LONG, doTruncate);
 	outTree.put(ARG_TRUNCTOSIZE_LONG, doTruncToSize);
 	outTree.put(ARG_TREERANDOMIZE_LONG, useCustomTreeRandomize);
