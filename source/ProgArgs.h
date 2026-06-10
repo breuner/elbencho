@@ -25,6 +25,7 @@ namespace bpt = boost::property_tree;
         and "_LONG" arguments with parameters to a max of 12 chars, as the description column
         in the help output otherwise gets too small. */
 #define ARG_ALTHTTPSERVER_LONG           "althttpsvc"
+#define ARG_THROUGHPUTBASE10_LONG        "base10"
 #define ARG_BENCHLABEL_LONG              "label"
 #define ARG_BENCHMODE_LONG               "benchmode" // internal (not directly set by user)
 #define ARG_BENCHPATHS_LONG              "path"
@@ -536,6 +537,7 @@ class ProgArgs
         bool showLatencyHistogram; // show latency histogram
         bool showLatencyPercentiles; // show latency percentiles
         bool showServicesElapsed; // print elapsed time of each service by slowest thread
+        bool showThroughputBase10; // show throughput in base10 instead base2 (MB/s instead MiB/s)
         int sockRecvBufSize; // custom netbench socket recv buf size (0 means no change)
         int sockSendBufSize; // custom netbench socket send buf size (0 means no change)
         std::string sockRecvBufSizeOrigStr; // original sockRecvBufSize str from user with unit
@@ -818,6 +820,7 @@ class ProgArgs
         bool getShowLatencyHistogram() const { return showLatencyHistogram; }
         bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
         bool getShowServicesElapsed() const { return showServicesElapsed; }
+        bool getShowThroughputBase10() const { return showThroughputBase10; }
         int getSockRecvBufSize() const { return sockRecvBufSize; }
         int getSockSendBufSize() const { return sockSendBufSize; }
         std::string getSvcPasswordFile() const { return svcPasswordFile; }

@@ -253,6 +253,8 @@ void ProgArgs::defineAllowedArgs()
             "(Default: 1M; supports base2 suffixes, e.g. \"128K\")")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
+/*ba*/	(ARG_THROUGHPUTBASE10_LONG, bpo::bool_switch(&this->showThroughputBase10),
+            "Show throughput in base10 instead of base2 numbers (e.g. MB/s instead of MiB/s).")
 /*bl*/	(ARG_BLOCKVARIANCEALGO_LONG, bpo::value(&this->blockVarianceAlgo),
 			"Random number algorithm for \"--" ARG_BLOCKVARIANCE_LONG "\". Values: \""
 			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
@@ -985,6 +987,7 @@ void ProgArgs::defineDefaults()
     this->showLatencyHistogram = false;
     this->showLatencyPercentiles = false;
     this->showServicesElapsed = false;
+    this->showThroughputBase10 = false;
     this->sockRecvBufSize = 0;
     this->sockRecvBufSizeOrigStr = "0";
     this->sockSendBufSize = 0;

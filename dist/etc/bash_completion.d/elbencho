@@ -28,6 +28,7 @@ _elbencho_opts()
         --allelapsed
         --althttpsvc
         --backward
+        --base10
         --block
         --blockvaralgo
         --blockvarpct

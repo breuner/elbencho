@@ -2,6 +2,9 @@
 
 ## v3.1.6 (work in progress)
 
+### New Features & Enhancements
+* New option "--base10" to show live throughput stats and console output results in base10 instead of base2 numbers ("MB/s" instead of "MiB/s").
+
 ### General Changes
 * Enabled override of bool settings in config file on command line via "--someBoolOptionArg=false".
 * Show time limit in full screen live stats.

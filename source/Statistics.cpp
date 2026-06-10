@@ -39,7 +39,8 @@
 #define FULLSCREEN_WORKERS_TITLE_RANK               "Rank"
 #define FULLSCREEN_WORKERS_TITLE_COMPLETION_PCT     "%"
 #define FULLSCREEN_WORKERS_TITLE_TRANSFERRED        "DoneMiB"
-#define FULLSCREEN_WORKERS_TITLE_THROUGHPUT         "MiB/s"
+#define FULLSCREEN_WORKERS_TITLE_THROUGHPUT_BASE2   "MiB/s"
+#define FULLSCREEN_WORKERS_TITLE_THROUGHPUT_BASE10  "MB/s"
 #define FULLSCREEN_WORKERS_TITLE_IOPS               "IOPS"
 #define FULLSCREEN_WORKERS_TITLE_ENTRIES_DONE       liveResults.entryTypeUpperCase
 #define FULLSCREEN_WORKERS_TITLE_ENTRIES_PER_SEC    (liveResults.entryTypeUpperCase + "/s")
@@ -186,6 +187,8 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 		liveResults.newLiveOpsReadMix.numEntriesDone);
 	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
 	const bool useLiveStatsNewLine = progArgs.getUseBriefLiveStatsNewLine();
+    std::string throughputUnitStr = progArgs.getShowThroughputBase10() ? "MB/s" : "MiB/s";
+    uint64_t throughputDivisor = progArgs.getShowThroughputBase10() ? (1000*1000) : (1024*1024);
 
 	std::chrono::seconds elapsedSec =
 				std::chrono::duration_cast<std::chrono::seconds>
@@ -204,19 +207,22 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 			stream <<
 				liveResults.liveOpsPerSec.numEntriesDone << " " <<
 					liveResults.phaseEntryType << "/s; " <<
-				liveResults.liveOpsPerSec.numBytesDone / (1024*1024) << " MiB/s; ";
+				liveResults.liveOpsPerSec.numBytesDone / throughputDivisor <<
+                    " " << throughputUnitStr << "; ";
 		else
 			stream <<
 				"wr=[" <<
 					liveResults.liveOpsPerSec.numEntriesDone << " " <<
 						liveResults.phaseEntryType << "/s; " <<
-					liveResults.liveOpsPerSec.numBytesDone / (1024*1024) << " MiB/s" <<
+					liveResults.liveOpsPerSec.numBytesDone / throughputDivisor <<
+                        " " << throughputUnitStr <<
 				"] " <<
 				"rd=[" <<
 					(isRWMixThreadsPhase ?
 						std::to_string(liveResults.liveOpsPerSecReadMix.numEntriesDone) + " " +
 							liveResults.phaseEntryType + "/s; " : "") <<
-					liveResults.liveOpsPerSecReadMix.numBytesDone / (1024*1024) << " MiB/s" <<
+					liveResults.liveOpsPerSecReadMix.numBytesDone / throughputDivisor <<
+                        " " << throughputUnitStr <<
 				"]; ";
 
 		const uint64_t numEntriesDoneCombined = liveResults.newLiveOps.numEntriesDone +
@@ -233,18 +239,21 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 		if(!isRWMixPhase)
 			stream <<
 				liveResults.liveOpsPerSec.numIOPSDone << " " << "IOPS; " <<
-				liveResults.liveOpsPerSec.numBytesDone / (1024*1024) << " MiB/s; " <<
+				liveResults.liveOpsPerSec.numBytesDone / throughputDivisor <<
+                    " " << throughputUnitStr << "; " <<
 				liveResults.newLiveOps.numBytesDone / (1024*1024) << " MiB; ";
 		else
 			stream <<
 				"wr=[" <<
 					liveResults.liveOpsPerSec.numIOPSDone << " " << "IOPS; " <<
-					liveResults.liveOpsPerSec.numBytesDone / (1024*1024) << " MiB/s; " <<
+					liveResults.liveOpsPerSec.numBytesDone / throughputDivisor <<
+                        " " << throughputUnitStr << "; " <<
 					liveResults.newLiveOps.numBytesDone / (1024*1024) << " MiB"
 				"] " <<
 				"rd=[" <<
 					liveResults.liveOpsPerSecReadMix.numIOPSDone << " " << "IOPS; " <<
-					liveResults.liveOpsPerSecReadMix.numBytesDone / (1024*1024) << " MiB/s; " <<
+					liveResults.liveOpsPerSecReadMix.numBytesDone / throughputDivisor <<
+                        " " << throughputUnitStr << "; " <<
 					liveResults.newLiveOpsReadMix.numBytesDone / (1024*1024) << " MiB"
 				"]; ";
 	}
@@ -455,8 +464,13 @@ workers_done:
     std::vector<StringVec>& headerStatsTxtTable = uiState.headerStatsTxtTable;
     std::vector<StringVec>& workerStatsTxtTable = uiState.workerStatsTxtTable;
 
+    // note: no variable defintions here because of lifetime; we are returning a lambda below.
+
     return [&]()
     {
+        const std::string throughputUnitTitleStr = progArgs.getShowThroughputBase10() ?
+            FULLSCREEN_WORKERS_TITLE_THROUGHPUT_BASE10 : FULLSCREEN_WORKERS_TITLE_THROUGHPUT_BASE2;
+
         // short path if no update requested yet
         // (forced update happens through cachedView.reset() )
         if(uiState.cachedView)
@@ -531,7 +545,7 @@ workers_done:
                 if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_TRANSFERRED)
                     minCellWidth = 10;
                 else
-                if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_THROUGHPUT)
+                if(workerStatsTxtTable[0][colIdx] == throughputUnitTitleStr)
                     minCellWidth = 10;
                 else
                 if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_IOPS)
@@ -993,6 +1007,10 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 	const bool isRWMixPhase = (liveResults.newLiveOpsReadMix.numBytesDone ||
 		liveResults.newLiveOpsReadMix.numEntriesDone);
 	const bool isRWMixThreadsPhase = (isRWMixPhase && progArgs.hasUserSetRWMixReadThreads() );
+    const std::string throughputUnitTitleStr = progArgs.getShowThroughputBase10() ?
+        FULLSCREEN_WORKERS_TITLE_THROUGHPUT_BASE10 : FULLSCREEN_WORKERS_TITLE_THROUGHPUT_BASE2;
+    const uint64_t throughputDivisor = progArgs.getShowThroughputBase10() ?
+        (1000*1000) : (1024*1024);
 
 	const bool showDirStats = progArgs.getShowDirStats() &&
 		(progArgs.getBenchPathType() == BenchPathType_DIR) &&
@@ -1010,7 +1028,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
     VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_RANK);
     VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_COMPLETION_PCT);
     VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_TRANSFERRED);
-    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_THROUGHPUT);
+    VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, throughputUnitTitleStr);
     VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_IOPS);
 
     if(progArgs.getBenchPathType() == BenchPathType_DIR)
@@ -1049,7 +1067,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
     VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
 		std::to_string(liveResults.newLiveOps.numBytesDone / (1024*1024) ) );
     VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
-		std::to_string(liveResults.liveOpsPerSec.numBytesDone / (1024*1024) ) );
+		std::to_string(liveResults.liveOpsPerSec.numBytesDone / throughputDivisor) );
     VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
 		std::to_string(liveResults.liveOpsPerSec.numIOPSDone) );
 
@@ -1097,7 +1115,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
             std::to_string(liveResults.newLiveOpsReadMix.numBytesDone / (1024*1024) ) );
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
-            std::to_string(liveResults.liveOpsPerSecReadMix.numBytesDone / (1024*1024) ) );
+            std::to_string(liveResults.liveOpsPerSecReadMix.numBytesDone / throughputDivisor) );
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
             std::to_string(liveResults.liveOpsPerSecReadMix.numIOPSDone) );
 
@@ -1178,7 +1196,7 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
 			std::to_string(workerDone.numBytesDone / (1024*1024) ) );
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
-            std::to_string(workerDonePerSec.numBytesDone / (1024*1024) ) );
+            std::to_string(workerDonePerSec.numBytesDone / throughputDivisor) );
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
 			std::to_string(workerDonePerSec.numIOPSDone) );
 
@@ -1825,6 +1843,8 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
         workersSharedData.currentBenchPhase, &progArgs, true);
 	std::string entryTypeLowerCase = TranslatorTk::benchPhaseToPhaseEntryType(
         workersSharedData.currentBenchPhase, &progArgs, false);
+    std::string throughputUnitStr = progArgs.getShowThroughputBase10() ? "MB/s" : "MiB/s";
+    uint64_t throughputDivisor = progArgs.getShowThroughputBase10() ? (1000*1000) : (1024*1024);
 
 	const bool isRWMixPhase = (phaseResults.opsTotalReadMix.numBytesDone ||
 		phaseResults.opsTotalReadMix.numEntriesDone);
@@ -1962,10 +1982,10 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
     {
         outStream << boost::format(Statistics::phaseResultsFormatStr)
             % ""
-            % (isRWMixPhase ? "MiB/s write" : "Throughput MiB/s")
+            % (isRWMixPhase ? (throughputUnitStr + " write") : ("Throughput " + throughputUnitStr) )
             % ":"
-            % (phaseResults.opsStoneWallPerSec.numBytesDone / (1024*1024) )
-            % (phaseResults.opsPerSec.numBytesDone / (1024*1024) )
+            % (phaseResults.opsStoneWallPerSec.numBytesDone / throughputDivisor)
+            % (phaseResults.opsPerSec.numBytesDone / throughputDivisor)
             << std::endl;
     }
 
@@ -1974,10 +1994,10 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
     {
         outStream << boost::format(Statistics::phaseResultsFormatStr)
             % ""
-            % "MiB/s read"
+            % (throughputUnitStr + " read")
             % ":"
-            % (phaseResults.opsStoneWallPerSecReadMix.numBytesDone / (1024*1024) )
-            % (phaseResults.opsPerSecReadMix.numBytesDone / (1024*1024) )
+            % (phaseResults.opsStoneWallPerSecReadMix.numBytesDone / throughputDivisor)
+            % (phaseResults.opsPerSecReadMix.numBytesDone / throughputDivisor)
             << std::endl;
 
         uint64_t totalBytesPerSecFirstDone = phaseResults.opsStoneWallPerSec.numBytesDone +
@@ -1987,10 +2007,10 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 
         outStream << boost::format(Statistics::phaseResultsFormatStr)
             % ""
-            % "MiB/s total"
+            % (throughputUnitStr + " total")
             % ":"
-            % (totalBytesPerSecFirstDone / (1024*1024) )
-            % (totalBytesPerSecLastDone / (1024*1024) )
+            % (totalBytesPerSecFirstDone / throughputDivisor)
+            % (totalBytesPerSecLastDone / throughputDivisor)
             << std::endl;
     }
 
