@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.1.6 (work in progress)
+## v3.1.7 (June 10, 2026)
 
 ### New Features & Enhancements
 * New option "--base10" to show live throughput stats and console output results in base10 instead of base2 numbers ("MB/s" instead of "MiB/s").
@@ -15,7 +15,7 @@
 * Added missing include file for builds with S3 support on macOS.
 
 ### Contributors
-* Thanks to Gerald Yong for helpful comments and suggestions.
+* Thanks to Gerald Yong and Jan Heichler for helpful comments and suggestions.
 
 ## v3.1.5 (June 04, 2026)
 
