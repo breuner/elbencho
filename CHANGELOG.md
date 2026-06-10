@@ -1,13 +1,15 @@
 # Changelog of elbencho
 
+## v3.1.8 (work in progress)
+
 ## v3.1.7 (June 10, 2026)
 
 ### New Features & Enhancements
 * New option "--base10" to show live throughput stats and console output results in base10 instead of base2 numbers ("MB/s" instead of "MiB/s").
-
-### General Changes
 * Enabled override of bool settings in config file on command line via "--someBoolOptionArg=false".
 * Show time limit in full screen live stats.
+
+### General Changes
 * Extended ftxui terminal query response chars drain time to 500ms.
 * Reduced service stats refresh interval for shorts runs to achieve higher accuracy for "first done" result.
 
