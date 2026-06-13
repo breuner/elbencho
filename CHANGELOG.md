@@ -2,6 +2,12 @@
 
 ## v3.1.8 (work in progress)
 
+### General Changes
+* Changed default result text/csv/json file path to per-user subdir in `/var/tmp`.
+
+### Fixes
+* Ignore "--rwmixthrpct" option when not in write phase.
+
 ## v3.1.7 (June 10, 2026)
 
 ### New Features & Enhancements

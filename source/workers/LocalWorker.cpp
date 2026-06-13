@@ -1216,6 +1216,7 @@ void LocalWorker::initPhaseFunctionPointers()
     const size_t numRWMixWriteThreads = progArgs->getNumThreads() - numRWMixReadThreads;
     const unsigned rwMixThreadsReadPercent = progArgs->getRWMixThreadsReadPercent();
     const size_t blockSize = progArgs->getBlockSize();
+	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 
 	nullifyPhaseFunctionPointers(); // set all function pointers to NULL
 
@@ -1332,7 +1333,8 @@ void LocalWorker::initPhaseFunctionPointers()
 
         // rate limiter / balancer
 
-        if(numRWMixReadThreads && rwMixThreadsReadPercent)
+        if(numRWMixReadThreads && rwMixThreadsReadPercent &&
+            (globalBenchPhase == BenchPhase_CREATEFILES) )
         { // rate balancer between reader and writer threads
             rateLimiterRWMixThreads.initStart(
                 rwMixThreadsReadPercent, numRWMixReadThreads, numRWMixWriteThreads, blockSize);
