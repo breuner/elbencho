@@ -68,16 +68,13 @@
 #define TREESCAN_OUTFILE_DEFAULT    (ELBENCHO_VAR_TMP + "/" + EXE_NAME "_" + \
                                     SystemTk::getUsername() + "_" + "treescan.txt")
 
-#define RESFILE_DIR_USER_DEFAULT    (ELBENCHO_VAR_TMP + "/" EXE_NAME "_" + \
-                                    SystemTk::getUsername() + "_" "result")
-#define RESFILE_TXT_PATH_DEFAULT    (ELBENCHO_VAR_TMP + "/" EXE_NAME "_" \
-                                    "result" "_" + SystemTk::getUsername() + "_" + \
+#define RESFILE_DIR_USER_DEFAULT    (ELBENCHO_VAR_TMP + "/" EXE_NAME "_" "results" "_" + \
+                                    SystemTk::getUsername() )
+#define RESFILE_TXT_NAME_DEFAULT    (EXE_NAME "_" "results" "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".txt")
-#define RESFILE_CSV_PATH_DEFAULT    (ELBENCHO_VAR_TMP + "/" EXE_NAME "_" \
-                                    "result" "_" + SystemTk::getUsername() + "_" + \
+#define RESFILE_CSV_NAME_DEFAULT    (EXE_NAME "_" "results" "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".csv")
-#define RESFILE_JSON_PATH_DEFAULT   (ELBENCHO_VAR_TMP +  "/" EXE_NAME "_" \
-                                    "result" "_" + SystemTk::getUsername() + "_" + \
+#define RESFILE_JSON_NAME_DEFAULT   (EXE_NAME "_" "results" "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".json")
 
 #define S3_ENV_ACCESS_KEY           "AWS_ACCESS_KEY_ID" // environment variable for s3 access key
@@ -1180,13 +1177,13 @@ void ProgArgs::initImplicitValues()
         mkdir(userResDir.c_str(), S_IRWXU);
 
         if(resFilePathTXT.empty() )
-            resFilePathTXT = RESFILE_TXT_PATH_DEFAULT;
+            resFilePathTXT = userResDir + "/" + RESFILE_TXT_NAME_DEFAULT;
 
         if(resFilePathCSV.empty() )
-            resFilePathCSV = RESFILE_CSV_PATH_DEFAULT;
+            resFilePathCSV = userResDir + "/" + RESFILE_CSV_NAME_DEFAULT;
 
         if(resFilePathJSON.empty() )
-            resFilePathJSON = RESFILE_JSON_PATH_DEFAULT;
+            resFilePathJSON = userResDir + "/" + RESFILE_JSON_NAME_DEFAULT;
     }
 
 	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
