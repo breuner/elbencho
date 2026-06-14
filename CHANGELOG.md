@@ -8,6 +8,7 @@
 
 ### Fixes
 * Ignore "--rwmixthrpct" option when not in write phase.
+* Fixed potential termination issue in S3 mode when "--rwmixthrpct" option was used together with "--iodepth".
 
 ## v3.1.7 (June 10, 2026)
 

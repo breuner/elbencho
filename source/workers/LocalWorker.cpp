@@ -5209,6 +5209,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                 const uint64_t currentPartNum =
                     1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 for 1-based part range
 
+                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+                /* note: nothing that throws an exception (e.g. funcRWRateLimiter for
+                    "--rwmixthrpct") must be between emplace_back and UploadPartAsync()
+                    because otherwise the wait loop in catch() will wait infinitely. */
                 S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec.emplace_back(
                     currentOffset, blockSize, currentPartNum);
 
@@ -5217,8 +5222,6 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                     streamBuf len despite smaller contentLength in UploadPartRequest. */
                 std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
                     (unsigned char*) ioBufVec[currentIODepth], blockSize);
-
-                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
                 asyncPartContext.ioStartT = std::chrono::steady_clock::now();
 
@@ -5689,6 +5692,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                 const uint64_t currentPartNum =
                     1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 for 1-based part range
 
+                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+                /* note: nothing that throws an exception (e.g. funcRWRateLimiter for
+                    "--rwmixthrpct") must be between emplace_back and UploadPartAsync()
+                    because otherwise the wait loop in catch() will wait infinitely. */
                 S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec.emplace_back(
                     currentOffset, blockSize, currentPartNum);
 
@@ -5697,8 +5705,6 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                     streamBuf len despite smaller contentLength in UploadPartRequest. */
                 std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
                     (unsigned char*) ioBufVec[currentIODepth], blockSize);
-
-                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
                 asyncPartContext.ioStartT = std::chrono::steady_clock::now();
 
@@ -6304,6 +6310,11 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                 const uint64_t currentOffset = rwOffsetGen->getNextOffset();
                 const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 
+                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+                /* note: nothing that throws an exception (e.g. funcRWRateLimiter for
+                    "--rwmixthrpct") must be between emplace_back and asyncPartContext.request()
+                    because otherwise the wait loop in catch() will wait infinitely. */
                 S3AsyncDownloadContext& asyncPartContext = partCompletionsVec.emplace_back(
                     currentOffset, blockSize);
 
@@ -6312,8 +6323,6 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
 
                 char* ioBuf = useS3FastRead ? NULL : ioBufVec[currentIODepth];
                 char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[currentIODepth];
-
-                ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
                 asyncPartContext.ioStartT = std::chrono::steady_clock::now();
 
