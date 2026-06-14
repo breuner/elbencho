@@ -97,6 +97,8 @@ void SignalTk::faultSignalHandler(int sig)
 
 	std::string backtraceStr = logBacktrace();
 
+	std::cerr << backtraceStr;
+
 	std::signal(sig, SIG_DFL); /* Reset the handler to its default only after we're done with
 		backtrace logging, otherwise the next caller might terminate before we logged. */
 

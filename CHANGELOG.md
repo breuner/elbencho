@@ -4,6 +4,7 @@
 
 ### General Changes
 * Changed default result text/csv/json file path to per-user subdir in `/var/tmp`.
+* Updated ftxui lib for fullscreen live stats to latest v7.0.0.
 
 ### Fixes
 * Ignore "--rwmixthrpct" option when not in write phase.
