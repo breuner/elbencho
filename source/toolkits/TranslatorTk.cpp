@@ -706,6 +706,7 @@ const char* TranslatorTk::httpErrorCodeToHumanStr(unsigned httpErrorCode)
         case 408: return "Request Timeout";
         case 409: return "Conflict";
         case 410: return "Gone";
+        case 416: return "Range Not Satisfiable";
         case 418: return "I'm a teapot"; // RFC 2324
         case 422: return "Unprocessable Entity";
         case 429: return "Too Many Requests";
