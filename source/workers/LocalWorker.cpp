@@ -83,6 +83,16 @@
 
 #define RETENTION_PERIOD_DAYS   1
 
+
+/**
+ * Call .get() on a std::future. Ignores result and any exceptions, so typically only good for
+ * discarding results after a previous error. Calling .get() twice is not allowed, so we check
+ * .valid() first here.
+ */
+#define SAFE_FUTURE_GET_IGNORE_ERR(future) \
+    do { try { if(future.valid() ) future.get(); } catch(...) {} } while(0)
+
+
 #ifdef S3_SUPPORT
     #ifdef S3_AWSCRT
         namespace S3 = Aws::S3Crt::Model;
@@ -5359,12 +5369,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)
-        {
-            /* ignore errors because we're already handling an error (and ".get()" will also throw
-                an exception if value has already been retrieved) */
-            try { partCompletionsVec[i].partCompleteFuture.get(); }
-            catch(...) {}
-        }
+            SAFE_FUTURE_GET_IGNORE_ERR(partCompletionsVec[i].partCompleteFuture);
 
         /* ignore errors because we're already handling an error (and ".get()" will also throw
             an exception if value has already been retrieved) */
@@ -5854,12 +5859,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)
-        {
-            /* ignore errors because we're already handling an error (and ".get()" will also throw
-                an exception if value has already been retrieved) */
-            try { partCompletionsVec[i].partCompleteFuture.get(); }
-            catch(...) {}
-        }
+            SAFE_FUTURE_GET_IGNORE_ERR(partCompletionsVec[i].partCompleteFuture);
 
         /* note: no s3AbortMultipartUpload() here, abort message will be sent during
             s3SharedUploadStore cleanup */
@@ -6472,12 +6472,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
 
         // wait for all parts to complete ("future.get()" blocks)
         for(unsigned i = 0; i < partCompletionsVec.size(); i++)
-        {
-            /* ignore errors because we're already handling an error (and ".get()" will also throw
-                an exception if value has already been retrieved) */
-            try { partCompletionsVec[i].partCompleteFuture.get(); }
-            catch(...) {}
-        }
+            SAFE_FUTURE_GET_IGNORE_ERR(partCompletionsVec[i].partCompleteFuture);
 
         throw;
     }

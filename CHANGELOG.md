@@ -2,6 +2,9 @@
 
 ## v3.1.10 (work in progress)
 
+### Fixes
+* Fixed potential issue on macOS with async S3 requests not getting cleaned up correctly after error or interruption.
+
 ## v3.1.9 (June 21, 2026)
 
 ### General Changes
