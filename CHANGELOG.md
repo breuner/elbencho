@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.1.8 (work in progress)
+## v3.1.9 (June 21, 2026)
 
 ### General Changes
 * Changed default result text/csv/json file path to per-user subdir in `/var/tmp`.
