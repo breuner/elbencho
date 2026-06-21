@@ -554,11 +554,11 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				throw WorkerRemoteException(frameHostErrorMsg(errorMsg) );
 			}
 
-			bool svcHasTriggeredStonewall = statusTree.get<bool>(XFER_STATS_TRIGGERSTONEWALL);
+            bool svcHasTriggeredStonewall = statusTree.get<bool>(XFER_STATS_TRIGGERSTONEWALL);
 
-			if(numWorkersDone && svcHasTriggeredStonewall && workerGotPhaseWork &&
-				!stoneWallTriggered)
-			{ // stonewall triggered
+            if(numWorkersDone && svcHasTriggeredStonewall && workerGotPhaseWork &&
+                !stoneWallTriggered)
+            { // stonewall triggered
 
                 /* atomically check old val of stonewall trigger and set it to true (to ensure that
                     other RemoteWorkers don't sleep) */
@@ -567,9 +567,10 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
                 if(!stoneWallTriggeredOldVal && progArgs->getHostsVec().size() )
                     std::this_thread::sleep_for(std::chrono::milliseconds(5) );
 
-				for(Worker* worker : *workersSharedData->workerVec)
-					worker->createStoneWallStats();
-			}
+                if(!stoneWallTriggeredOldVal)
+                    for(Worker* worker : *workersSharedData->workerVec)
+                        worker->createStoneWallStats();
+            }
 
 		}
 		catch(Web::system_error& e)
