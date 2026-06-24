@@ -14,6 +14,7 @@
 #include "PathStore.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
+#include "toolkits/S3RdmaTk.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/StringTk.h"
 #include "toolkits/TranslatorTk.h"
@@ -569,6 +570,8 @@ void LocalWorker::initS3Client()
         }
     }
 
+    initS3RdmaBuffers();
+
 #endif // S3_SUPPORT
 }
 
@@ -582,11 +585,76 @@ void LocalWorker::uninitS3Client()
     if(progArgs->getBenchMode() != BenchMode_S3)
 		return; // nothing to do
 
+	uninitS3RdmaBuffers();
+
 	// s3Client is a std::shared_ptr, so reset() will cleanup the client object
 	// (note: this could also be the shared singleton s3 client from ProgArgs)
 	s3Client.reset();
 
 #endif // S3_SUPPORT
+}
+
+/**
+ * Initialize the cuObject (GPU-direct S3-over-RDMA) control plane and register the I/O buffers for
+ * RDMA. Called from initS3Client() after the I/O buffers have been allocated.
+ *
+ * When GPUs are given, the GPU VRAM buffers are registered for true GPU-direct transfers; otherwise
+ * the host buffers are registered.
+ *
+ * @throw WorkerException if RDMA was requested but cannot be initialized.
+ */
+void LocalWorker::initS3RdmaBuffers()
+{
+#if defined(S3_SUPPORT) && defined(CUOBJ_SUPPORT)
+
+	if(!progArgs->getUseCuObj() || (progArgs->getBenchMode() != BenchMode_S3) )
+		return; // nothing to do
+
+	s3RdmaClient = SharedCuObjClient::getInstance();
+	if(!s3RdmaClient)
+		throw WorkerException("S3 RDMA requested, but the cuObject RDMA fabric is not available "
+			"(cuObjClient failed to connect).");
+
+	s3RdmaControlPlane = std::make_unique<S3RdmaControlPlane>(progArgs, workerRank);
+	if(!s3RdmaControlPlane->isValid() )
+		throw WorkerException("S3 RDMA requested, but the RDMA control plane could not be "
+			"initialized. Check S3 endpoint and credentials.");
+
+	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
+	BufferVec& rdmaBufVec = areGPUsGiven ? gpuIOBufVec : ioBufVec;
+
+	for(char* buf : rdmaBufVec)
+	{
+		if(!buf)
+			continue;
+
+		if(!s3RdmaClient->registerBuffer(buf, progArgs->getBlockSize() ) )
+			throw WorkerException("Registration of I/O buffer with cuObject for RDMA failed.");
+
+		s3RdmaRegisteredBufVec.push_back(buf);
+	}
+
+#endif // S3_SUPPORT && CUOBJ_SUPPORT
+}
+
+/**
+ * Deregister RDMA buffers and release the cuObject control plane. Called from uninitS3Client().
+ */
+void LocalWorker::uninitS3RdmaBuffers()
+{
+#if defined(S3_SUPPORT) && defined(CUOBJ_SUPPORT)
+
+	if(s3RdmaClient)
+	{
+		for(char* buf : s3RdmaRegisteredBufVec)
+			s3RdmaClient->deregisterBuffer(buf);
+	}
+
+	s3RdmaRegisteredBufVec.clear();
+	s3RdmaControlPlane.reset();
+	s3RdmaClient = NULL; // singleton, not owned
+
+#endif // S3_SUPPORT && CUOBJ_SUPPORT
 }
 
 void LocalWorker::initHDFS()
@@ -4813,6 +4881,14 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+#ifdef CUOBJ_SUPPORT
+	if(progArgs->getUseCuObj() )
+	{
+		s3ModeUploadObjectSinglePartRdma(bucketName, objectName);
+		return;
+	}
+#endif // CUOBJ_SUPPORT
+
 	const uint64_t currentOffset = rwOffsetGen->getNextOffset();
 	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
@@ -4893,6 +4969,82 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	atomicLiveOps.numIOPSDone++;
 
 #endif // S3_SUPPORT
+}
+
+/**
+ * Single-part upload of an S3 object via GPU-direct S3-over-RDMA (NVIDIA cuObject).
+ *
+ * The object payload moves out-of-band over RDMA (server RDMA_READ from the registered buffer);
+ * a body-less HTTP control request carries the x-amz-rdma-token and reads the x-amz-rdma-* reply.
+ * When GPUs are given the GPU VRAM buffer is transferred directly; otherwise the host buffer is
+ * used. An RDMA decline/failure is a hard error (no HTTP fallback).
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeUploadObjectSinglePartRdma(std::string bucketName, std::string objectName)
+{
+#if !defined(S3_SUPPORT) || !defined(CUOBJ_SUPPORT)
+	throw WorkerException(std::string(__func__) +
+		" called, but this was built without S3 RDMA (cuObject) support");
+#else
+
+	const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+	const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
+
+	// the buffer that the server reads from over RDMA: GPU VRAM (GPU-direct) or host memory
+	char* rdmaBuf = areGPUsGiven ? gpuIOBufVec[0] : ioBufVec[0];
+
+	((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+	// generate the payload (into the host buffer) and stage it into the RDMA buffer
+	((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
+	if(areGPUsGiven)
+		cudaMemcpyHostToGPU(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+	S3RdmaClientCtx ctx;
+	ctx.bucket = bucketName;
+	ctx.object = objectName;
+
+	OPLOG_PRE_OP("S3PutObjectRDMA", bucketName + "/" + objectName, currentOffset, blockSize);
+
+	ssize_t rdmaRes = rdmaPutWithRetry(*s3RdmaClient, *s3RdmaControlPlane, ctx, rdmaBuf, blockSize);
+
+	OPLOG_POST_OP("S3PutObjectRDMA", bucketName + "/" + objectName, currentOffset, blockSize,
+		rdmaRes <= 0);
+
+	checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+	IF_UNLIKELY(rdmaRes <= 0 && !ignoreS3Errors)
+		throw WorkerException(std::string("S3 RDMA object upload failed. ") +
+			"Endpoint: " + s3EndpointStr + "; "
+			"Bucket: " + bucketName + "; "
+			"Object: " + objectName + "; "
+			"Offset: " + std::to_string(currentOffset) + "; "
+			"Blocksize: " + std::to_string(blockSize) + "; "
+			"RDMA result: " + std::to_string(rdmaRes) );
+
+	if(rdmaRes > 0)
+		atomicLiveOps.numBytesDone += rdmaRes;
+
+	((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
+
+	// calc io operation latency
+	std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+	std::chrono::microseconds ioElapsedMicroSec =
+		std::chrono::duration_cast<std::chrono::microseconds>
+		(ioEndT - ioStartT);
+
+	iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+	numIOPSSubmitted++;
+	rwOffsetGen->addBytesSubmitted(blockSize);
+	atomicLiveOps.numIOPSDone++;
+
+#endif // S3_SUPPORT && CUOBJ_SUPPORT
 }
 
 /**
@@ -6141,6 +6293,14 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 	throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
 
+#ifdef CUOBJ_SUPPORT
+	if(progArgs->getUseCuObj() )
+	{
+		s3ModeDownloadObjectRdma(bucketName, objectName, isRWMixedReader);
+		return;
+	}
+#endif // CUOBJ_SUPPORT
+
 	const bool useS3FastRead = progArgs->getUseS3FastRead();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
@@ -6267,6 +6427,115 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 	}
 
 #endif // S3_SUPPORT
+}
+
+/**
+ * Block-sized download of an S3 object via GPU-direct S3-over-RDMA (NVIDIA cuObject).
+ *
+ * The object payload moves out-of-band over RDMA (server RDMA_WRITE into the registered buffer);
+ * a body-less HTTP control request carries the x-amz-rdma-token and reads the x-amz-rdma-* reply.
+ * When GPUs are given the data lands directly in GPU VRAM; otherwise host memory is used. An RDMA
+ * decline/failure is a hard error (no HTTP fallback).
+ *
+ * @isRWMixedReader true if this is a reader of a mixed read/write phase, so that the corresponding
+ * 		statistics get increased.
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::s3ModeDownloadObjectRdma(std::string bucketName, std::string objectName,
+	const bool isRWMixedReader)
+{
+#if !defined(S3_SUPPORT) || !defined(CUOBJ_SUPPORT)
+	throw WorkerException(std::string(__func__) +
+		" called, but this was built without S3 RDMA (cuObject) support");
+#else
+
+	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
+
+	// download one block-sized chunk in each loop pass
+	while(rwOffsetGen->getNumBytesLeftToSubmit() )
+	{
+		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+		// the buffer that the server writes to over RDMA: GPU VRAM (GPU-direct) or host memory
+		char* rdmaBuf = areGPUsGiven ? gpuIOBufVec[0] : ioBufVec[0];
+
+		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+
+		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
+
+		S3RdmaClientCtx ctx;
+		ctx.bucket = bucketName;
+		ctx.object = objectName;
+
+		OPLOG_PRE_OP("S3GetObjectRDMA", bucketName + "/" + objectName, currentOffset, blockSize);
+
+		ssize_t rdmaRes = rdmaGetWithRetry(*s3RdmaClient, *s3RdmaControlPlane, ctx, rdmaBuf,
+			blockSize, currentOffset);
+
+		OPLOG_POST_OP("S3GetObjectRDMA", bucketName + "/" + objectName, currentOffset, blockSize,
+			rdmaRes <= 0);
+
+		checkInterruptionRequest(); // (placed here to avoid outcome check on interruption)
+
+		IF_UNLIKELY(rdmaRes <= 0 && !ignoreS3Errors)
+			throw WorkerException(std::string("S3 RDMA object download failed. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Offset: " + std::to_string(currentOffset) + "; "
+				"Blocksize: " + std::to_string(blockSize) + "; "
+				"RDMA result: " + std::to_string(rdmaRes) );
+
+		IF_UNLIKELY( ( (size_t)rdmaRes < blockSize) && !ignoreS3Errors)
+			throw WorkerException(std::string("Object too small. ") +
+				"Endpoint: " + s3EndpointStr + "; "
+				"Bucket: " + bucketName + "; "
+				"Object: " + objectName + "; "
+				"Offset: " + std::to_string(currentOffset) + "; "
+				"Requested blocksize: " + std::to_string(blockSize) + "; "
+				"Bytes transferred: " + std::to_string(rdmaRes) );
+
+		// bring the received data to the host buffer for verification (GPU-direct landed it in VRAM)
+		if(areGPUsGiven)
+			cudaMemcpyGPUToHost(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
+
+		if(rdmaRes > 0)
+		{
+			if(isRWMixedReader)
+				atomicLiveOpsReadMix.numBytesDone += rdmaRes;
+			else
+				atomicLiveOps.numBytesDone += rdmaRes;
+		}
+
+		// calc io operation latency
+		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+		std::chrono::microseconds ioElapsedMicroSec =
+			std::chrono::duration_cast<std::chrono::microseconds>
+			(ioEndT - ioStartT);
+
+		if(isRWMixedReader)
+		{
+			iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOpsReadMix.numIOPSDone++;
+		}
+		else
+		{
+			iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+			atomicLiveOps.numIOPSDone++;
+		}
+
+		numIOPSSubmitted++;
+		rwOffsetGen->addBytesSubmitted(blockSize);
+	}
+
+#endif // S3_SUPPORT && CUOBJ_SUPPORT
 }
 
 /**
