@@ -180,7 +180,7 @@ Support is auto-enabled when the cuObject development files (`cuobjclient.h` and
 
 **Version compatibility (important):** the `libcuobjclient` that elbencho links must be compatible with the cuObject version of your S3 server. The build picks `libcuobjclient` up from your CUDA install (or from `CUOBJ_LIB_PATH`/`CUOBJ_INCLUDE_PATH`), so use a CUDA / cuObject SDK whose `libcuobjclient` matches your server — do not mix major/minor versions. A client/server mismatch typically surfaces as RDMA buffer-registration failures or `retry exceeded` transfer errors even though the control-plane HTTP request succeeds.
 
-**Runtime configuration:** cuObject reads a JSON config file (point `CUFILE_ENV_PATH_JSON` at it). The client NIC and RDMA properties must be set, for example:
+**Runtime configuration:** cuObject reads a JSON config file (point `CUFILE_ENV_PATH_JSON` at it). The client NIC(s) and RDMA properties must be set, for example:
 
 ```json
 {
@@ -188,10 +188,13 @@ Support is auto-enabled when the cuObject development files (`cuobjclient.h` and
     "allow_compat_mode": true,
     "use_pci_p2pdma": true,
     "rdma_peer_type": "dmabuf",
-    "rdma_dev_addr_list": ["<client-nic-ipv4>"]
+    "rdma_dev_addr_list": ["<client-nic-ipv4>"],
+    "rdma_multipath_enabled": true
   }
 }
 ```
+
+**Multi-NIC clients:** NIC selection across multiple RDMA NICs is handled entirely by cuObject, not by elbencho — list each client RDMA NIC IPv4 in `rdma_dev_addr_list` and set `rdma_multipath_enabled: true`. cuObject then chooses the NIC, embeds its GID in the RDMA token (so the server transfers to the correct interface regardless of which NIC the HTTP control request used), and handles failover/failback across the listed NICs (see the `rdma_max_backup_devices`, `rdma_io_retry_count`, `rdma_failback_enabled` and `rdma_health_check_interval_ms` properties). With a single entry it transparently runs single-path.
 
 **Constraints:**
 * Single-part transfers only: the block size (`-b`) must equal the object size (`-s`), and `--iodepth=1` is required.
