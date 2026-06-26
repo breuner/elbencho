@@ -20,6 +20,7 @@
 #include "toolkits/RateLimiter.h"
 #include "toolkits/RateLimiterRWMixThreads.h"
 #include "toolkits/S3Tk.h"
+#include "toolkits/S3RdmaTk.h"
 #include "S3UploadStore.h"
 #include "Worker.h"
 
@@ -160,6 +161,12 @@ class LocalWorker : public Worker
 		S3ChecksumAlgorithm s3ChecksumAlgorithm; // for x-amz-sdk-checksum-algorithm header
 #endif
 
+#if defined(S3_SUPPORT) && defined(CUOBJ_SUPPORT)
+        SharedCuObjClient* s3RdmaClient{NULL}; // process-wide cuObject singleton (not owned)
+        std::unique_ptr<S3RdmaControlPlane> s3RdmaControlPlane; // per-worker RDMA control plane
+        BufferVec s3RdmaRegisteredBufVec; // buffers registered with cuObject (for deregister)
+#endif
+
 #ifdef HDFS_SUPPORT
 		hdfsFS hdfsFSHandle{NULL}; // currently referenced hdfs instance
 		hdfsFile hdfsFileHandle{NULL}; // currently open file on hdfs
@@ -190,6 +197,8 @@ class LocalWorker : public Worker
         void uninitLibAio();
 		void initS3Client();
 		void uninitS3Client();
+		void initS3RdmaBuffers();
+		void uninitS3RdmaBuffers();
 		void initHDFS();
 		void uninitHDFS();
 		void initNetBench();
@@ -256,6 +265,7 @@ class LocalWorker : public Worker
         void s3ModeGetBucketVersioning(const std::string& bucketName);
         void s3ModePutBucketVersioning(const std::string& bucketName, bool enable = true);
 		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
+		void s3ModeUploadObjectSinglePartRdma(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
         void s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
@@ -268,6 +278,8 @@ class LocalWorker : public Worker
 			std::string uploadID);
 		void s3ModeAbortUnfinishedSharedUploads();
 		void s3ModeDownloadObject(std::string bucketName, std::string objectName,
+			const bool isRWMixedReader);
+		void s3ModeDownloadObjectRdma(std::string bucketName, std::string objectName,
 			const bool isRWMixedReader);
         void s3ModeDownloadObjectAsync(std::string bucketName, std::string objectName,
             const bool isRWMixedReader);

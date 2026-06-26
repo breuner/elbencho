@@ -331,6 +331,16 @@ else
 	$(info [OPT] CUFILE (GDS) support disabled)
 endif
 
+ifeq ($(CUOBJ_SUPPORT),1)
+ ifdef BUILD_VERBOSE
+	$(info [OPT] cuObject (S3-over-RDMA) support enabled (CUOBJ_INCLUDE_PATH: $(CUOBJ_INCLUDE_PATH)))
+ else
+	$(info [OPT] cuObject (S3-over-RDMA) support enabled)
+ endif
+else
+	$(info [OPT] cuObject (S3-over-RDMA) support disabled)
+endif
+
 ifeq ($(CUDA_SUPPORT),1)
  ifdef BUILD_VERBOSE
 	$(info [OPT] CUDA support enabled (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH)))
@@ -541,6 +551,13 @@ help:
 	@echo '                             By default, GDS support will be enabled when GDS'
 	@echo '                             development files are found. (cufile.h and'
 	@echo '                             libcufile.so)'
+	@echo '   CUOBJ_SUPPORT=0|1       - Manually enable (=1) or disable (=0) support for'
+	@echo '                             GPU-direct S3-over-RDMA through the NVIDIA cuObject'
+	@echo '                             (cuObjClient) API shipped with CUDA 13.1+. Requires'
+	@echo '                             S3_SUPPORT=1 and the RDMA verbs dev libraries'
+	@echo '                             (libibverbs, librdmacm). By default it is enabled'
+	@echo '                             when the cuObject development files are found.'
+	@echo '                             (cuobjclient.h and libcuobjclient.so)'
 	@echo '   CYGWIN_SUPPORT=0|1      - Reduce build features to enable build in Cygwin'
 	@echo '                             environment. (Default: 0)'
 	@echo '   HDFS_SUPPORT=0|1        - Build with support for Hadoop HDFS. HADOOP_HOME'
@@ -581,6 +598,10 @@ help:
 	@echo '   CUFILE_INCLUDE_PATH=<path> - Path to directory containing cufile.h.'
 	@echo '                                (Default: search under /usr/local/cuda*")'
 	@echo '   CUFILE_LIB_PATH=<path>     - Path to directory containing libcufile.so.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUOBJ_INCLUDE_PATH=<path>  - Path to directory containing cuobjclient.h.'
+	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   CUOBJ_LIB_PATH=<path>      - Path to directory containing libcuobjclient.so.'
 	@echo '                                (Default: search under /usr/local/cuda*")'
 	@echo
 	@echo 'Targets:'
