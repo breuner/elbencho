@@ -91,7 +91,7 @@ dry_run=
 mtelbencho=$(command -v mtelbencho.sh)
 if [[ -z "$mtelbencho" ]]; then
     echo "mtelbencho.sh could not be found. Aborting!"
-    exit
+    exit 1
 fi
 # gnuplot is optional, unless -p (lower case p) is used
 gnuplot=/usr/bin/gnuplot
@@ -121,7 +121,7 @@ declare -a xlabels=('1048576x1KiB'   '1048576x2KiB'   '1048576x4KiB'
                     '1048576x8KiB'   '1048576x16KiB'  '1048576x32KiB'
                     '1048576x64KiB'  '1048576x128KiB' '1048576x256KiB'
                     '1048576x512KiB' '1048576x1MiB'   '524288x2MiB'
-                    '262144x4MiB'    '131072x8MiB'    '65535x16MiB'
+                    '262144x4MiB'    '131072x8MiB'    '65536x16MiB'
                     '32768x32MiB'    '16384x64MiB'    '8192x128MiB'
                     '4096x256MiB'    '2048x512MiB'    '1024x1GiB'
                     '512x2GiB'       '256x4GiB'       '128x8GiB'
@@ -161,7 +161,7 @@ check_app()
     local msg
     
     if ! [[ -x "$app" ]]; then
-        msg="$app is not installed."
+        msg="$app is not installed. "
         msg+="Please install it and then re-run this wizard. "
         msg+="Aborting now."
         echo "$msg"
@@ -299,7 +299,7 @@ ensure_file_exists()
         if [[ -f "$f" ]] && [[ -s "$f" ]]; then 
             :
         else 
-            echo "$f dose not exist or empty";
+            echo "$f does not exist or empty";
             exit 1
         fi      
     fi
@@ -426,9 +426,9 @@ run_gnuplot()
 # 7. Final visual tweaks (x-axis tics)
 # 8. Plot the data
 #
-# Use default paths unless overridden
-ifile = "/var/tmp/full/sweep.csv"
-ofile = "/var/tmp/full/sweep.svg"
+# Relative to the current directory unless overridden
+ifile = "sweep.csv"
+ofile = "sweep.svg"
 
 # Allow overriding through command-line arguments using gnuplot -e
 if (exists("ifile_arg")) ifile = ifile_arg
@@ -491,7 +491,9 @@ EOF
     # button operation :) Otherwise, the user have the option to generate
     # a plot easily with gnuplot or another app, such as a spreadsheet.
     if [[ "$push_button_plot" ]]; then
-        gnuplot "$sweep_gplt"
+        local eargs
+        eargs="ifile_arg='$sweep_csv'; ofile_arg='$sweep_svg'"
+        gnuplot -e "$eargs" "$sweep_gplt"
     fi
 }
 
@@ -538,8 +540,9 @@ verify_threads()
 verify_directory_exists()
 {
     local dir
+    local msg
     dir=$1
-    if [[ "$(cd "$dir")" -ne 0 ]]; then
+    if ! [[ -d "$dir" ]]; then
         msg="$dir does not exist. Abort!"
         echo "$msg"
         exit 1
@@ -579,8 +582,10 @@ mitigate_human_errors()
     # wondering why some graphs are missing etc.  OK, we will protect
     # such users by unconditionally pre-create the four subdirectories
     # {losf,medium,large,full} even the -o is used
-    # 
-    mkdir -p "$output_dir"/{losf,medium,large,full}
+    #
+    if [[ -z "$dry_run" ]]; then
+        mkdir -p "$output_dir"/{losf,medium,large,full}
+    fi
     if [[ "$range_to_sweep" == 's' ]]; then
         output_dir="$output_dir/losf"
     elif [[ "$range_to_sweep" == 'm' ]]; then
@@ -631,6 +636,7 @@ show_option_settings()
 
 is_power_of_two()
 {
+    local msg
     if ! ((fs_block_size > 0 &&
                 (fs_block_size & (fs_block_size - 1)) == 0 )); then
         msg="fs_block_size must be specified in a positive integer "
@@ -712,7 +718,7 @@ show_test_duration()
     [[ "$verbose" ]] && show_elbencho_version
     [[ "$verbose" ]] && show_installed_sweep_tools
     [[ "$verbose" ]] && show_option_settings
-    check_space_available
+    [[ -z "$dry_run" ]] && check_space_available
     [[ -z "$dry_run" ]] && verify_directory_exists "$src_data_dir"
     [[ -z "$dry_run" ]] && verify_directory_exists "$output_dir"
     [[ -z "$dry_run" ]] && set_max_open_file_descriptors
