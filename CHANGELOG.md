@@ -4,6 +4,7 @@
 
 ### General Changes
 * Updated ftxui lib for fullscreen live stats to latest v7.0.1.
+* Updated mimalloc lib for static builds to latest v3.4.1.
 
 ### Fixes
 * Fixed potential issue on macOS with async S3 requests not getting cleaned up correctly after error or interruption.
