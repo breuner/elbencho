@@ -202,7 +202,8 @@ verify_threads() {
 verify_directory_exists() {
     # For the dry-run mode, skip the src_data_dir check
     [[ "$dry_run" ]] && return 0
-    if ! [[ "$(cd "$src_data_dir")" -eq 0 ]]; then
+    local msg
+    if ! [[ -d "$src_data_dir" ]]; then
         msg="$src_data_dir does not exist. Abort!"
         echo "$msg"
         exit 1
@@ -212,8 +213,9 @@ verify_directory_exists() {
 has_element() {
     local e match="$1"
     shift
+    idx=0
     for e; do
-        if [[ $e =~ .*"$match".* ]]; then
+        if [[ $e == *"x${match}iB" ]]; then
             return 0
         fi
         ((++idx))
@@ -280,7 +282,7 @@ check_space_available() {
     fi
     local sa
     # The df man page states that SIZE units default to 1024 bytes
-    sa=$(df $src_data_dir | tail -1 | awk '{ printf "%d", $4*1024 }')
+    sa=$(df "$src_data_dir" | tail -1 | awk '{ printf "%d", $4*1024 }')
     [[ "$verbose" ]] && echo "Space availability now is: $sa bytes."
     [[ "$verbose" ]] && echo "Minimal requirement is   : $minimal_space bytes."
     if [[ $sa -lt $minimal_space ]]; then
@@ -311,39 +313,32 @@ set_max_open_file_descriptors() {
 check_elbencho_version() {
     local vs
     local mandatory
-    mandatory="1.6"
+    local msg
+    mandatory="1.6.1"
     if ! command -v elbencho &>/dev/null; then
         echo "elbencho could not be found. Abort!"
         exit 1
     fi
-    vs=$(elbencho --version | grep ^Version |
-        cut -d ':' -f 2 | sed -e 's/^[ \t]*//' -e 's/\-[0-9]//')
-    # Use bash's numeric context. Use the following to ensure that the
-    # check remains functional with elbencho that's newer than 1.6.x
-    if (($(echo "$vs < $mandatory" | bc -l))); then
-        echo "Installed elbencho too old. Abort!"
+    # Extract the dotted version, dropping any packaging suffix.
+    vs=$(elbencho --version | grep -oiE 'version[^0-9]*[0-9][0-9.]*' |
+             grep -oE '[0-9][0-9.]*' | head -n1)
+    # Version-aware compare (sort -V); fail closed if unparseable.
+    if [[ -z "$vs" ]] ||
+           ! printf '%s\n%s\n' "$mandatory" "$vs" | sort -V -C; then
+        msg="Installed elbencho ${vs:-unknown} too old; "
+        msg+="need ${mandatory}+. Abort!"
+        echo "$msg"
         exit 1
     fi
-}
-
-set_full_dataset_path() {
-    local dataset
-    dataset=$1
-    if [[ -z $src_data_dir ]]; then
-        # I assume that you have cd src_data_dir already!
-        dataset="./$dataset"
-    else
-        dataset="$src_data_dir/$dataset"
-    fi
-    echo "$dataset"
 }
 
 ensure_dataset_exists() {
     local dataset
     dataset=$1
     if [[ -z $dry_run ]]; then
-        if ! [[ -d $dataset ]]; then
-            mkdir "$dataset" || (echo "Couldn't create $dataset!" && exit 1)
+        if ! mkdir -p "$dataset"; then
+            echo "Couldn't create $dataset!"
+            exit 1
         fi
     fi
 }
@@ -402,8 +397,6 @@ generate_medium() {
         idx=$(printf "%07d" "0")
         fdx=$((nfiles - 1))
         fdx=$(printf "%07d" "$fdx")
-        cmd="elbencho -w --nolive --direct -t $threads "
-        cmd+="-b $block_size -s $sfsize "
         dry_or_real_run
         unset cmd
     fi
@@ -449,15 +442,17 @@ dry_or_real_run() {
     fi
     cmd+="-b $block_size -s $sfsize "
     local dcmd="${cmd}"
-    while ((${#dcmd} < ${#cmd[@]})); do
-        dcmd="${dcmd}${cmd}"
-    done
     dcmd+="f{$idx..$fdx}"
+
     if [[ -z $dry_run ]]; then
         cmd+="$(eval echo "f{$idx..$fdx}")"
         cd "$dataset" || exit
-        [[ "$verbose" ]] && echo "Running $dcmd" && $cmd
-        $cmd >/dev/null 2>&1
+        if [[ "$verbose" ]]; then
+            echo "Running $dcmd"
+            $cmd
+        else
+            $cmd >/dev/null 2>&1
+        fi
     else
         cmd+="f{$idx..$fdx}"
         echo "Command to run: $dcmd"
@@ -498,7 +493,6 @@ create_dses() {
         split_ds "$ds"
         ((niter = nfiles / window))
         generate_ds
-        ((ne = ne + 1))
     done
 }
 
@@ -527,7 +521,7 @@ show_test_duration() {
 # main()
 {
     begin_test=$(date +"%s")
-    while getopts ":ht:s:f:r:Ab:vn" opt; do
+    while getopts ":ht:s:f:r:b:vn" opt; do
         case $opt in
         h)
             help
