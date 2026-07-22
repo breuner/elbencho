@@ -9,6 +9,7 @@
 #include "LiveLatency.h"
 #include "LiveOps.h"
 #include "ProgArgs.h"
+#include "S3RequestOps.h"
 #include "WorkersSharedData.h"
 
 
@@ -49,11 +50,14 @@ class Worker
 		AtomicLiveOps atomicLiveOpsReadMix; // done in current phase
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
 		AtomicLiveOps oldAtomicLiveOpsReadMix; // copy of old atomicLiveOps for diff stats
+		AtomicS3RequestOps atomicS3ReqOps; // S3 API calls by HTTP method in current phase
+		AtomicS3RequestOps oldAtomicS3ReqOps; // copy of old atomicS3ReqOps for live diff stats
 		std::atomic_bool stoneWallTriggered{false}; // true after 1st worker triggered stonewall
 		std::atomic_bool workerGotPhaseWork{true}; /* workers set this to false if they got no work
 			assigned and thus finish immediately. these also don't trigger stonewall. */
 		LiveOps stoneWallOps; // done values when stonewall was hit
 		LiveOps stoneWallOpsReadMix; // done values when stonewall was hit
+		S3RequestOps stoneWallS3ReqOps; // S3 request counts when stonewall was hit
 		LatencyHistogram iopsLatHisto; // ops latency histogram (valid only at phase end)
 		LatencyHistogram iopsLatHistoReadMix; // ops latency histogram (valid only at phase end)
 		LatencyHistogram entriesLatHisto; // entry latency histogram (valid only at phase end)
@@ -96,9 +100,12 @@ class Worker
 			atomicLiveOpsReadMix.setToZero();
 			oldAtomicLiveOps.setToZero();
 			oldAtomicLiveOpsReadMix.setToZero();
+			atomicS3ReqOps.setToZero();
+			oldAtomicS3ReqOps.setToZero();
 			stoneWallTriggered = false;
 			stoneWallOps.setToZero();
 			stoneWallOpsReadMix.setToZero();
+			stoneWallS3ReqOps.setToZero();
 			iopsLatHisto.reset();
 			iopsLatHistoReadMix.reset();
 			entriesLatHisto.reset();
@@ -161,6 +168,47 @@ class Worker
 		}
 
 		/**
+		 * Add current S3 request counters of this worker to given outSumOps.
+		 */
+		void getAndAddS3RequestOps(S3RequestOps& outSumOps) const
+		{
+			atomicS3ReqOps.getAndAddOps(outSumOps);
+		}
+
+		/**
+		 * Add stonewall S3 request counters of this worker to given outSumOps.
+		 */
+		void getAndAddStoneWallS3RequestOps(S3RequestOps& outSumOps) const
+		{
+			stoneWallS3ReqOps.getAndAddOps(outSumOps);
+		}
+
+		void getS3RequestOps(S3RequestOps& outOps) const
+		{
+			atomicS3ReqOps.getAsS3RequestOps(outOps);
+		}
+
+		/**
+		 * Store difference of current and old S3 request ops in outDiff and copy current
+		 * values to old.
+		 */
+		void getAndResetDiffStatsS3(S3RequestOps& outDiff)
+		{
+			outDiff.numGet = atomicS3ReqOps.numGet -
+				oldAtomicS3ReqOps.numGet.exchange(atomicS3ReqOps.numGet);
+			outDiff.numPut = atomicS3ReqOps.numPut -
+				oldAtomicS3ReqOps.numPut.exchange(atomicS3ReqOps.numPut);
+			outDiff.numHead = atomicS3ReqOps.numHead -
+				oldAtomicS3ReqOps.numHead.exchange(atomicS3ReqOps.numHead);
+			outDiff.numPost = atomicS3ReqOps.numPost -
+				oldAtomicS3ReqOps.numPost.exchange(atomicS3ReqOps.numPost);
+			outDiff.numDelete = atomicS3ReqOps.numDelete -
+				oldAtomicS3ReqOps.numDelete.exchange(atomicS3ReqOps.numDelete);
+			outDiff.numList = atomicS3ReqOps.numList -
+				oldAtomicS3ReqOps.numList.exchange(atomicS3ReqOps.numList);
+		}
+
+		/**
 		 * Store difference of current and old live ops in outLiveOpsDiff and copy current
 		 * live ops to old live ops.
 		 */
@@ -206,6 +254,7 @@ class Worker
 
 			atomicLiveOps.getAsLiveOps(stoneWallOps);
 			atomicLiveOpsReadMix.getAsLiveOps(stoneWallOpsReadMix);
+			atomicS3ReqOps.getAsS3RequestOps(stoneWallS3ReqOps);
 		}
 
 		bool getWorkerGotPhaseWork() const

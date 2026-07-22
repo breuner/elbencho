@@ -49,6 +49,13 @@
 #define FULLSCREEN_WORKERS_TITLE_ACTIVE             "Act"
 #define FULLSCREEN_WORKERS_TITLE_CPU                "CPU"
 #define FULLSCREEN_WORKERS_TITLE_SERVICE            "Service"
+#define FULLSCREEN_WORKERS_TITLE_S3_GET_RPS         "GET/s"
+#define FULLSCREEN_WORKERS_TITLE_S3_PUT_RPS         "PUT/s"
+#define FULLSCREEN_WORKERS_TITLE_S3_HEAD_RPS        "HEAD/s"
+#define FULLSCREEN_WORKERS_TITLE_S3_POST_RPS        "POST/s"
+#define FULLSCREEN_WORKERS_TITLE_S3_DELETE_RPS      "DEL/s"
+#define FULLSCREEN_WORKERS_TITLE_S3_LIST_RPS        "LIST/s"
+#define FULLSCREEN_HEADER_TITLE_S3_RPS              "S3 RPS:"
 
 #define PHASERESULTS_CONSOLE_SEPARATOR_LINE         "---"
 
@@ -269,6 +276,25 @@ void Statistics::printSingleLineLiveStatsLine(LiveResults& liveResults)
 		stream <<
 			(workerVec.size() - liveResults.numWorkersDone) << " threads; " <<
 			(unsigned) liveCpuUtil.getCPUUtilPercent() << "% CPU; ";
+	}
+
+	if(progArgs.getShowS3RPS() && liveResults.liveS3ReqOpsPerSec.getTotal() )
+	{
+		const S3RequestOps& rps = liveResults.liveS3ReqOpsPerSec;
+		stream << "S3 RPS " << rps.getTotal();
+		if(rps.numGet)
+			stream << " GET=" << rps.numGet;
+		if(rps.numPut)
+			stream << " PUT=" << rps.numPut;
+		if(rps.numHead)
+			stream << " HEAD=" << rps.numHead;
+		if(rps.numPost)
+			stream << " POST=" << rps.numPost;
+		if(rps.numDelete)
+			stream << " DEL=" << rps.numDelete;
+		if(rps.numList)
+			stream << " LIST=" << rps.numList;
+		stream << "; ";
 	}
 
 	stream <<
@@ -568,6 +594,14 @@ workers_done:
                 else
                 if(workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_CPU)
                     minCellWidth = 3;
+                else
+                if( (workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_S3_GET_RPS) ||
+                    (workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_S3_PUT_RPS) ||
+                    (workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_S3_HEAD_RPS) ||
+                    (workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_S3_POST_RPS) ||
+                    (workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_S3_DELETE_RPS) ||
+                    (workerStatsTxtTable[0][colIdx] == FULLSCREEN_WORKERS_TITLE_S3_LIST_RPS) )
+                    minCellWidth = 7;
 
                 if(minCellWidth)
                     cell_content = cell_content | size(WIDTH, GREATER_THAN,
@@ -913,6 +947,34 @@ void Statistics::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResul
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_ELAPSED);
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, elapsedTimeStr);
 
+	if(progArgs.getShowS3RPS() && liveResults.newLiveS3ReqOps.getTotal() )
+	{
+		// new row for live S3 RPS breakdown
+		rowIdx++;
+		colIdx = 0;
+
+		std::ostringstream s3RpsStream;
+		const S3RequestOps& rps = liveResults.liveS3ReqOpsPerSec;
+
+		s3RpsStream << rps.getTotal();
+		if(rps.numGet)
+			s3RpsStream << " GET=" << rps.numGet;
+		if(rps.numPut)
+			s3RpsStream << " PUT=" << rps.numPut;
+		if(rps.numHead)
+			s3RpsStream << " HEAD=" << rps.numHead;
+		if(rps.numPost)
+			s3RpsStream << " POST=" << rps.numPost;
+		if(rps.numDelete)
+			s3RpsStream << " DEL=" << rps.numDelete;
+		if(rps.numList)
+			s3RpsStream << " LIST=" << rps.numList;
+
+		VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++,
+			FULLSCREEN_HEADER_TITLE_S3_RPS);
+		VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, s3RpsStream.str() );
+	}
+
 	if(!progArgs.getShowLatency() )
 		return;
 
@@ -1039,6 +1101,16 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_SERVICE);
     }
 
+	if(progArgs.getShowS3RPS() )
+	{
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_S3_GET_RPS);
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_S3_PUT_RPS);
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_S3_HEAD_RPS);
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_S3_POST_RPS);
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_S3_DELETE_RPS);
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, FULLSCREEN_WORKERS_TITLE_S3_LIST_RPS);
+	}
+
     // new row, reset column
     rowIdx++;
     colIdx = 0;
@@ -1084,6 +1156,18 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 			std::to_string(liveResults.percentRemoteCPU) );
         VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, "");
     }
+
+	if(progArgs.getShowS3RPS() )
+	{
+		const S3RequestOps& rps = liveResults.liveS3ReqOpsPerSec;
+		// Combined rates for all methods on the Write/Total aggregate row
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numGet) );
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numPut) );
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numHead) );
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numPost) );
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numDelete) );
+		VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numList) );
+	}
 
     // new row, reset column
     rowIdx++;
@@ -1134,6 +1218,19 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
             VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, "");
         }
 
+		if(progArgs.getShowS3RPS() )
+		{
+			/* Method counters are not split by rwmix; show the same live rates on the Read
+			   aggregate row so all GET/PUT/HEAD/POST/DEL/LIST columns are populated. */
+			const S3RequestOps& rps = liveResults.liveS3ReqOpsPerSec;
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numGet) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numPut) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numHead) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numPost) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numDelete) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++, std::to_string(rps.numList) );
+		}
+
         // new row, reset column
         rowIdx++;
         colIdx = 0;
@@ -1145,11 +1242,16 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
 	{
 		LiveOps workerDone; // total numbers
 		LiveOps workerDonePerSec; // difference to last round
+		S3RequestOps workerS3DonePerSec = {};
 
 		workerVec[i]->getLiveOpsCombined(workerDone);
 		workerVec[i]->getAndResetDiffStatsCombined(workerDonePerSec);
+		if(progArgs.getShowS3RPS() )
+			workerVec[i]->getAndResetDiffStatsS3(workerS3DonePerSec);
 
 		(workerDonePerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
+		if(progArgs.getShowS3RPS() )
+			(workerS3DonePerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
 
 		const char* netbenchServiceSuffixStr = ""; // only set in netbench mode
 		size_t workerPercentDoneNum = 0;
@@ -1217,6 +1319,22 @@ void Statistics::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResu
             VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
                 (progArgs.getHostsVec()[i] + netbenchServiceSuffixStr + pingStr) );
         }
+
+		if(progArgs.getShowS3RPS() )
+		{
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerS3DonePerSec.numGet) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerS3DonePerSec.numPut) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerS3DonePerSec.numHead) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerS3DonePerSec.numPost) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerS3DonePerSec.numDelete) );
+			VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
+				std::to_string(workerS3DonePerSec.numList) );
+		}
 
         // new row, reset column
         rowIdx++;
@@ -1296,6 +1414,19 @@ void Statistics::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsed
 	(liveResults.liveOpsPerSecReadMix *= 1000) /= elapsedMS;
 
 	liveResults.lastLiveOpsReadMix = liveResults.newLiveOpsReadMix;
+
+	if(progArgs.getShowS3RPS() )
+	{
+		liveResults.newLiveS3ReqOps.setToZero();
+		for(Worker* worker : workerVec)
+			worker->getAndAddS3RequestOps(liveResults.newLiveS3ReqOps);
+
+		liveResults.liveS3ReqOpsPerSec =
+			liveResults.newLiveS3ReqOps - liveResults.lastLiveS3ReqOps;
+		(liveResults.liveS3ReqOpsPerSec *= 1000) /= elapsedMS;
+
+		liveResults.lastLiveS3ReqOps = liveResults.newLiveS3ReqOps;
+	}
 
 	// if we have bytes in this phase, use them for percent done; otherwise use num entries
 	if(liveResults.numBytesPerWorker)
@@ -1433,6 +1564,19 @@ void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_LAT_SUM_IOPS, liveLatency.avgIOLatMicroSecsSum);
 	outTree.put(XFER_STATS_LAT_NUM_ENTRIES, liveLatency.numAvgEntriesLatValues);
 	outTree.put(XFER_STATS_LAT_SUM_ENTRIES, liveLatency.avgEntriesLatMicroSecsSum);
+
+	{
+		S3RequestOps s3ReqOps;
+		for(Worker* worker : workerVec)
+			worker->getAndAddS3RequestOps(s3ReqOps);
+
+		outTree.put(XFER_STATS_NUMS3GET, s3ReqOps.numGet);
+		outTree.put(XFER_STATS_NUMS3PUT, s3ReqOps.numPut);
+		outTree.put(XFER_STATS_NUMS3HEAD, s3ReqOps.numHead);
+		outTree.put(XFER_STATS_NUMS3POST, s3ReqOps.numPost);
+		outTree.put(XFER_STATS_NUMS3DELETE, s3ReqOps.numDelete);
+		outTree.put(XFER_STATS_NUMS3LIST, s3ReqOps.numList);
+	}
 
 	if( (workersSharedData.currentBenchPhase == BenchPhase_CREATEFILES) &&
 		(progArgs.getRWMixReadPercent() || progArgs.getNumRWMixReadThreads() ||
@@ -1749,6 +1893,8 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 		worker->getAndAddLiveOps(phaseResults.opsTotal, phaseResults.opsTotalReadMix);
 		worker->getAndAddStoneWallOps(phaseResults.opsStoneWallTotal,
 			phaseResults.opsStoneWallTotalReadMix);
+		worker->getAndAddS3RequestOps(phaseResults.s3ReqTotal);
+		worker->getAndAddStoneWallS3RequestOps(phaseResults.s3ReqStoneWallTotal);
 		phaseResults.iopsLatHisto += worker->getIOPSLatencyHistogram();
 		phaseResults.iopsLatHistoReadMix += worker->getIOPSLatencyHistogramReadMix();
 		phaseResults.entriesLatHisto += worker->getEntriesLatencyHistogram();
@@ -1767,6 +1913,8 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 	{
 		phaseResults.opsStoneWallTotal.getPerSecFromUSec(
 			phaseResults.firstFinishUSec, phaseResults.opsStoneWallPerSec);
+		phaseResults.s3ReqStoneWallTotal.getPerSecFromUSec(
+			phaseResults.firstFinishUSec, phaseResults.s3ReqStoneWallPerSec);
 	}
 
 	// rwmix read total per sec for all workers by 1st finisher
@@ -1781,6 +1929,8 @@ bool Statistics::generatePhaseResults(PhaseResults& phaseResults)
 	{
 		phaseResults.opsTotal.getPerSecFromUSec(
 			phaseResults.lastFinishUSec, phaseResults.opsPerSec);
+		phaseResults.s3ReqTotal.getPerSecFromUSec(
+			phaseResults.lastFinishUSec, phaseResults.s3ReqPerSec);
 	}
 
 	// rwmix read total per sec for all workers by last finisher
@@ -2112,6 +2262,55 @@ void Statistics::printPhaseResultsToStream(const PhaseResults& phaseResults,
 			<< std::endl;
 	}
 
+	// S3 requests per second by HTTP method
+	if(progArgs.getShowS3RPS() && phaseResults.s3ReqTotal.getTotal() )
+	{
+		auto printS3RPSRow = [&](const char* label, uint64_t firstVal, uint64_t lastVal)
+		{
+			outStream << boost::format(Statistics::phaseResultsFormatStr)
+				% ""
+				% label
+				% ":"
+				% firstVal
+				% lastVal
+				<< std::endl;
+		};
+
+		printS3RPSRow("S3 RPS total",
+			phaseResults.s3ReqStoneWallPerSec.getTotal(),
+			phaseResults.s3ReqPerSec.getTotal() );
+
+		if(phaseResults.s3ReqTotal.numGet)
+			printS3RPSRow("S3 GET RPS",
+				phaseResults.s3ReqStoneWallPerSec.numGet,
+				phaseResults.s3ReqPerSec.numGet);
+
+		if(phaseResults.s3ReqTotal.numPut)
+			printS3RPSRow("S3 PUT RPS",
+				phaseResults.s3ReqStoneWallPerSec.numPut,
+				phaseResults.s3ReqPerSec.numPut);
+
+		if(phaseResults.s3ReqTotal.numHead)
+			printS3RPSRow("S3 HEAD RPS",
+				phaseResults.s3ReqStoneWallPerSec.numHead,
+				phaseResults.s3ReqPerSec.numHead);
+
+		if(phaseResults.s3ReqTotal.numPost)
+			printS3RPSRow("S3 POST RPS",
+				phaseResults.s3ReqStoneWallPerSec.numPost,
+				phaseResults.s3ReqPerSec.numPost);
+
+		if(phaseResults.s3ReqTotal.numDelete)
+			printS3RPSRow("S3 DELETE RPS",
+				phaseResults.s3ReqStoneWallPerSec.numDelete,
+				phaseResults.s3ReqPerSec.numDelete);
+
+		if(phaseResults.s3ReqTotal.numList)
+			printS3RPSRow("S3 LIST RPS",
+				phaseResults.s3ReqStoneWallPerSec.numList,
+				phaseResults.s3ReqPerSec.numList);
+	}
+
 	// print individual elapsed time results for each worker
 	if(progArgs.getShowAllElapsed() )
 	{
@@ -2342,6 +2541,48 @@ void Statistics::printPhaseResultsToStringVec(const PhaseResults& phaseResults,
 		outLabelsVec, outResultsVec);
 	printPhaseResultsLatencyToStringVec(phaseResults.iopsLatHistoReadMix, "rwmix read IO",
 		outLabelsVec, outResultsVec);
+
+	// S3 RPS columns (only when --s3-rps is enabled; changes CSV schema)
+	if(progArgs.getShowS3RPS() )
+	{
+		auto pushS3RPS = [&](const char* labelFirst, const char* labelLast,
+			uint64_t totalCount, uint64_t firstRPS, uint64_t lastRPS)
+		{
+			outLabelsVec.push_back(labelFirst);
+			outResultsVec.push_back(!totalCount ? "" : std::to_string(firstRPS) );
+			outLabelsVec.push_back(labelLast);
+			outResultsVec.push_back(!totalCount ? "" : std::to_string(lastRPS) );
+		};
+
+		pushS3RPS("S3 RPS total [first]", "S3 RPS total [last]",
+			phaseResults.s3ReqTotal.getTotal(),
+			phaseResults.s3ReqStoneWallPerSec.getTotal(),
+			phaseResults.s3ReqPerSec.getTotal() );
+		pushS3RPS("S3 GET RPS [first]", "S3 GET RPS [last]",
+			phaseResults.s3ReqTotal.numGet,
+			phaseResults.s3ReqStoneWallPerSec.numGet,
+			phaseResults.s3ReqPerSec.numGet);
+		pushS3RPS("S3 PUT RPS [first]", "S3 PUT RPS [last]",
+			phaseResults.s3ReqTotal.numPut,
+			phaseResults.s3ReqStoneWallPerSec.numPut,
+			phaseResults.s3ReqPerSec.numPut);
+		pushS3RPS("S3 HEAD RPS [first]", "S3 HEAD RPS [last]",
+			phaseResults.s3ReqTotal.numHead,
+			phaseResults.s3ReqStoneWallPerSec.numHead,
+			phaseResults.s3ReqPerSec.numHead);
+		pushS3RPS("S3 POST RPS [first]", "S3 POST RPS [last]",
+			phaseResults.s3ReqTotal.numPost,
+			phaseResults.s3ReqStoneWallPerSec.numPost,
+			phaseResults.s3ReqPerSec.numPost);
+		pushS3RPS("S3 DELETE RPS [first]", "S3 DELETE RPS [last]",
+			phaseResults.s3ReqTotal.numDelete,
+			phaseResults.s3ReqStoneWallPerSec.numDelete,
+			phaseResults.s3ReqPerSec.numDelete);
+		pushS3RPS("S3 LIST RPS [first]", "S3 LIST RPS [last]",
+			phaseResults.s3ReqTotal.numList,
+			phaseResults.s3ReqStoneWallPerSec.numList,
+			phaseResults.s3ReqPerSec.numList);
+	}
 
 	// elbencho version
 
@@ -2687,6 +2928,38 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
     firstDoneSubtree.put("cpu%", (unsigned)phaseResults.cpuUtilStoneWallPercent);
     lastDoneSubtree.put("cpu%", (unsigned)phaseResults.cpuUtilPercent);
 
+    // S3 RPS by HTTP method
+
+    if(progArgs.getShowS3RPS() && phaseResults.s3ReqTotal.getTotal() )
+    {
+        auto addS3RPSToSubtree = [](const S3RequestOps& reqTotal, const S3RequestOps& reqPerSec,
+            bpt::ptree& outTree)
+        {
+            bpt::ptree s3RpsSubtree;
+
+            s3RpsSubtree.put("total", reqPerSec.getTotal() );
+
+            if(reqTotal.numGet)
+                s3RpsSubtree.put("GET", reqPerSec.numGet);
+            if(reqTotal.numPut)
+                s3RpsSubtree.put("PUT", reqPerSec.numPut);
+            if(reqTotal.numHead)
+                s3RpsSubtree.put("HEAD", reqPerSec.numHead);
+            if(reqTotal.numPost)
+                s3RpsSubtree.put("POST", reqPerSec.numPost);
+            if(reqTotal.numDelete)
+                s3RpsSubtree.put("DELETE", reqPerSec.numDelete);
+            if(reqTotal.numList)
+                s3RpsSubtree.put("LIST", reqPerSec.numList);
+
+            outTree.put_child("s3_rps", s3RpsSubtree);
+        };
+
+        addS3RPSToSubtree(phaseResults.s3ReqTotal, phaseResults.s3ReqStoneWallPerSec,
+            firstDoneSubtree);
+        addS3RPSToSubtree(phaseResults.s3ReqTotal, phaseResults.s3ReqPerSec, lastDoneSubtree);
+    }
+
     // entries & iops latency results
 
     // lambda to fill latency
@@ -2811,6 +3084,19 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
 		(unsigned) workersSharedData.cpuUtilFirstDone.getCPUUtilPercent() );
 	outTree.put(XFER_STATS_CPUUTIL,
 		(unsigned) workersSharedData.cpuUtilLastDone.getCPUUtilPercent() );
+
+	{
+		S3RequestOps s3ReqOps;
+		for(Worker* worker : workerVec)
+			worker->getAndAddS3RequestOps(s3ReqOps);
+
+		outTree.put(XFER_STATS_NUMS3GET, s3ReqOps.numGet);
+		outTree.put(XFER_STATS_NUMS3PUT, s3ReqOps.numPut);
+		outTree.put(XFER_STATS_NUMS3HEAD, s3ReqOps.numHead);
+		outTree.put(XFER_STATS_NUMS3POST, s3ReqOps.numPost);
+		outTree.put(XFER_STATS_NUMS3DELETE, s3ReqOps.numDelete);
+		outTree.put(XFER_STATS_NUMS3LIST, s3ReqOps.numList);
+	}
 
 	bool triggerStonewall = false; // true if at least one worker has this set to true
 
@@ -3052,7 +3338,21 @@ void Statistics::prepLiveCSVFile()
 			"Lat IO us,"
 			"Active,"
 			"CPU,"
-			"Service," << std::endl;
+			"Service,";
+
+		if(progArgs.getShowS3RPS() )
+		{
+			stream <<
+				"S3 RPS total,"
+				"S3 GET/s,"
+				"S3 PUT/s,"
+				"S3 HEAD/s,"
+				"S3 POST/s,"
+				"S3 DEL/s,"
+				"S3 LIST/s,";
+		}
+
+		stream << std::endl;
 
 		size_t streamLen = stream.tellp();
 
@@ -3125,6 +3425,19 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 		cpuUtil << ","
 		"" << ","; // service
 
+	if(progArgs.getShowS3RPS() )
+	{
+		const S3RequestOps& rps = liveResults.liveS3ReqOpsPerSec;
+		stream <<
+			rps.getTotal() << "," <<
+			rps.numGet << "," <<
+			rps.numPut << "," <<
+			rps.numHead << "," <<
+			rps.numPost << "," <<
+			rps.numDelete << "," <<
+			rps.numList << ",";
+	}
+
 	stream << std::endl;
 
 	// print rwmix total read line...
@@ -3155,6 +3468,19 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 			numActiveWorkers << "," <<
 			cpuUtil << ","
 			"" << ","; // service
+
+		if(progArgs.getShowS3RPS() )
+		{
+			const S3RequestOps& rps = liveResults.liveS3ReqOpsPerSec;
+			stream <<
+				rps.getTotal() << "," <<
+				rps.numGet << "," <<
+				rps.numPut << "," <<
+				rps.numHead << "," <<
+				rps.numPost << "," <<
+				rps.numDelete << "," <<
+				rps.numList << ",";
+		}
 
 		stream << std::endl;
 	}
@@ -3222,6 +3548,22 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 				progArgs.getHostsVec()[i] << ",";
 		}
 
+		if(progArgs.getShowS3RPS() )
+		{
+			/* Per-worker live CSV cannot include rates (same restriction as MiB/s/IOPS here);
+			   emit absolute request counts instead. */
+			S3RequestOps workerS3Done;
+			workerVec[i]->getS3RequestOps(workerS3Done);
+			stream <<
+				workerS3Done.getTotal() << "," <<
+				workerS3Done.numGet << "," <<
+				workerS3Done.numPut << "," <<
+				workerS3Done.numHead << "," <<
+				workerS3Done.numPost << "," <<
+				workerS3Done.numDelete << "," <<
+				workerS3Done.numList << ",";
+		}
+
 		stream << std::endl;
 
 		// print rwmix read worker result line
@@ -3270,6 +3612,22 @@ void Statistics::printLiveStatsCSV(const LiveResults& liveResults)
 					(progArgs.getNumThreads() - remoteWorker->getNumWorkersDone() ) << "," <<
 					remoteWorker->getCPUUtilLive() << "," <<
 					progArgs.getHostsVec()[i] << ",";
+			}
+
+			if(progArgs.getShowS3RPS() )
+			{
+				/* Same absolute S3 totals as the write worker line; method counters are not
+				   split by rwmix. */
+				S3RequestOps workerS3Done;
+				workerVec[i]->getS3RequestOps(workerS3Done);
+				stream <<
+					workerS3Done.getTotal() << "," <<
+					workerS3Done.numGet << "," <<
+					workerS3Done.numPut << "," <<
+					workerS3Done.numHead << "," <<
+					workerS3Done.numPost << "," <<
+					workerS3Done.numDelete << "," <<
+					workerS3Done.numList << ",";
 			}
 
 			stream << std::endl;

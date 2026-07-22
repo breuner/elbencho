@@ -17,6 +17,7 @@
 #include "Common.h"
 #include "LiveLatency.h"
 #include "ProgArgs.h"
+#include "S3RequestOps.h"
 #include "toolkits/TranslatorTk.h"
 #include "workers/WorkerManager.h"
 #include "workers/WorkersSharedData.h"
@@ -37,6 +38,11 @@ class PhaseResults
 		LiveOps opsPerSecReadMix; // rwmix read total per sec for all workers by last finisher
 		LiveOps opsStoneWallPerSec; // total per sec for all workers by 1st finisher
 		LiveOps opsStoneWallPerSecReadMix; // rwmix read total per sec for all workers by 1st fin
+
+		S3RequestOps s3ReqTotal; // S3 API requests by all workers
+		S3RequestOps s3ReqStoneWallTotal; // S3 API requests when stonewall was hit
+		S3RequestOps s3ReqPerSec; // S3 RPS by last finisher
+		S3RequestOps s3ReqStoneWallPerSec; // S3 RPS by first finisher
 
 		float cpuUtilPercent; // cpu utilization until last finisher
 		float cpuUtilStoneWallPercent; // cpu utilization until first finisher
@@ -86,6 +92,9 @@ class LiveResults
 		LiveOps newLiveOpsReadMix; // live ops from current round
 		LiveOps liveOpsPerSec; // live ops per sec from diff of new and last live ops
 		LiveOps liveOpsPerSecReadMix; // live ops per sec from diff of new and last live ops
+		S3RequestOps lastLiveS3ReqOps = {}; // S3 request totals from last round
+		S3RequestOps newLiveS3ReqOps = {}; // S3 request totals from current round
+		S3RequestOps liveS3ReqOpsPerSec = {}; // S3 RPS from diff of new and last
 		size_t percentDone; // total percent done based on bytes (if any) or num entries in phase
 		size_t percentDoneReadMix; // total percent done based on bytes (if any) or entries in phase
 

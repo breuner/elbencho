@@ -4436,6 +4436,7 @@ void LocalWorker::s3ModeCreateBucket(std::string bucketName)
 #else
 
     OPLOG_PRE_OP("S3CreateBucket", bucketName, 0, 0);
+    atomicS3ReqOps.numPut++;
 
     S3::CreateBucketRequest createRequest;
     createRequest.SetBucket(bucketName);
@@ -4477,6 +4478,7 @@ void LocalWorker::s3ModeHeadBucket(std::string bucketName)
 	throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
     OPLOG_PRE_OP("HeadBucket", bucketName, 0, 0);
+    atomicS3ReqOps.numHead++;
 
 	const auto outcome = s3Client->HeadBucket(S3::HeadBucketRequest().WithBucket(bucketName));
 
@@ -4512,6 +4514,7 @@ void LocalWorker::s3ModeCreateBucketTagging(const std::string& bucketName)
     s3ModeAddChecksumAlgorithm(taggingRequest);
 
     OPLOG_PRE_OP("PutBucketTagging", bucketName, 0, 0);
+    atomicS3ReqOps.numPut++;
 
     const auto taggingOutcome = s3Client->PutBucketTagging(taggingRequest);
 
@@ -4533,6 +4536,7 @@ void LocalWorker::s3ModeGetBucketTagging(const std::string& bucketName)
     throw WorkerException(std::string(__func__) + " called, but this was built without S3 support");
 #else
     OPLOG_PRE_OP("GetBucketTagging", bucketName, 0, 0);
+    atomicS3ReqOps.numGet++;
 
     const auto outcome = s3Client->GetBucketTagging(S3::GetBucketTaggingRequest().WithBucket(bucketName));
 
@@ -4570,6 +4574,7 @@ void LocalWorker::s3ModeDeleteBucketTagging(const std::string& bucketName)
 #else
 
     OPLOG_PRE_OP("DeleteBucketTagging", bucketName, 0, 0);
+    atomicS3ReqOps.numDelete++;
 
     const auto outcome = s3Client->DeleteBucketTagging(
         S3::DeleteBucketTaggingRequest().WithBucket(bucketName)
@@ -4599,6 +4604,7 @@ void LocalWorker::s3ModeDeleteBucket(const std::string& bucketName)
 	request.SetBucket(bucketName);
 
 	OPLOG_PRE_OP("S3DeleteBucket", bucketName, 0, 0);
+	atomicS3ReqOps.numDelete++;
 
 	S3::DeleteBucketOutcome deleteOutcome = s3Client->DeleteBucket(request);
 
@@ -4632,6 +4638,7 @@ void LocalWorker::s3ModePutBucketAcl(std::string bucketName)
     TranslatorTk::applyS3PutAclRequestGrants<S3::BucketCannedACL>(progArgs, request);
 
 	OPLOG_PRE_OP("S3PutBucketAcl", bucketName, 0, 0);
+	atomicS3ReqOps.numPut++;
 
 	S3::PutBucketAclOutcome outcome = s3Client->PutBucketAcl(request);
 
@@ -4659,6 +4666,7 @@ void LocalWorker::s3ModeGetBucketAcl(std::string bucketName)
 	request.WithBucket(bucketName);
 
 	OPLOG_PRE_OP("S3GetBucketAcl", bucketName, 0, 0);
+	atomicS3ReqOps.numGet++;
 
 	S3::GetBucketAclOutcome outcome = s3Client->GetBucketAcl(request);
 
@@ -4746,6 +4754,7 @@ void LocalWorker::s3ModeGetBucketVersioning(const std::string& bucketName)
     throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
     OPLOG_PRE_OP("GetBucketVersioning", bucketName, 0, 0);
+    atomicS3ReqOps.numGet++;
 
     const auto bucketVersioningOutcome = s3Client->GetBucketVersioning(
             S3::GetBucketVersioningRequest().WithBucket(bucketName)
@@ -4787,6 +4796,7 @@ void LocalWorker::s3ModePutBucketVersioning(const std::string& bucketName, bool 
                                              : S3::BucketVersioningStatus::Suspended);
 
     OPLOG_PRE_OP("PutBucketVersioning", bucketName, 0, 0);
+    atomicS3ReqOps.numPut++;
 
     const auto putBucketVersioningOutcome = s3Client->PutBucketVersioning(
             S3::PutBucketVersioningRequest()
@@ -4863,6 +4873,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
     #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
+	atomicS3ReqOps.numPut++;
 
 	S3::PutObjectOutcome outcome = s3Client->PutObject(request);
 
@@ -4938,6 +4949,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         "Obj: " << bucketName + "/" + objectName << std::endl);
 
     OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
+    atomicS3ReqOps.numPost++;
 
 	auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
 		createMultipartUploadRequest);
@@ -5022,6 +5034,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
+		atomicS3ReqOps.numPut++;
 
 		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
 
@@ -5111,6 +5124,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
     OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
         completedMultipartUpload.GetParts().size() );
+    atomicS3ReqOps.numPost++;
 
 	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
 
@@ -5180,6 +5194,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
         "Obj: " << bucketName + "/" + objectName << std::endl);
 
     OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
+    atomicS3ReqOps.numPost++;
 
     auto createMultipartUploadOutcome = s3Client->CreateMultipartUpload(
         createMultipartUploadRequest);
@@ -5276,6 +5291,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
+                atomicS3ReqOps.numPut++;
 
                 s3Client->UploadPartAsync(uploadPartRequest,
                     [partCompletePromise = &asyncPartContext.partCompletePromise]
@@ -5409,6 +5425,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
 
     OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
         completedMultipartUpload.GetParts().size() );
+    atomicS3ReqOps.numPost++;
 
     auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
 
@@ -5524,6 +5541,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
         #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
+		atomicS3ReqOps.numPut++;
 
 		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
 
@@ -5617,6 +5635,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		.WithMultipartUpload(completedMultipartUpload);
 
 	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize);
+	atomicS3ReqOps.numPost++;
 
 	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
 
@@ -5754,6 +5773,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
 
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
+                atomicS3ReqOps.numPut++;
 
                 s3Client->UploadPartAsync(uploadPartRequest,
                     [partCompletePromise = &asyncPartContext.partCompletePromise]
@@ -5890,6 +5910,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
 		.WithMultipartUpload(completedMultipartUpload);
 
 	OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0, objectTotalSize);
+	atomicS3ReqOps.numPost++;
 
 	auto completionOutcome = s3Client->CompleteMultipartUpload(completionRequest);
 
@@ -5958,6 +5979,7 @@ void LocalWorker::s3ModeQueryAndFinishMultipartUpload(std::string bucketName,
     while(isTruncated)
     {
         OPLOG_PRE_OP("S3ListParts", bucketName + "/" + objectName, nextPartNumberMarker, 0);
+        atomicS3ReqOps.numGet++;
 
         auto outcome = s3Client->ListParts(listPartsRequest);
 
@@ -6021,6 +6043,7 @@ void LocalWorker::s3ModeQueryAndFinishMultipartUpload(std::string bucketName,
 
     OPLOG_PRE_OP("S3CompleteMultipartUpload", bucketName + "/" + objectName, 0,
         completedUpload.GetParts().size() );
+    atomicS3ReqOps.numPost++;
 
     auto completeOutcome = s3Client->CompleteMultipartUpload(completeRequest);
 
@@ -6058,6 +6081,7 @@ bool LocalWorker::s3ModeAbortMultipartUpload(std::string bucketName, std::string
 	abortMultipartUploadRequest.SetUploadId(uploadID);
 
 	OPLOG_PRE_OP("S3AbortMultipartUpload", bucketName + "/" + objectName, 0, 0);
+	atomicS3ReqOps.numPost++;
 
 	auto abortOutcome = s3Client->AbortMultipartUpload(abortMultipartUploadRequest);
 
@@ -6219,6 +6243,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
         #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
 
 		OPLOG_PRE_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize);
+		atomicS3ReqOps.numGet++;
 
 		S3::GetObjectOutcome outcome = s3Client->GetObject(request);
 
@@ -6384,6 +6409,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
 
                 OPLOG_PRE_OP("S3GetObjectAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
+                atomicS3ReqOps.numGet++;
 
                 s3Client->GetObjectAsync(request,
                     [partCompletePromise = &asyncPartContext.partCompletePromise]
@@ -6497,6 +6523,7 @@ void LocalWorker::s3ModeStatObject(std::string bucketName, std::string objectNam
 		.WithKey(objectName);
 
 	OPLOG_PRE_OP("S3HeadObject", bucketName + "/" + objectName, 0, 0);
+	atomicS3ReqOps.numHead++;
 
 	S3::HeadObjectOutcome outcome = s3Client->HeadObject(request);
 
@@ -6526,6 +6553,7 @@ void LocalWorker::s3ModeDeleteObject(std::string bucketName, std::string objectN
 		.WithKey(objectName);
 
 	OPLOG_PRE_OP("S3DeleteObject", bucketName + "/" + objectName, 0, 0);
+	atomicS3ReqOps.numDelete++;
 
 	S3::DeleteObjectOutcome outcome = s3Client->DeleteObject(request);
 
@@ -6585,6 +6613,7 @@ void LocalWorker::s3ModeListObjects()
 
 			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
 				request.GetMaxKeys() );
+			atomicS3ReqOps.numList++;
 
 			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
 
@@ -6730,6 +6759,7 @@ void LocalWorker::s3ModeListObjParallel()
 
 			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + currentListPrefix, 0,
 				request.GetMaxKeys() );
+			atomicS3ReqOps.numList++;
 
 			S3::ListObjectsV2Outcome outcome = s3Client->ListObjectsV2(request);
 
@@ -6889,6 +6919,7 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 
 			OPLOG_PRE_OP("S3ListObjectsV2", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
 				numObjectsPerRequest);
+			atomicS3ReqOps.numList++;
 
 			S3::ListObjectsV2Outcome listOutcome = s3Client->ListObjectsV2(listRequest);
 
@@ -6931,6 +6962,7 @@ void LocalWorker::s3ModeListAndMultiDeleteObjects()
 
             OPLOG_PRE_OP("S3DeleteObjects", bucketVec[bucketIndex] + "/" + objectPrefix, 0,
                 numObjectsPerRequest);
+            atomicS3ReqOps.numPost++;
 
 			S3::DeleteObjectsOutcome delOutcome = s3Client->DeleteObjects(delRequest);
 
@@ -6995,6 +7027,7 @@ void LocalWorker::s3ModePutObjectAcl(std::string bucketName, std::string objectN
     TranslatorTk::applyS3PutAclRequestGrants<S3::ObjectCannedACL>(progArgs, request);
 
 	OPLOG_PRE_OP("S3PutObjectAcl", bucketName + "/" + objectName, 0, 0);
+	atomicS3ReqOps.numPut++;
 
 	S3::PutObjectAclOutcome outcome = s3Client->PutObjectAcl(request);
 
@@ -7023,6 +7056,7 @@ void LocalWorker::s3ModeGetObjectAcl(std::string bucketName, std::string objectN
 		.WithKey(objectName);
 
 	OPLOG_PRE_OP("S3GetObjectAcl", bucketName + "/" + objectName, 0, 0);
+	atomicS3ReqOps.numGet++;
 
 	S3::GetObjectAclOutcome outcome = s3Client->GetObjectAcl(request);
 
@@ -7112,6 +7146,7 @@ void LocalWorker::s3ModeGetObjectTags(const std::string& bucketName, const std::
     throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
     OPLOG_PRE_OP("GetObjectTagging", bucketName + "/" + objectName, 0, 0);
+    atomicS3ReqOps.numGet++;
 
     const auto getTagOutcome = s3Client->GetObjectTagging(
         S3::GetObjectTaggingRequest()
@@ -7170,6 +7205,7 @@ void LocalWorker::s3ModePutObjectTags(const std::string& bucketName, const std::
     s3ModeAddChecksumAlgorithm(request);
 
     OPLOG_PRE_OP("PutObjectTagging", bucketName + "/" + objectName, 0, TAG_VALUE_MEDIUM_LEN);
+    atomicS3ReqOps.numPut++;
 
     const auto putTagOutcome = s3Client->PutObjectTagging(request);
 
@@ -7188,6 +7224,7 @@ void LocalWorker::s3ModeDeleteObjectTags(const std::string& bucketName, const st
 #else
 
     OPLOG_PRE_OP("DeleteObjectTagging", bucketName + "/" + objectName, 0, 0);
+    atomicS3ReqOps.numDelete++;
 
     const auto delTagOutcome = s3Client->DeleteObjectTagging(
         S3::DeleteObjectTaggingRequest()
@@ -7208,6 +7245,7 @@ void LocalWorker::s3ModeGetObjectLockConfiguration(const std::string &bucketName
     throw WorkerException(std::string(__func__) + "called, but this was built without S3 support");
 #else
     OPLOG_PRE_OP("GetObjectLockConfiguration", bucketName, 0, 0);
+    atomicS3ReqOps.numGet++;
 
     const auto getObjLockOutcome = s3Client->GetObjectLockConfiguration(
         S3::GetObjectLockConfigurationRequest().WithBucket(bucketName)
@@ -7271,6 +7309,7 @@ void LocalWorker::s3ModePutObjectLockConfiguration(const std::string &bucketName
     }
 
     OPLOG_PRE_OP("PutObjectLockConfiguration", bucketName, 0, 0);
+    atomicS3ReqOps.numPut++;
 
     const auto putObjLockOutcome = s3Client->PutObjectLockConfiguration(
         S3::PutObjectLockConfigurationRequest()

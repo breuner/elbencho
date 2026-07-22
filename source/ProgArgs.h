@@ -188,6 +188,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3OBJTAGVERIFY_LONG          "s3otagverify"
 #define ARG_S3RANDOBJ_LONG               "s3randobj"
 #define ARG_S3REGION_LONG                "s3region"
+#define ARG_S3RPS_LONG                   "s3-rps"
 #define ARG_S3SESSION_TOKEN_LONG         "s3sessiontoken"
 #define ARG_S3SIGNPAYLOAD_LONG           "s3sign"
 #define ARG_S3SSE_LONG                   "s3sse"
@@ -536,6 +537,7 @@ class ProgArgs
         bool showLatency; // show min/avg/max latency
         bool showLatencyHistogram; // show latency histogram
         bool showLatencyPercentiles; // show latency percentiles
+        bool showS3RPS; // show S3 requests/s broken down by HTTP method (GET/PUT/HEAD/...)
         bool showServicesElapsed; // print elapsed time of each service by slowest thread
         bool showThroughputBase10; // show throughput in base10 instead base2 (MB/s instead MiB/s)
         int sockRecvBufSize; // custom netbench socket recv buf size (0 means no change)
@@ -819,6 +821,7 @@ class ProgArgs
         bool getShowLatency() const { return showLatency; }
         bool getShowLatencyHistogram() const { return showLatencyHistogram; }
         bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
+        bool getShowS3RPS() const { return showS3RPS; }
         bool getShowServicesElapsed() const { return showServicesElapsed; }
         bool getShowThroughputBase10() const { return showThroughputBase10; }
         int getSockRecvBufSize() const { return sockRecvBufSize; }

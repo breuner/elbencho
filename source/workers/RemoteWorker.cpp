@@ -224,6 +224,13 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		atomicLiveOps.numBytesDone = resultTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 		atomicLiveOps.numIOPSDone = resultTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 
+		atomicS3ReqOps.numGet = resultTree.get<size_t>(XFER_STATS_NUMS3GET, 0);
+		atomicS3ReqOps.numPut = resultTree.get<size_t>(XFER_STATS_NUMS3PUT, 0);
+		atomicS3ReqOps.numHead = resultTree.get<size_t>(XFER_STATS_NUMS3HEAD, 0);
+		atomicS3ReqOps.numPost = resultTree.get<size_t>(XFER_STATS_NUMS3POST, 0);
+		atomicS3ReqOps.numDelete = resultTree.get<size_t>(XFER_STATS_NUMS3DELETE, 0);
+		atomicS3ReqOps.numList = resultTree.get<size_t>(XFER_STATS_NUMS3LIST, 0);
+
 		cpuUtil.stoneWall = resultTree.get<unsigned>(XFER_STATS_CPUUTIL_STONEWALL);
 		cpuUtil.lastDone = resultTree.get<unsigned>(XFER_STATS_CPUUTIL);
 		cpuUtil.live = 0; // this service is done, so no more cpu util
@@ -496,6 +503,12 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			atomicLiveOps.numEntriesDone = statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE);
 			atomicLiveOps.numBytesDone = statusTree.get<size_t>(XFER_STATS_NUMBYTESDONE);
 			atomicLiveOps.numIOPSDone = statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
+			atomicS3ReqOps.numGet = statusTree.get<size_t>(XFER_STATS_NUMS3GET, 0);
+			atomicS3ReqOps.numPut = statusTree.get<size_t>(XFER_STATS_NUMS3PUT, 0);
+			atomicS3ReqOps.numHead = statusTree.get<size_t>(XFER_STATS_NUMS3HEAD, 0);
+			atomicS3ReqOps.numPost = statusTree.get<size_t>(XFER_STATS_NUMS3POST, 0);
+			atomicS3ReqOps.numDelete = statusTree.get<size_t>(XFER_STATS_NUMS3DELETE, 0);
+			atomicS3ReqOps.numList = statusTree.get<size_t>(XFER_STATS_NUMS3LIST, 0);
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
             uint64_t numAvgIOLatValues = statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS);
