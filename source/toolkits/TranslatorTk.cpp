@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <iterator>
 #include <regex>
@@ -566,24 +567,59 @@ bool TranslatorTk::expandSquareBrackets(StringVec& inoutStrVec)
  * Replace all occurences of commas in inoutStr with replacementStr, but only if the occurences
  * are outside of square brackets.
  * This is useful for strings that are supposed to be split based on chars that might also occur in
- * square brackets, but with a different meaning if they are in square brackets.
+ * square brackets, but with a different meaning if they are in square brackets. A typcal case
+ * for this are comma-separted hosts that can also contain commas inside square brackets, e.g.
+ * "--hosts myhost1,myhost[3,37]".
  *
  * @return true if something was replaced, false otherwise.
  */
 bool TranslatorTk::replaceCommasOutsideOfSquareBrackets(std::string& inoutStr,
 	std::string replacementStr)
 {
-	// regular expression to idenfity find commas outside of square brackets
-	std::regex regexCommasOutsideSquareBrackets(",(?![^\\[]*\\])");
+    std::string replacedStr;
+    replacedStr.reserve(inoutStr.size() + replacementStr.size() );
 
-	std::string replacedStr = std::regex_replace(
-		inoutStr, regexCommasOutsideSquareBrackets, replacementStr);
+    bool didReplace = false;
+    size_t bracketDepth = 0;
 
-	bool didReplace = (inoutStr != replacedStr);
+    // substite commas outside of square brackets (i.e. at bracket depth 0)
+    /* note: this is a linear bracket-depth scan instead of a std::regex with negative lookahead,
+        because the regex method overflows the stack if 1000s of comma-separated hosts are given via
+        "--hosts"/"--hostsfile". */
+    for(char currentChar : inoutStr)
+    {
+        switch(currentChar)
+        {
+            case '[':
+                bracketDepth++;
+                replacedStr += currentChar;
+                break;
 
-	inoutStr = replacedStr;
+            case ']':
+                if(bracketDepth > 0)
+                    bracketDepth--;
+                replacedStr += currentChar;
+                break;
 
-	return didReplace;
+            case ',':
+                if(bracketDepth == 0)
+                { // comma outside of square brackets => replace it
+                    replacedStr += replacementStr;
+                    didReplace = true;
+                }
+                else // comma inside square brackets => keep it
+                    replacedStr += currentChar;
+                break;
+
+            default:
+                replacedStr += currentChar;
+                break;
+        }
+    }
+
+    inoutStr = replacedStr;
+
+    return didReplace;
 }
 
 /**
@@ -593,13 +629,13 @@ bool TranslatorTk::replaceCommasOutsideOfSquareBrackets(std::string& inoutStr,
  */
 std::string TranslatorTk::eraseCommas(const std::string& str)
 {
-	// regular expression to idenfity find commas outside of square brackets
-	std::regex regexComma(",");
+    // erase all commas via a simple linear scan
+    std::string replacedStr(str);
 
-	// write the results to an output iterator
-	std::string replacedStr = std::regex_replace(str, regexComma, "");
+    replacedStr.erase(
+        std::remove(replacedStr.begin(), replacedStr.end(), ','), replacedStr.end() );
 
-	return replacedStr;
+    return replacedStr;
 }
 
 /**

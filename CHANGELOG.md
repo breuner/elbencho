@@ -9,9 +9,10 @@
 ### Fixes
 * Fixed potential issue on macOS with async S3 requests not getting cleaned up correctly after error or interruption.
 * Applied various minor fixes to the contributed sweep tools.
+* Fixed stack overflow when using large comma-separated lists (several thousands) of hosts via "--hosts" or "--hostsfile".
 
 ### Contributors
-Thanks to Chin Fang for code contributions.
+Thanks to Chin Fang for code contributions. Thanks to Darrell Bishop for helpful comments and suggestions.
 
 ## v3.1.9 (June 21, 2026)
 
