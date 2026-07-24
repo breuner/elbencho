@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.1.10 (work in progress)
+## v3.1.11 (July 24, 2026)
 
 ### General Changes
 * Updated ftxui lib for fullscreen live stats to latest v7.0.1.
