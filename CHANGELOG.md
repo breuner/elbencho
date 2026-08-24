@@ -10,6 +10,7 @@
 ### General Changes
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
 * Removed dockerfiles without `.local`  extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
+* Updated ftxui lib for fullscreen live stats to latest v7.0.3.
 
 ### Contributors
 * Thanks to Dan Gluskin and Aviv Ben David for helpful comments and suggestions.

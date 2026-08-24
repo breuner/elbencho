@@ -450,7 +450,7 @@ prepare_libbacktrace()
 # Prepare git clone and required tag of ftxui.
 prepare_ftxui()
 {
-	local REQUIRED_TAG="v7.0.1"
+	local REQUIRED_TAG="v7.0.3"
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/ftxui"
 	local BUILD_DIR="${EXTERNAL_BASE_DIR}/ftxui/build"
