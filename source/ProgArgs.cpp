@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <libgen.h>
 #include <openssl/sha.h>
+#include <ostream>
 #include <regex>
 #include <string>
 #include <sys/ioctl.h>
@@ -24,6 +26,8 @@
 #include "toolkits/NumaTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
 #include "toolkits/S3Tk.h"
+#include "toolkits/spdk/SpdkNvmeClient.h"
+#include "toolkits/spdk/SpdkTk.h"
 #include "toolkits/StringTk.h"
 #include "toolkits/SystemTk.h"
 #include "toolkits/TerminalTk.h"
@@ -88,6 +92,7 @@
 // Names of features for printVersionAndBuildInfo()
 #define FEATURE_NAME_S3_SUPPORT     "s3"
 #define FEATURE_NAME_S3_AWSCRT      "s3crt"
+#define FEATURE_NAME_SPDK           "spdk"
 
 
 /**
@@ -761,6 +766,12 @@ void ProgArgs::defineAllowedArgs()
 			"mode. (Format: hostname[:port])")
 /*se*/	(ARG_RUNASSERVICE_LONG, bpo::bool_switch(&this->runAsService),
 			"Run as service for distributed mode, waiting for requests from master.")
+#ifdef SPDK_SUPPORT
+/*sp*/	(ARG_SPDKCONFJSON_LONG, bpo::value(&this->spdkConfJSON),
+            "JSON config for SPDK NVMe-oF initiator mode.")
+/*sp*/	(ARG_SPDKCONFFILE_LONG, bpo::value(&this->spdkConfFile),
+            "File to load JSON config from for SPDK NVMe-oF initiator mode.")
+#endif // SPDK_SUPPORT
 /*sh*/	(ARG_FILESHARESIZE_LONG, bpo::value(&this->fileShareSizeOrigStr),
 			"In custom tree mode, this defines the file size as of which files are no longer "
 			"exclusively assigned to a thread. This means multiple threads read/write different "
@@ -768,7 +779,7 @@ void ProgArgs::defineAllowedArgs()
 			"(Default: 0, which means " FILESHAREBLOCKFACTOR_STR " x blocksize)")
 /*st*/	(ARG_STATFILES_LONG, bpo::bool_switch(&this->runStatFilesPhase),
 			"Run file stat benchmark phase.")
-/*re*/	(ARG_STATFILESINLINE_LONG, bpo::bool_switch(&this->doStatInline),
+/*st*/	(ARG_STATFILESINLINE_LONG, bpo::bool_switch(&this->doStatInline),
 			"When benchmark path is a directory, stat files immediately after open in a write or "
 			"read phase.")
 /*st*/	(ARG_STARTTIME_LONG, bpo::value(&this->startTime),
@@ -1108,6 +1119,9 @@ void ProgArgs::interceptBoolArgOverrides(const bpo::options_description& argsDes
 
 /**
  * Initialize benchmark mode based on user config.
+ *
+ * Note: This is not called by services during bench phase prep, thus init of benchPathType is
+ * separate in initBenchPathType and (for posix) prepareBenchPathFDsVec.
  */
 void ProgArgs::initBenchMode()
 {
@@ -1130,6 +1144,9 @@ void ProgArgs::initBenchMode()
     else
     if(useNetBench)
         benchMode = BenchMode_NETBENCH;
+    else
+    if(!spdkConfFile.empty() || !spdkConfJSON.empty() )
+        benchMode = BenchMode_SPDK;
 
     // default to posix mode if no other mode is set explicitly and not running as service
     if( (benchMode == BenchMode_UNDEFINED) && !runAsService)
@@ -1390,6 +1407,7 @@ void ProgArgs::checkArgs()
 	parseGPUIDs();
 	parseRandAlgos();
 	parseS3Endpoints();
+    loadSpdkConfigFile();
 
 	if( (interruptServices || quitServices) && hostsVec.empty() )
 		throw ProgException("Service interruption/termination requires a host list.");
@@ -1731,7 +1749,7 @@ void ProgArgs::checkPathDependentArgs()
 	{
 		// note: we ensure before this point that fileSize, blockSize and thread count are not 0.
 
-		const size_t numFiles = benchPathFDsVec.size();
+		const size_t numFiles = benchPathsVec.size();
 		const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 			( (fileSize % blockSize) ? 1 : 0);
 		const uint64_t numBlocksTotal = numBlocksPerFile * numFiles; // total for all files
@@ -1864,6 +1882,8 @@ void ProgArgs::parseAndCheckPaths()
 		}
 	}
 
+    prepareSpdk(); // initionally before benchPathsVec.empty() check for namespace info mode
+
 	if( (benchPathsVec.empty() || benchPathStr.empty() ) && !useNetBench)
 		throw ProgException("Benchmark path missing.");
 
@@ -1873,16 +1893,15 @@ void ProgArgs::parseAndCheckPaths()
 
 	// if we get here then this is not the master of a distributed run...
 
+    initBenchPathType(); // (posix mode init is in prepareBenchPathFDsVec)
+
     prepareS3ClientSingleton();
 
-	// skip open of local paths for S3/HDFS/NetBench
-	if(benchMode != BenchMode_POSIX)
-	{
-		benchPathType = BenchPathType_DIR;
-		return;
-	}
+    // skip open of local paths for anything other than posix (i.e. S3/HDFS/NetBench/SPDK)
+    if(benchMode != BenchMode_POSIX)
+        return;
 
-    // if we get here then we have a normal file system as bench path
+    // if we get here then we have a posix file system as bench path (BenchMode_POSIX)
 
     prepareBenchPathFDsVec();
     prepareCuFileHandleDataVec();
@@ -1970,6 +1989,40 @@ void ProgArgs::convertS3PathsToCustomTree()
 	// set treefile path
 	treeFilePath = S3_IMPLICIT_TREEFILE_PATH;
 }
+
+/**
+ * Initialize benchPathType based on user config for everything except posix mode, because posix
+ * mode path type gets detected later in prepareBenchPathFDsVec based on stat().
+ *
+ * Note: In contrast to initBenchMode, this is also called by services during bench phase prep,
+ * thus it's separate.
+ */
+ void ProgArgs::initBenchPathType()
+ {
+     StringVec benchPathsVecTmp;
+
+     switch(benchMode)
+     {
+        case BenchMode_S3:
+        case BenchMode_HDFS:
+        case BenchMode_NETBENCH:
+            benchPathType = BenchPathType_DIR;
+            break;
+
+        case BenchMode_SPDK:
+            benchPathType = BenchPathType_BLOCKDEV;
+            break;
+
+        default:
+            break;
+
+        // note: no BenchMode_POSIX here, that gets done in prepareBenchPathFDsVec
+     }
+
+
+     LOGGER(Log_DEBUG, "Bench path type: " <<
+        TranslatorTk::benchPathTypeToStr(benchPathType, this) << std::endl);
+ }
 
 /**
  * Fill benchPathFDsVec with open file descriptors from benchPathsVec.
@@ -2180,6 +2233,139 @@ void ProgArgs::prepareS3ClientSingleton()
         &s3SingletonEndpointStr);
 
 #endif // S3_SUPPORT
+}
+
+/**
+ * Prepare SPDK: run namespace discovery via spdkClientSingleton and resolve the user's namespace
+ * selection from it.
+ *
+ * For local/service runs (i.e. not the master of a distributed run) spdkClientSingleton is
+ * not disconnected here so that LocalWorker::initSpdk() reuses this same discovery
+ * connection instead of tearing it down and immediately reconnecting from scratch; cleanup for
+ * that case is done in resetBenchPath() after all worker threads have finished.
+ *
+ * NOTE: It's possible that this gets called in standalone mode without any benchmark paths given,
+ * in which case we list the discovered namespaces and then exit via throwing ProgException.
+ *
+ * @throw ProgException on error
+ */
+void ProgArgs::prepareSpdk()
+{
+#ifndef SPDK_SUPPORT
+    if(benchMode == BenchMode_SPDK)
+        throw ProgException("SPDK mode selected, but this executable was built without spdk");
+#else // SPDK_SUPPORT
+
+    if(benchMode != BenchMode_SPDK)
+        return; // nothing to do
+
+    LOGGER(Log_VERBOSE, "Preparing SPDK..." << std::endl);
+
+    int initGlobalRes = SpdkNvmeClient::globalInit(spdkConfJSON);
+
+    if(initGlobalRes != 0)
+        throw ProgException("Unable to initialize SPDK: " + std::to_string(initGlobalRes) );
+
+    LOGGER(Log_VERBOSE, "SPDK initialized successfully." << std::endl);
+
+
+    // init spdk client and run discovery of namespaces...
+
+    spdkClientSingleton = std::make_unique<SpdkNvmeClient>();
+    SpdkNvmeClient& spdkClient = *spdkClientSingleton;
+
+    bool initClientRes = spdkClient.init(spdkConfJSON);
+
+    if(!initClientRes)
+        throw ProgException("SPDK client init failed");
+
+    UInt32Vec nsIDs = spdkClient.getNamespaceIds();
+
+    if(nsIDs.empty() )
+        throw ProgException("SPDK init did not discover any matching namespaces.");
+
+    for(uint32_t nsID : nsIDs)
+        LOGGER(Log_DEBUG, "Namespace: " << nsID << "; "
+            "Size: " << spdkClient.getNamespaceSize(nsID) << " bytes" << std::endl);
+
+	// apply user's namespace selection based on numeric ID, human-friendly name, UUID or NGUID
+
+    SpdkTk::resolveNamespaceSelection(spdkClient, nsIDs, benchPathsVec, benchPathSpdkNsIdsVec);
+
+    /* benchPathStr (which is the basis for service instances) is out of sync with benchPathsVec
+        after regex match(es), so rebuild it */
+    benchPathStr = StringTk::vecToStr(benchPathsVec, std::string(1, BENCHPATH_DELIMITER[0] ) );
+
+    if( (benchPathsVec.empty() && !runAsService) || (logLevel == Log_VERBOSE) )
+    {
+        SpdkTk::printNamespaceDiscoveryResult(spdkClient, nsIDs);
+
+        if(benchPathsVec.empty() && !runAsService)
+            throw ProgException("No namespaces given, exiting after listing available namespaces");
+    }
+
+    if(benchPathSpdkNsIdsVec.empty() )
+        throw ProgException("No valid namespaces selected.");
+
+
+    // iterate over selected namespaces for basic checks...
+    uint64_t minNamespaceSize = spdkClient.getNamespaceSize(benchPathSpdkNsIdsVec[0] );
+    uint32_t namespaceSectorSize = spdkClient.getNamespaceSectorSize(benchPathSpdkNsIdsVec[0] );
+    for(uint32_t nsId : benchPathSpdkNsIdsVec)
+    {
+        minNamespaceSize = std::min(minNamespaceSize, spdkClient.getNamespaceSize(nsId) );
+
+        if(spdkClient.getNamespaceSectorSize(nsId) != namespaceSectorSize)
+            throw ProgException("Found different namespace sector sizes. This is not supported.");
+    }
+
+    // fileSize not explicitly set, so use size of smallest namespace
+    if(!fileSize)
+    {
+        fileSize = minNamespaceSize;
+        LOGGER(Log_DEBUG, "Smallest namespace size: " << minNamespaceSize << " bytes" << std::endl);
+    }
+    else
+    if(fileSize > minNamespaceSize)
+        throw ProgException("Given size exceeds size of smallest namespace: " +
+            std::to_string(minNamespaceSize) + " bytes");
+
+    if( (blockSize < namespaceSectorSize) || (blockSize % namespaceSectorSize) ||
+        (fileSize < namespaceSectorSize) || (fileSize % namespaceSectorSize) )
+        throw ProgException("Block size and file size must be an even multiple of "
+            "namespace sector size: " + std::to_string(namespaceSectorSize) + " bytes" );
+
+    // keep attached for re-use by worker threads if this is not a master of a distributed run
+    if(!hostsVec.empty() )
+        spdkClientSingleton->disconnect();
+
+	/* conflict checks against other feature flags...
+       we specifically need to prevent anything that uses posix FDs in LocalWorker, because
+       LocalWorker copyies namespace IDs to FD vector to use generic blockdev functions for SPDK. */
+
+    if(useCuFile)
+        throw ProgException("cufile/gds not supported in SPDK mode");
+
+    if(useMmap)
+        throw ProgException("mmap not supported in SPDK mode");
+
+    if(!flockTypeOrigStr.empty() )
+        throw ProgException("flock not supported in SPDK mode");
+
+    if(!fadviseFlagsOrigStr.empty() )
+        throw ProgException("fadvise not supported in SPDK mode");
+
+    if(useNoFDSharing)
+        throw ProgException("Per-thread FDs option not supported in SPDK mode");
+
+    if(runDeleteFilesPhase)
+        throw ProgException("Delete not supported in SPDK mode");
+
+    if(useRandomUnaligned)
+        throw ProgException("Unaligned IO not supported in SPDK mode");
+
+
+#endif // SPDK_SUPPORT
 }
 
 /**
@@ -2747,6 +2933,32 @@ void ProgArgs::parseS3Endpoints()
     if(s3EndpointsVec.empty() )
         LOGGER(Log_DEBUG, __func__ << ": " <<
             "No S3 endpoint explicitly defined, so relying on AWS profile settings. " << std::endl);
+}
+
+/**
+ * Load SPDK config json file. Intended for standalone mode or master of a distributed run, because
+ * this sets the spdkConfJSON variable, which gets transferred to service instances if needed.
+ *
+ * @throw ProgException if a problem is found.
+ */
+void ProgArgs::loadSpdkConfigFile()
+{
+#ifdef SPDK_SUPPORT
+    if(spdkConfFile.empty() )
+        return; // nothing to do
+
+    std::ifstream fileStream(spdkConfFile);
+    if (!fileStream.is_open())
+    {
+        throw ProgException("Failed to open SPDK config file: " + spdkConfFile);
+    }
+
+    std::stringstream buffer;
+    buffer << fileStream.rdbuf();
+
+    this->spdkConfJSON = buffer.str();
+
+#endif // SPDK_SUPPORT
 }
 
 /**
@@ -3718,6 +3930,12 @@ void ProgArgs::printVersionAndBuildInfo()
     notIncludedStream << FEATURE_NAME_S3_AWSCRT << " ";
 #endif
 
+#ifdef SPDK_SUPPORT
+    includedStream << FEATURE_NAME_SPDK << " ";
+#else
+    notIncludedStream << FEATURE_NAME_SPDK << " ";
+#endif
+
 #ifdef SYNCFS_SUPPORT
 	includedStream << "syncfs ";
 #else
@@ -3848,6 +4066,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     showThroughputBase10 = tree.get<bool>(ARG_THROUGHPUTBASE10_LONG);
 	sockRecvBufSize = tree.get<int>(ARG_RECVBUFSIZE_LONG);
 	sockSendBufSize = tree.get<int>(ARG_SENDBUFSIZE_LONG);
+    spdkConfJSON = tree.get<std::string>(ARG_SPDKCONFJSON_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
 	useCuFile = tree.get<bool>(ARG_CUFILE_LONG);
 	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
@@ -4027,6 +4246,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3TROUGHPUTTARGET_LONG, s3ThroughputTargetGbps);
     outTree.put(ARG_S3VIRTADDRESSING_LONG, useS3VirtualAddressing);
     outTree.put(ARG_SENDBUFSIZE_LONG, sockSendBufSize);
+	outTree.put(ARG_SPDKCONFJSON_LONG, spdkConfJSON);
     outTree.put(ARG_STATFILES_LONG, runStatFilesPhase);
     outTree.put(ARG_STATFILESINLINE_LONG, doStatInline);
     outTree.put(ARG_STRIDEDACCESS_LONG, useStridedAccess);
@@ -4121,6 +4341,10 @@ void ProgArgs::resetBenchPath()
 {
     LOGGER(Log_DEBUG, "Resetting bench path..." << std::endl);
 
+#ifdef SPDK_SUPPORT
+    spdkClientSingleton.reset(); // release connection from prepareSpdk()
+#endif // SPDK_SUPPORT
+
 #ifdef S3_SUPPORT
     s3ClientSingleton.reset();
     s3IsInterruptionRequested = false;
@@ -4152,11 +4376,12 @@ void ProgArgs::resetBenchPath()
 	gpuIDsVec.resize(0); // reset before reuse in service mode
 	gpuIDsStr = ""; // reset before reuse in service mode
 
-	// close open file descriptors
-	for(int fd : benchPathFDsVec)
-		close(fd);
+    // close open file descriptors
+    for(int fd : benchPathFDsVec)
+        close(fd);
 
-	benchPathFDsVec.resize(0); // reset before reuse in service mode
+    benchPathFDsVec.resize(0); // reset before reuse in service mode
+    benchPathSpdkNsIdsVec.resize(0); // reset before reuse in service mode
 
 	benchPathsVec.resize(0); // reset before reuse in service mode
 	benchPathStr = "";

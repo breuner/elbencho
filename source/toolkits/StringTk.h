@@ -30,6 +30,8 @@ class StringTk
         static bool checkAndErasePrefix(std::string& str, const std::string prefix);
 		static bool checkForPrefix(const StringVec& vec, const std::string prefix);
 
+        static std::string vecToStr(const StringVec& vec, const std::string delimiter);
+
 	private:
 		StringTk() {}
 
@@ -46,6 +48,17 @@ class StringTk
                     { return std::iscntrl(static_cast<unsigned char>(ch) ); } ),
 		        str.end() );
 		}
+
+        /**
+         * Check if given string is non-empty and contains only digits. (No +/- signs accepted).
+         *
+         * @return true if non-empty and only digits in str.
+         */
+        static bool hasOnlyDigits(std::string str)
+        {
+            return !str.empty() &&
+                (str.find_first_not_of("0123456789") == std::string::npos);
+        }
 
 };
 

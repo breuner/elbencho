@@ -17,6 +17,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     apt -y upgrade && \
     apt install -y build-essential cmake debhelper devscripts fakeroot gcc-8 g++-8 git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libnuma-dev libssl-dev lintian && \
     cd /root/elbencho && \
+    make clean-all && \
     CC=gcc-8 CXX=g++-8 make -j "$(nproc)" && \
     make deb
 

@@ -2,6 +2,8 @@
 # Auto detection of available system libraries etc.
 #
 
+features-detect: externals
+
 TEST_C_FILE    = $(BUILD_HELPERS_PATH)/AutoDetection.c
 TEST_OBJ_FILE  = $(BUILD_HELPERS_PATH)/AutoDetection.obj
 

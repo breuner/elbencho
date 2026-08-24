@@ -16,6 +16,10 @@
 #include "toolkits/S3Tk.h"
 #include "toolkits/SystemTk.h" // IWYU pragma: keep (false clangd unused include warning)
 
+#ifdef SPDK_SUPPORT
+#include "toolkits/spdk/SpdkNvmeClient.h"
+#endif // SPDK_SUPPORT
+
 
 namespace bpo = boost::program_options;
 namespace bpt = boost::property_tree;
@@ -204,6 +208,8 @@ namespace bpt = boost::property_tree;
 #define ARG_SERVICEPORT_LONG             "port"
 #define ARG_SHOWALLELAPSED_LONG          "allelapsed"
 #define ARG_SHOWSVCELAPSED_LONG          "svcelapsed"
+#define ARG_SPDKCONFFILE_LONG            "spdkconffile"
+#define ARG_SPDKCONFJSON_LONG            "spdkconf"
 #define ARG_STARTTIME_LONG               "start"
 #define ARG_STATFILES_LONG               "stat"
 #define ARG_STATFILESINLINE_LONG         "statinline"
@@ -356,6 +362,7 @@ class ProgArgs
         StringVec benchPathsVec; // benchPathStr split into individual paths
         StringVec benchPathsServiceOverrideVec; // set in service mode to override bench paths
         IntVec benchPathFDsVec; // file descriptors to individual bench paths
+        IntVec benchPathSpdkNsIdsVec; // spdk numeric namespace IDs
         BenchPathType benchPathType; /* for local runs auto-detected based on benchPathStr;
                                         in master mode received from service hosts */
 
@@ -370,6 +377,11 @@ class ProgArgs
         std::string s3SingletonEndpointStr; // endpoint string for singleton s3 client
         StringVec s3MpuSharingUploadIDs; // ProgArgs precreated MPU IDs for mpu sharing mode
 #endif // S3_SUPPORT
+
+#ifdef SPDK_SUPPORT
+        std::unique_ptr<SpdkNvmeClient> spdkClientSingleton; /* to avoid two connection attempts
+            for prepareSpdk here and another one for the first LocalWorker */
+#endif // SPDK_SUPPORT
 
         int stdoutDupFD; // dup of stdout file descriptor if overridden e.g. due to csv to stdout
 
@@ -542,6 +554,8 @@ class ProgArgs
         int sockSendBufSize; // custom netbench socket send buf size (0 means no change)
         std::string sockRecvBufSizeOrigStr; // original sockRecvBufSize str from user with unit
         std::string sockSendBufSizeOrigStr; // original sockSendBufSize str from user with unit
+        std::string spdkConfFile; // path to spdk json config file (sets spdkConfJSON)
+        std::string spdkConfJSON; // json config for spdk
         time_t startTime; /* UTC start time to coordinate multiple benchmarks, in seconds since the
                             epoch. 0 means immediate start. */
         std::string svcPasswordFile; // protect against unauthorized service commands
@@ -601,10 +615,12 @@ class ProgArgs
         void checkPathDependentArgs();
         void parseAndCheckPaths();
         void convertS3PathsToCustomTree();
+        void initBenchPathType();
         void prepareBenchPathFDsVec();
         void prepareCuFileHandleDataVec();
         void prepareMmapVec();
         void prepareS3ClientSingleton();
+        void prepareSpdk();
         void prepareFileSize(int fd, std::string& path);
         void parseHosts();
         void parseNetBenchServersForService();
@@ -613,6 +629,7 @@ class ProgArgs
         void parseGPUIDs();
         void parseRandAlgos();
         void parseS3Endpoints();
+        void loadSpdkConfigFile();
         void parseNetDevs();
         void scanCustomTree();
         void loadCustomTreeFile();
@@ -642,6 +659,7 @@ class ProgArgs
         const StringVec& getBenchPathsServiceOverride() const
             { return benchPathsServiceOverrideVec; }
         const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
+        const IntVec& getBenchPathSpdkNsIds() const { return benchPathSpdkNsIdsVec; }
         BenchPathType getBenchPathType() const { return benchPathType; }
 
         // methods related to shared s3 client singleton for workers
@@ -823,6 +841,7 @@ class ProgArgs
         bool getShowThroughputBase10() const { return showThroughputBase10; }
         int getSockRecvBufSize() const { return sockRecvBufSize; }
         int getSockSendBufSize() const { return sockSendBufSize; }
+        std::string getSpdkConfJSON() const { return spdkConfJSON; }
         std::string getSvcPasswordFile() const { return svcPasswordFile; }
         std::string getSvcPasswordHash() const { return svcPasswordHash; }
         size_t getSvcReadyWaitSec() const { return svcReadyWaitSec; }

@@ -77,6 +77,10 @@ The Alpine Linux based image (tagged "`master-alpine`") is optimized for minimum
 
 S3 support is included in the images tagged "`latest`", "`master-alpine`", "`master-ubuntu-cuda-multiarch`" and in the images with stable version number tags.
 
+### NVMe-oF Initiator Support
+
+NVMe-oF initiator support through SPDK is included in the image tagged "`master-ubuntu2604`".
+
 ### Local Image Builds
 
 To build docker images from your local elbencho git clone (e.g. because you modified the sources or want to build a particular previous version), you can find the corresponding dockerfiles in the `build_helpers/docker` subdir with a `.local` extension. To build a Ubuntu image from your local sources, run this command:

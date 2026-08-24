@@ -99,6 +99,11 @@ else # dynamic linking
 
 endif
 
+# S3 AWS CRT and SPDK are mutually exclusive because of conflicting openssl/crypto libraries.
+ifeq ($(S3_AWSCRT)$(SPDK_SUPPORT),11)
+  $(error Error: S3_AWSCRT and SPDK_SUPPORT are mutually exclusive due to conflicting dependencies.)
+endif
+
 # Compiler and linker flags for S3 support
 # "-Wno-overloaded-virtual" because AWS SDK shows a lot of warnings about this otherwise
 ifeq ($(S3_SUPPORT), 1)
@@ -293,26 +298,80 @@ else
 endif
 
 
-$(OBJECTS): Makefile | externals features-info # Makefile dep to rebuild all on Makefile change
+# "Makefile" as dependency to rebuild all on Makefile change.
+# Dependency chain is: Makefile -> features-info -> features-detect -> externals
+$(OBJECTS): Makefile | features-info
 
 
 externals:
 # Note: The "+" prefix is to let "make" know that it needs to increase the MAKELEVEL env var because
 # there will be sub-make calls in this script.
 ifdef BUILD_VERBOSE
+	$(info [EXT] Preparing external libraries)
 	+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
+		PREP_SPDK=$(SPDK_SUPPORT) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 else
 	@+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
+		PREP_SPDK=$(SPDK_SUPPORT) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 endif
 
+# Compiler and linker flags for SPDK support.
+# This is located under the "externals" make target because the "pkg-config" depends on the SPDK
+# build from the prepare-external.sh script to have completed.
+ifeq ($(SPDK_SUPPORT), 1)
+  SPDK_PATH = "$(EXTERNAL_PATH)/spdk"
 
-features-info:
+  CXXFLAGS += -DSPDK_SUPPORT
+
+  SPDK_PKGS = spdk_bdev_nvme spdk_bdev spdk_nvme spdk_thread spdk_accel spdk_env_dpdk spdk_sock \
+	spdk_sock_posix spdk_json
+
+  CXXFLAGS += $(shell \
+    PKG_CONFIG_PATH="$(SPDK_PATH)/isa-l:$(SPDK_PATH)/build/lib/pkgconfig:$(PKG_CONFIG_PATH)" \
+	pkg-config --cflags $(SPDK_PKGS) )
+
+  LDFLAGS += -L$(SPDK_PATH)/isa-l/.libs -L$(SPDK_PATH)/isa-l-crypto/.libs
+
+  # extracts library search paths (--libs-only-L)
+  LDFLAGS += $(shell \
+    PKG_CONFIG_PATH="$(SPDK_PATH)/isa-l:$(SPDK_PATH)/isa-l-crypto:$(SPDK_PATH)/build/lib/pkgconfig:$(PKG_CONFIG_PATH)" \
+	pkg-config --static --libs-only-L $(SPDK_PKGS) libisal libisal_crypto | \
+	sed 's/-libverbs//g')
+
+  # temporarily switch to static linking for spdk libs
+  LDFLAGS += -Wl,-Bstatic
+
+  # force inclusion of all symbols of some specific SPDK/DPDK libs
+  # (otherwise e.g. tcp transport, bdev_nvme, or the "ring_mp_mc" mempool ops driver that
+  # spdk_thread_lib_init() needs would get optimized out because they're only ever called
+  # indirectly via registration macros; spdk_rdma_provider/spdk_rdma_utils are needed the same
+  # way for the rdma transport when SPDK was configured with "--with-rdma")
+  LDFLAGS += -Wl,--whole-archive
+  LDFLAGS += -lspdk_nvme -lspdk_sock_posix -lspdk_bdev_nvme -lspdk_accel -lrte_mempool_ring \
+	-lspdk_rdma_provider -lspdk_rdma_utils
+  LDFLAGS += -Wl,--no-whole-archive
+
+  # add remaining static libs via pkg-config (--libs-only-l); libisal_crypto is needed by
+  # spdk_accel's software AES-XTS implementation, now pulled in via --whole-archive above
+  LDFLAGS += $(shell \
+	PKG_CONFIG_PATH="$(SPDK_PATH)/isa-l:$(SPDK_PATH)/isa-l-crypto:$(SPDK_PATH)/build/lib/pkgconfig:$(PKG_CONFIG_PATH)" \
+	pkg-config --static --libs-only-l $(SPDK_PKGS) libisal libisal_crypto | \
+	sed 's/-libverbs//g;s/-lssl//g;s/-lcrypto//g')
+
+  # switch back to dynamic linking for system/standard libs
+  LDFLAGS += -Wl,-Bdynamic
+  LDFLAGS += -lboost_json -lstdc++fs -lpthread -ldl -lnuma -luuid -libverbs -lrdmacm -lssl -lcrypto
+
+endif # SPDK_SUPPORT
+
+
+features-info: features-detect
 ifeq ($(BACKTRACE_SUPPORT),1)
  ifdef BUILD_VERBOSE
 	$(info [OPT] Backtrace support enabled)
@@ -353,20 +412,18 @@ endif
 
 ifeq ($(USE_MIMALLOC),1)
 	$(info [OPT] mimalloc enabled)
-else
-	$(info [OPT] mimalloc disabled)
 endif
 
 ifeq ($(ALTHTTPSVC_SUPPORT),1)
 	$(info [OPT] Alternative HTTP service enabled)
-else
-	$(info [OPT] Alternative HTTP service disabled)
 endif
 
 ifeq ($(HDFS_SUPPORT),1)
 	$(info [OPT] HDFS support enabled. (HADOOP_HOME: $(HADOOP_HOME); JAVA_HOME: $(JAVA_HOME)))
-else
-	$(info [OPT] HDFS support disabled)
+endif
+
+ifeq ($(SPDK_SUPPORT),1)
+	$(info [OPT] SPDK support enabled)
 endif
 
 
@@ -381,22 +438,24 @@ endif
 
 clean-externals:
 ifdef BUILD_VERBOSE
-	rm -f $(EXTERNAL_PATH)/alpine-chroot-install
-	rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
-	rm -rf $(EXTERNAL_PATH)/ftxui
-	rm -rf $(EXTERNAL_PATH)/libbacktrace
-	rm -rf $(EXTERNAL_PATH)/mimalloc
-	rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
-	rm -rf $(EXTERNAL_PATH)/uWebSockets
+	rm -f "$(EXTERNAL_PATH)/alpine-chroot-install"
+	rm -rf "$(EXTERNAL_PATH)/aws-sdk-cpp" "$(EXTERNAL_PATH)/aws-sdk-cpp_install"
+	rm -rf "$(EXTERNAL_PATH)/ftxui"
+	rm -rf "$(EXTERNAL_PATH)/libbacktrace"
+	rm -rf "$(EXTERNAL_PATH)/mimalloc"
+	rm -rf "$(EXTERNAL_PATH)/Simple-Web-Server"
+	rm -rf "$(EXTERNAL_PATH)/spdk"
+	rm -rf "$(EXTERNAL_PATH)/uWebSockets"
 else
 	@echo "[DELETE] EXTERNALS"
-	@rm -f $(EXTERNAL_PATH)/alpine-chroot-install
-	@rm -rf $(EXTERNAL_PATH)/aws-sdk-cpp $(EXTERNAL_PATH)/aws-sdk-cpp_install
-	@rm -rf $(EXTERNAL_PATH)/ftxui
-	@rm -rf $(EXTERNAL_PATH)/libbacktrace
-	@rm -rf $(EXTERNAL_PATH)/mimalloc
-	@rm -rf $(EXTERNAL_PATH)/Simple-Web-Server
-	@rm -rf $(EXTERNAL_PATH)/uWebSockets
+	@rm -f "$(EXTERNAL_PATH)/alpine-chroot-install"
+	@rm -rf "$(EXTERNAL_PATH)/aws-sdk-cpp" "$(EXTERNAL_PATH)/aws-sdk-cpp_install"
+	@rm -rf "$(EXTERNAL_PATH)/ftxui"
+	@rm -rf "$(EXTERNAL_PATH)/libbacktrace"
+	@rm -rf "$(EXTERNAL_PATH)/mimalloc"
+	@rm -rf "$(EXTERNAL_PATH)/Simple-Web-Server"
+	@rm -rf "$(EXTERNAL_PATH)/spdk"
+	@rm -rf "$(EXTERNAL_PATH)/uWebSockets"
 endif
 
 
@@ -554,6 +613,9 @@ help:
 	@echo '                             compatible with BUILD_STATIC=1. (Default: 0)'
 	@echo '   S3_SUPPORT=0|1          - Build with S3 support. This will fetch a AWS SDK'
 	@echo '                             git repo of over 1GB size. (Default: 0)'
+	@echo '   SPDK_SUPPORT=0|1        - Build with SPDK NVMe-oF initiator support. This'
+	@echo '                             will fetch a git repo of over 1GB size.'
+	@echo '                             (Default: 0)'
 	@echo '   USE_MIMALLOC=0|1        - Use Microsoft mimalloc library for memory'
 	@echo '                             allocation management. Recommended when using'
 	@echo '                             musl-libc. (Default: 0)'

@@ -2,6 +2,18 @@
 
 ## v3.1.12 (work in progress)
 
+### New Features & Enhancements
+* Added NVMe-oF support based on SPDK. This can be used to test NVMe-oF block devices directly, as an alternative to the NVMe-oF stack of the Linux kernel.
+  * This feature can be enabled via the Makefile option `SPDK_SUPPORT=1`.
+  * User guide is available at [`docs/spdk.md`](docs/spdk.md).
+
+### General Changes
+* Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
+* Removed dockerfiles without `.local`  extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
+
+### Contributors
+* Thanks to Dan Gluskin and Aviv Ben David for helpful comments and suggestions.
+
 ## v3.1.11 (July 24, 2026)
 
 ### General Changes

@@ -1,0 +1,9 @@
+{
+    "subsystems": [
+        {
+            "traddr": "192.168.1.100",
+            "trsvcid": "4420",
+            "trtype": "tcp"
+        }
+    ]
+}

@@ -1,7 +1,7 @@
-# Full elbencho deb install of latest github master on Ubuntu 24.04
+# Full elbencho deb install on Ubuntu 24.04
 #
 # Run docker build from elbencho repository root dir like this:
-# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2204.local .
+# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2404.local .
 
 FROM ubuntu:24.04 AS builder
 
@@ -25,6 +25,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     apt -y upgrade && \
     apt install -y build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
     cd /root/elbencho && \
+    make clean-all && \
     make S3_SUPPORT=1 -j $NUM_JOBS && \
     make deb
 

@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "Common.h"
 #include "CuFileHandleData.h"
 #include "toolkits/net/BasicSocket.h"
 #include "toolkits/offsetgen/OffsetGenerator.h"
@@ -34,6 +35,10 @@
 
 #ifdef HDFS_SUPPORT
 	#include <hdfs.h>
+#endif
+
+#ifdef SPDK_SUPPORT
+    #include "toolkits/spdk/SpdkNvmeClient.h"
 #endif
 
 typedef std::vector<BasicSocket*> SocketVec;
@@ -175,6 +180,22 @@ class LocalWorker : public Worker
         } libaioContext;
 #endif // LIBAIO_SUPPORT
 
+#ifdef SPDK_SUPPORT
+        struct
+        { // init in initSpdk() for sync and async read/write functions
+            SpdkNvmeClient spdkClient;
+            uint32_t sectorSize;
+            std::vector<std::unique_ptr<SpdkNvmeClient::IoContext>> ioContextVec; /* preallocated
+                per-slot IoContexts for spdkAioBlockSized(), avoiding per-I/O allocation; can't be
+                a plain vector<IoContext> because IoContext contains a std::atomic and is thus
+                neither copyable nor movable */
+            std::vector<std::chrono::steady_clock::time_point> ioStartTimeVec; /* mirrors
+                libaioContext.ioStartTimeVec above, indexed the same way as ioContextVec */
+            std::vector<SpdkNvmeClient::IoContext*> completedVec; /* for outCompleted argument of
+                SpdkNvmeClient::waitForCompletions() */
+        } spdkContext;
+#endif // SPDK_SUPPORT
+
 		static SocketVec serverSocketVec; // singleton netbench server sockets for all local threads
 		BasicSocket* clientSocket{NULL}; // netbench socket for client
 
@@ -197,6 +218,8 @@ class LocalWorker : public Worker
 		void initNetBenchClient();
 		void uninitNetBench();
 		void uninitNetBenchAfterPhaseDone();
+        void initSpdk();
+        void uninitSpdk();
 		void initThreadFDVec();
 		void uninitThreadFDVec();
 		void initThreadCuFileHandleDataVec();
@@ -215,6 +238,9 @@ class LocalWorker : public Worker
 
 		int64_t rwBlockSized();
 		int64_t aioBlockSized();
+#ifdef SPDK_SUPPORT
+        int64_t spdkAioBlockSized();
+#endif // SPDK_SUPPORT
 		void calcFileIdxAndOffsetStriped(const uint64_t rwOffsetGenNext,
 		    const uint64_t fileSize, const bool isSingleFile,
 		    size_t& outFileIdx, uint64_t& outFileOffset);
@@ -314,19 +340,24 @@ class LocalWorker : public Worker
 		void dirModeCuFileHandleReg(int fd, CuFileHandleData& handleData);
 		void dirModeCuFileHandleDereg(CuFileHandleData& handleData);
 
-		ssize_t preadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t pwriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
-			off_t offset);
-		ssize_t cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-		ssize_t mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t preadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t pwriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+            off_t offset);
+        ssize_t cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t spdkReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t spdkWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t spdkWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+            off_t offset);
+        ssize_t spdkWriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
 
 		void noOpIntegrityCheck(char* hostIOBuf, char* gpuIOBuf, size_t bufLen, off_t fileOffset);
 		void preWriteIntegrityCheckFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,

@@ -19,6 +19,7 @@ RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo && \
     ln -vs /usr/bin/cmake3 /usr/local/bin/cmake && \
     cd /root/elbencho && \
     source /opt/rh/devtoolset-11/enable && \
+    make clean-all && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm
 

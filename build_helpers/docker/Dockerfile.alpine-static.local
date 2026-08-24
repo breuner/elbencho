@@ -43,8 +43,8 @@ RUN cd /root/elbencho && \
         export CC="$(pwd)/gcc-custom" CXX="$(pwd)/g++-custom"; \
     fi && \
     make -j $NUM_JOBS \
-        ALTHTTPSVC_SUPPORT=0 S3_SUPPORT=1 \
-        S3_AWSCRT=0 USE_MIMALLOC=1 BUILD_STATIC=1 && \
+        ALTHTTPSVC_SUPPORT=0 S3_SUPPORT=1 S3_AWSCRT=0 \
+        USE_MIMALLOC=1 BUILD_STATIC=1 && \
     make install && \
     cd .. && \
     tar -czf elbencho-compiled.tar.gz elbencho

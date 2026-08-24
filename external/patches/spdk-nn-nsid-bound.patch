@@ -1,0 +1,31 @@
+--- a/lib/nvme/nvme_ctrlr.c
++++ b/lib/nvme/nvme_ctrlr.c
+@@ -849,7 +849,11 @@
+ 
+ 	for (i = 0; i < desc->num_of_nsid; i++) {
+ 		nsid = desc->nsid[i];
+-		if (nsid == 0 || nsid > ctrlr->cdata.nn) {
++		/* elbencho patch: don't bound nsid by cdata.nn here (see spdk_nvme_ctrlr_get_ns()
++		 * below for why), otherwise a target that reports active NSIDs above its own NN
++		 * would never get its real ANA state applied and would keep the "Optimized"
++		 * default from spdk_nvme_ctrlr_get_ns() regardless of the target's actual state. */
++		if (nsid == 0) {
+ 			continue;
+ 		}
+ 
+@@ -4963,7 +4967,14 @@
+ 	struct spdk_nvme_ns tmp;
+ 	struct spdk_nvme_ns *ns;
+ 
+-	if (nsid < 1 || nsid > ctrlr->cdata.nn) {
++	/* elbencho patch: some NVMe-oF targets report a "Max Number of Namespaces" (NN) in
++	 * Identify Controller that is smaller than the actual active namespace IDs they expose
++	 * (e.g. NN=1024 while active NSIDs are 1071-1221). Namespaces here are stored in a
++	 * dynamically-sized red-black tree (not an array indexed by NN), so there is no actual
++	 * need to reject NSIDs above NN; doing so previously made nvme_ctrlr_identify_active_ns_
++	 * swap() below silently (or, with assertions enabled, fatally) fail to register every
++	 * such namespace, so no bdev/namespace ever got created for it. */
++	if (nsid < 1) {
+ 		return NULL;
+ 	}
+ 

@@ -8,6 +8,7 @@
 # * uWebSockets will only be prepared when PREP_UWS=1 is set.
 # * libbacktrace will only be prepared when PREP_LIBBACKTRACE=1 is set.
 # * ftxui will always be prepared.
+# * SPDK will only be prepared when PREP_SPDK=1 is set.
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
@@ -504,6 +505,75 @@ prepare_ftxui()
 	return 0
 }
 
+# Prepare SPDK git clone and required tag.
+prepare_spdk()
+{
+	local REQUIRED_TAG="${SPDK_REQUIRED_TAG:-"v26.05"}"
+	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/spdk/spdk.git"}"
+
+	local CURRENT_TAG
+	local CLONE_DIR="${EXTERNAL_BASE_DIR}/spdk"
+	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/spdk/build"
+	local LIB_FILE_NAME="libspdk_nvme.a"
+
+	# fast path: check if lib file exists, in which case previous build completed
+	if [ -e "$INSTALL_DIR"/lib/"$LIB_FILE_NAME" ]; then
+	  return 0
+	fi
+
+	# change to external subdir if we were called from somewhere else
+	cd "$EXTERNAL_BASE_DIR" || exit 1
+
+	# clone if directory does not exist yet
+	if [ ! -d "$CLONE_DIR" ]; then
+		echo "Cloning SPDK git repo... [Repo: $GIT_REPO] [Branch: $REQUIRED_TAG]"
+
+		git clone --recursive --depth 1 --branch "$REQUIRED_TAG" \
+			"$GIT_REPO" $CLONE_DIR
+		if [ $? -ne 0 ]; then
+			echo "ERROR: Cloning SPDK git repo failed." \
+				"Consider \"make clean-all\" before retrying a partially completed clone."
+			exit 1
+		fi
+
+		# apply elbencho's local SPDK patches (workarounds for upstream SPDK issues), once
+		# right after a fresh clone; see external/patches/*.patch for details on each one
+		local PATCH_DIR="${EXTERNAL_BASE_DIR}/patches"
+		local PATCH_FILE
+
+		for PATCH_FILE in "$PATCH_DIR"/spdk-*.patch; do
+			[ -e "$PATCH_FILE" ] || continue
+
+			echo "Applying SPDK patch: $(basename "$PATCH_FILE")..."
+
+			patch -d "$CLONE_DIR" -p1 < "$PATCH_FILE"
+			if [ $? -ne 0 ]; then
+				echo "ERROR: Applying SPDK patch failed: $PATCH_FILE" \
+					"Consider \"make clean-all\" before retrying."
+				exit 1
+			fi
+		done
+	fi
+
+	# configure, build and install
+
+	echo "Configure, build and install...  (parallel jobs: $NUM_PARALLEL_JOBS)"
+
+	cd "$CLONE_DIR" && \
+		./configure --disable-debug --disable-tests --disable-unit-tests --with-rdma \
+			--without-avahi  --without-crypto --without-dpdk-compressdev --without-fc \
+			--without-fsdev --without-nvme-cuse --without-ocf --without-raid5f --without-rbd \
+			--without-shared --without-vhost --without-virtio --without-vtune && \
+		$MAKE_CMD && \
+		cd "$EXTERNAL_BASE_DIR"
+
+	[ $? -ne 0 ] && exit 1
+
+	echo "DONE: SPDK prepared."
+
+	return 0
+}
+
 ########### End of function definitions ############
 
 
@@ -537,3 +607,7 @@ if [ "$PREP_LIBBACKTRACE" = "1" ]; then
 fi
 
 prepare_ftxui
+
+if [ "$PREP_SPDK" = "1" ]; then
+	prepare_spdk
+fi

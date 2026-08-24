@@ -1,7 +1,7 @@
-# Full elbencho deb install of latest github master on Ubuntu 24.04
+# Full elbencho deb install on Ubuntu 26.04
 #
 # Run docker build from elbencho repository root dir like this:
-# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2204.local .
+# docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2604.local .
 
 FROM ubuntu:26.04 AS builder
 
@@ -23,19 +23,22 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     echo "[PLATFORM] $DOCKER_BUILD_PLATFORM" && \
     apt update && \
     apt -y upgrade && \
-    apt install -y build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
+    apt install -y autoconf automake build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-json-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libncurses-dev libnuma-dev librdmacm-dev libssl-dev libtool lintian meson ninja-build nasm patch pkg-config python3-pyelftools python3-jinja2 python3-tabulate uuid-dev zlib1g-dev && \
     cd /root/elbencho && \
-    make S3_SUPPORT=1 -j $NUM_JOBS && \
+    make clean-all && \
+    make S3_SUPPORT=1 SPDK_SUPPORT=1 -j $NUM_JOBS && \
     make deb
 
 FROM ubuntu:26.04
 
 COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 
+# note: openssl is dynamically loaded by spdk, thus no static dependency in the package file
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt update && \
+    apt install -y openssl jq && \
     apt install -y /tmp/elbencho*.deb && \
-    rm -f /tmp/elbencho*.deb jq && \
+    rm -f /tmp/elbencho*.deb && \
     apt clean all && \
     /usr/bin/elbencho --version
 

@@ -29,6 +29,7 @@ typedef std::vector<int> IntVec;
 typedef std::vector<char*> BufferVec;
 typedef std::vector<size_t> SizeTVec;
 typedef std::vector<uint64_t> UInt64Vec;
+typedef std::vector<uint32_t> UInt32Vec;
 
 
 #define STRINGIZE(value)		_STRINGIZE(value) // 2 levels necessary for macro expansion
@@ -88,7 +89,7 @@ typedef std::vector<uint64_t> UInt64Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.1.3"
+#define HTTP_PROTOCOLVERSION	"3.1.4"
 
 /**
  * Default access mode bits for new files.
@@ -145,6 +146,8 @@ typedef std::vector<uint64_t> UInt64Vec;
 
 /**
  * Current benchmark mode.
+ *
+ * (New modes also need to be added to TranslatorTk::benchModeToModeName().)
  */
  enum BenchMode
  {
@@ -153,6 +156,7 @@ typedef std::vector<uint64_t> UInt64Vec;
     BenchMode_S3,
     BenchMode_HDFS,
     BenchMode_NETBENCH,
+    BenchMode_SPDK,
  };
 
 /**
@@ -202,9 +206,9 @@ enum BenchPhase
  */
 enum BenchPathType
 {
-	BenchPathType_DIR=0, // also used for s3
-	BenchPathType_FILE=1,
-	BenchPathType_BLOCKDEV=2,
+	BenchPathType_DIR=0, // used for posix, s3, hdfs, netbench
+	BenchPathType_FILE=1, // used for posix
+	BenchPathType_BLOCKDEV=2, // used for posix, spdk
 };
 
 

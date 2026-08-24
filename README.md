@@ -24,6 +24,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
   - [Nvidia GPUDirect Storage \(GDS\) Support](#nvidia-gpudirect-storage-gds-support)
   - [S3 Object Storage Support](#s3-object-storage-support)
   - [macOS Support](#macos-support)
+  - [NVMe-oF Support](#nvme-of-support)
 
 </details>
 
@@ -52,7 +53,7 @@ Building elbencho requires a C++17 compatible compiler, such as gcc version 7.x 
 ### Dependencies for Debian/Ubuntu
 
 ```bash
-sudo apt -y install build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libnuma-dev lintian libssl-dev uuid-dev zlib1g-dev
+sudo apt -y install build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-json-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libnuma-dev lintian libssl-dev uuid-dev zlib1g-dev
 ```
 
 ### Dependencies for RHEL/CentOS/Rocky
@@ -201,3 +202,7 @@ That's it already.
 ```bash
 bin/elbencho --help
 ```
+
+#### NVMe-oF Support
+
+NVMe-oF initiator support based on the SPDK toolkit can be enabled to test block devices directly, as an alternative to testing through the NVMe-oF stack of the Linux kernel. A guide on how to enable and use elbencho for NVMe-oF benchmarking is available in the `docs` subdir [here](docs/spdk.md).

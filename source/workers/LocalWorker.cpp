@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <chrono>
+#include <cstdint>
 #include <fcntl.h>
 #include <iterator>
 #include <string>
@@ -13,6 +14,7 @@
 #include "Logger.h"
 #include "PathStore.h"
 #include "toolkits/FileTk.h"
+#include "toolkits/spdk/SpdkNvmeClient.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/StringTk.h"
@@ -273,7 +275,7 @@ void LocalWorker::run()
                                     dirModeIterateFiles() : dirModeIterateCustomFiles();
                         }
                         else
-                        {
+                        { // posix file/bdev mode & spdk mode
                             if(progArgs->getUseRandomOffsets() || progArgs->getUseStridedAccess() )
                                 fileModeIterateFilesRand();
                             else
@@ -440,6 +442,7 @@ void LocalWorker::preparePhase()
     initS3Client();
     initHDFS();
     initNetBench();
+    initSpdk();
 
 #ifdef S3_SUPPORT
     s3SharedUploadStore.setProgArgs(progArgs, workerRank);
@@ -516,6 +519,8 @@ void LocalWorker::uninitLibAio()
  * phase. Will do nothing if not built with S3 support or no S3 endpoints defined.
  *
  * S3 endpoints get assigned round-robin to workers based on workerRank.
+ *
+ * @throw WorkerException on error
  */
 void LocalWorker::initS3Client()
 {
@@ -881,6 +886,102 @@ void LocalWorker::uninitNetBenchAfterPhaseDone()
 }
 
 /**
+ * Parse spdk config and establish connections.
+ *
+ * @throw WorkerException on error
+ */
+void LocalWorker::initSpdk()
+{
+    if(progArgs->getBenchMode() != BenchMode_SPDK)
+        return; // nothing to do
+
+#ifndef SPDK_SUPPORT
+
+    throw WorkerException("SPDK initialization requested but this executable was built without "
+        "SPDK support");
+
+#else // SPDK_SUPPORT
+
+    auto& spdkClient = spdkContext.spdkClient;
+
+    bool initRes = spdkClient.init(progArgs->getSpdkConfJSON() );
+    if(!initRes)
+        throw WorkerException("SPDK initialization in worker thread failed.");
+
+    const IntVec& benchPathNsIDs = progArgs->getBenchPathSpdkNsIds();
+    UInt32Vec nsIDs = spdkClient.getNamespaceIds();
+
+    if(nsIDs.empty() || benchPathNsIDs.empty() )
+        throw WorkerException("SPDK init phase did not discover any usable namespaces.");
+
+    LOGGER(Log_DEBUG, "Discovered namespaces via spdk. "
+        "Count: " << nsIDs.size() << "; "
+        "workerRank: " << workerRank << std::endl);
+
+    // check namespace discovery for consistency with ProgArgs discovery...
+
+    spdkContext.sectorSize = spdkClient.getNamespaceSectorSize(benchPathNsIDs[0] );
+
+    for(size_t i=0; i < benchPathNsIDs.size(); i++)
+    {
+        int nsID = progArgs->getBenchPathSpdkNsIds()[i];
+        std::string nsName = spdkClient.getNamespaceName(nsID);
+        std::string nsUuid = spdkClient.getNamespaceUuid(nsID);
+        std::string nsNguid = spdkClient.getNamespaceNguid(nsID);
+        std::string benchPathName = progArgs->getBenchPaths()[i];
+        uint32_t sectorSize = spdkClient.getNamespaceSectorSize(nsID);
+
+        if(nsName.empty() )
+            throw WorkerException("Namespace discovery inconsistency. Namespace ID not found: " +
+                std::to_string(nsID) );
+
+        // benchPathName may be the numeric ID, the human-friendly name, or the namespace's
+        // UUID/NGUID (see ProgArgs::prepareSpdk() ), so accept any of those as a match here
+        if(!StringTk::hasOnlyDigits(benchPathName) && (nsName != benchPathName) &&
+            (nsUuid != benchPathName) && (nsNguid != benchPathName) )
+            throw WorkerException("Namespace discovery inconsistency. Namespace ID changed. "
+                "NamespaceID: " + std::to_string(nsID) + "; "
+                "NamespaceName: '" + nsName + "'; "
+                "ExpectedName: '" + benchPathName + "'");
+
+        if(sectorSize != spdkContext.sectorSize)
+            throw WorkerException("Worker found different namespace sector sizes. "
+                "This is not supported.");
+    }
+
+    /* preallocate one IoContext per ioDepth slot for spdkAioBlockSized(), mirroring
+        initLibAio()'s iocbVec and as the sync IoContext for spdkReadWrapper()/spdkWriteWrapper() */
+    const size_t maxIODepth = std::max<size_t>(progArgs->getIODepth(), 1);
+
+    spdkContext.ioContextVec.resize(maxIODepth);
+    spdkContext.ioStartTimeVec.resize(maxIODepth);
+    spdkContext.completedVec.reserve(maxIODepth);
+
+    for(size_t i=0; i < maxIODepth; i++)
+    {
+        spdkContext.ioContextVec[i] = std::make_unique<SpdkNvmeClient::IoContext>();
+        spdkContext.ioContextVec[i]->userData = reinterpret_cast<void*>(i);
+    }
+
+#endif // SPDK_SUPPORT
+}
+
+/**
+ * Disconnect spdk connections and free resources.
+ */
+void LocalWorker::uninitSpdk()
+{
+#ifdef SPDK_SUPPORT
+
+    if(progArgs->getBenchMode() != BenchMode_SPDK)
+        return; // nothing to do
+
+    spdkContext.spdkClient.disconnect();
+
+#endif // SPDK_SUPPORT
+}
+
+/**
  * If progArgs::useNoFDSharing is set, initialize threadFDVec with separate open files in file/bdev
  * mode. Otherwise do nothing.
  *
@@ -1068,6 +1169,7 @@ void LocalWorker::initThreadPhaseVars()
 void LocalWorker::initPhaseFileHandleVecs()
 {
 	const BenchPathType benchPathType = progArgs->getBenchPathType();
+    const BenchMode benchMode = progArgs->getBenchMode();
 
 	fileHandles.errorFDVecIdx = -1; // clear ("-1" means "not set")
 
@@ -1118,8 +1220,14 @@ void LocalWorker::initPhaseFileHandleVecs()
 	{
 		// in random file/bdev mode, rwBlockSized/aioBlockSized randomly select FDs from given set
 
-		fileHandles.fdVecPtr = fileHandles.threadFDVec.empty() ?
-			&progArgs->getBenchPathFDs() : &fileHandles.threadFDVec;
+        // init fileHandles.fdVecPtr
+        if(benchMode == BenchMode_SPDK)
+            fileHandles.fdVecPtr = &progArgs->getBenchPathSpdkNsIds();
+        else
+        if(fileHandles.threadFDVec.empty() )
+            fileHandles.fdVecPtr = &progArgs->getBenchPathFDs();
+        else
+            fileHandles.fdVecPtr = &fileHandles.threadFDVec;
 
 		CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
 			progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
@@ -1211,6 +1319,7 @@ void LocalWorker::initPhaseFunctionPointers()
 {
     const size_t ioDepth = progArgs->getIODepth();
     const bool useHDFS = (progArgs->getBenchMode() == BenchMode_HDFS);
+    const bool useSPDK = (progArgs->getBenchMode() == BenchMode_SPDK);
     const bool useMmap = progArgs->getUseMmap();
     const bool useCuFileAPI = progArgs->getUseCuFile();
     const BenchPathType benchPathType = progArgs->getBenchPathType();
@@ -1226,84 +1335,99 @@ void LocalWorker::initPhaseFunctionPointers()
     const size_t numRWMixWriteThreads = progArgs->getNumThreads() - numRWMixReadThreads;
     const unsigned rwMixThreadsReadPercent = progArgs->getRWMixThreadsReadPercent();
     const size_t blockSize = progArgs->getBlockSize();
-	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+    const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 
-	nullifyPhaseFunctionPointers(); // set all function pointers to NULL
-
-
-	// independent of whether current phase is read or write...
-	// (these need to be set above the phase-dependent settings because those can override
-
-	if(useHDFS)
-		funcPositionalWrite = &LocalWorker::hdfsWriteWrapper;
-	else
-	if(useMmap)
-		funcPositionalWrite = &LocalWorker::mmapWriteWrapper;
-	else
-	if(useCuFileAPI)
-		funcPositionalWrite = &LocalWorker::cuFileWriteWrapper;
-	else
-		funcPositionalWrite = &LocalWorker::pwriteWrapper;
-
-	if(useHDFS)
-		funcPositionalRead = &LocalWorker::hdfsReadWrapper;
-	else
-	if(useMmap)
-		funcPositionalRead = &LocalWorker::mmapReadWrapper;
-	else
-	if(useCuFileAPI)
-		funcPositionalRead = &LocalWorker::cuFileReadWrapper;
-	else
-		funcPositionalRead = &LocalWorker::preadWrapper;
+    nullifyPhaseFunctionPointers(); // set all function pointers to NULL
 
 
-	// phase-dependent settings...
+    // independent of whether current phase is read or write...
+    // (these need to be set above the phase-dependent settings because those can override
 
-	if(benchPhase == BenchPhase_CREATEFILES)
-	{
-		funcRWBlockSized = (ioDepth == 1) ?
-			&LocalWorker::rwBlockSized : &LocalWorker::aioBlockSized;
+    if(useHDFS)
+        funcPositionalWrite = &LocalWorker::hdfsWriteWrapper;
+    else
+    if(useSPDK)
+        funcPositionalWrite = &LocalWorker::spdkWriteWrapper;
+    else
+    if(useMmap)
+        funcPositionalWrite = &LocalWorker::mmapWriteWrapper;
+    else
+    if(useCuFileAPI)
+        funcPositionalWrite = &LocalWorker::cuFileWriteWrapper;
+    else
+        funcPositionalWrite = &LocalWorker::pwriteWrapper;
 
-		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioWritePrepper;
+    if(useHDFS)
+        funcPositionalRead = &LocalWorker::hdfsReadWrapper;
+    else
+    if(useSPDK)
+        funcPositionalRead = &LocalWorker::spdkReadWrapper;
+    else
+    if(useMmap)
+        funcPositionalRead = &LocalWorker::mmapReadWrapper;
+    else
+    if(useCuFileAPI)
+        funcPositionalRead = &LocalWorker::cuFileReadWrapper;
+    else
+        funcPositionalRead = &LocalWorker::preadWrapper;
 
-		if(rwMixReadPercent && funcAioRwPrepper)
-			funcAioRwPrepper = &LocalWorker::aioRWMixPrepper;
+    // phase-dependent settings...
 
-		funcPreWriteCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
-			&LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
-		funcPostReadCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
+    if(benchPhase == BenchPhase_CREATEFILES)
+    {
+        if(ioDepth == 1)
+            funcRWBlockSized = &LocalWorker::rwBlockSized;
+#ifdef SPDK_SUPPORT
+        else
+        if(useSPDK)
+            funcRWBlockSized = &LocalWorker::spdkAioBlockSized;
+#endif // SPDK_SUPPORT
+        else
+            funcRWBlockSized = &LocalWorker::aioBlockSized;
 
-		if(areGPUsGiven && integrityCheckEnabled)
-			funcPreWriteCudaMemcpy = &LocalWorker::cudaMemcpyHostToGPU;
+        funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioWritePrepper;
 
-		if(integrityCheckEnabled)
-			funcPreWriteBlockModifier = &LocalWorker::preWriteIntegrityCheckFillBuf;
-		else
-		if(blockVariancePercent && areGPUsGiven)
-			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillCuda;
-		else
-		if(blockVariancePercent)
-			funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefill;
-		else
-			funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
+        if(rwMixReadPercent && funcAioRwPrepper)
+            funcAioRwPrepper = &LocalWorker::aioRWMixPrepper;
 
-		funcPostReadBlockChecker = &LocalWorker::noOpIntegrityCheck;
+        funcPreWriteCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
+            &LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
+        funcPostReadCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
 
-		if(doDirectVerify || doReadInline)
-		{
-			if(!useCuFileAPI)
-				funcPositionalWrite = &LocalWorker::pwriteAndReadWrapper;
-			else
-			{
-				funcPositionalWrite = &LocalWorker::cuFileWriteAndReadWrapper;
-				funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
-			}
+        if(areGPUsGiven && integrityCheckEnabled)
+            funcPreWriteCudaMemcpy = &LocalWorker::cudaMemcpyHostToGPU;
 
-			if(doDirectVerify)
-				funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
-		}
+        if(integrityCheckEnabled)
+            funcPreWriteBlockModifier = &LocalWorker::preWriteIntegrityCheckFillBuf;
+        else
+        if(blockVariancePercent && areGPUsGiven)
+            funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillCuda;
+        else
+        if(blockVariancePercent)
+            funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefill;
+        else
+            funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
 
-	    // rate limiter / balancer
+        funcPostReadBlockChecker = &LocalWorker::noOpIntegrityCheck;
+
+        if(doDirectVerify || doReadInline)
+        {
+            if(useSPDK)
+                funcPositionalWrite = &LocalWorker::spdkWriteAndReadWrapper;
+            else
+            if(!useCuFileAPI)
+                funcPositionalWrite = &LocalWorker::pwriteAndReadWrapper;
+            else
+            {
+                funcPositionalWrite = &LocalWorker::cuFileWriteAndReadWrapper;
+                funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
+            }
+
+            if(doDirectVerify)
+                funcPostReadBlockChecker = &LocalWorker::postReadIntegrityCheckVerifyBuf;
+        }
+
+        // rate limiter / balancer
 
         if(numRWMixReadThreads && rwMixThreadsReadPercent)
         { // rate balancer between reader and writer threads
@@ -1320,26 +1444,33 @@ void LocalWorker::initPhaseFunctionPointers()
         }
         else // no rate limit
             funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
-	}
-	else // BenchPhase_READFILES (and others which don't use these function pointers)
-	{
+    }
+    else // BenchPhase_READFILES (and others which don't use these function pointers)
+    {
         // (note: this also applies to rwmixthreads readers in a write phase)
 
-		funcRWBlockSized = (ioDepth == 1) ?
-			&LocalWorker::rwBlockSized : &LocalWorker::aioBlockSized;
+        if(ioDepth == 1)
+            funcRWBlockSized = &LocalWorker::rwBlockSized;
+#ifdef SPDK_SUPPORT
+        else
+        if(useSPDK)
+            funcRWBlockSized = &LocalWorker::spdkAioBlockSized;
+#endif // SPDK_SUPPORT
+        else
+            funcRWBlockSized = &LocalWorker::aioBlockSized;
 
-		funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioReadPrepper;
+        funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioReadPrepper;
 
-		funcPreWriteCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
-		funcPostReadCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
-			&LocalWorker::cudaMemcpyHostToGPU : &LocalWorker::noOpCudaMemcpy;
+        funcPreWriteCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
+        funcPostReadCudaMemcpy = (areGPUsGiven && !useCuFileAPI) ?
+            &LocalWorker::cudaMemcpyHostToGPU : &LocalWorker::noOpCudaMemcpy;
 
-		if(useCuFileAPI && integrityCheckEnabled)
-			funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
+        if(useCuFileAPI && integrityCheckEnabled)
+            funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
 
-		funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
-		funcPostReadBlockChecker = integrityCheckEnabled ?
-			&LocalWorker::postReadIntegrityCheckVerifyBuf : &LocalWorker::noOpIntegrityCheck;
+        funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
+        funcPostReadBlockChecker = integrityCheckEnabled ?
+            &LocalWorker::postReadIntegrityCheckVerifyBuf : &LocalWorker::noOpIntegrityCheck;
 
         // rate limiter / balancer
 
@@ -1359,22 +1490,22 @@ void LocalWorker::initPhaseFunctionPointers()
         }
         else // no rate limit
             funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
-	}
+    }
 
-	// independent of whether current phase is read or write...
+    // independent of whether current phase is read or write...
 
-	if(useCuFileAPI)
-	{
-		funcCuFileHandleReg = (benchPathType == BenchPathType_DIR) ?
-			&LocalWorker::dirModeCuFileHandleReg : &LocalWorker::noOpCuFileHandleReg;
-		funcCuFileHandleDereg = (benchPathType == BenchPathType_DIR) ?
-			&LocalWorker::dirModeCuFileHandleDereg : &LocalWorker::noOpCuFileHandleDereg;
-	}
-	else
-	{
-		funcCuFileHandleReg = &LocalWorker::noOpCuFileHandleReg;
-		funcCuFileHandleDereg = &LocalWorker::noOpCuFileHandleDereg;
-	}
+    if(useCuFileAPI)
+    {
+        funcCuFileHandleReg = (benchPathType == BenchPathType_DIR) ?
+            &LocalWorker::dirModeCuFileHandleReg : &LocalWorker::noOpCuFileHandleReg;
+        funcCuFileHandleDereg = (benchPathType == BenchPathType_DIR) ?
+            &LocalWorker::dirModeCuFileHandleDereg : &LocalWorker::noOpCuFileHandleDereg;
+    }
+    else
+    {
+        funcCuFileHandleReg = &LocalWorker::noOpCuFileHandleReg;
+        funcCuFileHandleDereg = &LocalWorker::noOpCuFileHandleDereg;
+    }
 
 }
 
@@ -1385,34 +1516,48 @@ void LocalWorker::initPhaseFunctionPointers()
  */
 void LocalWorker::allocIOBuffer()
 {
-	if(!progArgs->getBlockSize() )
-		return; // nothing to do here
+    if(!progArgs->getBlockSize() )
+        return; // nothing to do here
 
-	if( (progArgs->getBenchMode() == BenchMode_S3) && !progArgs->getRunCreateFilesPhase() &&
-		progArgs->getUseS3FastRead() )
-		return; // nothing to do if read to /dev/null is set and no writes to be done
+    if( (progArgs->getBenchMode() == BenchMode_S3) && !progArgs->getRunCreateFilesPhase() &&
+        progArgs->getUseS3FastRead() )
+        return; // nothing to do if read to /dev/null is set and no writes to be done
 
-	// alloc number of IO buffers matching iodepth
-	for(size_t i=0; i < progArgs->getIODepth(); i++)
-	{
-		char* ioBuf;
+    // alloc number of IO buffers matching iodepth
+    for(size_t i=0; i < progArgs->getIODepth(); i++)
+    {
+        char* ioBuf;
 
-		// alloc I/O buffer appropriately aligned for O_DIRECT
-		int allocAlignedRes = posix_memalign( (void**)&ioBuf, sysconf(_SC_PAGESIZE),
-			progArgs->getBlockSize() );
+        if(progArgs->getBenchMode() == BenchMode_SPDK)
+        {
+            #ifdef SPDK_SUPPORT
+                ioBuf = (char*)SpdkNvmeClient::allocDmaBuf(progArgs->getBlockSize() );
 
-		if(allocAlignedRes)
-			throw WorkerException("Aligned memory allocation failed. "
-				"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-				"Page size: " + std::to_string(sysconf(_SC_PAGESIZE) ) + "; "
-				"SysErr: " + strerror(allocAlignedRes) ); // yes, not errno here
+                if(!ioBuf)
+                    throw WorkerException("DMA buffer allocation for SPDK I/O failed. "
+                        "Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
+                        "Consider raising \"mem_size_mb\" in the SPDK JSON config file." );
+            #endif // SPDK_SUPPORT
+        }
+        else
+        {
+            // alloc I/O buffer appropriately aligned for O_DIRECT
+            int allocAlignedRes = posix_memalign( (void**)&ioBuf, sysconf(_SC_PAGESIZE),
+                progArgs->getBlockSize() );
 
-		ioBufVec.push_back(ioBuf);
+            if(allocAlignedRes)
+                throw WorkerException("Aligned memory allocation failed. "
+                    "Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
+                    "Page size: " + std::to_string(sysconf(_SC_PAGESIZE) ) + "; "
+                    "SysErr: " + strerror(allocAlignedRes) ); // yes, not errno here
+        }
 
-		// fill buffer with random data to ensure it's really alloc'ed (and not "sparse")
-		RandAlgoXoshiro256ss randGen;
-		randGen.fillBuf(ioBuf, progArgs->getBlockSize() );
-	}
+        ioBufVec.push_back(ioBuf);
+
+        // fill buffer with random data to ensure it's really alloc'ed (and not "sparse")
+        RandAlgoXoshiro256ss randGen;
+        randGen.fillBuf(ioBuf, progArgs->getBlockSize() );
+    }
 
     LOGGER(Log_DEBUG, "Allocated IO buffers for ioBufVec. "
         "Rank: " << workerRank << "; "
@@ -1605,6 +1750,7 @@ void LocalWorker::cleanup()
 	// delete rwOffsetGen (unique ptr) to eliminate any references to progArgs data etc.
 	rwOffsetGen.reset();
 
+    uninitSpdk();
 	uninitNetBench();
 	uninitHDFS();
 	uninitS3Client();
@@ -1664,7 +1810,16 @@ void LocalWorker::cleanup()
 
 	// free host memory buffers
 	for(char* ioBuf : ioBufVec)
-		SAFE_FREE(ioBuf);
+    {
+        if(progArgs->getBenchMode() == BenchMode_SPDK)
+        {
+            #ifdef SPDK_SUPPORT
+                SpdkNvmeClient::freeDmaBuf(ioBuf);
+            #endif // SPDK_SUPPORT
+        }
+        else
+		    SAFE_FREE(ioBuf);
+    }
 
 	uninitThreadMmapVec();
 	uninitThreadCuFileHandleDataVec();
@@ -2068,6 +2223,203 @@ int64_t LocalWorker::aioBlockSized()
 
 #endif // LIBAIO_SUPPORT
 }
+
+#ifdef SPDK_SUPPORT
+
+#define SPDK_AIO_MAX_WAIT_MS    5000 // periodic wakeup to check for interruption requests
+
+/**
+ * Drop-in replacement for aioBlockSized() when running in SPDK mode with ioDepth > 1. Uses a
+ * preallocated pool of SpdkNvmeClient::IoContext objects (spdkContext.ioContextVec, sized to
+ * ioDepth in initSpdk() ) instead of per-I/O allocation, and blocks (without busy-polling) on
+ * SpdkNvmeClient::waitForCompletions() instead of io_getevents().
+ *
+ * If this->fileHandles contains multiple namespace IDs then they will be treated as a striped
+ * single range, so sequential IOs would be done round-robin, like aioBlockSized().
+ *
+ * @return similar to pread/pwrite.
+ * @throw WorkerException on SPDK submission errors.
+ */
+int64_t LocalWorker::spdkAioBlockSized()
+{
+    const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+    const size_t maxIODepth = progArgs->getIODepth();
+    const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
+    const uint64_t fileSize = progArgs->getFileSize();
+    const bool isSingleFile = (fileHandlesVecSize == 1);
+    const unsigned rwMixReadPercent = progArgs->getRWMixReadPercent();
+    const uint32_t sectorSize = spdkContext.sectorSize;
+
+    size_t numPending = 0; // num requests submitted and pending for completion
+    size_t numBytesDone = 0; // after successfully completed requests
+
+    // per-slot bookkeeping, since IoContext itself doesn't carry the opcode; indexed the same
+    // way as spdkContext.ioContextVec/ioStartTimeVec
+    std::vector<bool> isReadVec(maxIODepth, false);
+    std::vector<bool> isRWMixReadVec(maxIODepth, false);
+
+    std::vector<SpdkNvmeClient::IoContext*>& completedVec = spdkContext.completedVec;
+
+    // decide read vs write for the next request, mirroring rwBlockSized()/aioRWMixPrepper()
+    auto isNextOpARead = [&]() -> bool
+    {
+        if(benchPhase == BenchPhase_READFILES) // also covers rwmixthreads readers
+            return true;
+
+        return rwMixReadPercent &&
+            ( ( (workerRank + numIOPSSubmitted) % 100) < rwMixReadPercent);
+    };
+
+    // submit (or resubmit) request for the given pool slot, using rwOffsetGen for the next offset
+    // & block size; throws on submission error, like aioBlockSized()'s io_submit() failure path
+    auto submitNext = [&](size_t slotIdx)
+    {
+        const uint64_t rwOffsetGenNext = rwOffsetGen->getNextOffset();
+        const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+
+        uint64_t currentOffset;
+        size_t fileHandlesIdx;
+
+        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile, fileHandlesIdx,
+            currentOffset);
+
+        const int nsID = (*fileHandles.fdVecPtr)[fileHandlesIdx];
+        const uint64_t lba = currentOffset / sectorSize;
+        const uint32_t lbaCount = blockSize / sectorSize;
+
+        const bool isRead = isNextOpARead();
+        isReadVec[slotIdx] = isRead;
+        isRWMixReadVec[slotIdx] = isRead && (globalBenchPhase == BenchPhase_CREATEFILES);
+
+        SpdkNvmeClient::IoContext* ioCtx = spdkContext.ioContextVec[slotIdx].get();
+
+        spdkContext.ioStartTimeVec[slotIdx] = std::chrono::steady_clock::now();
+
+        bool hadToWait = ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
+        IF_UNLIKELY(hadToWait) // invalidate start time of all pending due to rate limiter wait
+            for(std::chrono::steady_clock::time_point& startT : spdkContext.ioStartTimeVec)
+                startT = std::chrono::steady_clock::time_point::min();
+
+        int submitRes;
+
+        if(isRead)
+        {
+            OPLOG_PRE_OP("spdkRead", std::to_string(nsID), currentOffset, blockSize);
+            submitRes = spdkContext.spdkClient.read(ioCtx, nsID, lba, lbaCount,
+                ioBufVec[slotIdx]);
+        }
+        else
+        {
+            ((*this).*funcPreWriteBlockModifier)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx],
+                blockSize, currentOffset);
+            ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx], blockSize);
+
+            OPLOG_PRE_OP("spdkWrite", std::to_string(nsID), currentOffset, blockSize);
+            submitRes = spdkContext.spdkClient.write(ioCtx, nsID, lba, lbaCount,
+                ioBufVec[slotIdx]);
+        }
+
+        IF_UNLIKELY(submitRes != 0)
+            throw WorkerException(std::string("Async SPDK IO submission failed. ") +
+                "NamespaceID: " + std::to_string(nsID) + "; "
+                "LBA: " + std::to_string(lba) + "; "
+                "ReturnCode: " + std::to_string(submitRes) );
+
+        numIOPSSubmitted++;
+        rwOffsetGen->addBytesSubmitted(blockSize);
+    };
+
+    // P H A S E 1: initial seed of io submissions up to full ioDepth
+
+    while(rwOffsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
+    {
+        submitNext(numPending);
+        numPending++;
+    }
+
+    // P H A S E 2: wait for submissions to complete and submit new requests if bytes left
+
+    while(numPending)
+    {
+        completedVec.clear();
+
+        int numDone = spdkContext.spdkClient.waitForCompletions(completedVec,
+            SPDK_AIO_MAX_WAIT_MS);
+
+        IF_UNLIKELY(!numDone)
+        { // timeout expired; that's ok, as we set a short timeout to check interruptions
+            checkInterruptionRequest();
+            continue;
+        }
+
+        for(SpdkNvmeClient::IoContext* ioCtx : completedVec)
+        {
+            const size_t slotIdx = reinterpret_cast<size_t>(ioCtx->userData);
+            const size_t blockSize = ioCtx->lbaCount * sectorSize;
+            const uint64_t currentOffset = ioCtx->lba * sectorSize;
+            const bool isRead = isReadVec[slotIdx];
+            const bool isRWMixRead = isRWMixReadVec[slotIdx];
+
+            IF_UNLIKELY(!ioCtx->ioSuccess)
+            {
+                errno = EIO;
+                return (numBytesDone) ? (int64_t)numBytesDone : -1;
+            }
+
+            if(isRead)
+            {
+                ((*this).*funcPostReadCudaMemcpy)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx],
+                    blockSize);
+                ((*this).*funcPostReadBlockChecker)( (char*)ioBufVec[slotIdx],
+                    gpuIOBufVec[slotIdx], blockSize, currentOffset);
+            }
+
+            OPLOG_POST_OP(isRead ? "spdkRead" : "spdkWrite", std::to_string(ioCtx->nsHandle->id),
+                currentOffset, blockSize, false);
+
+            // calc io operation latency
+            std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
+            std::chrono::microseconds ioElapsedMicroSec =
+                std::chrono::duration_cast<std::chrono::microseconds>
+                (ioEndT - spdkContext.ioStartTimeVec[slotIdx] );
+
+            if(isRWMixRead)
+            {
+                IF_LIKELY(spdkContext.ioStartTimeVec[slotIdx] !=
+                    std::chrono::steady_clock::time_point::min() )
+                    iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
+
+                atomicLiveOpsReadMix.numBytesDone += blockSize;
+                atomicLiveOpsReadMix.numIOPSDone++;
+            }
+            else
+            {
+                IF_LIKELY(spdkContext.ioStartTimeVec[slotIdx] !=
+                    std::chrono::steady_clock::time_point::min() )
+                    iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
+
+                atomicLiveOps.numBytesDone += blockSize;
+                atomicLiveOps.numIOPSDone++;
+            }
+
+            numBytesDone += blockSize;
+
+            checkInterruptionRequest();
+
+            if(!rwOffsetGen->getNumBytesLeftToSubmit() )
+            {
+                numPending--;
+                continue;
+            }
+
+            submitNext(slotIdx); // request complete, so reuse this slot for the next request
+        }
+    }
+
+    return rwOffsetGen->getNumBytesTotal();
+}
+
+#endif // SPDK_SUPPORT
 
 /**
  * Calculate the next file and offset within file for rwBlockSized and aioBlockSized.
@@ -2591,7 +2943,8 @@ ssize_t LocalWorker::pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_
  *
  * Parameters and return value are similar to p{write,read}.
  */
-ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+    off_t offset)
 {
 	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
 
@@ -2802,6 +3155,106 @@ ssize_t LocalWorker::mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nb
 
 	return nbytes;
 }
+
+/**
+ * Wrapper for positional spdk sync read. Only ever called via rwBlockSized(), i.e. at ioDepth==1
+ * (see initPhaseFunctionPointers() ), so reusing spdkContext.ioContextVec[0]/completedVec here
+ * never races with spdkAioBlockSized(), which is the ioDepth>1 counterpart on the same thread.
+ */
+ssize_t LocalWorker::spdkReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+#ifndef SPDK_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but built without spdk support");
+#else
+    const int nsID = (*fileHandles.fdVecPtr)[fileHandleIdx];
+    const uint64_t lba = offset / spdkContext.sectorSize;
+    const uint32_t lbaCount = nbytes / spdkContext.sectorSize;
+
+    SpdkNvmeClient::IoContext* ioCtx = spdkContext.ioContextVec[0].get();
+
+    OPLOG_PRE_OP("spdkRead", std::to_string(nsID), offset, nbytes);
+
+    int ioSubmitRes = spdkContext.spdkClient.read(ioCtx, nsID, lba, lbaCount, buf);
+
+    IF_LIKELY(ioSubmitRes == 0)
+    {
+        do
+        {
+            spdkContext.completedVec.clear();
+            spdkContext.spdkClient.waitForCompletions(spdkContext.completedVec,
+                -1 /*block indefinitely*/);
+        } while(!ioCtx->done.load(std::memory_order_acquire) );
+    }
+
+    const bool isIOSuccess = (ioSubmitRes == 0) && ioCtx->ioSuccess;
+
+    OPLOG_POST_OP("spdkRead", std::to_string(nsID), offset, nbytes, !isIOSuccess);
+
+    IF_UNLIKELY(!isIOSuccess)
+    {
+        errno = ioSubmitRes ? -ioSubmitRes : EIO; // spdk returns negative errno if submit fails
+        return -1;
+    }
+
+    return nbytes;
+#endif // SPDK_SUPPORT
+}
+
+/**
+ * Wrapper for positional spdk sync write. See spdkReadWrapper() above for details.
+ */
+ssize_t LocalWorker::spdkWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+{
+#ifndef SPDK_SUPPORT
+    throw WorkerException(std::string(__func__) + "called, but built without spdk support");
+#else
+    const int nsID = (*fileHandles.fdVecPtr)[fileHandleIdx];
+    const uint64_t lba = offset / spdkContext.sectorSize;
+    const uint32_t lbaCount = nbytes / spdkContext.sectorSize;
+
+    SpdkNvmeClient::IoContext* ioCtx = spdkContext.ioContextVec[0].get();
+
+    OPLOG_PRE_OP("spdkWrite", std::to_string(nsID), offset, nbytes);
+
+    int ioSubmitRes = spdkContext.spdkClient.write(ioCtx, nsID, lba, lbaCount, buf);
+
+    IF_LIKELY(ioSubmitRes == 0)
+    {
+        do
+        {
+            spdkContext.completedVec.clear();
+            spdkContext.spdkClient.waitForCompletions(spdkContext.completedVec,
+                -1 /*block indefinitely*/);
+        } while(!ioCtx->done.load(std::memory_order_acquire) );
+    }
+
+    const bool isIOSuccess = (ioSubmitRes == 0) && ioCtx->ioSuccess;
+
+    OPLOG_POST_OP("spdkWrite", std::to_string(nsID), offset, nbytes, !isIOSuccess);
+
+    IF_UNLIKELY(!isIOSuccess)
+    {
+        errno = ioSubmitRes ? -ioSubmitRes : EIO; // spdk returns negative errno if submit fails
+        return -1;
+    }
+
+    return nbytes;
+#endif // SPDK_SUPPORT
+}
+
+/**
+ * Wrapper for positional spdk sync write followed by an immediate read of the same block.
+ */
+ssize_t LocalWorker::spdkWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+    off_t offset)
+{
+    ssize_t writeRes = spdkWriteWrapper(fileHandleIdx, buf, nbytes, offset);
+    IF_UNLIKELY(writeRes <= 0)
+        return writeRes;
+
+    return spdkReadWrapper(fileHandleIdx, buf, nbytes, offset);
+}
+
 
 /**
  * Iterate over all directories to create or remove them.
@@ -3596,15 +4049,27 @@ void LocalWorker::fileModeIterateFilesRand()
  */
 void LocalWorker::fileModeIterateFilesSeq()
 {
-	const IntVec& pathFDs = fileHandles.threadFDVec.empty() ?
-		progArgs->getBenchPathFDs() : fileHandles.threadFDVec;
-	CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
-		progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
-	const size_t numFiles = pathFDs.size();
-	const uint64_t fileSize = progArgs->getFileSize();
-	const size_t blockSize = progArgs->getBlockSize();
-	const size_t numThreads = progArgs->getNumDataSetThreads();
-	const bool useMmap = progArgs->getUseMmap();
+    const BenchMode benchMode = progArgs->getBenchMode();
+    CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
+        progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
+    const uint64_t fileSize = progArgs->getFileSize();
+    const size_t blockSize = progArgs->getBlockSize();
+    const size_t numThreads = progArgs->getNumDataSetThreads();
+    const bool useMmap = progArgs->getUseMmap();
+    const bool useCuFile = progArgs->getUseCuFile();
+
+    const IntVec& pathFDs = [&]() -> const IntVec&
+    {
+        if(benchMode == BenchMode_SPDK)
+            return progArgs->getBenchPathSpdkNsIds();
+
+        if(fileHandles.threadFDVec.empty() )
+            return progArgs->getBenchPathFDs();
+
+        return fileHandles.threadFDVec;
+    }();
+
+    const size_t numFiles = pathFDs.size();
 
 	const uint64_t numBlocksPerFile = (fileSize / blockSize) +
 		( (fileSize % blockSize) ? 1 : 0);
@@ -3648,18 +4113,19 @@ void LocalWorker::fileModeIterateFilesSeq()
 	// (note: "global block range" means that different blocks can refer to different files)
 	while(currentBlockIdx < endBlock)
 	{
-		// find the file index and inner file block index for current global block index
-		const uint64_t currentFileIndex = currentBlockIdx / numBlocksPerFile;
-		fileHandles.fdVec[0] = pathFDs[currentFileIndex];
-		fileHandles.cuFileHandleDataPtrVec[0] = &(cuFileHandleDataVec[currentFileIndex]);
+        // find the file index and inner file block index for current global block index
+        const uint64_t currentFileIndex = currentBlockIdx / numBlocksPerFile;
+        fileHandles.fdVec[0] = pathFDs[currentFileIndex];
+        fileHandles.cuFileHandleDataPtrVec[0] = !useCuFile ? nullptr :
+            &(cuFileHandleDataVec[currentFileIndex]);
 
-		const uint64_t currentBlockInFile = currentBlockIdx % numBlocksPerFile;
-		const uint64_t currentIOStart = currentBlockInFile * blockSize;
+        const uint64_t currentBlockInFile = currentBlockIdx % numBlocksPerFile;
+        const uint64_t currentIOStart = currentBlockInFile * blockSize;
 
-		// calc byte offset in file and range length
-		const uint64_t remainingWorkerLen = (endBlock - currentBlockIdx) * blockSize;
-		const uint64_t remainingFileLen = fileSize - (currentBlockInFile * blockSize);
-		const uint64_t currentIOLen = std::min(remainingWorkerLen, remainingFileLen);
+        // calc byte offset in file and range length
+        const uint64_t remainingWorkerLen = (endBlock - currentBlockIdx) * blockSize;
+        const uint64_t remainingFileLen = fileSize - (currentBlockInFile * blockSize);
+        const uint64_t currentIOLen = std::min(remainingWorkerLen, remainingFileLen);
 
 		// prep offset generator for current file range
 		rwOffsetGen->reset(currentIOLen, currentIOStart);
@@ -7918,7 +8384,7 @@ void LocalWorker::netbenchDoTransferServer()
 			{
 				if(transferredBytesVec[i] != transferBytesPerConn)
 				{ // unexpected premature disconnect => probably ctrl+c
-					LOGGER(Log_VERBOSE,"Server: Unexpected disconnect: " <<
+					LOGGER(Log_VERBOSE, "Server: Unexpected disconnect: " <<
 							workerSocketVec[i]->getPeername() << "; " <<
 						"Transferred bytes: " << transferredBytesVec[i] << "; " <<
 						"Expected bytes: " << transferBytesPerConn << "; "

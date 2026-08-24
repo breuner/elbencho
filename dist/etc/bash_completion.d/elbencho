@@ -172,6 +172,8 @@ _elbencho_opts()
         --service
         --sharesize
         --size
+        --spdkconf
+        --spdkconffile
         --start
         --stat
         --svcping
@@ -325,6 +327,8 @@ _elbencho()
         ;&
         --size)
         ;&
+        --spdkconf)
+        ;&
         --start)
         ;&
         --svcupint)
@@ -367,6 +371,8 @@ _elbencho()
         --resfile)
         ;&
         --serversfile)
+        ;&
+        --spdkconffile)
         ;&
         --svcpwfile)
         ;&

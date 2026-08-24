@@ -169,3 +169,25 @@ bool StringTk::checkForPrefix(const StringVec& vec, const std::string prefix)
 
     return false;
 }
+
+/**
+ * Concatenate all strings in the given vector to a single result string, delimited by the given
+ * delimiter.
+ *
+ * @return concatenated string
+ */
+std::string StringTk::vecToStr(const StringVec& vec, const std::string delimiter)
+{
+    std::string retVal;
+
+    if(vec.empty() )
+        return "";
+
+    retVal += vec[0];
+
+    for(size_t i=1; i < vec.size(); i++)
+        retVal += (delimiter + vec[i] );
+
+    return retVal;
+}
+

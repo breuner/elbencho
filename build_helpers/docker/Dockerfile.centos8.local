@@ -10,6 +10,7 @@ COPY ./ /root/elbencho
 RUN yum -y update && \
     yum install -y boost-devel cmake gcc-c++ git libaio-devel libcurl-devel libuuid-devel make numactl-devel openssl-devel rpm-build zlib zlib-devel && \
     cd /root/elbencho && \
+    make clean-all && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make rpm
 

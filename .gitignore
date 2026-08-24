@@ -36,6 +36,9 @@ aws_sdk_*.log
 .clang-format
 .clang-tidy
 .clangd
+.cursor/
+.cursorignore
+CLAUDE.md
 compile_flags.txt
 compile_commands.json
 excluded/

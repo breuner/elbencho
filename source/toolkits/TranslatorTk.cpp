@@ -29,6 +29,7 @@ std::string TranslatorTk::benchModeToModeName(BenchMode benchMode)
         case BenchMode_S3: return "S3";
         case BenchMode_HDFS: return "HDFS";
         case BenchMode_NETBENCH: return "NETBENCH";
+		case BenchMode_SPDK: return "SPDK";
 
         default: return "UNKNOWN";
     }
@@ -183,27 +184,27 @@ std::string TranslatorTk::benchPhaseToPhaseEntryType(BenchPhase benchPhase,
  */
 std::string TranslatorTk::benchPathTypeToStr(BenchPathType pathType, const ProgArgs* progArgs)
 {
-	switch(pathType)
-	{
-		case BenchPathType_DIR:
-			if(progArgs->getBenchMode() == BenchMode_HDFS)
-				return "hdfs";
-			else
-			if(progArgs->getBenchMode() == BenchMode_S3)
-				return "bucket";
-			else
-				return "dir";
+    switch(pathType)
+    {
+        case BenchPathType_DIR:
+            switch(progArgs->getBenchMode() )
+            {
+                case BenchMode_S3: return "bucket";
+                case BenchMode_HDFS: return "hdfs";
+                case BenchMode_NETBENCH: return "net";
+                default: return "dir";
+            } break;
 
-		case BenchPathType_FILE:
-			return (progArgs->getBenchMode() == BenchMode_S3) ? "object" : "file";
-		case BenchPathType_BLOCKDEV:
-			return "blockdev";
-		default:
-		{ // should never happen
-			throw ProgException("BenchPathType requested for unknown/invalid value: " +
-				std::to_string(pathType) );
-		} break;
-	}
+        case BenchPathType_FILE:
+            return (progArgs->getBenchMode() == BenchMode_S3) ? "object" : "file";
+        case BenchPathType_BLOCKDEV:
+            return "blockdev";
+        default:
+        { // should never happen
+            throw ProgException("BenchPathType requested for unknown/invalid value: " +
+                std::to_string(pathType) );
+        } break;
+    }
 }
 
 /**

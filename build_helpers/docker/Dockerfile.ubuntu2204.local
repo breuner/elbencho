@@ -12,6 +12,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     apt -y upgrade && \
     apt install -y build-essential cmake debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libnuma-dev libssl-dev lintian uuid-dev zlib1g-dev && \
     cd /root/elbencho && \
+    make clean-all && \
     make S3_SUPPORT=1 -j "$(nproc)" && \
     make deb
 

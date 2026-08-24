@@ -16,6 +16,7 @@
 #include "ProgException.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/SignalTk.h"
+#include "toolkits/spdk/SpdkNvmeClient.h"
 #include "workers/WorkerException.h"
 #include "workers/WorkersSharedData.h"
 
@@ -132,8 +133,11 @@ joinall_and_exit:
 		LoggerBase::clearErrHistory();
 	}
 
-	progArgs.resetBenchPath(); // important here to release shared s3 client before s3 sdk uninit
+	progArgs.resetBenchPath(); // important here to release shared s3 client & spdk before uninit
 
+#ifdef SPDK_SUPPORT
+    SpdkNvmeClient::globalUninit();
+#endif // SPDK_SUPPORT
 	S3Tk::uninitS3Global(&progArgs);
 
 	if( (retVal != EXIT_SUCCESS) || workerManager.getNumWorkersDoneWithError() )
