@@ -92,3 +92,15 @@ docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2604.loc
 ### ARM64 & Multi-Platform
 
 The image tags "`latest`" and "`master-ubuntu-cuda-multiarch`" support amd64 (aka x86_64) and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs. (Other image tags might be available for only one of these platforms.)
+
+### FIPS mode
+
+The default image based on Ubuntu is not FIPS compliant, because the default Ubuntu repositories don't contain a FIPS compliant `libcrypto`. When trying to run an Ubuntu-based image with S3 support on a system with FIPS mode enabled, elbencho will error out during S3 library initialization with a message like "FIPS mode is not supported for the libcrypto".
+
+In this case, consider using a different image or (if allowed by your policies) consider disabling FIPS mode inside the container by masking the `fips_enabled` file for the container runtime like this:
+
+```
+echo "0" > /tmp/fake_fips_mode
+
+docker run -v /tmp/fake_fips_mode:/proc/sys/crypto/fips_enabled:ro ...
+```
