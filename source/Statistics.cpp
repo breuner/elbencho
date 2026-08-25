@@ -2412,28 +2412,23 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 
 		outStream << "[ ";
 
-		if(latHisto.getHistogramExceeded() )
-			outStream << "Histogram exceeded";
-		else
+		outStream <<
+			"1%<=" << latHisto.getPercentileStr(1) << " "
+			"50%<=" << latHisto.getPercentileStr(50) << " "
+			"75%<=" << latHisto.getPercentileStr(75) << " "
+			"99%<=" << latHisto.getPercentileStr(99);
+
+		// print configurable amount of percentile nines (99.9%, 99.99%, ...)
+		std::string ninesStr = "99.";
+		for(unsigned short numDecimals=1;
+			numDecimals <= progArgs.getNumLatencyPercentile9s();
+			numDecimals++)
 		{
-			outStream <<
-				"1%<=" << latHisto.getPercentileStr(1) << " "
-				"50%<=" << latHisto.getPercentileStr(50) << " "
-				"75%<=" << latHisto.getPercentileStr(75) << " "
-				"99%<=" << latHisto.getPercentileStr(99);
+			ninesStr += "9"; // append next decimal 9
+			double percentage = std::stod(ninesStr);
 
-			// print configurable amount of percentile nines (99.9%, 99.99%, ...)
-			std::string ninesStr = "99.";
-			for(unsigned short numDecimals=1;
-				numDecimals <= progArgs.getNumLatencyPercentile9s();
-				numDecimals++)
-			{
-				ninesStr += "9"; // append next decimal 9
-				double percentage = std::stod(ninesStr);
-
-				outStream << " " << std::setprecision(numDecimals+3) << // +3 for "99."
-					percentage << "%<=" << latHisto.getPercentileStr(percentage);
-			}
+			outStream << " " << std::setprecision(numDecimals+3) << // +3 for "99."
+				percentage << "%<=" << latHisto.getPercentileStr(percentage);
 		}
 
 		outStream << " ]" << std::endl;
@@ -2769,6 +2764,8 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
         }
 
         bpt::json_parser::write_json(fileStream, ptree, false); // throws on error
+
+		fileStream << std::endl;
     }
     catch(const std::exception& e)
     {

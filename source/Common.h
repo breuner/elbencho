@@ -89,7 +89,7 @@ typedef std::vector<uint32_t> UInt32Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.1.4"
+#define HTTP_PROTOCOLVERSION	"3.1.5"
 
 /**
  * Default access mode bits for new files.
@@ -293,6 +293,8 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define XFER_STATS_LATMAXMICROSEC				"LatMaxMicroSec"
 #define XFER_STATS_LATHISTOLIST					"LatHistoList"
 #define XFER_STATS_LATHISTOLIST_ITEM			"LatHistoList.item"
+#define XFER_STATS_LATHISTOLIST_ITEM_IDX		"i" // sparse encoding: flat bucket index
+#define XFER_STATS_LATHISTOLIST_ITEM_CNT		"c" // sparse encoding: bucket count
 #define XFER_STATS_CPUUTIL_STONEWALL			"CPUUtilStoneWall"
 #define XFER_STATS_CPUUTIL						"CPUUtil"
 

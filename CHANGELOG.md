@@ -12,9 +12,12 @@
 * Removed dockerfiles without `.local`  extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
 * Updated ftxui lib for fullscreen live stats to latest v7.0.3.
 * Updated mimalloc lib for static builds to latest v3.5.0.
+* Latency histogram improved:
+  * Now covers a wider range: from 1 microsecond up to over 1 year
+  * Higher accuracy: max relative error of about 1% for the entire range.
 
 ### Contributors
-* Thanks to Dan Gluskin and Aviv Ben David for helpful comments and suggestions.
+* Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop for helpful comments and suggestions.
 
 ## v3.1.11 (July 24, 2026)
 

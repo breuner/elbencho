@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "LatencyHistogram.h"
@@ -10,24 +10,14 @@
 void LatencyHistogram::getAsPropertyTreeForJSONFile(bpt::ptree& outTree,
     std::string subtreeKey) const
 {
-    const double log2BucketSize = 1.0 / LATHISTO_BUCKETFRACTION;
-
     bpt::ptree subtree;
-    double bucketRangeStartMicroSec = 0;
-
-    if(getHistogramExceeded() )
-    { // can't show histogram
-         subtree.put("histo_max_exceeded",
-            "Histogram not available because highest latency value exceeded histogram size. "
-            "Histogram max: " + std::to_string(pow(2, LATHISTO_NUMBUCKETS*log2BucketSize) ) + "us" );
-         outTree.put_child(subtreeKey, subtree);
-         return;
-    }
+    uint64_t bucketRangeStartMicroSec = 0;
 
     for(size_t bucketIndex = 0; bucketIndex < LATHISTO_NUMBUCKETS; bucketIndex++)
     {
         const uint64_t rangeMatchCount = buckets[bucketIndex];
-        const double bucketRangeEndMicroSec = pow(2, (bucketIndex+1)*log2BucketSize);
+        const uint64_t bucketRangeEndMicroSec = indexToUpperBoundMicroSec(bucketIndex);
+        const bool isOpenEnded = (bucketIndex == LATHISTO_NUMBUCKETS-1);
 
         if(!rangeMatchCount)
         {
@@ -36,17 +26,10 @@ void LatencyHistogram::getAsPropertyTreeForJSONFile(bpt::ptree& outTree,
             continue;
         }
 
-        std::ostringstream streamRangeStart;
-        std::ostringstream streamRangeEnd;
-
-
-        streamRangeStart << std::fixed << std::setprecision(bucketRangeStartMicroSec < 10 ? 1 : 0) <<
-            bucketRangeStartMicroSec;
-
-        streamRangeEnd << std::fixed << std::setprecision(bucketRangeEndMicroSec < 10 ? 1 : 0) <<
-            bucketRangeEndMicroSec;
-
-        std::string rangeString = streamRangeStart.str() + "-" + streamRangeEnd.str() + "us";
+        std::string rangeString = isOpenEnded ?
+            (std::to_string(bucketRangeStartMicroSec) + "+us") :
+            (std::to_string(bucketRangeStartMicroSec) + "-" +
+                std::to_string(bucketRangeEndMicroSec) + "us");
 
         boost::property_tree::ptree rangeEntry;
 
@@ -63,18 +46,31 @@ void LatencyHistogram::getAsPropertyTreeForJSONFile(bpt::ptree& outTree,
 }
 
 /**
+ * Sparse encoding: only non-zero buckets are sent, each as an (index, count) pair. This keeps
+ * the transferred data small even though the histogram now spans thousands of buckets, since a
+ * typical run's latencies cluster into a narrow band and most buckets stay empty.
+ *
  * @prefixStr prefix for element names (XFER_STATS_LAT_PREFIX_...)
  */
 void LatencyHistogram::getAsPropertyTreeForService(bpt::ptree& outTree, std::string prefixStr) const
 {
-	outTree.put(prefixStr + XFER_STATS_LATNUMVALUES, numStoredValues);
-	outTree.put(prefixStr + XFER_STATS_LATMICROSECTOTAL, numMicroSecTotal);
-	outTree.put(prefixStr + XFER_STATS_LATMINMICROSEC, minMicroSecLat);
-	outTree.put(prefixStr + XFER_STATS_LATMAXMICROSEC, maxMicroSecLat);
+    outTree.put(prefixStr + XFER_STATS_LATNUMVALUES, numStoredValues);
+    outTree.put(prefixStr + XFER_STATS_LATMICROSECTOTAL, numMicroSecTotal);
+    outTree.put(prefixStr + XFER_STATS_LATMINMICROSEC, minMicroSecLat);
+    outTree.put(prefixStr + XFER_STATS_LATMAXMICROSEC, maxMicroSecLat);
 
-	// add histogram buckets
-	for(size_t bucketIndex = 0; bucketIndex < LATHISTO_NUMBUCKETS; bucketIndex++)
-		outTree.add(prefixStr + XFER_STATS_LATHISTOLIST_ITEM, buckets[bucketIndex] );
+    // add histogram buckets (sparse: only non-zero entries)
+    for(size_t bucketIndex = 0; bucketIndex < LATHISTO_NUMBUCKETS; bucketIndex++)
+    {
+        if(!buckets[bucketIndex] )
+            continue;
+
+        bpt::ptree bucketEntry;
+        bucketEntry.put(XFER_STATS_LATHISTOLIST_ITEM_IDX, bucketIndex);
+        bucketEntry.put(XFER_STATS_LATHISTOLIST_ITEM_CNT, buckets[bucketIndex]);
+
+        outTree.add_child(prefixStr + XFER_STATS_LATHISTOLIST_ITEM, bucketEntry);
+    }
 }
 
 /**
@@ -82,16 +78,29 @@ void LatencyHistogram::getAsPropertyTreeForService(bpt::ptree& outTree, std::str
  */
 void LatencyHistogram::setFromPropertyTreeForService(bpt::ptree& tree, std::string prefixStr)
 {
-	numStoredValues = tree.get<size_t>(prefixStr + XFER_STATS_LATNUMVALUES);
-	numMicroSecTotal = tree.get<size_t>(prefixStr + XFER_STATS_LATMICROSECTOTAL);
-	minMicroSecLat = tree.get<size_t>(prefixStr + XFER_STATS_LATMINMICROSEC);
-	maxMicroSecLat = tree.get<size_t>(prefixStr + XFER_STATS_LATMAXMICROSEC);
+    numStoredValues = tree.get<size_t>(prefixStr + XFER_STATS_LATNUMVALUES);
+    numMicroSecTotal = tree.get<size_t>(prefixStr + XFER_STATS_LATMICROSECTOTAL);
+    minMicroSecLat = tree.get<size_t>(prefixStr + XFER_STATS_LATMINMICROSEC);
+    maxMicroSecLat = tree.get<size_t>(prefixStr + XFER_STATS_LATMAXMICROSEC);
 
-	// add histogram buckets
-	size_t bucketIndex = 0;
-	for(bpt::ptree::value_type& bucketItem : tree.get_child(prefixStr + XFER_STATS_LATHISTOLIST) )
-	{
-		buckets[bucketIndex] = bucketItem.second.get_value<size_t>();
-		bucketIndex++;
-	}
+    // reset buckets, then apply the sparse (index, count) pairs received
+    for(size_t bucketIndex = 0; bucketIndex < LATHISTO_NUMBUCKETS; bucketIndex++)
+        buckets[bucketIndex] = 0;
+
+    auto listTree = tree.get_child_optional(prefixStr + XFER_STATS_LATHISTOLIST);
+    if(!listTree)
+        return; // no bucket data (e.g. sender had no stored values)
+
+    for(bpt::ptree::value_type& bucketItem : *listTree)
+    {
+        size_t bucketIndex = bucketItem.second.get<size_t>(XFER_STATS_LATHISTOLIST_ITEM_IDX);
+        uint64_t bucketCount = bucketItem.second.get<uint64_t>(XFER_STATS_LATHISTOLIST_ITEM_CNT);
+
+        /* bounds check: tolerate a sender compiled with a different LATHISTO_NUMBUCKETS instead
+            of writing out of bounds */
+        if(bucketIndex >= LATHISTO_NUMBUCKETS)
+            continue;
+
+        buckets[bucketIndex] = bucketCount;
+    }
 }
