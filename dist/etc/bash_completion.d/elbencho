@@ -72,6 +72,7 @@ _elbencho_opts()
         --jsonfile
         --lat
         --lathisto
+        --lathistogrpd
         --latpercent
         --latpercent9s
         --limitread

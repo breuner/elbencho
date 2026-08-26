@@ -19,6 +19,8 @@ All options in alphabetical order:
                           object size is larger than this block size. (Default:
                           1M; supports base2 suffixes, e.g. "128K")
   --backward              Do backwards sequential reads/writes.
+  --base10                Show throughput in base10 instead of base2 numbers 
+                          (e.g. MB/s instead of MiB/s).
   --blockvaralgo arg      Random number algorithm for "--blockvarpct". Values: 
                           "fast" for high speed but weaker randomness; 
                           "balanced" for good balance of speed and randomness; 
@@ -154,7 +156,13 @@ All options in alphabetical order:
                           read/write operations and entries. In read and write 
                           phases, entry latency includes file open, read/write 
                           and close.
-  --lathisto              Show latency histogram.
+  --lathisto              Show latency histogram. This option also enables the 
+                          latency histogram in the json result file 
+                          ("--jsonfile").
+  --lathistogrpd          Show consolidated, decade-grouped latency histogram 
+                          summary. More readable than "--lathisto" when latency
+                          values have a lot of variance. Full histogram is 
+                          available in the json result file ("--jsonfile").
   --latpercent            Show latency percentiles.
   --latpercent9s arg      Number of decimal nines to show in latency 
                           percentiles. 0 for 99%, 1 for 99.9%, 2 for 99.99% and
@@ -384,6 +392,9 @@ All options in alphabetical order:
                           (Default: Number of threads sharing the instance 
                           times iodepth.) [Not effective for builds with 
                           feature s3crt.]
+  --s3mpusharing          Use shared multipart upload mode for S3 objects from 
+                          multiple clients. For this mode, object names need to
+                          be given as parameters (e.g. "mybucket/myobj[1-10]").
   --s3mpusizevar arg      Maximum number of bytes to subtract from part size of
                           multipart uploads for random variance in part sizes. 
                           The last uploaded part will be correspondingly larger
@@ -476,6 +487,9 @@ All options in alphabetical order:
                           hostname[:port])
   --service               Run as service for distributed mode, waiting for 
                           requests from master.
+  --spdkconf arg          JSON config for SPDK NVMe-oF initiator mode.
+  --spdkconffile arg      File to load JSON config from for SPDK NVMe-oF 
+                          initiator mode.
   --sharesize arg         In custom tree mode, this defines the file size as of
                           which files are no longer exclusively assigned to a 
                           thread. This means multiple threads read/write 
@@ -522,9 +536,14 @@ All options in alphabetical order:
                           treefile. (Note: The file list will be split across 
                           worker threads, but dir create/delete is not fully 
                           parallel, so don't use this for dir create/delete 
-                          performance testing.)
+                          performance testing.) (Note: In this mode, the 
+                          write/read phase files counter only counts files that
+                          have not been split across multiple workers.)
   --treerand              In custom tree mode: Randomize file order. Default is
                           order by file size.
+  --treeroundrob          In custom tree mode: Assign file blocks round-robin 
+                          to workers. Default is to maximize consecutive ranges
+                          per worker.
   --treeroundup arg       When loading a treefile, round up all contained file 
                           sizes to a multiple of the given size. This is useful
                           for "--direct" with its alignment requirements on 

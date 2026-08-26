@@ -6,18 +6,21 @@
 * Added NVMe-oF support based on SPDK. This can be used to test NVMe-oF block devices directly, as an alternative to the NVMe-oF stack of the Linux kernel.
   * This feature can be enabled via the Makefile option `SPDK_SUPPORT=1`.
   * User guide is available at [`docs/spdk.md`](docs/spdk.md).
+* Latency histogram improved (`--lathisto`):
+  * Now covers a wider range: from 1 microsecond up to over 1 year
+  * Higher accuracy: max relative error of about 1% for the entire range
+* New option `--lathistogrpd` to show a grouped summary of the latency histogram on the console.
+  * This is because the new higher resolution latency histogram for the `--lathisto` option can easily get inconveniently long on the console.
+  * When the `--lathistogrpd` option is given, the full histogram is available in the json result file (see `--jsonfile` option), same as when using the `--lathisto` option.
 
 ### General Changes
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
-* Removed dockerfiles without `.local`  extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
+* Removed dockerfiles without `.local` extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
 * Updated ftxui lib for fullscreen live stats to latest v7.0.3.
 * Updated mimalloc lib for static builds to latest v3.5.0.
-* Latency histogram improved:
-  * Now covers a wider range: from 1 microsecond up to over 1 year
-  * Higher accuracy: max relative error of about 1% for the entire range.
 
 ### Contributors
-* Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop for helpful comments and suggestions.
+* Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop and Github user git4ghw for helpful comments and suggestions.
 
 ## v3.1.11 (July 24, 2026)
 

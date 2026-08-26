@@ -44,6 +44,7 @@ class LatencyHistogram
         void getAsPropertyTreeForJSONFile(bpt::ptree& outTree, std::string subtreeKey) const;
         void getAsPropertyTreeForService(bpt::ptree& outTree, std::string prefixStr) const;
         void setFromPropertyTreeForService(bpt::ptree& tree, std::string prefixStr);
+        std::string getHistogramGroupedStr(size_t continuationIndent) const;
 
     private:
         uint64_t numStoredValues{0}; // number of all values stored in all buckets

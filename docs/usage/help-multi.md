@@ -42,6 +42,9 @@ Miscellaneous Options:
                         for available NUMA zones.)
   --latpercent          Show latency percentiles.
   --lathisto            Show latency histogram.
+  --lathistogrpd        Show consolidated, decade-grouped latency histogram 
+                        summary. More readable than "--lathisto" when latency 
+                        values have a lot of variance.
   --nodelerr            Ignore not existing files/dirs in deletion phase 
                         instead of treating this as error.
 

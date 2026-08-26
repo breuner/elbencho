@@ -407,7 +407,12 @@ void ProgArgs::defineAllowedArgs()
 			"Show minimum, average and maximum latency for read/write operations and entries. "
 			"In read and write phases, entry latency includes file open, read/write and close.")
 /*la*/	(ARG_LATENCYHISTOGRAM_LONG, bpo::bool_switch(&this->showLatencyHistogram),
-			"Show latency histogram.")
+			"Show latency histogram. This option also enables the latency histogram in the json "
+            "result file (\"--" ARG_JSONFILE_LONG "\").")
+/*la*/  (ARG_LATENCYHISTOGRAMGROUPED_LONG, bpo::bool_switch(&this->showLatencyHistogramGrouped),
+            "Show consolidated, decade-grouped latency histogram summary. More readable than \"--"
+            ARG_LATENCYHISTOGRAM_LONG "\" when latency values have a lot of variance. Full "
+            "histogram is available in the json result file (\"--" ARG_JSONFILE_LONG "\").")
 /*la*/	(ARG_LATENCYPERCENTILES_LONG, bpo::bool_switch(&this->showLatencyPercentiles),
 			"Show latency percentiles.")
 /*la*/	(ARG_LATENCYPERCENT9S_LONG, bpo::value(&this->numLatencyPercentile9s),
@@ -993,6 +998,7 @@ void ProgArgs::defineDefaults()
     this->showDirStats = false;
     this->showLatency = false;
     this->showLatencyHistogram = false;
+    this->showLatencyHistogramGrouped = false;
     this->showLatencyPercentiles = false;
     this->showServicesElapsed = false;
     this->showThroughputBase10 = false;
@@ -3471,6 +3477,9 @@ void ProgArgs::printHelpBlockDev()
 			"Show latency percentiles.")
 		(ARG_LATENCYHISTOGRAM_LONG, bpo::bool_switch(&this->showLatencyHistogram),
 			"Show latency histogram.")
+        (ARG_LATENCYHISTOGRAMGROUPED_LONG, bpo::bool_switch(&this->showLatencyHistogramGrouped),
+            "Show consolidated, decade-grouped latency histogram summary. More readable than \"--"
+            ARG_LATENCYHISTOGRAM_LONG "\" when latency values have a lot of variance.")
 		(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
 			"Show elapsed time to completion of each I/O worker thread.")
 	;
@@ -3576,6 +3585,9 @@ void ProgArgs::printHelpMultiFile()
 			"Show latency percentiles.")
 		(ARG_LATENCYHISTOGRAM_LONG, bpo::bool_switch(&this->showLatencyHistogram),
 			"Show latency histogram.")
+        (ARG_LATENCYHISTOGRAMGROUPED_LONG, bpo::bool_switch(&this->showLatencyHistogramGrouped),
+            "Show consolidated, decade-grouped latency histogram summary. More readable than \"--"
+            ARG_LATENCYHISTOGRAM_LONG "\" when latency values have a lot of variance.")
 		(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
 	;

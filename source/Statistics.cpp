@@ -2449,6 +2449,27 @@ void Statistics::printPhaseResultsLatencyToStream(const LatencyHistogram& latHis
 
 		outStream << " ]" << std::endl;
 	}
+
+    // print IO latency histogram summary
+    if(progArgs.getShowLatencyHistogramGrouped() && latHisto.getNumStoredValues() )
+    {
+        // individual results header (note: keep format in sync with general table format string)
+        outStream << boost::format(Statistics::phaseResultsLeftFormatStr)
+            % ""
+            % (latTypeStr + " lat grpd")
+            % ":";
+
+        outStream << "[ ";
+
+        // continuation lines align under this same "[ " column (computed, not hardcoded, so it
+        // can't drift out of sync if phaseResultsLeftFormatStr ever changes)
+        size_t continuationIndent = (boost::format(Statistics::phaseResultsLeftFormatStr)
+            % "" % "" % "").str().length() + 2; // +2 for the "[ " printed above
+
+        outStream << latHisto.getHistogramGroupedStr(continuationIndent);
+
+        outStream << " ]" << std::endl;
+    }
 }
 
 /**
@@ -2717,7 +2738,7 @@ void Statistics::printPhaseResultsAsJSON(const PhaseResults& phaseResults)
 
     // latency histograms
 
-    if(progArgs.getShowLatencyHistogram() )
+    if(progArgs.getShowLatencyHistogram() || progArgs.getShowLatencyHistogramGrouped() )
     {
         if(phaseResults.entriesLatHisto.getNumStoredValues() )
             phaseResults.entriesLatHisto.getAsPropertyTreeForJSONFile(lastDoneLatencySubtree,

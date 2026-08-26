@@ -97,6 +97,7 @@ namespace bpt = boost::property_tree;
 #define ARG_JSONLIVEFILE_LONG            "livejson"
 #define ARG_LATENCY_LONG                 "lat"
 #define ARG_LATENCYHISTOGRAM_LONG        "lathisto"
+#define ARG_LATENCYHISTOGRAMGROUPED_LONG "lathistogrpd"
 #define ARG_LATENCYPERCENT9S_LONG        "latpercent9s"
 #define ARG_LATENCYPERCENTILES_LONG      "latpercent"
 #define ARG_LIMITREAD_LONG               "limitread"
@@ -547,6 +548,7 @@ class ProgArgs
         bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
         bool showLatency; // show min/avg/max latency
         bool showLatencyHistogram; // show latency histogram
+        bool showLatencyHistogramGrouped; // show consolidated, decade-grouped latency histogram
         bool showLatencyPercentiles; // show latency percentiles
         bool showServicesElapsed; // print elapsed time of each service by slowest thread
         bool showThroughputBase10; // show throughput in base10 instead base2 (MB/s instead MiB/s)
@@ -836,6 +838,7 @@ class ProgArgs
         bool getShowDirStats() const { return showDirStats; }
         bool getShowLatency() const { return showLatency; }
         bool getShowLatencyHistogram() const { return showLatencyHistogram; }
+        bool getShowLatencyHistogramGrouped() const { return showLatencyHistogramGrouped; }
         bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
         bool getShowServicesElapsed() const { return showServicesElapsed; }
         bool getShowThroughputBase10() const { return showThroughputBase10; }

@@ -1,8 +1,95 @@
 // SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <algorithm>
+
 #include "LatencyHistogram.h"
+#include "toolkits/UnitTk.h"
 #include "workers/RemoteWorker.h"
+
+namespace
+{
+    /**
+     * Decimal order-of-magnitude ("decade") of a microsec value: 0 for [0,9], 1 for [10,99],
+     * 2 for [100,999], and so on. Pure integer math, used by getHistogramGroupedStr().
+     */
+    unsigned decadeExponent(uint64_t v)
+    {
+        unsigned decadeExp = 0;
+
+        for(uint64_t threshold = 10; v >= threshold; threshold *= 10)
+            decadeExp++;
+
+        return decadeExp;
+    }
+
+    uint64_t pow10(unsigned exponent)
+    {
+        uint64_t result = 1;
+
+        for(unsigned i = 0; i < exponent; i++)
+            result *= 10;
+
+        return result;
+    }
+
+    /**
+     * Maps a decade exponent (as returned by decadeExponent(), in microsec) to a display unit
+     * ("us"/"ms"/"s") and the digit-decade within that unit (0 for "1-9", 1 for "10-99", and so
+     * on; unit switches happen exactly at the same 1e3/1e6 microsec points as
+     * UnitTk::latencyUsToHumanStr() ).
+     */
+    void decadeUnitAndDigits(unsigned decadeExp, std::string& outUnit, unsigned& outDigitDecade)
+    {
+        if(decadeExp < 3)
+        {
+            outUnit = "us";
+            outDigitDecade = decadeExp;
+        }
+        else
+        if(decadeExp < 6)
+        {
+            outUnit = "ms";
+            outDigitDecade = decadeExp - 3;
+        }
+        else
+        {
+            outUnit = "s";
+            outDigitDecade = decadeExp - 6;
+        }
+    }
+
+    /**
+     * E.g. "1-9ms" for the digit-decade covering [1,9]ms. The very first decade (decadeExp 0)
+     * starts at 0 instead of 1, so it also captures exact 0us latencies.
+     */
+    std::string decadeRangeStr(unsigned decadeExp)
+    {
+        std::string unit;
+        unsigned digitDecade;
+        decadeUnitAndDigits(decadeExp, unit, digitDecade);
+
+        uint64_t lowerBound = (decadeExp == 0) ? 0 : pow10(digitDecade);
+        uint64_t upperBound = pow10(digitDecade + 1) - 1;
+
+        return std::to_string(lowerBound) + "-" + std::to_string(upperBound) + unit;
+    }
+
+    /**
+     * E.g. "1ms" for the digit-decade covering [1,9]ms, used for the open-ended top category
+     * ("≥1ms" style) instead of decadeRangeStr()'s closed range.
+     */
+    std::string decadeLowerBoundStr(unsigned decadeExp)
+    {
+        std::string unit;
+        unsigned digitDecade;
+        decadeUnitAndDigits(decadeExp, unit, digitDecade);
+
+        uint64_t lowerBound = (decadeExp == 0) ? 0 : pow10(digitDecade);
+
+        return std::to_string(lowerBound) + unit;
+    }
+} // namespace
 
 /**
  * @prefixStr prefix for element names (XFER_STATS_LAT_PREFIX_...)
@@ -103,4 +190,96 @@ void LatencyHistogram::setFromPropertyTreeForService(bpt::ptree& tree, std::stri
 
         buckets[bucketIndex] = bucketCount;
     }
+}
+
+/**
+ * Get a consolidated, human-readable summary of the histogram: one column-aligned line per
+ * order-of-magnitude ("decade") latency range (e.g. "0-9us", "10-99us", "100-999us", "1-9ms",
+ * ...), each showing the summed bucket count for that range and its percentage of all stored
+ * values. Much shorter than getHistogramStr() when latencies have a lot of variance, at the cost
+ * of losing the fine-grained per-bucket detail.
+ *
+ * @continuationIndent number of spaces to indent every line after the first (the first line is
+ * expected to be appended right after a caller-printed opener, e.g. "[ ").
+ */
+std::string LatencyHistogram::getHistogramGroupedStr(size_t continuationIndent) const
+{
+    // one accumulator slot per decade of the full representable range is more than enough
+    constexpr unsigned numDecades = 20;
+    uint64_t categorySums[numDecades] = {};
+
+    for(size_t bucketIndex = 0; bucketIndex < LATHISTO_NUMBUCKETS; bucketIndex++)
+    {
+        if(!buckets[bucketIndex] )
+            continue;
+
+        unsigned decade = decadeExponent(indexToUpperBoundMicroSec(bucketIndex) );
+        categorySums[decade] += buckets[bucketIndex];
+    }
+
+    unsigned topCategoryDecade = decadeExponent(indexToUpperBoundMicroSec(LATHISTO_NUMBUCKETS-1) );
+    bool isTopCategoryOpenEnded = (buckets[LATHISTO_NUMBUCKETS-1] > 0);
+
+    // build pass: collect (rangeLabel, countStr, percentage) per non-empty decade and track the
+    // widest label/count actually printed, so columns align without reserving unused space
+    struct SummaryLine
+    {
+        std::string rangeLabel;
+        size_t rangeLabelDisplayWidth; // may differ from rangeLabel.length() for multi-byte UTF-8
+        std::string countStr; // pre-formatted with a base10 suffix (K/M/G/...) for large counts
+        double percentage;
+    };
+
+    std::vector<SummaryLine> lines;
+    size_t maxRangeLabelWidth = 0;
+    size_t maxCountStrWidth = 0;
+
+    for(unsigned decade = 0; decade < numDecades; decade++)
+    {
+        if(!categorySums[decade] )
+            continue;
+
+        SummaryLine line;
+        line.countStr = UnitTk::numToHumanStrBase10(categorySums[decade]);
+        line.percentage = 100.0 * categorySums[decade] / numStoredValues;
+
+        if(isTopCategoryOpenEnded && (decade == topCategoryDecade) )
+        {
+            // "≥" is 1 terminal column, but 3 bytes in UTF-8, so its display width can't just be
+            // std::string::length() (that would overcount and throw off setw() padding below)
+            std::string lowerBoundStr = decadeLowerBoundStr(decade);
+            line.rangeLabel = "≥" + lowerBoundStr;
+            line.rangeLabelDisplayWidth = 1 + lowerBoundStr.length();
+        }
+        else
+        {
+            line.rangeLabel = decadeRangeStr(decade);
+            line.rangeLabelDisplayWidth = line.rangeLabel.length();
+        }
+
+        maxRangeLabelWidth = std::max(maxRangeLabelWidth, line.rangeLabelDisplayWidth);
+        maxCountStrWidth = std::max(maxCountStrWidth, line.countStr.length() );
+
+        lines.push_back(std::move(line) );
+    }
+
+    // emit pass: pad every field to the widths collected above
+    std::ostringstream stream;
+
+    for(size_t i = 0; i < lines.size(); i++)
+    {
+        const SummaryLine& line = lines[i];
+
+        if(i > 0)
+            stream << "\n" << std::string(continuationIndent, ' ');
+
+        // pad manually (rather than via std::setw() ) because rangeLabel's byte length can
+        // differ from its display width for the "≥" case above
+        stream << line.rangeLabel <<
+            std::string(maxRangeLabelWidth - line.rangeLabelDisplayWidth, ' ') << ": " <<
+            std::setw(maxCountStrWidth) << line.countStr <<
+            " (" << std::fixed << std::setprecision(1) << std::setw(5) << line.percentage << "%)";
+    }
+
+    return stream.str();
 }
