@@ -242,7 +242,7 @@ class LocalWorker : public Worker
         int64_t spdkAioBlockSized();
 #endif // SPDK_SUPPORT
 		void calcFileIdxAndOffsetStriped(const uint64_t rwOffsetGenNext,
-		    const uint64_t fileSize, const bool isSingleFile,
+            const uint64_t fileSize, const uint64_t fileOffsetBase, const bool isSingleFile,
 		    size_t& outFileIdx, uint64_t& outFileOffset);
 
 		void dirModeIterateDirs();
@@ -327,7 +327,8 @@ class LocalWorker : public Worker
 
 		int getDirModeOpenFlags(BenchPhase benchPhase);
 		int dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
-			unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileSize);
+            unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileLen,
+            uint64_t preallocOffset);
 
 		// for phase function pointers...
 

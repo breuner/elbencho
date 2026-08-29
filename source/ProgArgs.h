@@ -64,6 +64,7 @@ namespace bpt = boost::property_tree;
 #define ARG_DROPCACHESPHASE_LONG         "dropcache"
 #define ARG_DRYRUN_LONG                  "dryrun"
 #define ARG_FADVISE_LONG                 "fadv"
+#define ARG_FILEOFFSET_LONG              "offset"
 #define ARG_FILESHARESIZE_LONG           "sharesize"
 #define ARG_FILESIZE_LONG                "size"
 #define ARG_FILESIZE_SHORT               "s"
@@ -425,10 +426,12 @@ class ProgArgs
         bool doTruncToSize; // truncate files to size on creation via ftruncate()
         unsigned fadviseFlags; // flags for fadvise() (ARG_FADVISE_FLAG_x)
         std::string fadviseFlagsOrigStr; // flags for fadvise() (ARG_FADVISE_FLAG_x_NAME)
+        uint64_t fileOffset; // min offset within files/objects/blockdevs for all read/write ops
+        std::string fileOffsetOrigStr; // original fileOffset str from user with unit
         uint64_t fileShareSize; /* in custom tree mode, file size as of which to write/read shared.
                                     (default 0 means 32 times blockSize) */
         std::string fileShareSizeOrigStr; // original fileShareSize str from user with unit
-        uint64_t fileSize; // size per file
+        uint64_t fileSize; // size per file, relative to fileOffset
         std::string fileSizeOrigStr; // original fileSize str from user with unit
         unsigned short flockType; // internal type of file lock based on user string (ARG_FLOCK_x)
         std::string flockTypeOrigStr; // type of file lock on command line (ARG_FLOCK_x_NAME)
@@ -676,6 +679,7 @@ class ProgArgs
 
         // getters for indirect values in alphabetic order...
 
+        uint64_t getFileEndOffset() const { return fileOffset + fileSize; } // fileOffset + fileSize
         bool getRunS3DelObjectMetadata() const
             { return getS3ObjectMetadataRequested() && runDeleteFilesPhase; }
         bool getRunS3GetBucketMetadata() const { return getS3BucketMetadataRequested(); }
@@ -730,6 +734,8 @@ class ProgArgs
         bool getDoListObjVerify() const { return doS3ListObjVerify; }
         unsigned getFadviseFlags() const { return fadviseFlags; }
         std::string getFadviseFlagsOrigStr() const { return fadviseFlagsOrigStr; }
+        uint64_t getFileOffset() const { return fileOffset; }
+        std::string getFileOffsetOrigStr() const { return fileOffsetOrigStr; }
         uint64_t getFileShareSize() const { return fileShareSize; }
         uint64_t getFileSize() const { return fileSize; }
         std::string getFileSizeOrigStr() const { return fileSizeOrigStr; }

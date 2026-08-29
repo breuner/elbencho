@@ -101,6 +101,7 @@ _elbencho_opts()
         --norandalign
         --nosvcshare
         --numservers
+        --offset
         --opslog
         --opsloglock
         --perthread
@@ -257,6 +258,8 @@ _elbencho()
         --netdevs)
         ;&
         --numservers)
+        ;&
+        --offset)
         ;&
         --phasedelay)
         ;&

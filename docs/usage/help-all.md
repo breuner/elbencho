@@ -255,6 +255,12 @@ All options in alphabetical order:
                           data set.
   --numhosts arg          Number of hosts to use from given hosts list or hosts
                           file. (Default: use all given hosts)
+  --offset arg            Minimum offset within files/objects/block devices for
+                          all read/write operations. The given "--size" is 
+                          relative to this offset, so e.g. "--offset 100M -s 
+                          50M" means that all reads and writes happen in the 
+                          50MiB range starting at offset 100MiB. (Default: 0; 
+                          supports base2 suffixes, e.g. "2M")
   --opslog arg            Absolute path to logfile for all I/O operations 
                           (open, read, ...). In service mode, the service 
                           instances will log their operations locally to the 

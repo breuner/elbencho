@@ -17,6 +17,9 @@ Basic Options:
 
 Frequently Used Options:
   --direct              Use direct IO to avoid buffering/caching.
+  --offset arg          Minimum offset within block device(s) or file(s) for 
+                        all read/write operations. The given "--size" is 
+                        relative to this offset. (Default: 0)
   --iodepth arg         Depth of I/O queue per thread for asynchronous 
                         read/write. Setting this to 2 or higher turns on async 
                         I/O. (Default: 1)

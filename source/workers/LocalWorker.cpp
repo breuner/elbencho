@@ -1132,7 +1132,7 @@ void LocalWorker::uninitThreadMmapVec()
 		if(mmapPtr == MAP_FAILED)
 			continue;
 
-		int unmapRes = munmap(mmapPtr, progArgs->getFileSize() );
+        int unmapRes = munmap(mmapPtr, progArgs->getFileEndOffset() );
 
 		if(unmapRes == -1)
 			ERRLOGGER(Log_NORMAL, "File memory unmap failed. "
@@ -1859,6 +1859,7 @@ int64_t LocalWorker::rwBlockSized()
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
 	const unsigned rwMixReadPercent = progArgs->getRWMixReadPercent();
     const uint64_t fileSize = progArgs->getFileSize();
+    const uint64_t fileOffsetBase = progArgs->getFileOffset();
     const bool isSingleFile = (fileHandles.fdVecPtr->size() == 1);
     const unsigned short fileLockType = progArgs->getFLockType();
 
@@ -1871,7 +1872,7 @@ int64_t LocalWorker::rwBlockSized()
         bool isRWMixRead = false;
         ssize_t rwRes;
 
-        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile,
+        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, fileOffsetBase, isSingleFile,
             fileHandleIdx, currentOffset);
 
 		((*this).*funcRWRateLimiter)(currentBlockSize, isInterruptionRequested);
@@ -1993,6 +1994,7 @@ int64_t LocalWorker::aioBlockSized()
 	const size_t maxIODepth = progArgs->getIODepth();
 	const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
     const uint64_t fileSize = progArgs->getFileSize();
+    const uint64_t fileOffsetBase = progArgs->getFileOffset();
     const bool isSingleFile = (fileHandlesVecSize == 1);
     const unsigned short fileLockType = progArgs->getFLockType();
 
@@ -2013,7 +2015,7 @@ int64_t LocalWorker::aioBlockSized()
 		uint64_t currentOffset;
         size_t fileHandlesIdx;
 
-        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile,
+        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, fileOffsetBase, isSingleFile,
             fileHandlesIdx, currentOffset);
 
         const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
@@ -2177,7 +2179,7 @@ int64_t LocalWorker::aioBlockSized()
 			uint64_t currentOffset;
             size_t fileHandlesIdx;
 
-            calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile,
+            calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, fileOffsetBase, isSingleFile,
                 fileHandlesIdx, currentOffset);
 
 			const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
@@ -2246,6 +2248,7 @@ int64_t LocalWorker::spdkAioBlockSized()
     const size_t maxIODepth = progArgs->getIODepth();
     const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
     const uint64_t fileSize = progArgs->getFileSize();
+    const uint64_t fileOffsetBase = progArgs->getFileOffset();
     const bool isSingleFile = (fileHandlesVecSize == 1);
     const unsigned rwMixReadPercent = progArgs->getRWMixReadPercent();
     const uint32_t sectorSize = spdkContext.sectorSize;
@@ -2280,8 +2283,8 @@ int64_t LocalWorker::spdkAioBlockSized()
         uint64_t currentOffset;
         size_t fileHandlesIdx;
 
-        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, isSingleFile, fileHandlesIdx,
-            currentOffset);
+        calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, fileOffsetBase, isSingleFile,
+            fileHandlesIdx, currentOffset);
 
         const int nsID = (*fileHandles.fdVecPtr)[fileHandlesIdx];
         const uint64_t lba = currentOffset / sectorSize;
@@ -2428,13 +2431,18 @@ int64_t LocalWorker::spdkAioBlockSized()
  * of files is treated like a single virtual large file with one file after the other and all
  * files are expected to have progArgs->getFileSize() length.
  *
+ * The offset generators work in a logical range starting at 0, so the user-defined minimum offset
+ * ("--offset") gets added here to get the absolute offset within the file. This is the only place
+ * where it gets added for the file/bdev/dir mode I/O paths.
+ *
  * @fileSize progArgs->getFileSize().
+ * @fileOffsetBase progArgs->getFileOffset(), the user-defined minimum offset within each file.
  * @isSingleFile true if there is only one file in fileHandlesVec.
- * @outFileOffset offset within outNextFileIdx.
+ * @outFileOffset absolute offset within outNextFileIdx, including fileOffsetBase.
  * @outFileIdx index within fileHandlesVec.
  */
 void LocalWorker::calcFileIdxAndOffsetStriped(const uint64_t rwOffsetGenNext,
-    const uint64_t fileSize, const bool isSingleFile,
+    const uint64_t fileSize, const uint64_t fileOffsetBase, const bool isSingleFile,
     size_t& outFileIdx, uint64_t& outFileOffset)
 {
     if(isSingleFile)
@@ -2448,10 +2456,13 @@ void LocalWorker::calcFileIdxAndOffsetStriped(const uint64_t rwOffsetGenNext,
         outFileOffset = rwOffsetGenNext % fileSize;
     }
 
+    outFileOffset += fileOffsetBase; // add user-defined minimum offset within file
+
     LOGGER_DEBUG_BUILD(__func__ << ": " <<
         "workerRank: " << workerRank << "; " <<
         "rwOffsetGenNext: " << rwOffsetGenNext << "; " <<
         "fileSize: " << fileSize << "; " <<
+        "fileOffsetBase: " << fileOffsetBase << "; " <<
         "isSingleFile: " << isSingleFile << "; " <<
         "outFileIdx: " << outFileIdx << "; " <<
         "outFileOffset: " << outFileOffset <<
@@ -3511,6 +3522,7 @@ void LocalWorker::dirModeIterateFiles()
 	const size_t numDirs = haveSubdirs ? progArgs->getNumDirs() : 1; // set 1 to run dir loop once
 	const size_t numFiles = progArgs->getNumFiles();
 	const uint64_t fileSize = progArgs->getFileSize();
+    const uint64_t fileOffset = progArgs->getFileOffset(); // user-defined min offset within file
 	const IntVec& pathFDs = progArgs->getBenchPathFDs();
 	const StringVec& pathVec = progArgs->getBenchPaths();
 	const int openFlags = getDirModeOpenFlags(benchPhase);
@@ -3569,7 +3581,7 @@ void LocalWorker::dirModeIterateFiles()
 			if( (benchPhase == BenchPhase_CREATEFILES) || (benchPhase == BenchPhase_READFILES) )
 			{
 				fd = dirModeOpenAndPrepFile(benchPhase, pathFDs, pathFDsIndex,
-					currentPath.data(), openFlags, fileSize);
+                    currentPath.data(), openFlags, fileOffset + fileSize, fileOffset);
 
 				// try-block to ensure that fd is closed in case of exception
 				try
@@ -3640,7 +3652,7 @@ void LocalWorker::dirModeIterateFiles()
 					// release memory mapping
 					if(useMmap && (fileHandles.mmapVec[0] != MAP_FAILED) )
 					{
-						munmap(fileHandles.mmapVec[0], fileSize);
+                        munmap(fileHandles.mmapVec[0], fileOffset + fileSize);
 						fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 					}
 
@@ -3658,7 +3670,7 @@ void LocalWorker::dirModeIterateFiles()
 				// release memory mapping
 				if(useMmap)
 				{
-					int unmapRes = munmap(fileHandles.mmapVec[0], fileSize);
+                    int unmapRes = munmap(fileHandles.mmapVec[0], fileOffset + fileSize);
 
 					IF_UNLIKELY(unmapRes == -1)
 						ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
@@ -3759,6 +3771,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 		(localWorkerRank < progArgs->getNumRWMixReadThreads() ) );
 	const bool useMmap = progArgs->getUseMmap();
 	const bool doStatInline = progArgs->getDoStatInline();
+    const uint64_t fileOffsetBase = progArgs->getFileOffset(); // user-defined min offset per file
 
 	int& fd = fileHandles.fdVec[0];
 	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
@@ -3795,7 +3808,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 			rwOffsetGen->reset(rangeLen, fileOffset);
 
 			fd = dirModeOpenAndPrepFile(benchPhase, benchPathFDs, benchPathFDIdx,
-				currentPathElem.path.c_str(), openFlags, currentPathElem.totalLen);
+                currentPathElem.path.c_str(), openFlags,
+                currentPathElem.totalLen + fileOffsetBase, fileOffsetBase);
 
 			// try-block to ensure that fd is closed in case of exception
 			try
@@ -3859,7 +3873,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 				// release memory mapping
 				if(useMmap && (fileHandles.mmapVec[0] != MAP_FAILED) )
 				{
-					munmap(fileHandles.mmapVec[0], currentPathElem.totalLen);
+					munmap(fileHandles.mmapVec[0],
+                        currentPathElem.totalLen + fileOffsetBase);
 					fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 				}
 
@@ -3877,7 +3892,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 			// release memory mapping
 			if(useMmap)
 			{
-				int unmapRes = munmap(fileHandles.mmapVec[0], currentPathElem.totalLen);
+				int unmapRes = munmap(fileHandles.mmapVec[0],
+                    currentPathElem.totalLen + fileOffsetBase);
 
 				IF_UNLIKELY(unmapRes == -1)
 					ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
@@ -4053,6 +4069,7 @@ void LocalWorker::fileModeIterateFilesSeq()
     CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
         progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
     const uint64_t fileSize = progArgs->getFileSize();
+    const uint64_t fileOffset = progArgs->getFileOffset(); // user-defined min offset within file
     const size_t blockSize = progArgs->getBlockSize();
     const size_t numThreads = progArgs->getNumDataSetThreads();
     const bool useMmap = progArgs->getUseMmap();
@@ -4140,7 +4157,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 				PROT_READ : (PROT_WRITE | PROT_READ);
 
 			fileHandles.mmapVec[0] = (char*)FileTk::mmapAndMadvise<WorkerException>(
-				fileSize, protectionMode, MAP_SHARED, fileHandles.fdVec[0],
+                fileOffset + fileSize, protectionMode, MAP_SHARED, fileHandles.fdVec[0],
 				progArgs->getMadviseFlags(), progArgs->getBenchPaths()[currentFileIndex].c_str() );
 		}
 
@@ -4204,7 +4221,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 			// release memory mapping
 			if(useMmap)
 			{
-				munmap(fileHandles.mmapVec[0], fileSize);
+                munmap(fileHandles.mmapVec[0], fileOffset + fileSize);
 				fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 			}
 
@@ -4214,7 +4231,7 @@ void LocalWorker::fileModeIterateFilesSeq()
 		// release memory mapping
 		if(useMmap)
 		{
-			int unmapRes = munmap(fileHandles.mmapVec[0], fileSize);
+            int unmapRes = munmap(fileHandles.mmapVec[0], fileOffset + fileSize);
 
 			IF_UNLIKELY(unmapRes == -1)
 				ERRLOGGER(Log_NORMAL, "File memory unmap failed. " <<
@@ -6609,6 +6626,8 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 	const bool useS3FastRead = progArgs->getUseS3FastRead();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
+    const uint64_t objectOffsetBase = progArgs->getFileOffset(); /* offset gen works in a logical
+        range starting at 0, so the user-defined min offset gets added here */
 
     // async delegation: hand over to async function if iodepth is given
     if(progArgs->getIODepth() > 1)
@@ -6620,7 +6639,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 	// download one block-sized chunk in each loop pass
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
-		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+        const uint64_t currentOffset = rwOffsetGen->getNextOffset() + objectOffsetBase;
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 
 		std::string objectRange = "bytes=" + std::to_string(currentOffset) + "-" +
@@ -6753,6 +6772,8 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
     const bool useS3FastRead = progArgs->getUseS3FastRead();
     const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
     const unsigned ioDepth = progArgs->getIODepth();
+    const uint64_t objectOffsetBase = progArgs->getFileOffset(); /* offset gen works in a logical
+        range starting at 0, so the user-defined min offset gets added here */
 
     std::vector<S3AsyncDownloadContext> partCompletionsVec;
 
@@ -6773,7 +6794,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                 (currentIODepth < ioDepth) && rwOffsetGen->getNumBytesLeftToSubmit();
                 currentIODepth++)
             {
-                const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+                const uint64_t currentOffset = rwOffsetGen->getNextOffset() + objectOffsetBase;
                 const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 
                 ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
@@ -7841,12 +7862,14 @@ int LocalWorker::getDirModeOpenFlags(BenchPhase benchPhase)
  * @pathFDsIndex current index in pathFDs.
  * @relativePath path to open, relative to pathFD.
  * @openFlags as returned by getDirModeOpenFlags().
- * @fileSize progArgs->getFileSize().
+ * @fileLen total length of the file, i.e. min offset plus size in dir mode.
+ * @preallocOffset offset at which to start preallocation of the range up to fileLen.
  * @return filedescriptor of open file.
  * @throw WorkerException on error, in which case file is guaranteed to be closed.
  */
 int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
-		unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileSize)
+        unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileLen,
+        uint64_t preallocOffset)
 {
     const bool useMmap = progArgs->getUseMmap();
     const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
@@ -7879,11 +7902,11 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
         {
             if(progArgs->getDoTruncToSize() )
             {
-                int truncRes = ftruncate(fd, fileSize);
+                int truncRes = ftruncate(fd, fileLen);
                 if(truncRes == -1)
                     throw WorkerException("Unable to set file size through ftruncate. "
                         "Path: " + currentPath + "; "
-                        "Size: " + std::to_string(fileSize) + "; "
+                        "Size: " + std::to_string(fileLen) + "; "
                         "SysErr: " + strerror(errno) );
             }
 
@@ -7892,15 +7915,17 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
                 #if defined(__APPLE__)
                     throw WorkerException("posix_fallocate is not supported on macOS. "
                         "Path: " + currentPath + "; "
-                        "Size: " + std::to_string(fileSize) );
+                        "Size: " + std::to_string(fileLen) );
                 #else // linux
                     // (note: posix_fallocate does not set errno.)
-                    int preallocRes = posix_fallocate(fd, 0, fileSize);
+                    int preallocRes = posix_fallocate(fd, preallocOffset,
+                        fileLen - preallocOffset);
                     if(preallocRes != 0)
                         throw WorkerException(
                             "Unable to preallocate file size through posix_fallocate. "
                             "File: " + currentPath + "; "
-                            "Size: " + std::to_string(fileSize) + "; "
+                            "Offset: " + std::to_string(preallocOffset) + "; "
+                            "Size: " + std::to_string(fileLen - preallocOffset) + "; "
                             "SysErr: " + strerror(preallocRes) );
                 #endif // linux
             }
@@ -7915,7 +7940,7 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
                 PROT_READ : (PROT_WRITE | PROT_READ);
 
             fileHandles.mmapVec[0] =  (char*)FileTk::mmapAndMadvise<WorkerException>(
-                fileSize, protectionMode, MAP_SHARED, fd, progArgs->getMadviseFlags(),
+                fileLen, protectionMode, MAP_SHARED, fd, progArgs->getMadviseFlags(),
                 currentPath.c_str() );
         }
 
@@ -7926,7 +7951,7 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
         // release memory mapping
         if(useMmap)
         {
-            munmap(fileHandles.mmapVec[0], fileSize);
+            munmap(fileHandles.mmapVec[0], fileLen);
             fileHandles.mmapVec[0] = (char*)MAP_FAILED;
         }
 

@@ -204,7 +204,7 @@ ProgArgs::~ProgArgs()
 			cuFileHandleData.deregisterHandle();
 
 	for(char* mmapPtr : mmapVec)
-		munmap(mmapPtr, fileSize);
+        munmap(mmapPtr, getFileEndOffset() );
 
 #ifdef CUFILE_SUPPORT
 	if(isCuFileDriverOpen)
@@ -514,6 +514,12 @@ void ProgArgs::defineAllowedArgs()
 /*nu*/	(ARG_NUMHOSTS_LONG, bpo::value(&this->numHosts),
 			"Number of hosts to use from given hosts list or hosts file. (Default: use all given "
 			"hosts)")
+/*of*/  (ARG_FILEOFFSET_LONG, bpo::value(&this->fileOffsetOrigStr),
+            "Minimum offset within files/objects/block devices for all read/write operations. The "
+            "given \"--" ARG_FILESIZE_LONG "\" is relative to this offset, so e.g. "
+            "\"--" ARG_FILEOFFSET_LONG " 100M -" ARG_FILESIZE_SHORT " 50M\" means that all reads "
+            "and writes happen in the 50MiB range starting at offset 100MiB. "
+            "(Default: 0; supports base2 suffixes, e.g. \"2M\")")
 /*op*/	(ARG_OPSLOGPATH_LONG, bpo::value(&this->opsLogPath),
 			"Absolute path to logfile for all I/O operations (open, read, ...). In service mode, "
 			"the service instances will log their operations locally to the given path. Log is in "
@@ -910,6 +916,8 @@ void ProgArgs::defineDefaults()
     this->doTruncate = false;
     this->doTruncToSize = false;
     this->fadviseFlags = 0;
+    this->fileOffset = 0;
+    this->fileOffsetOrigStr = "0";
     this->fileShareSize = 0;
     this->fileShareSizeOrigStr = "0";
     this->fileSize = 0;
@@ -1344,23 +1352,24 @@ void ProgArgs::initImplicitValues()
  */
 void ProgArgs::convertUnitStrings()
 {
-	blockSize = UnitTk::numHumanToBytesBinary(blockSizeOrigStr, false);
-	fileSize = UnitTk::numHumanToBytesBinary(fileSizeOrigStr, false);
-	numDirs = UnitTk::numHumanToBytesBinary(numDirsOrigStr, false);
-	numFiles = UnitTk::numHumanToBytesBinary(numFilesOrigStr, false);
-	randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
-	fileShareSize = UnitTk::numHumanToBytesBinary(fileShareSizeOrigStr, false);
-	treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
-	limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
-	limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
-	netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
+    blockSize = UnitTk::numHumanToBytesBinary(blockSizeOrigStr, false);
+    fileSize = UnitTk::numHumanToBytesBinary(fileSizeOrigStr, false);
+    fileOffset = UnitTk::numHumanToBytesBinary(fileOffsetOrigStr, false);
+    numDirs = UnitTk::numHumanToBytesBinary(numDirsOrigStr, false);
+    numFiles = UnitTk::numHumanToBytesBinary(numFilesOrigStr, false);
+    randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
+    fileShareSize = UnitTk::numHumanToBytesBinary(fileShareSizeOrigStr, false);
+    treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
+    limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
+    limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
+    netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
     s3MpuSizeVariance = UnitTk::numHumanToBytesBinary(s3MpuSizeVarianceOrigStr, false);
     s3MpuSplitSize = UnitTk::numHumanToBytesBinary(s3MpuSplitSizeOrigStr, false);
-	sockRecvBufSize = UnitTk::numHumanToBytesBinary(sockRecvBufSizeOrigStr, false);
-	sockSendBufSize = UnitTk::numHumanToBytesBinary(sockSendBufSizeOrigStr, false);
+    sockRecvBufSize = UnitTk::numHumanToBytesBinary(sockRecvBufSizeOrigStr, false);
+    sockSendBufSize = UnitTk::numHumanToBytesBinary(sockSendBufSizeOrigStr, false);
 
-	fadviseFlags = TranslatorTk::fadviseArgsStrToFlags(fadviseFlagsOrigStr);
-	madviseFlags = TranslatorTk::madviseArgsStrToFlags(madviseFlagsOrigStr);
+    fadviseFlags = TranslatorTk::fadviseArgsStrToFlags(fadviseFlagsOrigStr);
+    madviseFlags = TranslatorTk::madviseArgsStrToFlags(madviseFlagsOrigStr);
     flockType = TranslatorTk::flockArgsStrToType(flockTypeOrigStr);
 }
 
@@ -1506,6 +1515,21 @@ void ProgArgs::checkArgs()
 
 	if(!noDirectIOCheck && useHDFS)
 		noDirectIOCheck = true; // direct IO flag not relevant for hdfs buffering
+
+    if(fileOffset)
+    { // user-defined minimum offset is not supported by all modes
+        if(useNetBench)
+            throw ProgException("Netbench mode does not support "
+                "\"--" ARG_FILEOFFSET_LONG "\".");
+
+        if(useHDFS && runCreateFilesPhase)
+            throw ProgException("HDFS does not support write offsets.");
+
+        if( (benchMode == BenchMode_S3) && runCreateFilesPhase)
+            throw ProgException("S3 object upload does not support "
+                "\"--" ARG_FILEOFFSET_LONG "\". (Reading a given offset range of existing "
+                "objects is supported.)");
+    }
 
 	if( (ioDepth > 1) && useMmap)
 		throw ProgException("Memory mapped IO (mmap) does not support IO depth larger than 1.");
@@ -1700,7 +1724,20 @@ void ProgArgs::checkPathDependentArgs()
 		fileSize = newFileSize;
 	}
 
-	// auto-set randomAmount if not set by user
+    /* offset only makes sense in combination with a non-zero file size (irrelevant for custom
+        tree mode, where per-file size comes from the tree file, not from "--size") */
+    if(fileOffset && !fileSize && treeFilePath.empty() && (runCreateFilesPhase || runReadPhase) )
+        throw ProgException("File size must not be 0 when using \"--" ARG_FILEOFFSET_LONG "\".");
+
+    // offset has to be a multiple of block size for directIO and random IO
+    if(fileOffset && blockSize && (useDirectIO || useRandomOffsets || useStridedAccess) &&
+        (runCreateFilesPhase || runReadPhase) && (fileOffset % blockSize) )
+        throw ProgException("Offset has to be a multiple of block size for direct IO, random IO "
+            "and strided IO. "
+            "Offset: " + std::to_string(fileOffset) + "; "
+            "Block size: " + std::to_string(blockSize) );
+
+    // auto-set randomAmount if not set by user
 	if(!randomAmount)
 	{
 		if( (benchPathType != BenchPathType_DIR) && useRandomOffsets)
@@ -1727,6 +1764,12 @@ void ProgArgs::checkPathDependentArgs()
 				"depending on system page size and drive sector size. "
 				"\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
 				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
+
+        if(!noDirectIOCheck && ( (fileOffset % DIRECTIO_MINSIZE) != 0) )
+            throw ProgException("Offset for direct IO is not a multiple of required size. "
+                "(\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
+                "Required size: " + std::to_string(DIRECTIO_MINSIZE) + "; "
+                "Offset: " + std::to_string(fileOffset) );
 	}
 
 	if(useRandomOffsets && !useRandomUnaligned && blockSize && (randomAmount % blockSize) &&
@@ -2160,6 +2203,9 @@ void ProgArgs::prepareCuFileHandleDataVec()
  * files/bdevs instead of only one file/bdev per thread at a time), because there is typically a
  * 128TB max virtual address size limit per process (as seen in "lscpu | grep Address").
  *
+ * Note: Mappings always start at offset 0 and thus have a length of "--offset" plus "--size", so
+ * that the absolute file offset can directly be used as index into the mapping.
+ *
  * Unmapping usually happens in ProgArgs destructor or resetBenchPath(), but this method also
  * includes unmapping of any previous mappings.
  *
@@ -2174,7 +2220,7 @@ void ProgArgs::prepareMmapVec()
 		if(mmapPtr == MAP_FAILED)
 			continue;
 
-		int unmapRes = munmap(mmapPtr, fileSize);
+        int unmapRes = munmap(mmapPtr, getFileEndOffset() );
 
 		if(unmapRes == -1)
 			ERRLOGGER(Log_NORMAL, "File memory unmap failed. "
@@ -2212,8 +2258,8 @@ void ProgArgs::prepareMmapVec()
 
 		FileTk::fadvise<ProgException>(fd, fadviseFlags, benchPathsVec[i].c_str() );
 
-		mmapVec[i] = (char*)FileTk::mmapAndMadvise<ProgException>(fileSize, protectionMode,
-			MAP_SHARED, fd, madviseFlags, benchPathsVec[i].c_str() );
+        mmapVec[i] = (char*)FileTk::mmapAndMadvise<ProgException>(getFileEndOffset(),
+            protectionMode, MAP_SHARED, fd, madviseFlags, benchPathsVec[i].c_str() );
 	}
 }
 
@@ -2325,20 +2371,25 @@ void ProgArgs::prepareSpdk()
             throw ProgException("Found different namespace sector sizes. This is not supported.");
     }
 
-    // fileSize not explicitly set, so use size of smallest namespace
+    if(fileOffset >= minNamespaceSize)
+        throw ProgException("Given offset is not smaller than size of smallest namespace: " +
+            std::to_string(minNamespaceSize) + " bytes");
+
+    // fileSize not explicitly set, so use size of smallest namespace minus offset
     if(!fileSize)
     {
-        fileSize = minNamespaceSize;
+        fileSize = minNamespaceSize - fileOffset;
         LOGGER(Log_DEBUG, "Smallest namespace size: " << minNamespaceSize << " bytes" << std::endl);
     }
     else
-    if(fileSize > minNamespaceSize)
-        throw ProgException("Given size exceeds size of smallest namespace: " +
+    if(getFileEndOffset() > minNamespaceSize)
+        throw ProgException("Given offset plus size exceeds size of smallest namespace: " +
             std::to_string(minNamespaceSize) + " bytes");
 
     if( (blockSize < namespaceSectorSize) || (blockSize % namespaceSectorSize) ||
-        (fileSize < namespaceSectorSize) || (fileSize % namespaceSectorSize) )
-        throw ProgException("Block size and file size must be an even multiple of "
+        (fileSize < namespaceSectorSize) || (fileSize % namespaceSectorSize) ||
+        (fileOffset % namespaceSectorSize) )
+        throw ProgException("Block size, file size and offset must be an even multiple of "
             "namespace sector size: " + std::to_string(namespaceSectorSize) + " bytes" );
 
     // keep attached for re-use by worker threads if this is not a master of a distributed run
@@ -2402,19 +2453,28 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 
 		if(!fileSize)
 		{
+            if(fileOffset >= (uint64_t)currentFileSize)
+                throw ProgException("Given offset is not smaller than detected file size, so the "
+                    "usable size would be zero. "
+                    "File: " + path + "; "
+                    "Detected size: " + std::to_string(currentFileSize) + "; "
+                    "Given offset: " + std::to_string(fileOffset) );
+
 			LOGGER(Log_NORMAL,
 				"NOTE: Auto-setting file size. "
-				"Size: " << currentFileSize << "; "
+                "Size: " << (currentFileSize - fileOffset) << "; "
+                "Offset: " << fileOffset << "; "
 				"Path: " << path << std::endl);
 
-			fileSize = currentFileSize;
+            fileSize = currentFileSize - fileOffset;
 		}
 
-		if(!runCreateFilesPhase && ( (uint64_t)currentFileSize < fileSize) &&
+        if(!runCreateFilesPhase && ( (uint64_t)currentFileSize < getFileEndOffset() ) &&
 			S_ISREG(statBuf.st_mode) ) // ignore character devices like "/dev/zero"
-			throw ProgException("Given size to use is larger than detected size. "
+            throw ProgException("Given offset plus size to use is larger than detected size. "
 				"File: " + path + "; "
 				"Detected size: " + std::to_string(currentFileSize) + "; "
+                "Given offset: " + std::to_string(fileOffset) + "; "
 				"Given size: " + std::to_string(fileSize) );
 
 		if(runCreateFilesPhase)
@@ -2433,18 +2493,18 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 			// truncate file to given size if set by user or when running in random mode
 			// (note: this is for reads in random mode to work across full length)
 			if(doTruncToSize ||
-				(useRandomOffsets && ( (size_t)currentFileSize < fileSize) ) )
+                (useRandomOffsets && ( (size_t)currentFileSize < getFileEndOffset() ) ) )
 			{
 				LOGGER(Log_VERBOSE,
 					"Truncating file to full size. "
 					"Path: " << path << "; "
 					"Size: " << currentFileSize << std::endl);
 
-				int truncRes = ftruncate(fd, fileSize);
+                int truncRes = ftruncate(fd, getFileEndOffset() );
 				if(truncRes == -1)
 					throw ProgException("Unable to set file size through ftruncate. "
 						"File: " + path + "; "
-						"Size: " + std::to_string(fileSize) + "; "
+                        "Size: " + std::to_string(getFileEndOffset() ) + "; "
 						"SysErr: " + strerror(errno) );
 			}
 
@@ -2462,7 +2522,7 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
                         "Size: " << currentFileSize << std::endl);
 
                     // (note: posix_fallocate does not set errno.)
-                    int preallocRes = posix_fallocate(fd, 0, fileSize);
+                    int preallocRes = posix_fallocate(fd, fileOffset, fileSize);
                     if(preallocRes != 0)
                         throw ProgException(
                             "Unable to preallocate file disk space through posix_fallocate. "
@@ -2506,17 +2566,27 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 		if(!blockdevSize)
 			throw ProgException("Block device size seems to be 0: " + path);
 
+        if(fileOffset >= (uint64_t)blockdevSize)
+            throw ProgException("Given offset is not smaller than detected blockdevice size, so "
+                "the usable size would be zero. "
+                "Blockdevice: " + path + "; "
+                "Detected size: " + std::to_string(blockdevSize) + "; "
+                "Given offset: " + std::to_string(fileOffset) );
+
 		if(!fileSize)
 		{
 			LOGGER(Log_NORMAL,
-				"NOTE: Setting file size to block dev size: " << blockdevSize << std::endl);
-			fileSize = blockdevSize;
+                "NOTE: Setting file size to block dev size minus offset: " <<
+                (blockdevSize - fileOffset) << std::endl);
+            fileSize = blockdevSize - fileOffset;
 		}
 
-		if(fileSize > (uint64_t)blockdevSize)
-			throw ProgException("Given size to use is larger than detected blockdevice size. "
+        if(getFileEndOffset() > (uint64_t)blockdevSize)
+            throw ProgException("Given offset plus size to use is larger than detected blockdevice "
+                "size. "
 				"Blockdevice: " + path + "; "
 				"Detected size: " + std::to_string(blockdevSize) + "; "
+                "Given offset: " + std::to_string(fileOffset) + "; "
 				"Given size: " + std::to_string(fileSize) );
 
 		lseek(fd, 0, SEEK_SET); // seek back to start
@@ -3449,6 +3519,9 @@ void ProgArgs::printHelpBlockDev()
 	argsBlockdevFrequentDescription.add_options()
 		(ARG_DIRECTIO_LONG, bpo::bool_switch(&this->useDirectIO),
 			"Use direct IO to avoid buffering/caching.")
+        (ARG_FILEOFFSET_LONG, bpo::value(&this->fileOffsetOrigStr),
+            "Minimum offset within block device(s) or file(s) for all read/write operations. The "
+            "given \"--" ARG_FILESIZE_LONG "\" is relative to this offset. (Default: 0)")
 		(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
 			"Depth of I/O queue per thread for asynchronous read/write. Setting this to 2 or "
 			"higher turns on async I/O. (Default: 1)")
@@ -4012,6 +4085,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	doTruncate = tree.get<bool>(ARG_TRUNCATE_LONG);
 	doTruncToSize = tree.get<bool>(ARG_TRUNCTOSIZE_LONG);
 	fadviseFlags = tree.get<unsigned>(ARG_FADVISE_LONG);
+    fileOffset = tree.get<uint64_t>(ARG_FILEOFFSET_LONG);
 	fileShareSize = tree.get<uint64_t>(ARG_FILESHARESIZE_LONG);
 	fileSize = tree.get<uint64_t>(ARG_FILESIZE_LONG);
 	flockType = tree.get<unsigned short>(ARG_FLOCK_LONG);
@@ -4170,6 +4244,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_DIRECTIO_LONG, useDirectIO);
 	outTree.put(ARG_DROPCACHESPHASE_LONG, runDropCachesPhase);
 	outTree.put(ARG_FADVISE_LONG, fadviseFlags);
+    outTree.put(ARG_FILEOFFSET_LONG, fileOffset);
 	outTree.put(ARG_FILESHARESIZE_LONG, fileShareSize);
 	outTree.put(ARG_FILESIZE_LONG, fileSize);
 	outTree.put(ARG_FLOCK_LONG, flockType);
@@ -4369,7 +4444,7 @@ void ProgArgs::resetBenchPath()
 		if(mmapPtr == MAP_FAILED)
 			continue;
 
-		int unmapRes = munmap(mmapPtr, fileSize);
+        int unmapRes = munmap(mmapPtr, getFileEndOffset() );
 
 		if(unmapRes == -1)
 			ERRLOGGER(Log_NORMAL, "File memory unmap failed. "

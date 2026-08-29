@@ -12,6 +12,7 @@
 * New option `--lathistogrpd` to show a grouped summary of the latency histogram on the console.
   * This is because the new higher resolution latency histogram for the `--lathisto` option can easily get inconveniently long on the console.
   * When the `--lathistogrpd` option is given, the full histogram is available in the json result file (see `--jsonfile` option), same as when using the `--lathisto` option.
+* New option `--offset`. With this new option, `--size` is now interpreted relative to the given `--offset` value, so that it is possible to work only with certain byte ranges within files/objects/bdevs.
 
 ### General Changes
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
