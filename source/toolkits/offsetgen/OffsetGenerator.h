@@ -14,6 +14,7 @@
 
 #include "Common.h"
 #include "ProgArgs.h"
+#include "toolkits/BlockSizeMix.h"
 #include "toolkits/random/RandAlgoRange.h"
 
 #define OFFSETGEN_FULLCOV_PRIME      (2147483647)
@@ -48,9 +49,10 @@ class OffsetGenerator
 class OffsetGenSequential : public OffsetGenerator
 {
 	public:
-		OffsetGenSequential(uint64_t len, uint64_t offset, size_t blockSize) :
+		OffsetGenSequential(uint64_t len, uint64_t offset, const BlockSizeMix& blockSizeMix,
+			RandAlgoInterface& randAlgo) :
 			numBytesTotal(len), numBytesLeft(len), startOffset(offset), currentOffset(offset),
-			blockSize(blockSize)
+			blockSizeMix(blockSizeMix), maxBlockSize(blockSizeMix.getMaxSize() ), randAlgo(randAlgo)
 		{ }
 
 		virtual ~OffsetGenSequential() {}
@@ -60,7 +62,9 @@ class OffsetGenSequential : public OffsetGenerator
 		uint64_t numBytesLeft;
 		uint64_t startOffset;
 		uint64_t currentOffset;
-		const size_t blockSize;
+		const BlockSizeMix blockSizeMix;
+		const size_t maxBlockSize;
+		RandAlgoInterface& randAlgo;
 
 	// inliners
 	public:
@@ -82,10 +86,10 @@ class OffsetGenSequential : public OffsetGenerator
 			{ return currentOffset; }
 
 		virtual size_t getBlockSize() const override
-			{ return blockSize; }
+			{ return maxBlockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
-			{ return std::min(numBytesLeft, (uint64_t)blockSize); }
+			{ return std::min(numBytesLeft, (uint64_t)blockSizeMix.getNextSize(randAlgo) ); }
 
 		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
@@ -186,13 +190,15 @@ class OffsetGenRandom : public OffsetGenerator
 {
 	public:
 		OffsetGenRandom(uint64_t numBytesTotal, RandAlgoInterface& randAlgo, uint64_t len,
-			uint64_t offset, size_t blockSize) :
-			randRange(randAlgo, offset, offset + len - std::min( (uint64_t)blockSize, len) ),
+			uint64_t offset, const BlockSizeMix& blockSizeMix) :
+			randRange(randAlgo, offset,
+				offset + len - std::min( (uint64_t)blockSizeMix.getMaxSize(), len) ),
 			numBytesTotal(numBytesTotal), numBytesLeft(numBytesTotal),
-			blockSize(blockSize)
+			blockSizeMix(blockSizeMix), maxBlockSize(blockSizeMix.getMaxSize() ),
+			randAlgo(randAlgo)
 		{
-			/* note on "std::min(blockSize, len)": usually blockSize, but there are cases where we
-				have custom tree slices that are smaller than blockSize */
+			/* note on "std::min(maxBlockSize, len)": usually maxBlockSize, but there are cases
+				where we have custom tree slices that are smaller than maxBlockSize */
 		}
 
 		virtual ~OffsetGenRandom() {}
@@ -202,7 +208,9 @@ class OffsetGenRandom : public OffsetGenerator
 
 		uint64_t numBytesTotal;
 		uint64_t numBytesLeft;
-		const size_t blockSize;
+		const BlockSizeMix blockSizeMix;
+		const size_t maxBlockSize;
+		RandAlgoInterface& randAlgo;
 
 	// inliners
 	public:
@@ -211,9 +219,9 @@ class OffsetGenRandom : public OffsetGenerator
 
         virtual void reset(uint64_t len, uint64_t offset) override
         {
-            size_t minLenAndBlockSize = std::min( (uint64_t)blockSize, len); /* usually blockSize,
-                but there are cases where we have custom tree slices that are smaller than
-                blockSize */
+            size_t minLenAndBlockSize = std::min( (uint64_t)maxBlockSize, len); /* usually
+                maxBlockSize, but there are cases where we have custom tree slices that are
+                smaller than maxBlockSize */
 
             numBytesTotal = len;
             numBytesLeft = len;
@@ -225,10 +233,10 @@ class OffsetGenRandom : public OffsetGenerator
 			{ return randRange.next(); }
 
 		virtual size_t getBlockSize() const override
-			{ return blockSize; }
+			{ return maxBlockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
-			{ return std::min(numBytesLeft, (uint64_t)blockSize); }
+			{ return std::min(numBytesLeft, (uint64_t)blockSizeMix.getNextSize(randAlgo) ); }
 
 		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }
@@ -253,14 +261,19 @@ class OffsetGenRandomAligned : public OffsetGenerator
 {
     public:
         OffsetGenRandomAligned(uint64_t numBytesTotal, RandAlgoInterface& randAlgo, uint64_t len,
-            uint64_t offset, size_t blockSize) :
+            uint64_t offset, const BlockSizeMix& blockSizeMix) :
+            /* note on alignment grid: offsets only need to be aligned to the smallest block size
+                in the mix, not to each individual drawn size, so we step the random range by
+                minBlockSize and separately verify at the end (via "maxBlockSize" reserve) that
+                the largest possible drawn size still fits before the end of the range. */
             randRange(randAlgo, 0,
-                !std::min( (uint64_t)blockSize, len) ? 0 : /* avoid div by zero */
-                    (len - std::min( (uint64_t)blockSize, len) ) /
-                        std::min( (uint64_t)blockSize, len) ),
+                !std::min( (uint64_t)blockSizeMix.getMinSize(), len) ? 0 : /* avoid div by zero */
+                    (len - std::min( (uint64_t)blockSizeMix.getMaxSize(), len) ) /
+                        std::min( (uint64_t)blockSizeMix.getMinSize(), len) ),
             numBytesTotal(numBytesTotal), numBytesLeft(numBytesTotal),
             offset(offset),
-            blockSize(blockSize)
+            blockSizeMix(blockSizeMix), maxBlockSize(blockSizeMix.getMaxSize() ),
+            alignGrid(blockSizeMix.getMinSize() ), randAlgo(randAlgo)
         {
             /* note on "std::min(blockSize, len)": usually blockSize, but there are cases where we
                 have custom tree slices that are smaller than blockSize */
@@ -274,7 +287,10 @@ class OffsetGenRandomAligned : public OffsetGenerator
 		uint64_t numBytesTotal;
 		uint64_t numBytesLeft;
 		uint64_t offset;
-		const size_t blockSize;
+		const BlockSizeMix blockSizeMix;
+		const size_t maxBlockSize;
+		const size_t alignGrid;
+		RandAlgoInterface& randAlgo;
 
 		// inliners
 	public:
@@ -283,28 +299,29 @@ class OffsetGenRandomAligned : public OffsetGenerator
 
         virtual void reset(uint64_t len, uint64_t offset) override
         {
-            size_t minLenAndBlockSize = std::min( (uint64_t)blockSize, len); /* usually blockSize,
+            size_t minLenAndBlockSize = std::min( (uint64_t)alignGrid, len); /* usually alignGrid,
                 but there are cases where we have custom tree slices that are smaller than
-                blockSize */
+                alignGrid */
+            size_t minLenAndMaxBlockSize = std::min( (uint64_t)maxBlockSize, len);
 
             this->numBytesTotal = len;
             this->numBytesLeft = len;
             this->offset = offset;
 
             if(minLenAndBlockSize)
-                randRange.reset(0, (len - minLenAndBlockSize) / minLenAndBlockSize);
+                randRange.reset(0, (len - minLenAndMaxBlockSize) / minLenAndBlockSize);
             else
                 randRange.reset(0, 0); // avoid div by zero
         }
 
 		virtual uint64_t getNextOffset() override
-			{ return offset + (randRange.next() * blockSize); }
+			{ return offset + (randRange.next() * alignGrid); }
 
 		virtual size_t getBlockSize() const override
-			{ return blockSize; }
+			{ return maxBlockSize; }
 
 		virtual size_t getNextBlockSizeToSubmit() const override
-			{ return std::min(numBytesLeft, (uint64_t)blockSize); }
+			{ return std::min(numBytesLeft, (uint64_t)blockSizeMix.getNextSize(randAlgo) ); }
 
 		virtual uint64_t getNumBytesTotal() const override
 			{ return numBytesTotal; }

@@ -1168,57 +1168,57 @@ void LocalWorker::initThreadPhaseVars()
  */
 void LocalWorker::initPhaseFileHandleVecs()
 {
-	const BenchPathType benchPathType = progArgs->getBenchPathType();
+    const BenchPathType benchPathType = progArgs->getBenchPathType();
     const BenchMode benchMode = progArgs->getBenchMode();
 
-	fileHandles.errorFDVecIdx = -1; // clear ("-1" means "not set")
+    fileHandles.errorFDVecIdx = -1; // clear ("-1" means "not set")
 
-	// reset/clear all vecs
-	fileHandles.fdVec.resize(0);
-	fileHandles.fdVecPtr = NULL;
-	fileHandles.cuFileHandleDataVec.resize(0);
-	fileHandles.cuFileHandleDataPtrVec.resize(0);
+    // reset/clear all vecs
+    fileHandles.fdVec.resize(0);
+    fileHandles.fdVecPtr = NULL;
+    fileHandles.cuFileHandleDataVec.resize(0);
+    fileHandles.cuFileHandleDataPtrVec.resize(0);
 
 
-	if(benchPathType == BenchPathType_DIR)
-	{
-		/* in dir mode, there is only one currently active file per worker.
-			files will be dynamically opened in the dir mode file iter method and their fd will be
-			stored in fileHandles.fdVec[0] */
+    if(benchPathType == BenchPathType_DIR)
+    {
+        /* in dir mode, there is only one currently active file per worker.
+            files will be dynamically opened in the dir mode file iter method and their fd will be
+            stored in fileHandles.fdVec[0] */
 
-		fileHandles.fdVec.resize(1);
-		fileHandles.fdVec[0] = -1; // clear/reset
+        fileHandles.fdVec.resize(1);
+        fileHandles.fdVec[0] = -1; // clear/reset
 
-		fileHandles.fdVecPtr = &fileHandles.fdVec;
+        fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-		// fileHandles.cuFileHandleDataVec[0] will be used for current file
+        // fileHandles.cuFileHandleDataVec[0] will be used for current file
 
-		fileHandles.cuFileHandleDataVec.resize(1);
+        fileHandles.cuFileHandleDataVec.resize(1);
 
-		fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
+        fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
 
-		fileHandles.mmapVec.resize(1, (char*)MAP_FAILED);
-	}
-	else
-	if(!progArgs->getUseRandomOffsets() && !progArgs->getUseStridedAccess() )
-	{
-		/* in sequential file/bdev mode, there is only one currently active file per worker.
-			original file FDs will be taken from progArgs or fileHandles.threadFDVec, but FD will be
-			copied to fileHandles.fdVec[0] for the single current file. */
+        fileHandles.mmapVec.resize(1, (char*)MAP_FAILED);
+    }
+    else
+    if(!progArgs->getUseRandomOffsets() && !progArgs->getUseStridedAccess() )
+    {
+        /* in sequential file/bdev mode, there is only one currently active file per worker.
+            original file FDs will be taken from progArgs or fileHandles.threadFDVec, but FD will be
+            copied to fileHandles.fdVec[0] for the single current file. */
 
-		fileHandles.fdVec.resize(1);
-		fileHandles.fdVec[0] = -1; // clear/reset, will be set dynamically to current file
+        fileHandles.fdVec.resize(1);
+        fileHandles.fdVec[0] = -1; // clear/reset, will be set dynamically to current file
 
-		fileHandles.fdVecPtr = &fileHandles.fdVec;
+        fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-		fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
+        fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
 
-		fileHandles.mmapVec.resize(1, (char*)MAP_FAILED); /* fileModeIterateFilesSeq() will do the
-			mmap() dynamically when this thread switches to a new file */
-	}
-	else
-	{
-		// in random file/bdev mode, rwBlockSized/aioBlockSized randomly select FDs from given set
+        fileHandles.mmapVec.resize(1, (char*)MAP_FAILED); /* fileModeIterateFilesSeq() will do the
+            mmap() dynamically when this thread switches to a new file */
+    }
+    else
+    {
+        // in random file/bdev mode, rwBlockSized/aioBlockSized randomly select FDs from given set
 
         // init fileHandles.fdVecPtr
         if(benchMode == BenchMode_SPDK)
@@ -1229,14 +1229,14 @@ void LocalWorker::initPhaseFileHandleVecs()
         else
             fileHandles.fdVecPtr = &fileHandles.threadFDVec;
 
-		CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
-			progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
+        CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
+            progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
 
-		for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
-			fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
+        for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
+            fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
 
-		// note: nothing for fileHandles.mmapVec here; init was done in initThreadMmapVec
-	}
+        // note: nothing for fileHandles.mmapVec here; init was done in initThreadMmapVec
+    }
 }
 
 /**
@@ -1248,49 +1248,52 @@ void LocalWorker::initPhaseFileHandleVecs()
  */
 void LocalWorker::initPhaseRWOffsetGen()
 {
-	const size_t blockSize = progArgs->getBlockSize();
-	const uint64_t fileSize = progArgs->getFileSize();
-	const bool isWritePhase = (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES);
+    const size_t blockSize = progArgs->getBlockSize();
+    const BlockSizeMix& blockSizeMix = progArgs->getBlockSizeMix();
+    const uint64_t fileSize = progArgs->getFileSize();
+    const bool isWritePhase = (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES);
 
-	/* in dir mode randAmount is file size, for file/bdev it's the total amount for this thread
-		across all given files/bdevs */
-	const uint64_t randomAmount = (progArgs->getBenchPathType() == BenchPathType_DIR) ?
-		fileSize : progArgs->getRandomAmount() / progArgs->getNumDataSetThreads();
+    /* in dir mode randAmount is file size, for file/bdev it's the total amount for this thread
+        across all given files/bdevs */
+    const uint64_t randomAmount = (progArgs->getBenchPathType() == BenchPathType_DIR) ?
+        fileSize : progArgs->getRandomAmount() / progArgs->getNumDataSetThreads();
 
-	// init random algos
-	randBlockVarAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getBlockVarianceAlgo() );
-	randBlockVarReseed = std::make_unique<RandAlgoXoshiro256ss>();
+    // init random algos
+    randBlockVarAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getBlockVarianceAlgo() );
+    randBlockVarReseed = std::make_unique<RandAlgoXoshiro256ss>();
 
-	// init algo for random offsets within files
+    /* init algo for random offsets within files (and, if a block size mix is given, for the
+        weighted block size draw, reusing the same RNG instance) */
     randOffsetAlgo = RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo().empty() ?
         RANDALGO_BALANCED_SEQUENTIAL_STR : progArgs->getRandOffsetAlgo() );
 
-	// note: in some cases these defs get overridden per-file later (e.g. for custom tree)
+    // note: in some cases these defs get overridden per-file later (e.g. for custom tree)
 
-	if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() ) // seq backward
-		rwOffsetGen = std::make_unique<OffsetGenReverseSeq>(
-			fileSize, 0, blockSize);
-	else
-	if(!progArgs->getUseRandomOffsets() && !progArgs->getUseStridedAccess() ) // sequential forward
-		rwOffsetGen = std::make_unique<OffsetGenSequential>(
-			fileSize, 0, blockSize);
-	else
-	if(progArgs->getUseRandomUnaligned() ) // random unaligned
-	{
-        rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
+    if(progArgs->getDoReverseSeqOffsets() || getS3ModeDoReverseSeqFallback() ) // seq backward
+        rwOffsetGen = std::make_unique<OffsetGenReverseSeq>(
             fileSize, 0, blockSize);
-	}
-	else // random aligned
-	{
-	    if(!progArgs->getRandOffsetAlgo().empty() || !isWritePhase )
-	        rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
-	            fileSize, 0, blockSize);
-	    else
-	    { // random aligned writes without explicit algo selection => use full coverage algo
-	        rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverageV2>(
-	            randomAmount, fileSize, 0, blockSize);
-	    }
-	} // end of random aligned
+    else
+    if(!progArgs->getUseRandomOffsets() && !progArgs->getUseStridedAccess() ) // sequential forward
+        rwOffsetGen = std::make_unique<OffsetGenSequential>(
+            fileSize, 0, blockSizeMix, *randOffsetAlgo);
+    else
+    if(progArgs->getUseRandomUnaligned() ) // random unaligned
+    {
+        rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
+            fileSize, 0, blockSizeMix);
+    }
+    else // random aligned
+    {
+        if(!progArgs->getRandOffsetAlgo().empty() || !isWritePhase ||
+            progArgs->isBlockSizeMixDefined() )
+            rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
+                fileSize, 0, blockSizeMix);
+        else
+        { // random aligned writes without explicit algo selection => use full coverage algo
+            rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverageV2>(
+                randomAmount, fileSize, 0, blockSize);
+        }
+    } // end of random aligned
 }
 
 /**
@@ -3979,12 +3982,13 @@ void LocalWorker::dirModeIterateCustomFiles()
  */
 void LocalWorker::fileModeIterateFilesRand()
 {
-	// the total file range used for all workers
+    // the total file range used for all workers
 
     const BenchPhase benchPhase = workersSharedData->currentBenchPhase;
     const bool isWritePhase = (benchPhase == BenchPhase_CREATEFILES);
     const size_t fileHandleVecSize = fileHandles.fdVecPtr->size();
     const size_t blockSize = progArgs->getBlockSize();
+    const BlockSizeMix& blockSizeMix = progArgs->getBlockSizeMix();
     const uint64_t fileSize = progArgs->getFileSize();
     const uint64_t numBlocksPerFile = fileSize / blockSize;
     const uint64_t numBlocksTotal = numBlocksPerFile * fileHandleVecSize;
@@ -4002,11 +4006,12 @@ void LocalWorker::fileModeIterateFilesRand()
     else
     if(progArgs->getUseRandomUnaligned() )
         rwOffsetGen = std::make_unique<OffsetGenRandom>(randomAmount, *randOffsetAlgo,
-            rangeLen, rangeOffset, blockSize);
+            rangeLen, rangeOffset, blockSizeMix);
     else
-    if(!progArgs->getRandOffsetAlgo().empty() || !isWritePhase )
+    if(!progArgs->getRandOffsetAlgo().empty() || !isWritePhase ||
+        progArgs->isBlockSizeMixDefined() ) // (full coverage algo doesn't support block size mix)
         rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(randomAmount, *randOffsetAlgo,
-            rangeLen, rangeOffset, blockSize);
+            rangeLen, rangeOffset, blockSizeMix);
     else
     { // random aligned writes without explicit algo selection => use full coverage algo
         rwOffsetGen = std::make_unique<OffsetGenRandomAlignedFullCoverageV2>(
@@ -4015,45 +4020,45 @@ void LocalWorker::fileModeIterateFilesRand()
 
     // let funcRWBlockSized do the actual work of reading/writing all blocks...
 
-	if(benchPhase == BenchPhase_CREATEFILES)
-	{
-		ssize_t writeRes = ((*this).*funcRWBlockSized)();
+    if(benchPhase == BenchPhase_CREATEFILES)
+    {
+        ssize_t writeRes = ((*this).*funcRWBlockSized)();
 
-		IF_UNLIKELY(writeRes == -1)
-			throw WorkerException(std::string("File write failed. ") +
-				( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
-					"Can be caused by directIO misalignment. " : "") +
-				fileModeLogPathFromFileHandlesErr() +
-				"SysErr: " + strerror(errno) );
+        IF_UNLIKELY(writeRes == -1)
+            throw WorkerException(std::string("File write failed. ") +
+                ( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+                    "Can be caused by directIO misalignment. " : "") +
+                fileModeLogPathFromFileHandlesErr() +
+                "SysErr: " + strerror(errno) );
 
-		IF_UNLIKELY( (size_t)writeRes != rwOffsetGen->getNumBytesTotal() )
-			throw WorkerException(std::string("Unexpected short file write. ") +
-				fileModeLogPathFromFileHandlesErr() +
-				"Bytes written: " + std::to_string(writeRes) + "; "
-				"Expected written: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) + "; "
+        IF_UNLIKELY( (size_t)writeRes != rwOffsetGen->getNumBytesTotal() )
+            throw WorkerException(std::string("Unexpected short file write. ") +
+                fileModeLogPathFromFileHandlesErr() +
+                "Bytes written: " + std::to_string(writeRes) + "; "
+                "Expected written: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) + "; "
                 "Hint: Consider initial sequential write or adding "
                     "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
-	}
+    }
 
-	if(benchPhase == BenchPhase_READFILES)
-	{
-		ssize_t readRes = ((*this).*funcRWBlockSized)();
+    if(benchPhase == BenchPhase_READFILES)
+    {
+        ssize_t readRes = ((*this).*funcRWBlockSized)();
 
-		IF_UNLIKELY(readRes == -1)
-			throw WorkerException(std::string("File read failed. ") +
-				( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
-					"Can be caused by directIO misalignment. " : "") +
-				fileModeLogPathFromFileHandlesErr() +
-				"SysErr: " + strerror(errno) );
+        IF_UNLIKELY(readRes == -1)
+            throw WorkerException(std::string("File read failed. ") +
+                ( (progArgs->getUseDirectIO() && (errno == EINVAL) ) ?
+                    "Can be caused by directIO misalignment. " : "") +
+                fileModeLogPathFromFileHandlesErr() +
+                "SysErr: " + strerror(errno) );
 
-		IF_UNLIKELY( (size_t)readRes != rwOffsetGen->getNumBytesTotal() )
-			throw WorkerException(std::string("Unexpected short file read. ") +
-				fileModeLogPathFromFileHandlesErr() +
-				"Bytes read: " + std::to_string(readRes) + "; "
-				"Expected read: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) + "; "
+        IF_UNLIKELY( (size_t)readRes != rwOffsetGen->getNumBytesTotal() )
+            throw WorkerException(std::string("Unexpected short file read. ") +
+                fileModeLogPathFromFileHandlesErr() +
+                "Bytes read: " + std::to_string(readRes) + "; "
+                "Expected read: " + std::to_string(rwOffsetGen->getNumBytesTotal() ) + "; "
                 "Hint: Consider initial sequential write or adding "
                     "\"--" ARG_TRUNCTOSIZE_LONG "\" to ensure full file size.");
-	}
+    }
 
 }
 
@@ -4566,6 +4571,8 @@ void LocalWorker::s3ModeIterateObjectsRand()
 		all workers use the dirs of worker rank 0 */
 	std::string objectPrefix = progArgs->getS3ObjectPrefix();
 	const bool objectPrefixRand = progArgs->getUseS3ObjectPrefixRand();
+	const BlockSizeMix& blockSizeMix = progArgs->getBlockSizeMix();
+	const BlockSizeMix indexStepMix = BlockSizeMix::parse("1"); // step of 1 for index selection
 
     // init random generators for dir & file index selection
 
@@ -4573,8 +4580,8 @@ void LocalWorker::s3ModeIterateObjectsRand()
         RandAlgoSelectorTk::stringToAlgo(progArgs->getRandOffsetAlgo().empty() ?
             RANDALGO_BALANCED_SEQUENTIAL_STR : progArgs->getRandOffsetAlgo() );
 
-	OffsetGenRandom randDirIndexGen(~(uint64_t)0, *randIndexAlgo, numDirs, 0, 1);
-	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randIndexAlgo, numFiles, 0, 1);
+	OffsetGenRandom randDirIndexGen(~(uint64_t)0, *randIndexAlgo, numDirs, 0, indexStepMix);
+	OffsetGenRandom randFileIndexGen(~(uint64_t)0, *randIndexAlgo, numFiles, 0, indexStepMix);
 
 	// init random offset gen for one read per file
 
@@ -4582,11 +4589,11 @@ void LocalWorker::s3ModeIterateObjectsRand()
 	if(!progArgs->getUseRandomUnaligned() ) // random aligned
 	{
 		rwOffsetGen = std::make_unique<OffsetGenRandomAligned>(blockSize, *randOffsetAlgo,
-			fileSize, 0, blockSize);
+			fileSize, 0, blockSizeMix);
 	}
 	else // random unaligned
 		rwOffsetGen = std::make_unique<OffsetGenRandom>(blockSize, *randOffsetAlgo,
-			fileSize, 0, blockSize);
+			fileSize, 0, blockSizeMix);
 
 	// randomly select objects and do one random offset read from each
 
@@ -5685,6 +5692,8 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
     partCompletionsVec.reserve(ioDepth); /* (reserve is important to not invalidate pointers for
         async callbacks on vector grow) */
 
+    uint64_t currentPartNum = 0; // valid range is 1..10K
+
     /* NOTE on try-catch: before we can exit this function we need to wait for all async tasks to
         complete because they might still be accessing members of partCompletionsVec. */
     try
@@ -5699,8 +5708,13 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
             {
                 const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
                 const uint64_t currentOffset = rwOffsetGen->getNextOffset();
-                const uint64_t currentPartNum =
-                    1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 for 1-based part range
+
+                /* note: in normal forward mode, blockSize can be variable because of a block size
+                    mix (or s3MpuSizeVariance in the non-async sibling function), so we can't use
+                    the currentPartNum formula with fixed blockSize from reverse mode. */
+                currentPartNum = (progArgs->getDoReverseSeqOffsets() ||
+                    getS3ModeDoReverseSeqFallback() ) ?
+                    1 + (currentOffset / rwOffsetGen->getBlockSize() ) : (currentPartNum+1);
 
                 ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
@@ -5965,6 +5979,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 	{
 		const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
 		const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+
+		/* note: this object is shared by multiple concurrent worker threads, each covering a
+			different (non-zero-based) byte range of the object, so the part number has to be
+			derived from the absolute offset. (A local incrementing counter, as used in the
+			single-owner upload functions, would not work here: it can't be combined with a
+			block size mix, which ProgArgs rejects for shared multipart uploads.) */
 		const uint64_t currentPartNum =
 			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
 
@@ -6177,8 +6197,15 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
             {
                 const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
                 const uint64_t currentOffset = rwOffsetGen->getNextOffset();
+
+                /* note: this object is shared by multiple concurrent worker threads, each
+                    covering a different (non-zero-based) byte range of the object, so the part
+                    number has to be derived from the absolute offset. (A local incrementing
+                    counter, as used in the single-owner upload functions, would not work here:
+                    it can't be combined with a block size mix, which ProgArgs rejects for
+                    shared multipart uploads.) */
                 const uint64_t currentPartNum =
-                    1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 for 1-based part range
+                    1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 for 1-based range
 
                 ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 

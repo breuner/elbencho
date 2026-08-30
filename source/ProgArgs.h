@@ -13,6 +13,7 @@
 #include "CuFileHandleData.h"
 #include "Logger.h"
 #include "PathStore.h"
+#include "toolkits/BlockSizeMix.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/SystemTk.h" // IWYU pragma: keep (false clangd unused include warning)
 
@@ -393,8 +394,11 @@ class ProgArgs
         std::string benchLabel; // user-defined label for benchmark run
         std::string benchLabelNoCommas; // implict based on benchLabel with commas removed for csv
         BenchMode benchMode; // current benchmark mode (posix, s3, hdfs, netbench)
-        size_t blockSize; // number of bytes to read/write in a single read()/write() call
-        std::string blockSizeOrigStr; // original blockSize str from user with unit
+        size_t blockSize; // max size in blockSizeMix; number of bytes for a single read()/write()
+        std::string blockSizeOrigStr; /* original blockSize str from user with unit; optionally a
+            weighted block size mix (e.g. "4k:3,64k:1" for 3 parts 4KiB and 1 part 64KiB (75%/25%);
+            weights are optional and default to 1. */
+        BlockSizeMix blockSizeMix; // parsed from blockSizeOrigStr; single entry if no mix given
         unsigned blockVariancePercent; // % of blocks that should differ between writes
         std::string blockVarianceAlgo; // rand algo for buffer fill variance
         std::string clientsFilePath; // path to file for appended service hosts
@@ -702,6 +706,8 @@ class ProgArgs
         unsigned getBlockVariancePercent() const { return blockVariancePercent; }
         std::string getBlockVarianceAlgo() const { return blockVarianceAlgo; }
         size_t getBlockSize() const { return blockSize; }
+        const BlockSizeMix& getBlockSizeMix() const { return blockSizeMix; }
+        bool isBlockSizeMixDefined() const { return blockSizeMix.isMix(); }
         std::string getBenchLabel() const { return benchLabel; }
         const std::string& getBenchLabelNoCommas() const { return benchLabelNoCommas; }
         CuFileHandleDataVec& getCuFileHandleDataVec() { return cuFileHandleDataVec; }

@@ -13,6 +13,7 @@
   * This is because the new higher resolution latency histogram for the `--lathisto` option can easily get inconveniently long on the console.
   * When the `--lathistogrpd` option is given, the full histogram is available in the json result file (see `--jsonfile` option), same as when using the `--lathisto` option.
 * New option `--offset`. With this new option, `--size` is now interpreted relative to the given `--offset` value, so that it is possible to work only with certain byte ranges within files/objects/bdevs.
+* New option to specify a comma-separated weighted mix of block sizes, e.g. `-b 4k:3,64k:1` for 3 parts 4KiB and 1 part 64KiB (75%/25% mix), which is equivalent to using `-b 4k:75,64k:25`.
 
 ### General Changes
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
@@ -21,7 +22,7 @@
 * Updated mimalloc lib for static builds to latest v3.5.0.
 
 ### Contributors
-* Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop and Github user git4ghw for helpful comments and suggestions.
+* Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop, Github user git4ghw, Nathan Foster for helpful comments and suggestions.
 
 ## v3.1.11 (July 24, 2026)
 

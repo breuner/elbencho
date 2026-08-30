@@ -252,6 +252,11 @@ void ProgArgs::defineAllowedArgs()
             "For S3, this defines the multipart upload size and the ranged read size. Multipart "
             "uploads will automatically be used if object size is larger than this block size. "
 #endif // S3_SUPPORT
+            "This can also be a comma-separated mix of block sizes, optionally with a weight "
+            "attached to each size via a colon, e.g. \"4k:3,64k:1\" for 3 parts 4KiB and 1 part "
+            "64KiB (75%/25%). Weights default to 1 and do not need to sum up to 100. Each "
+            "worker thread then draws a randomly weighted block size per I/O. A block size mix "
+            "cannot be combined with \"--" ARG_STRIDEDACCESS_LONG "\". "
             "(Default: 1M; supports base2 suffixes, e.g. \"128K\")")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
@@ -1352,7 +1357,8 @@ void ProgArgs::initImplicitValues()
  */
 void ProgArgs::convertUnitStrings()
 {
-    blockSize = UnitTk::numHumanToBytesBinary(blockSizeOrigStr, false);
+    blockSizeMix = BlockSizeMix::parse(blockSizeOrigStr);
+    blockSize = blockSizeMix.getMaxSize();
     fileSize = UnitTk::numHumanToBytesBinary(fileSizeOrigStr, false);
     fileOffset = UnitTk::numHumanToBytesBinary(fileOffsetOrigStr, false);
     numDirs = UnitTk::numHumanToBytesBinary(numDirsOrigStr, false);
@@ -1497,6 +1503,27 @@ void ProgArgs::checkArgs()
 	    throw ProgException("Random, strided and reverse sequence offsets cannot be used "
 	        "together.");
 
+	if(useStridedAccess && blockSizeMix.isMix() )
+	    throw ProgException("Strided access mode cannot be combined with a block size mix "
+	        "(\"--" ARG_BLOCK_LONG "\").");
+
+	if(doReverseSeqOffsets && blockSizeMix.isMix() )
+	    throw ProgException("Reverse sequential access (\"--" ARG_REVERSESEQOFFSETS_LONG "\") "
+	        "cannot be combined with a block size mix (\"--" ARG_BLOCK_LONG "\").");
+
+	if(blockSizeMix.isMix() && useRandomOffsets && (benchMode == BenchMode_S3) &&
+	    runCreateFilesPhase)
+	    throw ProgException("A block size mix (\"--" ARG_BLOCK_LONG "\") cannot be combined with "
+	        "random offsets for S3 uploads, because S3 uploads with random offsets implicitly "
+	        "fall back to reverse sequential access, which does not support a block size mix.");
+
+	if(blockSizeMix.isMix() && (benchMode == BenchMode_S3) && runCreateFilesPhase &&
+	    (useS3MPUSharing || customTree.filesShared.getNumPaths() ) )
+	    throw ProgException("A block size mix (\"--" ARG_BLOCK_LONG "\") cannot be combined with "
+	        "S3 shared multipart uploads (\"--" ARG_S3MPUSHARING_LONG "\" or objects large "
+	        "enough to be split across threads via \"--" ARG_FILESHARESIZE_LONG "\"), because "
+	        "part numbers cannot be derived from byte offsets when block sizes vary.");
+
 	if( (useRandomOffsets || useStridedAccess || doReverseSeqOffsets) && useHDFS &&
 	    runCreateFilesPhase)
 		throw ProgException("HDFS does not support non-sequential offsets for writes.");
@@ -1552,15 +1579,16 @@ void ProgArgs::checkArgs()
     }
 
     if(!ignoreS3PartNum && (benchMode == BenchMode_S3) && fileSize && blockSize &&
-        runCreateFilesPhase && ( (fileSize / blockSize) > 10000) )
+        runCreateFilesPhase && ( (fileSize / blockSizeMix.getMinSize() ) > 10000) )
         throw ProgException("The specified multi-part upload would exceed 10,000 parts per object. "
             "This exceeds the S3 specification and thus is likely to get rejected by the server. "
             "Consider a smaller object size (\"-" ARG_FILESIZE_SHORT "\") or a larger part block "
             "size (\"-" ARG_BLOCK_SHORT "\"). "
             "The option \"--" ARG_S3NOMPCHECK_LONG "\" disables this check. "
             "Object size: " +  std::to_string(fileSize) + "; "
-            "Part block size: " + std::to_string(blockSize) + "; "
-            "Resulting number of parts: " + std::to_string(fileSize / blockSize) );
+            "Smallest part block size in mix: " + std::to_string(blockSizeMix.getMinSize() ) + "; "
+            "Resulting number of parts: " +
+            std::to_string(fileSize / blockSizeMix.getMinSize() ) );
 
     if(useCuFile && (benchMode == BenchMode_S3) )
         throw ProgException("cuFile API cannot be used with S3");
@@ -1707,13 +1735,16 @@ void ProgArgs::checkPathDependentArgs()
 				"New: " << fileSize << std::endl);
 
 		blockSize = fileSize; // to avoid allocating large buffers if file size is small
+
+		if(fileSize) // collapse mix to a single size matching the new scalar blockSize
+			blockSizeMix = BlockSizeMix::parse(std::to_string(fileSize) );
 	}
 
-	// reduce file size to multiple of block size for directIO and random IO
+	// reduce file size to multiple of (smallest) block size for directIO and random IO
 	if( (useDirectIO || useRandomOffsets || useStridedAccess) && fileSize &&
-	    (runCreateFilesPhase || runReadPhase) && (fileSize % blockSize) )
+	    (runCreateFilesPhase || runReadPhase) && (fileSize % blockSizeMix.getMinSize() ) )
 	{
-		size_t newFileSize = fileSize - (fileSize % blockSize);
+		size_t newFileSize = fileSize - (fileSize % blockSizeMix.getMinSize() );
 
 		LOGGER(Log_NORMAL, "NOTE: File size has to be a multiple of block size for direct IO, "
 		    "random IO and strided IO. "
@@ -1729,13 +1760,14 @@ void ProgArgs::checkPathDependentArgs()
     if(fileOffset && !fileSize && treeFilePath.empty() && (runCreateFilesPhase || runReadPhase) )
         throw ProgException("File size must not be 0 when using \"--" ARG_FILEOFFSET_LONG "\".");
 
-    // offset has to be a multiple of block size for directIO and random IO
+    // offset has to be a multiple of the smallest block size in the mix for directIO and random IO
+    // (random-aligned IO only aligns offsets to the smallest size in the mix, not to every size)
     if(fileOffset && blockSize && (useDirectIO || useRandomOffsets || useStridedAccess) &&
-        (runCreateFilesPhase || runReadPhase) && (fileOffset % blockSize) )
+        (runCreateFilesPhase || runReadPhase) && (fileOffset % blockSizeMix.getMinSize() ) )
         throw ProgException("Offset has to be a multiple of block size for direct IO, random IO "
             "and strided IO. "
             "Offset: " + std::to_string(fileOffset) + "; "
-            "Block size: " + std::to_string(blockSize) );
+            "Block size: " + std::to_string(blockSizeMix.getMinSize() ) );
 
     // auto-set randomAmount if not set by user
 	if(!randomAmount)
@@ -1758,12 +1790,20 @@ void ProgArgs::checkPathDependentArgs()
 			useRandomUnaligned = false;
 		}
 
-		if(!noDirectIOCheck && ( (blockSize % DIRECTIO_MINSIZE) != 0) )
-			throw ProgException("Block size for direct IO is not a multiple of required size. "
-				"(Note that a system's actual required size for direct IO might be even higher "
-				"depending on system page size and drive sector size. "
-				"\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
-				"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
+		if(!noDirectIOCheck)
+		{
+			for(const auto& sizeAndWeight : blockSizeMix.getSizesAndWeights() )
+			{
+				if( (sizeAndWeight.first % DIRECTIO_MINSIZE) != 0)
+					throw ProgException("Block size for direct IO is not a multiple of required "
+						"size. "
+						"(Note that a system's actual required size for direct IO might be even "
+						"higher depending on system page size and drive sector size. "
+						"\"--" ARG_NODIRECTIOCHECK_LONG "\" disables this check.) "
+						"Block size: " + std::to_string(sizeAndWeight.first) + "; "
+						"Required size: " + std::to_string(DIRECTIO_MINSIZE) );
+			}
+		}
 
         if(!noDirectIOCheck && ( (fileOffset % DIRECTIO_MINSIZE) != 0) )
             throw ProgException("Offset for direct IO is not a multiple of required size. "
@@ -1772,10 +1812,10 @@ void ProgArgs::checkPathDependentArgs()
                 "Offset: " + std::to_string(fileOffset) );
 	}
 
-	if(useRandomOffsets && !useRandomUnaligned && blockSize && (randomAmount % blockSize) &&
-		(benchPathType != BenchPathType_DIR) )
+	if(useRandomOffsets && !useRandomUnaligned && blockSize &&
+		(randomAmount % blockSizeMix.getMinSize() ) && (benchPathType != BenchPathType_DIR) )
 	{
-		size_t newRandomAmount = randomAmount - (randomAmount % blockSize);
+		size_t newRandomAmount = randomAmount - (randomAmount % blockSizeMix.getMinSize() );
 
 		LOGGER(Log_NORMAL, "NOTE: Random amount for aligned IO is not a multiple of block size. "
 			"Reducing random amount. " <<
@@ -2386,11 +2426,19 @@ void ProgArgs::prepareSpdk()
         throw ProgException("Given offset plus size exceeds size of smallest namespace: " +
             std::to_string(minNamespaceSize) + " bytes");
 
-    if( (blockSize < namespaceSectorSize) || (blockSize % namespaceSectorSize) ||
-        (fileSize < namespaceSectorSize) || (fileSize % namespaceSectorSize) ||
+    if( (fileSize < namespaceSectorSize) || (fileSize % namespaceSectorSize) ||
         (fileOffset % namespaceSectorSize) )
-        throw ProgException("Block size, file size and offset must be an even multiple of "
+        throw ProgException("File size and offset must be an even multiple of "
             "namespace sector size: " + std::to_string(namespaceSectorSize) + " bytes" );
+
+    for(const auto& sizeAndWeight : blockSizeMix.getSizesAndWeights() )
+    {
+        if( (sizeAndWeight.first < namespaceSectorSize) ||
+            (sizeAndWeight.first % namespaceSectorSize) )
+            throw ProgException("Block size must be an even multiple of namespace sector size. "
+                "Block size: " + std::to_string(sizeAndWeight.first) + "; "
+                "Namespace sector size: " + std::to_string(namespaceSectorSize) + " bytes" );
+    }
 
     // keep attached for re-use by worker threads if this is not a master of a distributed run
     if(!hostsVec.empty() )
@@ -4061,7 +4109,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	benchLabel = tree.get<std::string>(ARG_BENCHLABEL_LONG);
     benchMode = (BenchMode)tree.get<unsigned short>(ARG_BENCHMODE_LONG);
 	benchPathStr = tree.get<std::string>(ARG_BENCHPATHS_LONG);
-	blockSize = tree.get<size_t>(ARG_BLOCK_LONG);
+    blockSizeOrigStr = tree.get<std::string>(ARG_BLOCK_LONG);
 	blockVarianceAlgo = tree.get<std::string>(ARG_BLOCKVARIANCEALGO_LONG);
 	blockVariancePercent = tree.get<unsigned>(ARG_BLOCKVARIANCE_LONG);
 	doDirectVerify = tree.get<bool>(ARG_VERIFYDIRECT_LONG);
@@ -4176,6 +4224,11 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     useS3VirtualAddressing = tree.get<bool>(ARG_S3VIRTADDRESSING_LONG);
 	useStridedAccess = tree.get<bool>(ARG_STRIDEDACCESS_LONG);
 
+    // apply received block size mix...
+
+    blockSizeMix = BlockSizeMix::parse(blockSizeOrigStr);
+    blockSize = blockSizeMix.getMaxSize();
+
 	// dynamically calculated values for service hosts...
 
 	rankOffset = tree.get<size_t>(ARG_RANKOFFSET_LONG);
@@ -4227,7 +4280,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 {
 	// note: alphabetical order by ARG_... name
 
-	outTree.put(ARG_BLOCK_LONG, blockSize);
+	outTree.put(ARG_BLOCK_LONG, blockSizeMix.toString() );
 	outTree.put(ARG_BLOCKVARIANCE_LONG, blockVariancePercent);
 	outTree.put(ARG_BLOCKVARIANCEALGO_LONG, blockVarianceAlgo);
 	outTree.put(ARG_BENCHLABEL_LONG, benchLabel);
