@@ -31,6 +31,7 @@ CSVCOLUMNSIDX_Y_RIGHT=()     # dicsovered column indices for right y-axis
 XTICLABELROTDEGREES="0"      # x-axis tick label rotation degrees
 NUMCSVCOLUMNS="0"            # discovered number of columns in csv input file
 CSVOPCOLUMN="operation"      # title of operation column in csv input file
+GRIDLINES=""                 # gridline specifications
 LINECOLORS=("#26afd0" "#2a9df4" "#fa8f6f" "#fadb6f" "#ff6961" "#a8cce8" "#d5aaff" "#54fffb")
 
 
@@ -66,6 +67,7 @@ usage()
    echo "  --chartsize W,H    Chart width and height in pixels."
    echo "                     Exception: Size for pdf image file is in inches."
    echo "  --fontsize NUM     Font size."
+   echo "  --gridlines STRING Specifications for gridlines."
    echo "  --imgbg RGB        Image background color instead of transparent background."
    echo "                     Example: \"#ffffff\" for white background."
    echo "  --keypos STRING    Position of key with line descriptions within chart area."
@@ -146,6 +148,10 @@ parse_args()
            ;;
         --fontsize)
            FONTSIZE="$2"
+           shift
+           ;;
+        --gridlines)
+           GRIDLINES="$2"
            shift
            ;;
         --imgfile)
@@ -672,6 +678,8 @@ generate_gnuplot_cmd()
    echo "set style line 100 lt 1 lc rgb \"grey\" lw 0.5" # grid line style
    echo "set pointintervalbox $POINTBOX" # small gaps between graph line and data points
    echo "set border $CHARTBORDERFLAGS" # bitwise (1=bottom, 2=left, 4=top, 8=right)
+
+   [ -z "$GRIDLINES" ] || echo "set grid ${GRIDLINES}"
 
    # define line style (colors, width etc)
    linecoloridx="0"
