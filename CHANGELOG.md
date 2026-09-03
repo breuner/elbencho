@@ -30,6 +30,9 @@
 * Updated ftxui lib for fullscreen live stats to latest v7.0.1.
 * Updated mimalloc lib for static builds to latest v3.4.1.
 
+### New Features & Enhancements
+* New option "--cuobj" for GPU-direct S3-over-RDMA via the NVIDIA cuObject (cuObjClient) API shipped with CUDA 13.1+ (the object-storage counterpart of "--cufile"). Single-part object GET/PUT move their payload out-of-band over RDMA (directly to/from GPU VRAM when "--gpuids" is given) while a body-less HTTP control request carries the x-amz-rdma-* protocol headers. Requires a build with cuObject support and an RDMA-capable S3 endpoint.
+
 ### Fixes
 * Fixed potential issue on macOS with async S3 requests not getting cleaned up correctly after error or interruption.
 * Applied various minor fixes to the contributed sweep tools.
