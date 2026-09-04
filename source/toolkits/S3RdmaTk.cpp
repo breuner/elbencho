@@ -251,8 +251,7 @@ S3RdmaControlPlane::S3RdmaControlPlane(const ProgArgs* progArgs, size_t workerRa
 
 S3RdmaControlPlane::~S3RdmaControlPlane() = default;
 
-ssize_t S3RdmaControlPlane::rdmaPut(S3RdmaClientCtx& ctx, const char* token, uint64_t bufAddr,
-	uint64_t size)
+ssize_t S3RdmaControlPlane::rdmaPut(S3RdmaClientCtx& ctx, const char* token, uint64_t size)
 {
 	try
 	{
@@ -274,7 +273,7 @@ ssize_t S3RdmaControlPlane::rdmaPut(S3RdmaClientCtx& ctx, const char* token, uin
 		auto req = Aws::Http::CreateHttpRequest(uri, Aws::Http::HttpMethod::HTTP_PUT,
 			Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
 		req->SetHeaderValue("x-amz-content-sha256", UNSIGNED_PAYLOAD);
-		req->SetHeaderValue(AMZ_RDMA_TOKEN, formatRdmaToken(token, bufAddr, size).c_str() );
+		req->SetHeaderValue(AMZ_RDMA_TOKEN, token);
 		req->SetHeaderValue("content-type", "application/octet-stream");
 		req->SetContentLength("0");
 
@@ -328,8 +327,8 @@ ssize_t S3RdmaControlPlane::rdmaPut(S3RdmaClientCtx& ctx, const char* token, uin
 	}
 }
 
-ssize_t S3RdmaControlPlane::rdmaGet(S3RdmaClientCtx& ctx, const char* token, uint64_t bufAddr,
-	uint64_t size, uint64_t offset)
+ssize_t S3RdmaControlPlane::rdmaGet(S3RdmaClientCtx& ctx, const char* token, uint64_t size,
+	uint64_t offset)
 {
 	try
 	{
@@ -338,7 +337,7 @@ ssize_t S3RdmaControlPlane::rdmaGet(S3RdmaClientCtx& ctx, const char* token, uin
 		auto req = Aws::Http::CreateHttpRequest(uri, Aws::Http::HttpMethod::HTTP_GET,
 			Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
 		req->SetHeaderValue("x-amz-content-sha256", UNSIGNED_PAYLOAD);
-		req->SetHeaderValue(AMZ_RDMA_TOKEN, formatRdmaToken(token, bufAddr, size).c_str() );
+		req->SetHeaderValue(AMZ_RDMA_TOKEN, token);
 
 		// Byte-range fetch when reading a slice of the object (server replies 206).
 		if(size != 0)
@@ -422,7 +421,7 @@ ssize_t rdmaPutWithRetry(SharedCuObjClient& rdma, S3RdmaControlPlane& cp, S3Rdma
 			continue; // transient mint failure: retry
 		}
 
-		ret = cp.rdmaPut(ctx, token, reinterpret_cast<uint64_t>(buf), size);
+		ret = cp.rdmaPut(ctx, token, size);
 		rdma.putToken(token);
 
 		if(ret > 0 || ret == RDMA_NOT_SUPPORTED)
@@ -446,7 +445,7 @@ ssize_t rdmaGetWithRetry(SharedCuObjClient& rdma, S3RdmaControlPlane& cp, S3Rdma
 			continue; // transient mint failure: retry
 		}
 
-		ret = cp.rdmaGet(ctx, token, reinterpret_cast<uint64_t>(buf), size, offset);
+		ret = cp.rdmaGet(ctx, token, size, offset);
 		rdma.putToken(token);
 
 		if(ret > 0 || ret == RDMA_NOT_SUPPORTED)

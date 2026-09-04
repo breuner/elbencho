@@ -43,3 +43,6 @@ compile_flags.txt
 compile_commands.json
 excluded/
 todo.txt
+
+# Vendored NVIDIA cuObject libraries are tracked (see vendor/cuobj/NOTICE).
+!vendor/cuobj/lib/**/*.so

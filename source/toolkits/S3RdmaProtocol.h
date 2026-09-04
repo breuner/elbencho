@@ -46,23 +46,6 @@ namespace S3Rdma
 	inline constexpr long RDMA_TIMEOUT_SECS = 10;
 
 	/**
-	 * Format the value of the x-amz-rdma-token header.
-	 *
-	 * Wire format: "<descriptor>:<start_addr_hex>:<size_hex>" where the two trailing
-	 * fields are 16-digit zero-padded lowercase hex. The descriptor is the token
-	 * string returned by cuObjClient::cuMemObjGetRDMAToken().
-	 */
-	inline std::string formatRdmaToken(const char* descriptor, uint64_t bufAddr, uint64_t size)
-	{
-		char out[512];
-		std::snprintf(out, sizeof(out), "%s:%016lx:%016lx",
-			descriptor ? descriptor : "",
-			static_cast<unsigned long>(bufAddr),
-			static_cast<unsigned long>(size) );
-		return std::string(out);
-	}
-
-	/**
 	 * Map the server's x-amz-rdma-reply header value to a transfer outcome.
 	 *
 	 *   >0  reply code (200/204/206): treat as RDMA success

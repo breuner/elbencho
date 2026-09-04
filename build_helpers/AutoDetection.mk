@@ -13,6 +13,25 @@ CXXFLAGS_LIBBACKTRACE    ?= -DBACKTRACE_SUPPORT
 LDFLAGS_LIBBACKTRACE     ?= -lbacktrace
 
 
+# cuObject ships vendored under $(VENDOR_PATH)/cuobj as a matched cuObject+cuFile set. Prefer it
+# over whatever sits in the CUDA tree: a libcuobjclient paired with a different cuObject version
+# fails at runtime, not at build time. libcuobjclient also needs symbols from its own libcufile,
+# and both cuFile builds carry SONAME "libcufile.so.0", so exactly one of them can be loaded --
+# take cuFile from the vendored set too rather than link two versions of the same SONAME.
+# Set CUOBJ_INCLUDE_PATH / CUOBJ_LIB_PATH explicitly to use a system install instead.
+CUOBJ_VENDOR_PATH        ?= $(VENDOR_PATH)/cuobj
+CUOBJ_VENDOR_ARCH        ?= $(shell uname -m)
+CUOBJ_VENDOR_INCLUDE     := $(wildcard $(CUOBJ_VENDOR_PATH)/include/cuobjclient.h)
+CUOBJ_VENDOR_LIB         := $(wildcard $(CUOBJ_VENDOR_PATH)/lib/$(CUOBJ_VENDOR_ARCH)/libcuobjclient.so)
+
+ifneq ($(and $(CUOBJ_VENDOR_INCLUDE),$(CUOBJ_VENDOR_LIB)),)
+ CUOBJ_INCLUDE_PATH      ?= $(CUOBJ_VENDOR_PATH)/include
+ CUOBJ_LIB_PATH          ?= $(CUOBJ_VENDOR_PATH)/lib/$(CUOBJ_VENDOR_ARCH)
+ CUFILE_INCLUDE_PATH     ?= $(CUOBJ_VENDOR_PATH)/include
+ CUFILE_LIB_PATH         ?= $(CUOBJ_VENDOR_PATH)/lib/$(CUOBJ_VENDOR_ARCH)
+ CUOBJ_USES_VENDORED      = 1
+endif
+
 # Try to auto-detect CUDA library and inlcude paths...
 CUDA_INCLUDE_PATH        ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cuda_runtime.h \
                             -printf '%h\n' 2>/dev/null | head -n1)
@@ -63,6 +82,14 @@ ifneq ($(CUOBJ_LIB_PATH),)
 endif
 CXXFLAGS_CUOBJ_SUPPORT     += -DCUOBJ_SUPPORT
 LDFLAGS_CUOBJ_SUPPORT      += -lcuobjclient -lcufile -libverbs -lrdmacm
+
+# With the vendored libs there is no system install to fall back on, so the binary carries the
+# search paths itself: the in-tree location for running from the build dir, and ../lib for a
+# deployed bin/+lib/ tarball.
+ifeq ($(CUOBJ_USES_VENDORED),1)
+ LDFLAGS_CUOBJ_SUPPORT     += -Wl,-rpath,'$$ORIGIN/../$(CUOBJ_VENDOR_PATH:./%=%)/lib/$(CUOBJ_VENDOR_ARCH)' \
+                              -Wl,-rpath,'$$ORIGIN/../lib'
+endif
 
 ####### LIB "backtrace" ########
 

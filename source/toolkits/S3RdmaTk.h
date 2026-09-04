@@ -48,7 +48,7 @@ class S3RdmaControlPlane
 		 * @return bytes transferred (>0) on RDMA success, RDMA_NOT_SUPPORTED if the
 		 *     server declined, or RDMA_ERROR on transport failure.
 		 */
-		ssize_t rdmaPut(S3RdmaClientCtx& ctx, const char* token, uint64_t bufAddr, uint64_t size);
+		ssize_t rdmaPut(S3RdmaClientCtx& ctx, const char* token, uint64_t size);
 
 		/**
 		 * Issue the signed control-plane GET carrying the RDMA token. When @offset
@@ -56,7 +56,7 @@ class S3RdmaControlPlane
 		 * @return bytes transferred (>0), RDMA_NOT_SUPPORTED if declined, or
 		 *     RDMA_ERROR on failure.
 		 */
-		ssize_t rdmaGet(S3RdmaClientCtx& ctx, const char* token, uint64_t bufAddr, uint64_t size,
+		ssize_t rdmaGet(S3RdmaClientCtx& ctx, const char* token, uint64_t size,
 			uint64_t offset);
 
 	private:

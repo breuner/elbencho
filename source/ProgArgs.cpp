@@ -4073,6 +4073,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cufile/gds ";
 #endif
 
+#ifdef CUOBJ_SUPPORT
+	includedStream << "cuobj/s3rdma ";
+#else
+	notIncludedStream << "cuobj/s3rdma ";
+#endif
+
 #ifdef HDFS_SUPPORT
 	includedStream << "hdfs ";
 #else
