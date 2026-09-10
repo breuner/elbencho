@@ -35,9 +35,10 @@ elbencho --spdkconffile myconfig.json
 ```
 
 ```
-SPDK namespace discovery result...
-Namespace: fast_db:nvme0:n1; ID: 0; Size: 100GiB (107374182400B); Format: 512B; Model: Example NVMe Ctrl; UUID: 4c4c4544-005a-3810-8059-c3c04f334434
-Namespace: fast_db:nvme0:n2; ID: 1; Size: 200GiB (214748364800B); Format: 512B; Model: Example NVMe Ctrl; NGUID: c624d5fcdfd247c08c8726965459ad5c
+SPDK NVMe-oF discovery result... (Namespace; Numeric ID; Size; Format; Model; UUID/NGUID)
+* fast_db:primary0:ns1; 0; 100G; 512B; Example NVMe Ctrl; 4c4c4544-005a-3810-8059-c3c04f334434
+* fast_db:primary0:ns2; 1; 200G; 512B; Example NVMe Ctrl; c624d5fcdfd247c08c8726965459ad5c
+ERROR: No namespaces given, exiting after listing available namespaces
 ```
 
 Once you know which namespace(s) you want to benchmark, add them as path arguments, just like you would add local block device paths for a normal elbencho run:
@@ -46,9 +47,16 @@ Once you know which namespace(s) you want to benchmark, add them as path argumen
 elbencho -r -b 4k -t 16 --iodepth 16 --rand --spdkconffile myconfig.json 4c4c4544-005a-3810-8059-c3c04f334434
 ```
 
-Namespaces can be selected by the numeric `ID`, the human-friendly `Namespace` name, `UUID` or `NGUID` shown in the discovery result above.
+Namespaces can be selected by the `Numeric ID`, the human-friendly `Namespace` name or the `UUID`/`NGUID` shown in the discovery result above. (The `ERROR` line at the end is just how elbencho reports that it had nothing to benchmark, so it exited after the listing.)
 
-The `Namespace` name is built as `<subsystem-name>:<controller-name>:n<suffix>`. `<subsystem-name>` is the subsystem entry's `name` if given, otherwise it defaults to the subsystem NQN, shortened to the part after its last `:` (e.g. `nqn.2014-08.org.nvmexpress:uuid:1234` becomes `1234`). `<controller-name>` is `controller_name` if given, otherwise a per-config `ctrlrN` counter.
+The `Namespace` name is built as `<subsystem-name>:<controller-name><N>:ns<nsid>`:
+
+* `<subsystem-name>` is the subsystem entry's `name` if given, otherwise it defaults to the subsystem NQN, shortened to the part after its last `:` (e.g. `nqn.2014-08.org.nvmexpress:uuid:1234` becomes `1234`).
+* `<controller-name>` is `controller_name` if given, otherwise `ctrlr`.
+* `<N>` is a counter, starting at 0 and incremented for each resolved subsystem path group within one config, appended whether or not `controller_name` was given. That's why the first group of the `fast_db` subsystem in the "Full Config File Example" below appears as `primary0`.
+* `<nsid>` is the namespace ID as reported by the target.
+
+The `Size` column uses base-2 units abbreviated to a single letter, so `100G` means 100 GiB.
 
 Regular expressions can be used to select based on namespaces names, e.g. `elbencho "mysubsys:.*"` to select every namespace of the given subsystem for a benchmark run.
 
@@ -149,4 +157,5 @@ This example shows all available config options, including multipathing, CPU cor
     ]
 }
 ```
+
 
