@@ -132,6 +132,9 @@ std::unique_ptr<Journal> Journal::createNew(const std::string& journalDirPath,
             "Size: " + std::to_string(journal->mapLength) + "; "
             "SysErr: " + strerror(errno) );
 
+#if !defined(__APPLE__)
+    // (no posix_fallocate on macOS, so we skip preallocation there.)
+
     /* preallocate real disk blocks now, so later mmap'ed writes can never SIGBUS due to the
         journal directory's file system running out of space in the middle of a run */
     int preallocRes = posix_fallocate(journal->fd, 0, journal->mapLength);
@@ -140,6 +143,7 @@ std::unique_ptr<Journal> Journal::createNew(const std::string& journalDirPath,
             "Path: " + journal->binaryPath + "; "
             "Size: " + std::to_string(journal->mapLength) + "; "
             "SysErr: " + strerror(preallocRes) ); // (posix_fallocate does not set errno)
+#endif // !apple
 
     journal->mmapBinaryFile();
 
@@ -356,8 +360,12 @@ void Journal::syncRange(uint64_t firstBlockIdx, size_t numBlocks) const
     if(!journalSyncEnabled)
         return;
 
+    /* (explicit uint64_t for the min, because size_t and uint64_t are not the same type on all
+        platforms - e.g. on macOS - so deduction from a mixed pair would fail. Narrowing to size_t
+        afterwards is safe, because the value is clamped to mapLength, which is a size_t.) */
     const size_t startByteIdx = firstBlockIdx / 4;
-    const size_t endByteIdx = std::min( (firstBlockIdx + numBlocks + 3) / 4, mapLength);
+    const size_t endByteIdx = (size_t)std::min<uint64_t>(
+        (firstBlockIdx + numBlocks + 3) / 4, mapLength);
 
     const size_t pageSize = sysconf(_SC_PAGESIZE);
     const size_t pageAlignedStart = (startByteIdx / pageSize) * pageSize; // msync needs this
