@@ -20,10 +20,10 @@
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
 * Removed dockerfiles without `.local` extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
 * Updated ftxui lib for fullscreen live stats to latest v7.0.3.
-* Updated mimalloc lib for static builds to latest v3.5.0.
+* Updated mimalloc lib for static builds to latest v3.5.2.
 
 ### Contributors
-* Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop, Github user git4ghw, Nathan Foster for helpful comments and suggestions.
+Thanks to GitHub user rjohnson-ha for code contributions. Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop, Github user git4ghw, Nathan Foster for helpful comments and suggestions.
 
 ## v3.1.11 (July 24, 2026)
 
