@@ -21,6 +21,8 @@
 * Removed dockerfiles without `.local` extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
 * Updated ftxui lib for fullscreen live stats to latest v7.0.3.
 * Updated mimalloc lib for static builds to latest v3.5.2.
+* Added test suite to repo based on "prove". `tests/run-tests.sh -a` can be used to run all tests supported by the current executable in `bin/`. (Tests for not included build features will automatically be skipped.) Details available at [`tests/README.md`](tests/README.md).
+
 
 ### Contributors
 Thanks to GitHub user rjohnson-ha for code contributions. Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop, Github user git4ghw, Nathan Foster for helpful comments and suggestions.
