@@ -14,6 +14,7 @@
   * When the `--lathistogrpd` option is given, the full histogram is available in the json result file (see `--jsonfile` option), same as when using the `--lathisto` option.
 * New option `--offset`. With this new option, `--size` is now interpreted relative to the given `--offset` value, so that it is possible to work only with certain byte ranges within files/objects/bdevs.
 * New option to specify a comma-separated weighted mix of block sizes, e.g. `-b 4k:3,64k:1` for 3 parts 4KiB and 1 part 64KiB (75%/25% mix), which is equivalent to using `-b 4k:75,64k:25`.
+* Added support for journaled data verification. User guide is available at [`docs/journaling.md`](docs/journaling.md).
 
 ### General Changes
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.

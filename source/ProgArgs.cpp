@@ -254,9 +254,8 @@ void ProgArgs::defineAllowedArgs()
 #endif // S3_SUPPORT
             "This can also be a comma-separated mix of block sizes, optionally with a weight "
             "attached to each size via a colon, e.g. \"4k:3,64k:1\" for 3 parts 4KiB and 1 part "
-            "64KiB (75%/25%). Weights default to 1 and do not need to sum up to 100. Each "
-            "worker thread then draws a randomly weighted block size per I/O. A block size mix "
-            "cannot be combined with \"--" ARG_STRIDEDACCESS_LONG "\". "
+            "64KiB (75%/25%). Weights default to 1 and do not need to sum up to 100. Worker "
+            "threads draw randomly from the weighted block sizes. "
             "(Default: 1M; supports base2 suffixes, e.g. \"128K\")")
 /*ba*/	(ARG_REVERSESEQOFFSETS_LONG, bpo::bool_switch(&this->doReverseSeqOffsets),
 			"Do backwards sequential reads/writes.")
@@ -400,6 +399,26 @@ void ProgArgs::defineAllowedArgs()
 /*io*/	(ARG_IODEPTH_LONG, bpo::value(&this->ioDepth),
 			"Depth of I/O queue per thread for asynchronous I/O. Setting this to 2 or higher "
 			"turns on async I/O. (Default: 1)")
+/*jo*/  (ARG_JOURNALBLOCK_LONG, bpo::value(&this->journalBlockSizeOrigStr),
+            "Minimum block size tracked by the write journal (see \"--" ARG_JOURNALDIR_LONG "\"). "
+            "All I/O block sizes (\"-" ARG_BLOCK_SHORT "\") must be equal to or an exact multiple "
+            "of this, and so must \"--" ARG_FILEOFFSET_LONG "\". A \"--" ARG_FILESIZE_LONG "\" "
+            "which is not a multiple of this gets rounded down to the next one. "
+            "(Default: 4096; supports base2 suffixes, e.g. \"4K\")")
+/*jo*/  (ARG_JOURNALDIR_LONG, bpo::value(&this->journalDirStr),
+            "Path to a directory on a separate local file system to hold one write journal "
+            "(binary file plus JSON sidecar) per target file/block device, enabling content "
+            "verification after a crash/power failure or during a read/write-mix phase. Existing "
+            "journals are resumed; missing ones are created. Local mode only; file/block device "
+            "targets only. Mutually exclusive with \"--" ARG_INTEGRITYCHECK_LONG "\".")
+/*jo*/  (ARG_JOURNALSYNC_LONG, bpo::bool_switch(&this->journalSyncEnabled),
+            "Make write journal updates durable via msync(), so that the journal can also be "
+            "resumed after a power failure and not just after a process crash. A block is marked "
+            "as \"being written\" durably before its data write is issued, and its new content "
+            "generation durably after the write completed. This implies \"--" ARG_DIRECTIO_LONG
+            "\", because a committed generation is only meaningful if the target write it "
+            "describes is durable once it completes. By default, journal updates only go through "
+            "the page cache.")
 /*jso*/ (ARG_JSONFILE_LONG, bpo::value(&this->resFilePathJSON),
             "Path to file for end results in json format. If the file exists, results will be "
             "appended. (See also \"--" ARG_JSONLIVEFILE_LONG "\" for progress results in json "
@@ -804,7 +823,7 @@ void ProgArgs::defineAllowedArgs()
 			"(Hint: Try 'date +%s' to get seconds since the epoch.)")
 /*st*/  (ARG_STRIDEDACCESS_LONG, bpo::bool_switch(&this->useStridedAccess),
             "Use strided read/write access pattern. Only available if given benchmark paths are "
-            "files or block devices.")
+            "files or block devices. Cannot be used with a block size mix.")
 /*sv*/	(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
 			"Show elapsed time to completion of each service instance ordered by slowest thread.")
 /*sv*/	(ARG_SVCSHOWPING_LONG, bpo::bool_switch(&this->svcShowPing),
@@ -936,6 +955,9 @@ void ProgArgs::defineDefaults()
     this->interruptServices = false;
     this->ioDepth = 1;
     this->iterations = 1;
+    this->journalBlockSizeOrigStr = "4K";
+    this->journalDirStr = "";
+    this->journalSyncEnabled = false;
     this->limitReadBps = 0;
     this->limitReadBpsOrigStr = "0";
     this->limitWriteBps = 0;
@@ -1322,6 +1344,31 @@ void ProgArgs::initImplicitValues()
 		blockVariancePercent = 0;
 	}
 
+    /* a journal decides a block's expected content just like the integrity check does, so block
+        variance would only compete with it and gets disabled the same way */
+    if(!journalDirStr.empty() && blockVariancePercent)
+    {
+        if(runCreateFilesPhase)
+            LOGGER(Log_VERBOSE, "NOTE: Journaled data verification disables block variance."
+                << std::endl);
+
+        blockVariancePercent = 0;
+    }
+
+#if !defined(__APPLE__)
+    /* Durable journal updates are only worth anything if the target writes are durable when they
+        complete: otherwise a committed generation can reach the disk while the data it describes
+        is still in the page cache, which after a power failure looks exactly like corruption.
+        (Not on macOS, where direct IO does not exist and would be rejected further down.) */
+    if(journalSyncEnabled && !useDirectIO)
+    {
+        LOGGER(Log_VERBOSE, "NOTE: Durable journal updates require the target writes to be "
+            "durable on completion. Enabling \"--" ARG_DIRECTIO_LONG "\"." << std::endl);
+
+        useDirectIO = true;
+    }
+#endif // !apple
+
 	useS3ObjectPrefixRand = (s3ObjectPrefix.find(RAND_PREFIX_MARKS_SUBSTR) != std::string::npos);
 
 	loadServicePasswordFile(); // sets svcPasswordHash
@@ -1366,6 +1413,7 @@ void ProgArgs::convertUnitStrings()
     randomAmount = UnitTk::numHumanToBytesBinary(randomAmountOrigStr, false);
     fileShareSize = UnitTk::numHumanToBytesBinary(fileShareSizeOrigStr, false);
     treeRoundUpSize = UnitTk::numHumanToBytesBinary(treeRoundUpSizeOrigStr, false);
+    journalBlockSize = UnitTk::numHumanToBytesBinary(journalBlockSizeOrigStr, false);
     limitReadBps = UnitTk::numHumanToBytesBinary(limitReadBpsOrigStr, false);
     limitWriteBps = UnitTk::numHumanToBytesBinary(limitWriteBpsOrigStr, false);
     netBenchRespSize = UnitTk::numHumanToBytesBinary(netBenchRespSizeOrigStr, false);
@@ -1400,6 +1448,10 @@ void ProgArgs::checkArgs()
 		if(!hostsStr.empty() )
 			throw ProgException("Service mode and host list definition are mutually exclusive.");
 
+        if(!journalDirStr.empty() )
+            throw ProgException("Journaled data verification (\"--" ARG_JOURNALDIR_LONG "\") is "
+                "not supported in service mode.");
+
 		// check/apply override of benchmark paths
 		if(argsVariablesMap.count(ARG_BENCHPATHS_LONG) )
 			benchPathsVec = argsVariablesMap[ARG_BENCHPATHS_LONG].as<StringVec>();
@@ -1429,6 +1481,12 @@ void ProgArgs::checkArgs()
 	parseRandAlgos();
 	parseS3Endpoints();
     loadSpdkConfigFile();
+
+    if(!journalDirStr.empty() && !hostsVec.empty() )
+    {
+        throw ProgException("Journaled data verification (\"--" ARG_JOURNALDIR_LONG "\") is not "
+            "supported together with \"--" ARG_HOSTS_LONG "\" (distributed mode).");
+    }
 
 	if( (interruptServices || quitServices) && hostsVec.empty() )
 		throw ProgException("Service interruption/termination requires a host list.");
@@ -1628,6 +1686,10 @@ void ProgArgs::checkArgs()
     if(doDirectVerify && (ioDepth > 1) )
         throw ProgException("Direct verification cannot be used together with --" ARG_IODEPTH_LONG);
 
+    if(!journalDirStr.empty() && integrityCheckSalt)
+        throw ProgException("Journaled data verification (\"--" ARG_JOURNALDIR_LONG "\") cannot "
+            "be used together with \"--" ARG_INTEGRITYCHECK_LONG "\".");
+
     if(doReadInline && (ioDepth > 1) )
         throw ProgException("Inline read cannot be used together with --" ARG_IODEPTH_LONG);
 
@@ -1724,6 +1786,37 @@ void ProgArgs::checkPathDependentArgs()
 	// prevent blockSize==0 if fileSize>0 should be read or written
 	if(fileSize && !blockSize && (runReadPhase || runCreateFilesPhase) )
 		throw ProgException("Block size must not be 0 when file size is given.");
+
+    if(!journalDirStr.empty() && !journalBlockSize)
+        throw ProgException("Journal block size (\"--" ARG_JOURNALBLOCK_LONG "\") must not be 0.");
+
+    /* Round file size down to a multiple of the write journal's block size, because the journal
+        tracks whole blocks.
+        This has to happen here and not down in the journaling block at the end of this function:
+        "randomAmount" is derived from fileSize further below, and a randomAmount larger than the
+        range it gets drawn from would make the offset generator wrap around and rewrite blocks.
+        Doing it before the block size reduction below also means that a block size which gets
+        collapsed to the file size ends up journal-aligned as well. */
+    if(!journalDirStr.empty() && fileSize && (fileSize % journalBlockSize) )
+    {
+        const uint64_t newFileSize = fileSize - (fileSize % journalBlockSize);
+
+        /* not just defensive: a zero file size here would make the reduction below set
+            blockSize=0 as well, and the "fileSize / blockSize" further down would divide by zero */
+        if(!newFileSize)
+            throw ProgException("Size (\"--" ARG_FILESIZE_LONG "\") is smaller than the write "
+                "journal's block size (\"--" ARG_JOURNALBLOCK_LONG "\"). "
+                "Size: " + std::to_string(fileSize) + "; "
+                "Journal block size: " + std::to_string(journalBlockSize) );
+
+        LOGGER(Log_NORMAL, "NOTE: File size has to be a multiple of the write journal's block "
+            "size. Reducing file size. "
+            "Old: " << fileSize << "; "
+            "New: " << newFileSize << "; "
+            "Journal block size: " << journalBlockSize << std::endl);
+
+        fileSize = newFileSize;
+    }
 
 	// reduce block size to file size (unless file size unknown in custom tree mode)
 	if( (blockSize > fileSize) && treeFilePath.empty() )
@@ -1897,6 +1990,46 @@ void ProgArgs::checkPathDependentArgs()
 
 	if(benchPathType == BenchPathType_FILE)
 		ignoreDelErrors = true; // multiple threads will try to delete the same files
+
+    if(!journalDirStr.empty() )
+    {
+        if(benchPathType == BenchPathType_DIR)
+            throw ProgException("Journaled data verification (\"--" ARG_JOURNALDIR_LONG "\") "
+                "requires benchmark paths to be files or block devices.");
+
+        if(useRandomOffsets && useRandomUnaligned)
+            throw ProgException("Journaled data verification (\"--" ARG_JOURNALDIR_LONG "\") "
+                "requires block-aligned random I/O. "
+                "(\"--" ARG_NORANDOMALIGN_LONG "\" is incompatible with this.)");
+
+        for(const auto& sizeAndWeight : blockSizeMix.getSizesAndWeights() )
+            if( (sizeAndWeight.first % journalBlockSize) != 0)
+                throw ProgException("Block size is not a multiple of the write journal's block "
+                    "size (\"--" ARG_JOURNALBLOCK_LONG "\"). "
+                    "Block size: " + std::to_string(sizeAndWeight.first) + "; "
+                    "Journal block size: " + std::to_string(journalBlockSize) );
+
+        if(fileOffset % journalBlockSize)
+            throw ProgException("Offset (\"--" ARG_FILEOFFSET_LONG "\") is not a multiple of "
+                "the write journal's block size (\"--" ARG_JOURNALBLOCK_LONG "\"). "
+                "Offset: " + std::to_string(fileOffset) + "; "
+                "Journal block size: " + std::to_string(journalBlockSize) );
+
+        prepareJournals();
+    }
+}
+
+/**
+ * Scan "--journaldir" for existing journal sidecars, match them against the current target list,
+ * open matches (validating journal block size and offset/size containment) and create fresh
+ * journal+sidecar pairs for targets with no matching sidecar yet. Called once, single-threaded,
+ * before any worker thread exists.
+ *
+ * @throw ProgException on any error (see JournalStore::init() ).
+ */
+void ProgArgs::prepareJournals()
+{
+    journalStore.init(*this);
 }
 
 /**
@@ -2388,7 +2521,7 @@ void ProgArgs::prepareSpdk()
         after regex match(es), so rebuild it */
     benchPathStr = StringTk::vecToStr(benchPathsVec, std::string(1, BENCHPATH_DELIMITER[0] ) );
 
-    if( (benchPathsVec.empty() && !runAsService) || (logLevel == Log_VERBOSE) )
+    if( (benchPathsVec.empty() && !runAsService) || (logLevel >= Log_VERBOSE) )
     {
         SpdkTk::printNamespaceDiscoveryResult(spdkClient, nsIDs);
 
@@ -4480,6 +4613,8 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 void ProgArgs::resetBenchPath()
 {
     LOGGER(Log_DEBUG, "Resetting bench path..." << std::endl);
+
+    journalStore.closeAll();
 
 #ifdef SPDK_SUPPORT
     spdkClientSingleton.reset(); // release connection from prepareSpdk()

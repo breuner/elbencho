@@ -438,6 +438,7 @@ void LocalWorker::preparePhase()
 
     prepareCustomTreePathStores();
 
+    initAsyncIOSlots();
     initLibAio();
     initS3Client();
     initHDFS();
@@ -1171,6 +1172,8 @@ void LocalWorker::initPhaseFileHandleVecs()
     const BenchPathType benchPathType = progArgs->getBenchPathType();
     const BenchMode benchMode = progArgs->getBenchMode();
 
+    const bool journalEnabled = progArgs->isJournalingEnabled();
+
     fileHandles.errorFDVecIdx = -1; // clear ("-1" means "not set")
 
     // reset/clear all vecs
@@ -1178,6 +1181,7 @@ void LocalWorker::initPhaseFileHandleVecs()
     fileHandles.fdVecPtr = NULL;
     fileHandles.cuFileHandleDataVec.resize(0);
     fileHandles.cuFileHandleDataPtrVec.resize(0);
+    fileHandles.journalPtrVec.resize(0);
 
 
     if(benchPathType == BenchPathType_DIR)
@@ -1213,6 +1217,9 @@ void LocalWorker::initPhaseFileHandleVecs()
 
         fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
 
+        if(journalEnabled)
+            fileHandles.journalPtrVec.resize(1, nullptr); // set dynamically to current file
+
         fileHandles.mmapVec.resize(1, (char*)MAP_FAILED); /* fileModeIterateFilesSeq() will do the
             mmap() dynamically when this thread switches to a new file */
     }
@@ -1234,6 +1241,12 @@ void LocalWorker::initPhaseFileHandleVecs()
 
         for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
             fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
+
+        /* journals are indexed like progArgs' bench paths, which is also the order of all the
+            possible fdVecPtr targets, so journalPtrVec can be indexed like fdVecPtr */
+        if(journalEnabled)
+            for(size_t i=0; i < fileHandles.fdVecPtr->size(); i++)
+                fileHandles.journalPtrVec.push_back(progArgs->getJournalForTarget(i) );
 
         // note: nothing for fileHandles.mmapVec here; init was done in initThreadMmapVec
     }
@@ -1510,6 +1523,20 @@ void LocalWorker::initPhaseFunctionPointers()
         funcCuFileHandleDereg = &LocalWorker::noOpCuFileHandleDereg;
     }
 
+    if(progArgs->isJournalingEnabled() )
+    { /* overrides whatever the phase-dependent blocks above assigned ("--verify" is rejected
+         together with journaling, and block variance is implicitly disabled for it, so neither
+         can be what those blocks picked). this also applies in a read phase,
+         because a rwmix read that gets converted into an initializing write still needs the fill
+         function. both functions no-op for the direction they don't apply to. */
+        funcPreWriteBlockModifier = &LocalWorker::preWriteJournalFillBuf;
+        funcPostReadBlockChecker = &LocalWorker::postReadJournalVerifyBuf;
+
+        /* the journal decides read vs write per I/O, so the async prepper must follow that
+            decision instead of re-deriving it (as aioRWMixPrepper would) */
+        if(ioDepth > 1)
+            funcAioRwPrepper = &LocalWorker::aioJournalPrepper;
+    }
 }
 
 /**
@@ -1565,6 +1592,24 @@ void LocalWorker::allocIOBuffer()
     LOGGER(Log_DEBUG, "Allocated IO buffers for ioBufVec. "
         "Rank: " << workerRank << "; "
         "Number of buffers: " << ioBufVec.size() << std::endl);
+
+    if(progArgs->isJournalingEnabled() )
+    { /* per-thread scratch buffer for postReadJournalVerifyBuf(); sized to the largest possible
+         single I/O so it can hold any journal block's tiled content for comparison */
+        journalVerifyBuf = (char*)malloc(progArgs->getBlockSizeMix().getMaxSize() );
+
+        if(!journalVerifyBuf)
+            throw WorkerException("Allocation of journal verification buffer failed. "
+                "Size: " + std::to_string(progArgs->getBlockSizeMix().getMaxSize() ) );
+
+        /* one journal I/O context per in-flight I/O, allocated once and reused, so the journaled
+            hot path never allocates. (constructed at final size rather than resize()d, because
+            JournalRangeGuard deletes its copy ctor and therefore has no move ctor either, so a
+            resize() of the enclosing vector would not compile.) */
+        journalIOSlots = std::vector<JournalBlockIO>(
+            std::max<size_t>(progArgs->getIODepth(), 1) ); // (same lower bound as
+                                                           // initAsyncIOSlots(), see there)
+    }
 }
 
 /**
@@ -1682,6 +1727,49 @@ void LocalWorker::allocGPUIOBuffer()
 	}
 
 #endif // CUFILE_SUPPORT
+}
+
+/**
+ * Size the per-slot vectors of the async I/O engines, so that they don't have to be allocated in
+ * the hot I/O path. (aioBlockSized() gets called once per file in dir mode, so a per-call
+ * allocation would happen once per file.)
+ *
+ * This is called only once per worker from preparePhase(), which is valid because
+ * progArgs::ioDepth is fixed for the whole run.
+ *
+ * Note: intentionally not inside any "#ifdef" and not skipped for "ioDepth < 2", because
+ * aioBlockSized()/spdkAioBlockSized() would silently do nothing at all with empty vectors (no
+ * slot to submit into => no pending I/O => completion loop never runs), while still returning
+ * the full byte count as if all I/O had been done.
+ */
+void LocalWorker::initAsyncIOSlots()
+{
+    const size_t maxIODepth = std::max<size_t>(progArgs->getIODepth(), 1);
+
+    asyncFreeSlots.resize(maxIODepth);
+    asyncIsReadVec.resize(maxIODepth);
+    asyncIsRWMixReadVec.resize(maxIODepth);
+}
+
+/**
+ * Reset the per-call state of the async I/O engines. Called at the start of each
+ * aioBlockSized()/spdkAioBlockSized() call.
+ *
+ * This is required, not just cosmetic: the engines also have error return paths and throwing
+ * paths (e.g. io_submit failure or a failed journal verification), which leave slots taken and
+ * possibly a stashed pending draw behind. A leftover pending draw would submit the offset of a
+ * previous call (i.e. of a previous file) and thus also make the offset generator accounting
+ * drift, so don't be tempted to drop this.
+ */
+void LocalWorker::resetAsyncIOSlots()
+{
+    // (drive the loop off the vector itself, so this can't write out of bounds)
+    const size_t numSlots = asyncFreeSlots.size();
+
+    for(size_t i = 0; i < numSlots; i++)
+        asyncFreeSlots[i] = numSlots - 1 - i; // so that slot 0 gets used first
+
+    journalPendingDraw.isValid = false;
 }
 
 /**
@@ -1828,6 +1916,8 @@ void LocalWorker::cleanup()
 	uninitThreadCuFileHandleDataVec();
 	uninitThreadFDVec();
 
+    SAFE_FREE(journalVerifyBuf);
+
 	opsLog.closeLogFile();
 }
 
@@ -1865,6 +1955,9 @@ int64_t LocalWorker::rwBlockSized()
     const uint64_t fileOffsetBase = progArgs->getFileOffset();
     const bool isSingleFile = (fileHandles.fdVecPtr->size() == 1);
     const unsigned short fileLockType = progArgs->getFLockType();
+    const bool journalEnabled = progArgs->isJournalingEnabled();
+
+    JournalSlotsReleaser journalSlotsReleaser(*this); // for the throwing paths
 
 	while(rwOffsetGen->getNumBytesLeftToSubmit() )
 	{
@@ -1872,50 +1965,83 @@ int64_t LocalWorker::rwBlockSized()
         const size_t currentBlockSize = rwOffsetGen->getNextBlockSizeToSubmit();
         uint64_t currentOffset;
         size_t fileHandleIdx;
-        bool isRWMixRead = false;
         ssize_t rwRes;
 
         calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, fileOffsetBase, isSingleFile,
             fileHandleIdx, currentOffset);
 
-		((*this).*funcRWRateLimiter)(currentBlockSize, isInterruptionRequested);
+        /* decide whether this I/O is a read or a write. (a read can be either a read phase read,
+            a rwmix threads reader, or a rwmixpct read within a write phase.) */
 
-		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
-
-		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
-		    currentOffset);
-		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
+        bool isRead;
+        bool isRWMixRead;
+        JournalBlockIO::Intent journalIntent;
 
 		if(benchPhase == BenchPhase_READFILES)
 		{ // this is a read, but could be a rwmix read thread
+            isRead = true;
 			isRWMixRead = (benchPhase != globalBenchPhase);
 
-            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
-                currentOffset, currentBlockSize, false /*isWrite*/, false /*isUnlock*/, NULL);
-
-			rwRes = ((*this).*funcPositionalRead)(
-				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
+            /* a rwmix threads reader is part of a read/write mix, so it initializes
+                uninitialized blocks instead of skipping them; a real read phase only ever reads.
+                (see journalGetIntent() for why this matters.) */
+            journalIntent = isRWMixRead ?
+                JournalBlockIO::INTENT_READ_OR_INIT : JournalBlockIO::INTENT_READ_SKIP_UNINIT;
 		}
 		else // this is a write or rwmixpct read
 		if(rwMixReadPercent &&
 			( ( (workerRank + numIOPSSubmitted) % 100) < rwMixReadPercent) )
 		{ // this is a rwmix read
+            isRead = true;
 			isRWMixRead = true;
 
-            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
-                currentOffset, currentBlockSize, false /*isWrite*/, false /*isUnlock*/, NULL);
-
-            rwRes = ((*this).*funcPositionalRead)(
-				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
+            /* this thread writes as well, so an uninitialized block becomes an initializing
+                write instead of being skipped */
+            journalIntent = JournalBlockIO::INTENT_READ_OR_INIT;
 		}
 		else
 		{ // this is a plain write
-            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
-                currentOffset, currentBlockSize, true /*isWrite*/, false /*isUnlock*/, NULL);
-
-			rwRes = ((*this).*funcPositionalWrite)(
-				fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
+            isRead = false;
+            isRWMixRead = false;
+            journalIntent = JournalBlockIO::INTENT_WRITE;
 		}
+
+        if(journalEnabled)
+        { /* let the journal decide & lock; this can turn a read into an initializing write or
+             skip it altogether, and holds the journal lock until commit/release below. (this
+             engine has only one I/O in flight, so it always gets to wait for the locks and can
+             never be deferred.) */
+            const JournalBlockIO::Action journalAction = journalBeginIO(0 /*slotIdx*/,
+                fileHandleIdx, currentOffset, currentBlockSize, journalIntent);
+
+            IF_UNLIKELY(journalAction == JournalBlockIO::ACTION_SKIP)
+            { // nothing was ever written here, so accept as verified-ok without reading
+                numIOPSSubmitted++;
+                rwOffsetGen->addBytesSubmitted(currentBlockSize);
+                checkInterruptionRequest();
+                continue;
+            }
+
+            isRead = (journalAction == JournalBlockIO::ACTION_READ);
+            isRWMixRead = isRWMixRead && isRead; // a converted write is not a rwmix read
+        }
+
+        ((*this).*funcRWRateLimiter)(currentBlockSize, isInterruptionRequested);
+
+        std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
+
+        ((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
+            currentOffset);
+        ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
+
+        FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
+            currentOffset, currentBlockSize, !isRead /*isWrite*/, false /*isUnlock*/, NULL);
+
+        rwRes = isRead ?
+            ((*this).*funcPositionalRead)(
+                fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset) :
+            ((*this).*funcPositionalWrite)(
+                fileHandleIdx, ioBufVec[0], currentBlockSize, currentOffset);
 
 		IF_UNLIKELY(rwRes <= 0)
 		{ // unexpected result
@@ -1931,9 +2057,12 @@ int64_t LocalWorker::rwBlockSized()
 	        FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
 	            currentOffset, currentBlockSize, true /*ignored*/, true /*isUnlock*/, NULL);
 
-	        return (rwRes < 0) ?
-				rwRes :
-				(rwOffsetGen->getNumBytesTotal() - rwOffsetGen->getNumBytesLeftToSubmit() );
+            if(journalEnabled)
+                journalReleaseIO(0); // no commit, so a failed write stays "uninitialized"
+
+            return (rwRes < 0) ?
+                rwRes :
+                (rwOffsetGen->getNumBytesTotal() - rwOffsetGen->getNumBytesLeftToSubmit() );
 		}
 
         FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
@@ -1942,6 +2071,9 @@ int64_t LocalWorker::rwBlockSized()
 		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
 		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
 		    currentOffset);
+
+        if(journalEnabled)
+            journalCommitIO(0); // commits new generations for a write; releases the lock
 
 		// calc io operation latency
 		std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -1994,12 +2126,13 @@ int64_t LocalWorker::aioBlockSized()
 #else // LIBAIO_SUPPORT
 
 	const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
-	const size_t maxIODepth = progArgs->getIODepth();
 	const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
     const uint64_t fileSize = progArgs->getFileSize();
     const uint64_t fileOffsetBase = progArgs->getFileOffset();
     const bool isSingleFile = (fileHandlesVecSize == 1);
     const unsigned short fileLockType = progArgs->getFLockType();
+    const bool journalEnabled = progArgs->isJournalingEnabled();
+    const unsigned rwMixReadPercent = progArgs->getRWMixReadPercent();
 
 	size_t numPending = 0; // num requests submitted and pending for completion
 	size_t numBytesDone = 0; // after successfully completed requests
@@ -2007,23 +2140,74 @@ int64_t LocalWorker::aioBlockSized()
 	struct io_event ioEvents[AIO_MAX_EVENTS];
 	struct timespec ioTimeout;
 
-	// P H A S E 1: initial seed of io submissions up to full ioDepth
+    JournalSlotsReleaser journalSlotsReleaser(*this); // for the throwing paths
 
-	while(rwOffsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
-	{
-		const uint64_t rwOffsetGenNext = rwOffsetGen->getNextOffset();
-        const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-		const size_t ioVecIdx = numPending; // iocbVec index
+    resetAsyncIOSlots(); // (members, so that the hot path doesn't allocate; see the method)
 
-		uint64_t currentOffset;
+    /* stack of slots that currently have no I/O in flight. taking the next slot to submit into
+        is O(1), so the completion path does not have to scan for free slots. */
+    std::vector<size_t>& freeSlots = asyncFreeSlots;
+
+    /* Draw the next offset & block size from rwOffsetGen and submit one request for it into the
+       given slot. */
+    /* (always_inline, because this is called from both submission sites in the hot I/O path and
+        gcc otherwise emits it out-of-line, which costs a call plus closure indirection per I/O) */
+    auto trySubmitSlot = [&](const size_t ioVecIdx) __attribute__( (always_inline) ) -> SubmitRes
+    {
+        uint64_t rwOffsetGenNext;
+        size_t blockSize;
+
+        if(!journalEnabled)
+        {
+            rwOffsetGenNext = rwOffsetGen->getNextOffset();
+            blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+        }
+        else
+        { // reuse a previously deferred draw, if any, so no offset gets lost or drawn twice
+            JournalPendingDraw& pendingDraw = journalPendingDraw;
+
+            if(!pendingDraw.isValid)
+            {
+                pendingDraw.rwOffsetGenNext = rwOffsetGen->getNextOffset();
+                pendingDraw.blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+                pendingDraw.isValid = true;
+            }
+
+            rwOffsetGenNext = pendingDraw.rwOffsetGenNext;
+            blockSize = pendingDraw.blockSize;
+        }
+
+        uint64_t currentOffset;
         size_t fileHandlesIdx;
 
         calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, fileOffsetBase, isSingleFile,
             fileHandlesIdx, currentOffset);
 
+        if(journalEnabled)
+        { /* let the journal decide & lock before prepping the request, because it can turn a
+             rwmix read into an initializing write or skip the I/O altogether. the acquired
+             journal lock stays held until this slot's I/O completes. */
+            const JournalBlockIO::Action journalAction = journalBeginIO(ioVecIdx, fileHandlesIdx,
+                currentOffset, blockSize, journalGetIntent(rwMixReadPercent) );
+
+            IF_UNLIKELY(journalAction == JournalBlockIO::ACTION_DEFER)
+                return SubmitRes_DEFERRED; /* journal locks currently held for another in-flight
+                    I/O of this thread; keep the draw and retry once that one completed */
+
+            journalPendingDraw.isValid = false; // this draw gets used up now
+
+            IF_UNLIKELY(journalAction == JournalBlockIO::ACTION_SKIP)
+            { // nothing was ever written here, so accept as verified-ok without reading it
+                numIOPSSubmitted++;
+                rwOffsetGen->addBytesSubmitted(blockSize);
+
+                return SubmitRes_SKIPPED;
+            }
+        }
+
         const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
 
-		libaioContext.iocbPointerVec[ioVecIdx] = &libaioContext.iocbVec[ioVecIdx];
+        libaioContext.iocbPointerVec[ioVecIdx] = &libaioContext.iocbVec[ioVecIdx];
 
         ((*this).*funcAioRwPrepper)(&libaioContext.iocbVec[ioVecIdx], fd, ioBufVec[ioVecIdx],
             blockSize, currentOffset);
@@ -2058,10 +2242,36 @@ int64_t LocalWorker::aioBlockSized()
                 "SysErr: " + strerror(-submitRes) ); // (io_submit returns negative errno)
         }
 
-		numPending++;
-		numIOPSSubmitted++;
-		rwOffsetGen->addBytesSubmitted(blockSize);
-	}
+        numIOPSSubmitted++;
+        rwOffsetGen->addBytesSubmitted(blockSize);
+
+        return SubmitRes_SUBMITTED;
+    };
+
+    /* Keep all free slots busy while there are bytes left to submit. A slot can stay free when
+        its next journaled I/O has to wait for one of this thread's own in-flight I/Os; the next
+        completion re-runs this and gets it going then. */
+    auto fillIdleSlots = [&]() __attribute__( (always_inline) )
+    {
+        while(!freeSlots.empty() && rwOffsetGen->getNumBytesLeftToSubmit() )
+        {
+            const SubmitRes submitRes = trySubmitSlot(freeSlots.back() );
+
+            if(submitRes == SubmitRes_SKIPPED)
+                continue; // journal skip, so this slot is still free for the next draw
+
+            IF_UNLIKELY(submitRes == SubmitRes_DEFERRED)
+                break; /* waiting for a journal lock held by one of our own in-flight I/Os, so
+                    retry after the next completion */
+
+            freeSlots.pop_back();
+            numPending++;
+        }
+    };
+
+    // P H A S E 1: initial seed of io submissions up to full ioDepth
+
+    fillIdleSlots();
 
 
 	// P H A S E 2: wait for submissions to complete and submit new requests if bytes left
@@ -2098,9 +2308,24 @@ int64_t LocalWorker::aioBlockSized()
 			/* note: all messy with res/res2, because defined as ulong, but examples need them
 				interpreted as int for errors, which can overlap valid partial writes on 64bit */
 
+            const size_t ioVecIdx = (size_t)ioEvents[eventIdx].data; // caller priv data is vec idx
+
 			IF_UNLIKELY(ioEvents[eventIdx].res2 ||
 				(ioEvents[eventIdx].res != ioEvents[eventIdx].obj->u.c.nbytes) )
-			{ // unexpected result
+            { /* unexpected result. (the journal guard of this slot - and of all others still in
+                 flight - gets released by journalSlotsReleaser; journal cells of a failed write
+                 are deliberately left at 0, i.e. "uninitialized", because a failed or partial
+                 write cannot be assumed to have left the previous content intact.) */
+
+                /* log the failed completion before any of this block's exits, so that each
+                    logged submission has a counterpart also when things go wrong */
+                OPLOG_POST_OP(
+                    (ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) ?
+                        "aioread" : "aiowrite",
+                    std::to_string(ioEvents[eventIdx].obj->aio_fildes),
+                    ioEvents[eventIdx].obj->u.c.offset, ioEvents[eventIdx].obj->u.c.nbytes,
+                    true /*isError*/);
+
 				if(ioEvents[eventIdx].res2)
 					throw WorkerException(std::string("Async IO framework error. ") +
 						"NumPending: " + std::to_string(numPending) + "; "
@@ -2127,13 +2352,32 @@ int64_t LocalWorker::aioBlockSized()
                 ioEvents[eventIdx].obj->u.c.offset, ioEvents[eventIdx].obj->u.c.nbytes,
                 true /*ignored*/, true /*isUnlock*/, NULL);
 
-			const size_t ioVecIdx = (size_t)ioEvents[eventIdx].data; // caller priv data is vec idx
+            /* counterpart to the OPLOG_PRE_OP of the aio preppers. logged here, where the I/O
+                result is known, and thus before the post-read processing below - just like the
+                sync wrappers (e.g. preadWrapper() ) log directly after their syscall and before
+                the data verification of their caller. */
+            OPLOG_POST_OP(
+                (ioEvents[eventIdx].obj->aio_lio_opcode == IO_CMD_PREAD) ?
+                    "aioread" : "aiowrite",
+                std::to_string(ioEvents[eventIdx].obj->aio_fildes),
+                ioEvents[eventIdx].obj->u.c.offset, ioEvents[eventIdx].obj->u.c.nbytes,
+                false /*isError*/);
+
+            if(journalEnabled) // make this slot's journal context the active one for the checker
+                activeJournalIO = &journalIOSlots[ioVecIdx];
 
 			((*this).*funcPostReadCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
 				ioEvents[eventIdx].obj->u.c.nbytes);
 			((*this).*funcPostReadBlockChecker)( (char*)ioEvents[eventIdx].obj->u.c.buf,
 				gpuIOBufVec[ioVecIdx], ioEvents[eventIdx].obj->u.c.nbytes,
 				ioEvents[eventIdx].obj->u.c.offset);
+
+            freeSlots.push_back(ioVecIdx);
+            numPending--;
+
+            if(journalEnabled)
+                journalCommitIO(ioVecIdx); /* commits new generations for a write and releases
+                    the journal lock that this slot held since its submission */
 
 			// calc io operation latency
 			std::chrono::steady_clock::time_point ioEndT = std::chrono::steady_clock::now();
@@ -2168,59 +2412,10 @@ int64_t LocalWorker::aioBlockSized()
 
 			checkInterruptionRequest();
 
-			if(!rwOffsetGen->getNumBytesLeftToSubmit() )
-			{
-				numPending--;
-				continue;
-			}
+        } // end of for loop over completed iocbs
 
-			// request complete, so reuse iocb for the next request...
-
-			const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
-			const uint64_t rwOffsetGenNext = rwOffsetGen->getNextOffset();
-
-			uint64_t currentOffset;
-            size_t fileHandlesIdx;
-
-            calcFileIdxAndOffsetStriped(rwOffsetGenNext, fileSize, fileOffsetBase, isSingleFile,
-                fileHandlesIdx, currentOffset);
-
-			const int fd = (*fileHandles.fdVecPtr)[fileHandlesIdx];
-
-			((*this).*funcAioRwPrepper)(ioEvents[eventIdx].obj, fd, ioBufVec[ioVecIdx], blockSize,
-				currentOffset);
-			ioEvents[eventIdx].obj->data = (void*)ioVecIdx; // caller's private data
-
-            libaioContext.ioStartTimeVec[ioVecIdx] = std::chrono::steady_clock::now();
-
-            bool hadToWait = ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
-            IF_UNLIKELY(hadToWait) // invalidate start time of all pending due to rate limiter wait
-                for(std::chrono::steady_clock::time_point& startT : libaioContext.ioStartTimeVec)
-                    startT = std::chrono::steady_clock::time_point::min();
-
-            ((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
-                blockSize, currentOffset);
-            ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
-
-            FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandlesIdx], fileLockType,
-                currentOffset, blockSize,
-                libaioContext.iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
-                false /*isUnlock*/, NULL);
-
-			int submitRes = io_submit(
-				libaioContext.ioContext, 1, &libaioContext.iocbPointerVec[ioVecIdx] );
-			IF_UNLIKELY(submitRes != 1)
-			{
-				throw WorkerException(std::string("Async IO resubmission (io_submit) failed. ") +
-					"NumRequests: " + std::to_string(numPending) + "; "
-					"ReturnCode: " + std::to_string(submitRes) + "; "
-					"SysErr: " + strerror(-submitRes) ); // (io_submit returns negative errno)
-			}
-
-			numIOPSSubmitted++;
-			rwOffsetGen->addBytesSubmitted(blockSize);
-
-		} // end of for loop to resubmit completed iocbs
+        // completed slots are free now, so get them busy again
+        fillIdleSlots();
 
 	} // end of while loop until all blocks completed
 
@@ -2228,6 +2423,7 @@ int64_t LocalWorker::aioBlockSized()
 
 #endif // LIBAIO_SUPPORT
 }
+
 
 #ifdef SPDK_SUPPORT
 
@@ -2248,23 +2444,31 @@ int64_t LocalWorker::aioBlockSized()
 int64_t LocalWorker::spdkAioBlockSized()
 {
     const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
-    const size_t maxIODepth = progArgs->getIODepth();
     const size_t fileHandlesVecSize = fileHandles.fdVecPtr->size();
     const uint64_t fileSize = progArgs->getFileSize();
     const uint64_t fileOffsetBase = progArgs->getFileOffset();
     const bool isSingleFile = (fileHandlesVecSize == 1);
     const unsigned rwMixReadPercent = progArgs->getRWMixReadPercent();
     const uint32_t sectorSize = spdkContext.sectorSize;
+    const bool journalEnabled = progArgs->isJournalingEnabled();
 
     size_t numPending = 0; // num requests submitted and pending for completion
     size_t numBytesDone = 0; // after successfully completed requests
 
+    resetAsyncIOSlots(); // (members, so that the hot path doesn't allocate; see the method)
+
     // per-slot bookkeeping, since IoContext itself doesn't carry the opcode; indexed the same
     // way as spdkContext.ioContextVec/ioStartTimeVec
-    std::vector<bool> isReadVec(maxIODepth, false);
-    std::vector<bool> isRWMixReadVec(maxIODepth, false);
+    std::vector<uint8_t>& isReadVec = asyncIsReadVec;
+    std::vector<uint8_t>& isRWMixReadVec = asyncIsRWMixReadVec;
 
     std::vector<SpdkNvmeClient::IoContext*>& completedVec = spdkContext.completedVec;
+
+    JournalSlotsReleaser journalSlotsReleaser(*this); // for the throwing paths
+
+    /* stack of slots that currently have no I/O in flight. taking the next slot to submit into
+        is O(1), so the completion path does not have to scan for free slots. */
+    std::vector<size_t>& freeSlots = asyncFreeSlots;
 
     // decide read vs write for the next request, mirroring rwBlockSized()/aioRWMixPrepper()
     auto isNextOpARead = [&]() -> bool
@@ -2276,12 +2480,37 @@ int64_t LocalWorker::spdkAioBlockSized()
             ( ( (workerRank + numIOPSSubmitted) % 100) < rwMixReadPercent);
     };
 
-    // submit (or resubmit) request for the given pool slot, using rwOffsetGen for the next offset
-    // & block size; throws on submission error, like aioBlockSized()'s io_submit() failure path
-    auto submitNext = [&](size_t slotIdx)
+    /* Submit (or resubmit) request for the given pool slot, using rwOffsetGen for the next offset
+       & block size; throws on submission error, like aioBlockSized()'s io_submit() failure path.
+
+       @return SubmitRes_SUBMITTED when the slot is busy now; SubmitRes_SKIPPED when the journal
+        decided this block needs no I/O at all (JournalBlockIO::ACTION_SKIP); SubmitRes_DEFERRED
+        when the journal locks are taken (JournalBlockIO::ACTION_DEFER). The slot stays free in
+        the latter two cases. */
+    auto trySubmitSlot = [&](const size_t slotIdx) __attribute__( (always_inline) ) -> SubmitRes
     {
-        const uint64_t rwOffsetGenNext = rwOffsetGen->getNextOffset();
-        const size_t blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+        uint64_t rwOffsetGenNext;
+        size_t blockSize;
+
+        if(!journalEnabled)
+        {
+            rwOffsetGenNext = rwOffsetGen->getNextOffset();
+            blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+        }
+        else
+        { // reuse a previously deferred draw, if any, so no offset gets lost or drawn twice
+            JournalPendingDraw& pendingDraw = journalPendingDraw;
+
+            if(!pendingDraw.isValid)
+            {
+                pendingDraw.rwOffsetGenNext = rwOffsetGen->getNextOffset();
+                pendingDraw.blockSize = rwOffsetGen->getNextBlockSizeToSubmit();
+                pendingDraw.isValid = true;
+            }
+
+            rwOffsetGenNext = pendingDraw.rwOffsetGenNext;
+            blockSize = pendingDraw.blockSize;
+        }
 
         uint64_t currentOffset;
         size_t fileHandlesIdx;
@@ -2293,7 +2522,31 @@ int64_t LocalWorker::spdkAioBlockSized()
         const uint64_t lba = currentOffset / sectorSize;
         const uint32_t lbaCount = blockSize / sectorSize;
 
-        const bool isRead = isNextOpARead();
+        bool isRead = isNextOpARead();
+
+        if(journalEnabled)
+        { /* let the journal decide & lock; it can turn a rwmix read into an initializing write or
+             skip the I/O altogether. the lock stays held until this slot's I/O completes. */
+            const JournalBlockIO::Action journalAction = journalBeginIO(slotIdx, fileHandlesIdx,
+                currentOffset, blockSize, journalGetIntent(rwMixReadPercent) );
+
+            IF_UNLIKELY(journalAction == JournalBlockIO::ACTION_DEFER)
+                return SubmitRes_DEFERRED; /* journal locks currently held for another in-flight
+                    I/O of this thread; keep the draw and retry once that one completed */
+
+            journalPendingDraw.isValid = false; // this draw gets used up now
+
+            IF_UNLIKELY(journalAction == JournalBlockIO::ACTION_SKIP)
+            { // nothing was ever written here, so accept as verified-ok without reading it
+                numIOPSSubmitted++;
+                rwOffsetGen->addBytesSubmitted(blockSize);
+
+                return SubmitRes_SKIPPED;
+            }
+
+            isRead = (journalAction == JournalBlockIO::ACTION_READ);
+        }
+
         isReadVec[slotIdx] = isRead;
         isRWMixReadVec[slotIdx] = isRead && (globalBenchPhase == BenchPhase_CREATEFILES);
 
@@ -2310,7 +2563,8 @@ int64_t LocalWorker::spdkAioBlockSized()
 
         if(isRead)
         {
-            OPLOG_PRE_OP("spdkRead", std::to_string(nsID), currentOffset, blockSize);
+            OPLOG_PRE_OP("spdkRead", spdkContext.spdkClient.getNamespaceName(nsID),
+                currentOffset, blockSize);
             submitRes = spdkContext.spdkClient.read(ioCtx, nsID, lba, lbaCount,
                 ioBufVec[slotIdx]);
         }
@@ -2320,7 +2574,8 @@ int64_t LocalWorker::spdkAioBlockSized()
                 blockSize, currentOffset);
             ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx], blockSize);
 
-            OPLOG_PRE_OP("spdkWrite", std::to_string(nsID), currentOffset, blockSize);
+            OPLOG_PRE_OP("spdkWrite", spdkContext.spdkClient.getNamespaceName(nsID),
+                currentOffset, blockSize);
             submitRes = spdkContext.spdkClient.write(ioCtx, nsID, lba, lbaCount,
                 ioBufVec[slotIdx]);
         }
@@ -2333,15 +2588,34 @@ int64_t LocalWorker::spdkAioBlockSized()
 
         numIOPSSubmitted++;
         rwOffsetGen->addBytesSubmitted(blockSize);
+
+        return SubmitRes_SUBMITTED;
+    };
+
+    /* Keep all free slots busy while there are bytes left to submit. A slot can stay free when
+        its next journaled I/O has to wait for one of this thread's own in-flight I/Os; the next
+        completion re-runs this and gets it going then. */
+    auto fillIdleSlots = [&]() __attribute__( (always_inline) )
+    {
+        while(!freeSlots.empty() && rwOffsetGen->getNumBytesLeftToSubmit() )
+        {
+            const SubmitRes submitRes = trySubmitSlot(freeSlots.back() );
+
+            if(submitRes == SubmitRes_SKIPPED)
+                continue; // journal skip, so this slot is still free for the next draw
+
+            IF_UNLIKELY(submitRes == SubmitRes_DEFERRED)
+                break; /* waiting for a journal lock held by one of our own in-flight I/Os, so
+                    retry after the next completion */
+
+            freeSlots.pop_back();
+            numPending++;
+        }
     };
 
     // P H A S E 1: initial seed of io submissions up to full ioDepth
 
-    while(rwOffsetGen->getNumBytesLeftToSubmit() && (numPending < maxIODepth) )
-    {
-        submitNext(numPending);
-        numPending++;
-    }
+    fillIdleSlots();
 
     // P H A S E 2: wait for submissions to complete and submit new requests if bytes left
 
@@ -2367,10 +2641,16 @@ int64_t LocalWorker::spdkAioBlockSized()
             const bool isRWMixRead = isRWMixReadVec[slotIdx];
 
             IF_UNLIKELY(!ioCtx->ioSuccess)
-            {
+            { /* (the journal guard of this slot - and of all others still in flight - gets
+                 released by journalSlotsReleaser; journal cells of a failed write are
+                 deliberately left at 0, i.e. "uninitialized", because a failed write cannot be
+                 assumed to have left the previous content intact.) */
                 errno = EIO;
                 return (numBytesDone) ? (int64_t)numBytesDone : -1;
             }
+
+            if(journalEnabled) // make this slot's journal context the active one for the checker
+                activeJournalIO = &journalIOSlots[slotIdx];
 
             if(isRead)
             {
@@ -2380,7 +2660,14 @@ int64_t LocalWorker::spdkAioBlockSized()
                     gpuIOBufVec[slotIdx], blockSize, currentOffset);
             }
 
-            OPLOG_POST_OP(isRead ? "spdkRead" : "spdkWrite", std::to_string(ioCtx->nsHandle->id),
+            freeSlots.push_back(slotIdx);
+            numPending--;
+
+            if(journalEnabled)
+                journalCommitIO(slotIdx); /* commits new generations for a write and releases the
+                    journal lock that this slot held since its submission */
+
+            OPLOG_POST_OP(isRead ? "spdkRead" : "spdkWrite", ioCtx->nsHandle->fullName,
                 currentOffset, blockSize, false);
 
             // calc io operation latency
@@ -2391,6 +2678,7 @@ int64_t LocalWorker::spdkAioBlockSized()
 
             if(isRWMixRead)
             {
+                // don't count latency if this I/O had to wait for rate limiter
                 IF_LIKELY(spdkContext.ioStartTimeVec[slotIdx] !=
                     std::chrono::steady_clock::time_point::min() )
                     iopsLatHistoReadMix.addLatency(ioElapsedMicroSec.count() );
@@ -2400,6 +2688,7 @@ int64_t LocalWorker::spdkAioBlockSized()
             }
             else
             {
+                // don't count latency if this I/O had to wait for rate limiter
                 IF_LIKELY(spdkContext.ioStartTimeVec[slotIdx] !=
                     std::chrono::steady_clock::time_point::min() )
                     iopsLatHisto.addLatency(ioElapsedMicroSec.count() );
@@ -2411,15 +2700,10 @@ int64_t LocalWorker::spdkAioBlockSized()
             numBytesDone += blockSize;
 
             checkInterruptionRequest();
-
-            if(!rwOffsetGen->getNumBytesLeftToSubmit() )
-            {
-                numPending--;
-                continue;
-            }
-
-            submitNext(slotIdx); // request complete, so reuse this slot for the next request
         }
+
+        // completed slots are free now, so get them busy again
+        fillIdleSlots();
     }
 
     return rwOffsetGen->getNumBytesTotal();
@@ -2575,6 +2859,203 @@ void LocalWorker::postReadIntegrityCheckVerifyBuf(char* hostIOBuf, char* gpuIOBu
 			"Expected value: " + std::to_string(expectedVal) + "; "
 			"Actual value: " + std::to_string(actualVal) );
 	}
+}
+
+/**
+ * Compute the journal's expected content tile for one journal block and repeat ("tile") it
+ * across buf. Pure function, no member state, so it's shared verbatim by
+ * preWriteJournalFillBuf() and postReadJournalVerifyBuf() to fill/verify one journal sub-block
+ * at a time.
+ *
+ * @blockAlignedOffset absolute target offset of the start of this journal block.
+ * @generation the block's content generation (1..3); never called with 0 ("never written").
+ */
+void LocalWorker::journalFillTileBlock(char* buf, size_t len, off_t blockAlignedOffset,
+    uint64_t journalSeed, uint8_t generation)
+{
+    const uint64_t tileValue = Journal::computeExpectedTileValue(blockAlignedOffset, journalSeed,
+        generation);
+    const char* tileBytes = (const char*)&tileValue;
+
+    for(size_t i = 0; i < len; i++)
+        buf[i] = tileBytes[i % sizeof(uint64_t)];
+}
+
+/**
+ * Map this worker's read/write decision for the next I/O to the corresponding journal intent.
+ * (Used by the async engines, where the read/write decision otherwise only materializes inside
+ * funcAioRwPrepper; the sync engine derives both from one branch instead.)
+ */
+JournalBlockIO::Intent LocalWorker::journalGetIntent(unsigned rwMixReadPercent)
+{
+    if(benchPhase == BenchPhase_READFILES)
+    {
+        /* A rwmix threads reader has its own benchPhase set to a read phase while the global
+           phase is a write phase, so it is part of a read/write mix: it initializes
+           uninitialized blocks instead of skipping them. Otherwise it would never have anything
+           to verify, because each thread works on its own separate range of the dataset (see
+           fileModeIterateFilesRand() ), so the writer threads never touch the ranges that the
+           reader threads read. A real read phase only ever reads. */
+        return (workersSharedData->currentBenchPhase == BenchPhase_READFILES) ?
+            JournalBlockIO::INTENT_READ_SKIP_UNINIT : JournalBlockIO::INTENT_READ_OR_INIT;
+    }
+
+    if(rwMixReadPercent && ( ( (workerRank + numIOPSSubmitted) % 100) < rwMixReadPercent) )
+    { /* a rwmixpct read; this thread writes as well, so an uninitialized block becomes an
+         initializing write instead of being skipped */
+        return JournalBlockIO::INTENT_READ_OR_INIT;
+    }
+
+    return JournalBlockIO::INTENT_WRITE;
+}
+
+/**
+ * Let the journal decide and lock the given I/O, and make the result the active journal context
+ * for this worker's journal buffer fill/verify functions.
+ *
+ * The acquired journal lock stays held until the slot's journalCommitIO()/journalReleaseIO(),
+ * which for the async engines is when the I/O completes.
+ *
+ * Waiting for the journal locks is only allowed while this thread holds none of its own, so with
+ * an async engine a submission can come back as JournalBlockIO::ACTION_DEFER instead (see
+ * JournalBlockIO::begin() ); the caller then has to retry this I/O after one of its in-flight
+ * I/Os completed.
+ *
+ * @slotIdx in-flight I/O slot, i.e. always 0 for the sync engine and the iodepth slot index for
+ *  the async engines.
+ * @return what this I/O should actually do (which may differ from the intent).
+ */
+JournalBlockIO::Action LocalWorker::journalBeginIO(size_t slotIdx, size_t fileHandleIdx,
+    uint64_t currentOffset, size_t ioLen, JournalBlockIO::Intent intent)
+{
+    JournalBlockIO& journalIO = journalIOSlots[slotIdx];
+
+    const JournalBlockIO::Action action = journalIO.begin(
+        fileHandles.journalPtrVec[fileHandleIdx], currentOffset, ioLen, intent,
+        !journalNumGuardsHeld /*mayBlock*/);
+
+    if( (action == JournalBlockIO::ACTION_READ) || (action == JournalBlockIO::ACTION_WRITE) )
+        journalNumGuardsHeld++; // this slot now holds a guard until commit/release
+
+    activeJournalIO = &journalIO;
+
+    return action;
+}
+
+/**
+ * Finish a successful journaled I/O: commit a write's new generations and release the guard.
+ */
+void LocalWorker::journalCommitIO(size_t slotIdx)
+{
+    journalIOSlots[slotIdx].commit();
+
+    journalNumGuardsHeld--;
+}
+
+/**
+ * Give up a journaled I/O without committing, e.g. after a failed I/O.
+ */
+void LocalWorker::journalReleaseIO(size_t slotIdx)
+{
+    journalIOSlots[slotIdx].release();
+
+    journalNumGuardsHeld--;
+}
+
+/**
+ * Fill buf with the journal's expected content, one journal block at a time, using the
+ * generations that the active journal context prepared for this I/O.
+ *
+ * Noop when the current I/O is a read, mirroring how preWriteBufRandRefill() skips reads.
+ *
+ * @bufLen buf len to fill.
+ * @fileOffset absolute target offset for buf; aligned to the journal block size (guaranteed by
+ *  the checks in ProgArgs::checkPathDependentArgs(), which require every block size, "--offset"
+ *  and "--size" to be a multiple of "--journalblock" and reject "--norandalign").
+ */
+void LocalWorker::preWriteJournalFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+    off_t fileOffset)
+{
+    if(!activeJournalIO->isWrite() )
+        return; // this is a read in journal mode, so there is nothing to fill
+
+    const Journal* journal = activeJournalIO->getJournal();
+    const std::vector<uint8_t>& gens = activeJournalIO->getGens();
+    const uint64_t journalBlockSize = journal->getJournalBlockSize();
+    const uint64_t journalSeed = journal->getJournalSeed();
+
+    size_t numBytesDone = 0;
+
+    while(numBytesDone < bufLen)
+    {
+        const size_t subBlockIdx = numBytesDone / journalBlockSize;
+        const size_t subBlockCopyLen = std::min(bufLen - numBytesDone, (size_t)journalBlockSize);
+
+        journalFillTileBlock(&hostIOBuf[numBytesDone], subBlockCopyLen,
+            fileOffset + (off_t)numBytesDone, journalSeed, gens[subBlockIdx] );
+
+        numBytesDone += subBlockCopyLen;
+    }
+}
+
+/**
+ * Verify buffer contents against the journal's expected content, one journal block at a time,
+ * skipping any block whose generation is 0 ("never written", or a prior write to it failed -
+ * either way accepted as OK without verification).
+ *
+ * Noop when the current I/O is a write, because then the buffer trivially holds what we just
+ * wrote and there is nothing to be learned from comparing it.
+ *
+ * @throw WorkerException if verification fails for an initialized block.
+ */
+void LocalWorker::postReadJournalVerifyBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+    off_t fileOffset)
+{
+    if(activeJournalIO->isWrite() )
+        return; // nothing to verify after a write
+
+    const Journal* journal = activeJournalIO->getJournal();
+    const std::vector<uint8_t>& gens = activeJournalIO->getGens();
+    const uint64_t journalBlockSize = journal->getJournalBlockSize();
+    const uint64_t journalSeed = journal->getJournalSeed();
+
+    size_t numBytesDone = 0;
+
+    while(numBytesDone < bufLen)
+    {
+        const size_t subBlockIdx = numBytesDone / journalBlockSize;
+        const size_t subBlockCopyLen = std::min(bufLen - numBytesDone, (size_t)journalBlockSize);
+        const uint8_t generation = gens[subBlockIdx];
+
+        if(!generation)
+        { // never written (or a prior write to it failed); nothing to verify, accepted as OK
+            numBytesDone += subBlockCopyLen;
+            continue;
+        }
+
+        journalFillTileBlock(journalVerifyBuf, subBlockCopyLen, fileOffset + (off_t)numBytesDone,
+            journalSeed, generation);
+
+        int compareRes = memcmp(&hostIOBuf[numBytesDone], journalVerifyBuf, subBlockCopyLen);
+
+        if(compareRes)
+        { // verification failed, find exact mismatch offset
+            for(size_t i = 0; i < subBlockCopyLen; i++)
+            {
+                if(journalVerifyBuf[i] == hostIOBuf[numBytesDone + i] )
+                    continue;
+
+                throw WorkerException("Journal data verification failed. "
+                    "Offset: " + std::to_string(fileOffset + numBytesDone + i) + "; "
+                    "Expected value: " +
+                        std::to_string( (unsigned char)journalVerifyBuf[i] ) + "; "
+                    "Actual value: " +
+                        std::to_string( (unsigned char)hostIOBuf[numBytesDone + i] ) );
+            }
+        }
+
+        numBytesDone += subBlockCopyLen;
+    }
 }
 
 /**
@@ -2745,7 +3226,41 @@ void LocalWorker::aioRWMixPrepper(struct iocb* iocb, int fd, void* buf, size_t c
 
         io_prep_pwrite(iocb, fd, buf, count, offset);
     }
-	else
+    else
+    {
+        OPLOG_PRE_OP("aioread", std::to_string(fd), offset, count);
+
+        io_prep_pread(iocb, fd, buf, count, offset);
+    }
+
+#endif // LIBAIO_SUPPORT
+}
+
+/**
+ * Prep a read or write based on what the journal decided for this I/O (see
+ * JournalBlockIO::begin() ), which is why this replaces aioWritePrepper/aioReadPrepper/
+ * aioRWMixPrepper whenever journaling is enabled: an uninitialized block can turn a rwmix read
+ * into an initializing write, so the decision cannot be re-derived here.
+ *
+ * Parameters are similar to io_prep_p{write,read}.
+ */
+void LocalWorker::aioJournalPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
+    long long offset)
+{
+#ifndef LIBAIO_SUPPORT
+
+    throw WorkerException("Async IO via libaio requested, but this executable was built without "
+        "libaio support.");
+
+#else // LIBAIO_SUPPORT
+
+    if(activeJournalIO->isWrite() )
+    {
+        OPLOG_PRE_OP("aiowrite", std::to_string(fd), offset, count);
+
+        io_prep_pwrite(iocb, fd, buf, count, offset);
+    }
+    else
     {
         OPLOG_PRE_OP("aioread", std::to_string(fd), offset, count);
 
@@ -3124,7 +3639,7 @@ ssize_t LocalWorker::hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nby
 
 	ssize_t ioRes = hdfsPread(hdfsFSHandle, hdfsFileHandle, offset, buf, nbytes);
 
-	OPLOG_POST_OP("hdfsPread", std::to_string(fileHandleIdx), offset, nbytes, ioRes != -1);
+	OPLOG_POST_OP("hdfsPread", std::to_string(fileHandleIdx), offset, nbytes, ioRes == -1);
 
 	return ioRes;
 #endif // HDFS_SUPPORT
@@ -3186,7 +3701,7 @@ ssize_t LocalWorker::spdkReadWrapper(size_t fileHandleIdx, void* buf, size_t nby
 
     SpdkNvmeClient::IoContext* ioCtx = spdkContext.ioContextVec[0].get();
 
-    OPLOG_PRE_OP("spdkRead", std::to_string(nsID), offset, nbytes);
+    OPLOG_PRE_OP("spdkRead", spdkContext.spdkClient.getNamespaceName(nsID), offset, nbytes);
 
     int ioSubmitRes = spdkContext.spdkClient.read(ioCtx, nsID, lba, lbaCount, buf);
 
@@ -3202,7 +3717,8 @@ ssize_t LocalWorker::spdkReadWrapper(size_t fileHandleIdx, void* buf, size_t nby
 
     const bool isIOSuccess = (ioSubmitRes == 0) && ioCtx->ioSuccess;
 
-    OPLOG_POST_OP("spdkRead", std::to_string(nsID), offset, nbytes, !isIOSuccess);
+    OPLOG_POST_OP("spdkRead", spdkContext.spdkClient.getNamespaceName(nsID), offset, nbytes,
+        !isIOSuccess);
 
     IF_UNLIKELY(!isIOSuccess)
     {
@@ -3228,7 +3744,7 @@ ssize_t LocalWorker::spdkWriteWrapper(size_t fileHandleIdx, void* buf, size_t nb
 
     SpdkNvmeClient::IoContext* ioCtx = spdkContext.ioContextVec[0].get();
 
-    OPLOG_PRE_OP("spdkWrite", std::to_string(nsID), offset, nbytes);
+    OPLOG_PRE_OP("spdkWrite", spdkContext.spdkClient.getNamespaceName(nsID), offset, nbytes);
 
     int ioSubmitRes = spdkContext.spdkClient.write(ioCtx, nsID, lba, lbaCount, buf);
 
@@ -3244,7 +3760,8 @@ ssize_t LocalWorker::spdkWriteWrapper(size_t fileHandleIdx, void* buf, size_t nb
 
     const bool isIOSuccess = (ioSubmitRes == 0) && ioCtx->ioSuccess;
 
-    OPLOG_POST_OP("spdkWrite", std::to_string(nsID), offset, nbytes, !isIOSuccess);
+    OPLOG_POST_OP("spdkWrite", spdkContext.spdkClient.getNamespaceName(nsID), offset, nbytes,
+        !isIOSuccess);
 
     IF_UNLIKELY(!isIOSuccess)
     {
@@ -4140,6 +4657,8 @@ void LocalWorker::fileModeIterateFilesSeq()
         fileHandles.fdVec[0] = pathFDs[currentFileIndex];
         fileHandles.cuFileHandleDataPtrVec[0] = !useCuFile ? nullptr :
             &(cuFileHandleDataVec[currentFileIndex]);
+        if(!fileHandles.journalPtrVec.empty() ) // alias the journal of the current file, like above
+            fileHandles.journalPtrVec[0] = progArgs->getJournalForTarget(currentFileIndex);
 
         const uint64_t currentBlockInFile = currentBlockIdx % numBlocksPerFile;
         const uint64_t currentIOStart = currentBlockInFile * blockSize;

@@ -14,6 +14,7 @@
 #include "Logger.h"
 #include "PathStore.h"
 #include "toolkits/BlockSizeMix.h"
+#include "toolkits/JournalStore.h"
 #include "toolkits/S3Tk.h"
 #include "toolkits/SystemTk.h" // IWYU pragma: keep (false clangd unused include warning)
 
@@ -94,6 +95,9 @@ namespace bpt = boost::property_tree;
 #define ARG_IODEPTH_LONG                 "iodepth"
 #define ARG_ITERATIONS_LONG              "iterations"
 #define ARG_ITERATIONS_SHORT             "i"
+#define ARG_JOURNALBLOCK_LONG            "journalblock"
+#define ARG_JOURNALDIR_LONG              "journaldir"
+#define ARG_JOURNALSYNC_LONG             "journalsync"
 #define ARG_JSONFILE_LONG                "jsonfile"
 #define ARG_JSONLIVEEXTENDED_LONG        "livejsonex"
 #define ARG_JSONLIVEFILE_LONG            "livejson"
@@ -453,6 +457,11 @@ class ProgArgs
         uint64_t integrityCheckSalt; // salt to add to data integrity checksum (0 disables check)
         bool interruptServices; // send interrupt msg to given hosts to stop current phase
         size_t iterations; // Number of iterations of the same benchmark
+        uint64_t journalBlockSize; // min block size tracked by write journal (see journalDirStr)
+        std::string journalBlockSizeOrigStr; // original journalBlockSize str from user with unit
+        std::string journalDirStr; // dir for write journal bin+sidecar files ("" means disabled)
+        bool journalSyncEnabled; // msync() journal updates for durability (see journalDirStr)
+        JournalStore journalStore; // owns all per-target Journal instances for this run
         unsigned short logLevel; // filter level for log messages (higher will not be logged)
         uint64_t limitReadBps; // read limit per thread in bytes per sec
         std::string limitReadBpsOrigStr; // original limitReadBps str from user with unit
@@ -631,6 +640,7 @@ class ProgArgs
         void prepareS3ClientSingleton();
         void prepareSpdk();
         void prepareFileSize(int fd, std::string& path);
+        void prepareJournals();
         void parseHosts();
         void parseNetBenchServersForService();
         void parseNumaZones();
@@ -762,6 +772,12 @@ class ProgArgs
         bool getInterruptServices() const { return interruptServices; }
         bool getIsServicePathShared() const { return !noSharedServicePath; }
         size_t getIterations() const { return iterations; }
+        uint64_t getJournalBlockSize() const { return journalBlockSize; }
+        const std::string& getJournalDirStr() const { return journalDirStr; }
+        bool getJournalSyncEnabled() const { return journalSyncEnabled; }
+        bool isJournalingEnabled() const { return journalStore.isEnabled(); }
+        Journal* getJournalForTarget(size_t targetIdx) const
+            { return journalStore.getJournalForTarget(targetIdx); }
         uint64_t getLimitReadBps() const { return limitReadBps; }
         uint64_t getLimitWriteBps() const { return limitWriteBps; }
         std::string getLiveCSVFilePath() const { return liveCSVFilePath; }

@@ -16,8 +16,14 @@ All options in alphabetical order:
                           careful with large block sizes. For S3, this defines 
                           the multipart upload size and the ranged read size. 
                           Multipart uploads will automatically be used if 
-                          object size is larger than this block size. (Default:
-                          1M; supports base2 suffixes, e.g. "128K")
+                          object size is larger than this block size. This can 
+                          also be a comma-separated mix of block sizes, 
+                          optionally with a weight attached to each size via a 
+                          colon, e.g. "4k:3,64k:1" for 3 parts 4KiB and 1 part 
+                          64KiB (75%/25%). Weights default to 1 and do not need
+                          to sum up to 100. Worker threads draw randomly from 
+                          the weighted block sizes. (Default: 1M; supports 
+                          base2 suffixes, e.g. "128K")
   --backward              Do backwards sequential reads/writes.
   --base10                Show throughput in base10 instead of base2 numbers 
                           (e.g. MB/s instead of MiB/s).
@@ -144,6 +150,30 @@ All options in alphabetical order:
   --iodepth arg           Depth of I/O queue per thread for asynchronous I/O. 
                           Setting this to 2 or higher turns on async I/O. 
                           (Default: 1)
+  --journalblock arg      Minimum block size tracked by the write journal (see 
+                          "--journaldir"). All I/O block sizes ("-b") must be 
+                          equal to or an exact multiple of this, and so must 
+                          "--offset". A "--size" which is not a multiple of 
+                          this gets rounded down to the next one. (Default: 
+                          4096; supports base2 suffixes, e.g. "4K")
+  --journaldir arg        Path to a directory on a separate local file system 
+                          to hold one write journal (binary file plus JSON 
+                          sidecar) per target file/block device, enabling 
+                          content verification after a crash/power failure or 
+                          during a read/write-mix phase. Existing journals are 
+                          resumed; missing ones are created. Local mode only; 
+                          file/block device targets only. Mutually exclusive 
+                          with "--verify".
+  --journalsync           Make write journal updates durable via msync(), so 
+                          that the journal can also be resumed after a power 
+                          failure and not just after a process crash. A block 
+                          is marked as "being written" durably before its data 
+                          write is issued, and its new content generation 
+                          durably after the write completed. This implies 
+                          "--direct", because a committed generation is only 
+                          meaningful if the target write it describes is 
+                          durable once it completes. By default, journal 
+                          updates only go through the page cache.
   --jsonfile arg          Path to file for end results in json format. If the 
                           file exists, results will be appended. (See also 
                           "--livejson" for progress results in json format.) 
@@ -510,7 +540,8 @@ All options in alphabetical order:
                           synchronized clocks. (Hint: Try 'date +%s' to get 
                           seconds since the epoch.)
   --strided               Use strided read/write access pattern. Only available
-                          if given benchmark paths are files or block devices.
+                          if given benchmark paths are files or block devices. 
+                          Cannot be used with a block size mix.
   --svcelapsed            Show elapsed time to completion of each service 
                           instance ordered by slowest thread.
   --svcping               Show response time of service instances in fullscreen

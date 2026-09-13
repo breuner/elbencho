@@ -16,6 +16,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <netdb.h>
 #include <sched.h>
 #include <vector>
 #include <spdk/bdev.h>
@@ -145,12 +146,57 @@ std::vector<std::string> expandTraddrRange(const std::string& rangeStr)
 }
 
 /**
+ * Resolve a "traddr" config entry to a dotted-decimal IPv4 address, since spdk's transport ID
+ * expects a literal address (not a hostname) for TCP/RDMA transports. Values that already parse
+ * as an IPv4 address are returned unchanged; anything else (e.g. "localhost",
+ * "storage1.example.com") is resolved via getaddrinfo().
+ *
+ * @return the resolved address, or an empty string if resolution failed (caller skips it).
+ */
+std::string resolveTraddr(const std::string& addr)
+{
+    struct in_addr ipv4Addr;
+    if(inet_pton(AF_INET, addr.c_str(), &ipv4Addr) == 1)
+        return addr; // already numeric, nothing to resolve
+
+    struct addrinfo hints = {};
+    hints.ai_family = AF_INET; // matches baseTrid.adrfam == SPDK_NVMF_ADRFAM_IPV4 below
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* result = NULL;
+    int gaiRes = getaddrinfo(addr.c_str(), NULL, &hints, &result);
+    if(gaiRes != 0)
+    {
+        ERRLOGGER(Log_NORMAL, "[SPDK] Unable to resolve traddr '" << addr << "': " <<
+            gai_strerror(gaiRes) << std::endl);
+        return "";
+    }
+
+    char ipStr[INET_ADDRSTRLEN] = {};
+    inet_ntop(AF_INET, &reinterpret_cast<struct sockaddr_in*>(result->ai_addr)->sin_addr,
+        ipStr, sizeof(ipStr) );
+    freeaddrinfo(result);
+
+    LOGGER(Log_VERBOSE, "[SPDK] Resolved traddr '" << addr << "' to '" << ipStr << "'." <<
+        std::endl);
+
+    return ipStr;
+}
+
+/**
  * Parse the "traddr" (single string or array of strings) and "traddr_range" fields of a
  * subsystem config entry into one de-duplicated address list.
  */
 std::vector<std::string> parseTraddrList(const boost::json::object& sub)
 {
     std::vector<std::string> result;
+
+    auto addResolved = [&result](const std::string& addr)
+    {
+        std::string resolved = resolveTraddr(addr);
+        if(!resolved.empty() )
+            result.push_back(resolved);
+    };
 
     if(sub.contains("traddr") )
     {
@@ -159,10 +205,10 @@ std::vector<std::string> parseTraddrList(const boost::json::object& sub)
         if(traddrVal.is_array() )
         {
             for(const auto& val : traddrVal.as_array() )
-                result.push_back(std::string(val.as_string().c_str() ) );
+                addResolved(std::string(val.as_string().c_str() ) );
         }
         else
-            result.push_back(std::string(traddrVal.as_string().c_str() ) );
+            addResolved(std::string(traddrVal.as_string().c_str() ) );
     }
 
     if(sub.contains("traddr_range") )
@@ -899,6 +945,10 @@ bool SpdkBdevManager::doAttach(const std::string& configJsonStr)
 
     uint32_t defaultSubsystemIdx = 0;
     uint32_t groupCounter = 0;
+    std::map<std::string, uint32_t> displayCtrlrCounterByGroupName; /* per-subsystem counter for the
+        human-friendly controller number in NamespaceHandle::fullName, independent of processing
+        order across subsystems (the real bdev_nvme controller name below still uses the global
+        groupCounter, since that identifier must stay unique process-wide) */
 
     for(const auto& item : subsystems)
     {
@@ -1069,6 +1119,8 @@ bool SpdkBdevManager::doAttach(const std::string& configJsonStr)
         {
             std::string baseName = (ctrlrName.empty() ? "ctrlr" : ctrlrName) +
                 std::to_string(groupCounter++);
+            std::string displayCtrlrName = (ctrlrName.empty() ? "ctrlr" : ctrlrName) +
+                std::to_string(displayCtrlrCounterByGroupName[group.groupName]++);
 
             std::vector<std::string> groupBdevNames;
             bool anyPathOk = false;
@@ -1226,7 +1278,7 @@ bool SpdkBdevManager::doAttach(const std::string& configJsonStr)
                 std::string nsSuffix = (!rawNsSuffix.empty() && (rawNsSuffix[0] == 'n') ) ?
                     ("s" + rawNsSuffix.substr(1) ) : rawNsSuffix;
 
-                nsHandle.fullName = group.groupName + ":" + baseName + ":n" + nsSuffix;
+                nsHandle.fullName = group.groupName + ":" + displayCtrlrName + ":n" + nsSuffix;
 
                 for(size_t i = 0; i < numIoThreads; i++)
                 {

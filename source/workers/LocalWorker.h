@@ -13,6 +13,7 @@
 
 #include "Common.h"
 #include "CuFileHandleData.h"
+#include "toolkits/Journal.h"
 #include "toolkits/net/BasicSocket.h"
 #include "toolkits/offsetgen/OffsetGenerator.h"
 #include "toolkits/offsetgen/OffsetGenRandomAlignedFullCoverageV2.h"
@@ -118,6 +119,10 @@ class LocalWorker : public Worker
 
 			BufferVec mmapVec; /* pointers to mmap regions if user selected mmap IO; number of
 				entries and their order matches fdVec */
+
+            std::vector<Journal*> journalPtrVec; /* for the journaled I/O path; number of elements
+                and their order corresponds to num elems in fdVecPtr target, so it can be indexed
+                the same way. empty if journaling is disabled. */
 		} fileHandles;
 
 		RateLimiter rateLimiter; // for r/w rate limit per sec if set by user
@@ -147,6 +152,64 @@ class LocalWorker : public Worker
 
 		PathStore customTreeDirs; // non-shared dirs for custom tree mode
 		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
+
+        /* per-slot state of the async I/O engines, sized once in initAsyncIOSlots() and reused
+            across calls, so the hot I/O path does no allocation. (sizing once is valid because
+            progArgs::ioDepth is fixed for the whole run.) asyncFreeSlots gets re-seeded per
+            engine call by resetAsyncIOSlots(); the two spdk vecs don't need that, because each
+            slot's entry is written at submission before it is read at completion. */
+
+        std::vector<size_t> asyncFreeSlots; // stack of slots that have no I/O in flight
+        std::vector<uint8_t> asyncIsReadVec; // per slot: was this a read? (spdk engine)
+        std::vector<uint8_t> asyncIsRWMixReadVec; // per slot: count as rwmix read? (spdk engine)
+
+        // journaled data verification (see progArgs::isJournalingEnabled() / "--journaldir")
+
+        char* journalVerifyBuf{nullptr}; // per-thread scratch buf for postReadJournalVerifyBuf()
+
+        std::vector<JournalBlockIO> journalIOSlots; /* one per in-flight I/O (i.e. iodepth many);
+            reused across I/Os, so the journaled hot path does no allocation. empty if journaling
+            is disabled. */
+
+        // result of one submission attempt in the async I/O engines
+        enum SubmitRes
+        {
+            SubmitRes_SUBMITTED, // request submitted, slot is busy now
+            SubmitRes_SKIPPED, /* journal decided this block needs no I/O at all, so the slot is
+                                  still free (see JournalBlockIO::ACTION_SKIP) */
+            SubmitRes_DEFERRED, /* journal locks are held for another in-flight I/O of this
+                                   thread, so this draw is kept for a later retry (see
+                                   JournalBlockIO::ACTION_DEFER) */
+        };
+
+        /* A draw that was made but could not be submitted yet, so it can be retried later
+            without drawing again (which would silently skip an offset). */
+        struct JournalPendingDraw
+        {
+            bool isValid{false};
+            uint64_t rwOffsetGenNext{0};
+            size_t blockSize{0};
+        };
+
+        JournalPendingDraw journalPendingDraw; /* There is deliberately only this single one per
+            worker, and while it is valid the async engines must not draw anything new: a draw's
+            block size is clamped to what the offset generator has left at draw time, and the
+            generator only learns about it in addBytesSubmitted() at submission time. So with
+            more than one draw outstanding, they would consume the same remaining bytes twice and
+            submitting the second one would underflow the generator's remaining amount, which
+            makes the phase never end. Re-invalidated per engine call by resetAsyncIOSlots(). */
+
+        size_t journalNumGuardsHeld{0}; /* number of journalIOSlots currently holding a journal
+            guard, i.e. the number of this thread's journaled I/Os in flight. a thread may only
+            wait for journal locks while this is 0; see JournalBlockIO::begin(). */
+
+        const JournalBlockIO* activeJournalIO{nullptr}; /* the slot of the I/O that the journal
+            helpers below currently apply to. Set by journalBeginIO(), i.e. as soon as the journal
+            has decided the I/O, and re-pointed at the completing slot before the post-read
+            processing in the async engines. This is how aioJournalPrepper() learns the read/write
+            decision and how preWriteJournalFillBuf()/postReadJournalVerifyBuf() reach their
+            journal and generations, without widening the AIO_RW_PREPPER/BLOCK_MODIFIER
+            signatures. */
 
 #ifdef CUDA_SUPPORT
 		int gpuID{-1}; // GPU ID for this worker, initialized in allocGPUIOBuffer
@@ -234,6 +297,8 @@ class LocalWorker : public Worker
 
 		void allocIOBuffer();
 		void allocGPUIOBuffer();
+        void initAsyncIOSlots();
+        void resetAsyncIOSlots();
 		void prepareCustomTreePathStores();
 
 		int64_t rwBlockSized();
@@ -369,6 +434,41 @@ class LocalWorker : public Worker
 			off_t fileOffset);
 		void preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
 			off_t fileOffset);
+
+        static void journalFillTileBlock(char* buf, size_t len, off_t blockAlignedOffset,
+            uint64_t journalSeed, uint8_t generation);
+        void preWriteJournalFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+            off_t fileOffset);
+        void postReadJournalVerifyBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+            off_t fileOffset);
+
+        JournalBlockIO::Intent journalGetIntent(unsigned rwMixReadPercent);
+        JournalBlockIO::Action journalBeginIO(size_t slotIdx, size_t fileHandleIdx,
+            uint64_t currentOffset, size_t ioLen, JournalBlockIO::Intent intent);
+        void journalCommitIO(size_t slotIdx);
+        void journalReleaseIO(size_t slotIdx);
+        void aioJournalPrepper(struct iocb* iocb, int fd, void* buf, size_t count,
+            long long offset);
+
+        /**
+         * Releases every journal guard this worker might still hold. Used as a scope guard around
+         * the I/O loops, so a thrown WorkerException (e.g. a verification failure) can't leave a
+         * journal lock held and hang the other worker threads instead of ending the run.
+         */
+        struct JournalSlotsReleaser
+        {
+            LocalWorker& worker;
+
+            explicit JournalSlotsReleaser(LocalWorker& worker) : worker(worker) {}
+
+            ~JournalSlotsReleaser()
+            {
+                for(JournalBlockIO& slot : worker.journalIOSlots)
+                    slot.release();
+
+                worker.journalNumGuardsHeld = 0;
+            }
+        };
 
 		void aioWritePrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);
 		void aioReadPrepper(struct iocb* iocb, int fd, void* buf, size_t count, long long offset);

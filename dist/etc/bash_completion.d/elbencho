@@ -69,6 +69,9 @@ _elbencho_opts()
         --interrupt
         --iodepth
         --iterations
+        --journalblock
+        --journaldir
+        --journalsync
         --jsonfile
         --lat
         --lathisto
@@ -239,6 +242,8 @@ _elbencho()
         ;&
         --iodepth)
         ;&
+        --journalblock)
+        ;&
         --latpercent9s)
         ;&
         --limitread)
@@ -363,6 +368,8 @@ _elbencho()
         --csvfile)
         ;&
         --hostsfile)
+        ;&
+        --journaldir)
         ;&
         --jsonfile)
         ;&
