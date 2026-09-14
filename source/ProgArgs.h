@@ -56,6 +56,7 @@ namespace bpt = boost::property_tree;
 #define ARG_CUFILE_LONG                  "cufile"
 #define ARG_CUFILEDRIVEROPEN_LONG        "cufiledriveropen"
 #define ARG_CUHOSTBUFREG_LONG            "cuhostbufreg"
+#define ARG_CUOBJHOSTBUFREG_LONG         "cuobjhostbufreg"
 #define ARG_DELETEDIRS_LONG              "deldirs"
 #define ARG_DELETEDIRS_SHORT             "D"
 #define ARG_DELETEFILES_LONG             "delfiles"
@@ -198,6 +199,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3OBJTAG_LONG                "s3otag"
 #define ARG_S3OBJTAGVERIFY_LONG          "s3otagverify"
 #define ARG_S3RANDOBJ_LONG               "s3randobj"
+#define ARG_S3RDMA_LONG                  "s3rdma"
 #define ARG_S3REGION_LONG                "s3region"
 #define ARG_S3SESSION_TOKEN_LONG         "s3sessiontoken"
 #define ARG_S3SIGNPAYLOAD_LONG           "s3sign"
@@ -594,6 +596,7 @@ class ProgArgs
         bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
         bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
         bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
+        bool useCuObjHostBufReg; // pre-register host memory buffers with cuObj
         bool useCustomTreeRandomize; // randomize order of custom tree files
         bool useCustomTreeRoundRobin; // assign blocks round-robin to workers
         bool useDirectIO; // open files with O_DIRECT
@@ -613,6 +616,7 @@ class ProgArgs
         bool useS3MPUSharing; // use s3 shared mpu mode from multiple clients
         bool useS3ObjectPrefixRand; // implicit based on RAND_PREFIX_MARKS_SUBSTR in s3ObjectPrefix
         bool useS3RandObjSelect; // random object selection for each read
+        bool useS3Rdma; // use RDMA for S3
         bool useS3FastRead; /* get objects to /dev/null instead of buffer (i.e. no post processing
                                 via buffer possible, such as GPU copy or data verification) */
         bool useS3SSE; // use SSE-S3 encryption method for S3
@@ -887,6 +891,7 @@ class ProgArgs
         bool getUseCuFile() const { return useCuFile; }
         bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
         bool getUseCuHostBufReg() const { return useCuHostBufReg; }
+        bool getUseCuObjHostBufReg() const { return useCuObjHostBufReg; }
         bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
         bool getUseCustomTreeRoundRobin() const { return useCustomTreeRoundRobin; }
         bool getUseDirectIO() const { return useDirectIO; }
@@ -903,6 +908,7 @@ class ProgArgs
         bool getUseS3MPUSharing() const { return useS3MPUSharing; }
         bool getUseS3ObjectPrefixRand() const { return useS3ObjectPrefixRand; }
         bool getUseS3RandObjSelect() const { return useS3RandObjSelect; }
+        bool getUseS3Rdma() const { return useS3Rdma; }
         bool getUseS3SSE() const { return useS3SSE; }
         bool getUseS3VirtualAddressing() const { return useS3VirtualAddressing; }
         bool getUseStridedAccess() const { return useStridedAccess; }

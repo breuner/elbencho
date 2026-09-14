@@ -306,6 +306,13 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(),
         useVirtualAddressing);
 
+#ifdef S3_RDMA_SUPPORT
+    if(!progArgs->getUseS3Rdma()) {
+        s3Client->EnableRDMA(false);
+        LOGGER(Log_DEBUG, "Disabled S3 RDMA. "
+            "Worker rank: " << workerRank << std::endl);
+    }
+#endif // S3_RDMA_SUPPORT
     return s3Client;
 }
 
