@@ -1363,6 +1363,15 @@ void Statistics::printLiveStats()
 			goto single_line_stats;
 		}
 
+        if(TerminalTk::isStandardWindowsConsole() )
+        { // ftxui can't process key press events correctly in standard Windows console
+            LOGGER(Log_NORMAL, "NOTE: Fullscreen live stats not supported in Windows console. "
+                "(Adding \"--live1\" prevents this message)." <<
+                std::endl);
+
+            goto single_line_stats;
+        }
+
 		loopFullScreenLiveStats();
 
 		return;

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdio.h>
+#include <string_view>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -169,4 +170,33 @@ bool TerminalTk::isScreenSessionWithoutAltscreen()
 
     // neither in global conf nor in personal conf => altscreen is off by default
     return true;
+}
+
+/**
+ * @brief Find out if we are running in a standard Windows console.
+ *
+ * This can be used to prevent fullscreen live stats with ftxui on Windows, because ftxui cannot
+ * correctly recognize key press events (including ctrl+c) in a standard Windows command line window
+ * (Windows Command Prompt) or a standard Windows Powershell window (so the user would have no way
+ * to exit/interrupt); but ftxui key events works fine in a Cygwin shell on Windows.
+ *
+ * @return true if stdout is connected to a standard Windows console, false otherwise.
+ */
+bool TerminalTk::isStandardWindowsConsole()
+{
+#ifndef CYGWIN_SUPPORT
+    return false; // no cygwin support, so assume we're not running on Windows
+#else // CYGWIN_SUPPORT
+    if(!isStdoutTTY() )
+        return false; // stdout is not directly connected to a terminal
+
+    // retrieve the terminal device name
+    const char* tty_name = ttyname(STDOUT_FILENO);
+    if(!tty_name)
+        return false; // terminal device name not available
+
+    // check if the device is a mapped Windows console ("/dev/cons")
+    std::string_view tty_view(tty_name);
+    return tty_view.find("/dev/cons") != std::string_view::npos;
+#endif // CYGWIN_SUPPORT
 }
