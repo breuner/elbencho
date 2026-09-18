@@ -14,7 +14,6 @@ BIN_PATH           ?= ./bin
 EXTERNAL_PATH      ?= ./external
 PACKAGING_PATH     ?= ./packaging
 BUILD_HELPERS_PATH ?= ./build_helpers
-VENDOR_PATH        ?= ./vendor
 
 INST_PATH          ?= /usr/local/bin
 PKG_INST_PATH      ?= /usr/bin
@@ -663,10 +662,10 @@ help:
 	@echo '   CUFILE_LIB_PATH=<path>     - Path to directory containing libcufile.so.'
 	@echo '                                (Default: search under /usr/local/cuda*")'
 	@echo '   CUOBJ_INCLUDE_PATH=<path>  - Path to directory containing cuobjclient.h.'
-	@echo '                                (Default: vendor/cuobj/include, else search under'
-	@echo '                                /usr/local/cuda*")'
+	@echo '                                (Default: pkg-config cuobjclient-*, else search'
+	@echo '                                under /usr/local/cuda*")'
 	@echo '   CUOBJ_LIB_PATH=<path>      - Path to directory containing libcuobjclient.so.'
-	@echo '                                (Default: vendor/cuobj/lib/$$(uname -m), else search'
+	@echo '                                (Default: pkg-config cuobjclient-*, else search'
 	@echo '                                under /usr/local/cuda*")'
 	@echo
 	@echo 'Targets:'

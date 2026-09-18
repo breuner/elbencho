@@ -181,9 +181,9 @@ The certificate of an `https://` S3 endpoint is verified against the system trus
 
 The `--cuobj` option performs single-part S3 GET/PUT using NVIDIA's cuObject (`cuObjClient`) API — the object-storage counterpart of `--cufile` (GDS). The object payload moves out-of-band over RDMA (directly to/from GPU memory when `--gpuids` is given, otherwise host/CPU memory), while a small body-less HTTP control request carries the `x-amz-rdma-*` protocol headers. It requires an RDMA-capable S3 endpoint that implements that protocol.
 
-cuObject 1.2.0 (client library, headers and the matching cuFile 1.18.0) ships vendored under `vendor/cuobj/`, so no cuObject SDK install is needed on the build host. Support is auto-enabled when that tree is present and `S3_SUPPORT=1` is set; it additionally links `libibverbs`/`librdmacm`. The vendored components are NVIDIA proprietary and are covered by `vendor/cuobj/EULA.txt`, not by elbencho's GPL-3.0 license — read `vendor/cuobj/NOTICE` before distributing a binary built this way. See `make help` for the `CUOBJ_SUPPORT`, `CUOBJ_INCLUDE_PATH` and `CUOBJ_LIB_PATH` options; setting the latter two explicitly overrides the vendored tree in favour of a system install.
+Support is auto-enabled with `S3_SUPPORT=1` when the cuObject client library is installed and links, which additionally requires `libibverbs`/`librdmacm`. The library is located through its pkg-config module (`cuobjclient-<major>.<minor>`), falling back to a search under `/usr/local/cuda*`; `CUOBJ_INCLUDE_PATH` and `CUOBJ_LIB_PATH` override both, and `CUOBJ_SUPPORT=0|1` forces the feature off or on. A build environment without cuObject is unaffected — the feature is simply left out, exactly like `--cufile`.
 
-The build embeds an rpath, so the binary finds `libcuobjclient`/`libcufile` in either `vendor/cuobj/lib/<arch>/` (running from the build dir) or `../lib/` relative to the executable (a deployed `bin/`+`lib/` tarball).
+No cuObject binaries are shipped with elbencho: they are NVIDIA proprietary and carry their own EULA. Install the `libcuobjclient` development package that matches your S3 server's cuObject version.
 
 **Version compatibility (important):** the `libcuobjclient` that elbencho links must be compatible with the cuObject version of your S3 server — 1.2.0 here pairs with `libcuobjserver` 1.2.0. Do not mix major/minor versions. A client/server mismatch typically surfaces as RDMA buffer-registration failures or `retry exceeded` transfer errors even though the control-plane HTTP request succeeds.
 
@@ -207,14 +207,14 @@ The build embeds an rpath, so the binary finds `libcuobjclient`/`libcufile` in e
 * Single-part transfers only: the block size (`-b`) must equal the object size (`-s`), and `--iodepth=1` is required.
 * An RDMA decline or failure is a hard error — there is no automatic HTTP fallback.
 * The host needs RDMA-capable NICs (RoCEv2 or InfiniBand) and a sufficiently high locked-memory limit (`memlock`). For VRAM-direct transfers (`--gpuids`), GPUDirect RDMA must be working between the GPU and NIC (e.g. PCIe ACS redirect disabled on the data-path bridges).
-* `libcufile` loads `libcufile_rdma.so` with `dlopen`, which does not consult the executable's rpath. Put the vendored lib directory on `LD_LIBRARY_PATH`, or RDMA registration fails with `no devices found in configuration` even though `rdma_dev_addr_list` is set. The cuFile log reports this as `--rdma library : Not Loaded (libcufile_rdma.so)`.
+* `libcufile` loads `libcufile_rdma.so` with `dlopen`, which does not consult the executable's rpath. Put the directory holding it on `LD_LIBRARY_PATH`, or RDMA registration fails with `no devices found in configuration` even though `rdma_dev_addr_list` is set. The cuFile log reports this as `--rdma library : Not Loaded (libcufile_rdma.so)`.
 * On a client without a GPU or without `nvidia-fs.ko` loaded, set `allow_compat_mode: true`. cuFile otherwise refuses to initialize (`nvidia-fs.ko driver not loaded`) and `--cuobj` reports the fabric as not connected. Host-memory RDMA transfers work normally in this mode.
 
 Example (16 threads, 8 MiB objects, host/CPU buffers):
 
 ```bash
 CUFILE_ENV_PATH_JSON=/path/to/cuobj.json \
-LD_LIBRARY_PATH=/path/to/elbencho/vendor/cuobj/lib/x86_64 \
+LD_LIBRARY_PATH=/path/to/cuobject/lib \
   elbencho --s3endpoints https://S3SERVER:9000 --s3key KEY --s3secret SECRET \
     --cuobj --iodepth 1 -w -r -t 16 -s 8m -b 8m s3://mybucket
 ```
