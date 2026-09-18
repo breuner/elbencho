@@ -13,6 +13,18 @@ CXXFLAGS_LIBBACKTRACE    ?= -DBACKTRACE_SUPPORT
 LDFLAGS_LIBBACKTRACE     ?= -lbacktrace
 
 
+# cuObject discovery: NVIDIA ships a versioned pkg-config module (cuobjclient-<major>.<minor>),
+# so ask pkg-config what this build environment actually provides rather than hardcoding a
+# version that goes stale with every release. The search under /usr/local/cuda* below is the
+# fallback. Set CUOBJ_INCLUDE_PATH / CUOBJ_LIB_PATH explicitly to override both.
+CUOBJ_PKGCONFIG_MODULE   ?= $(shell pkg-config --list-all 2>/dev/null | cut -d' ' -f1 | \
+                            grep '^cuobjclient-' | sort -V -r | head -n1)
+
+ifneq ($(CUOBJ_PKGCONFIG_MODULE),)
+ CXXFLAGS_CUOBJ_PKGCONFIG := $(shell pkg-config --cflags $(CUOBJ_PKGCONFIG_MODULE) 2>/dev/null)
+ LDFLAGS_CUOBJ_PKGCONFIG  := $(shell pkg-config --libs $(CUOBJ_PKGCONFIG_MODULE) 2>/dev/null)
+endif
+
 # Try to auto-detect CUDA library and inlcude paths...
 CUDA_INCLUDE_PATH        ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cuda_runtime.h \
                             -printf '%h\n' 2>/dev/null | head -n1)
@@ -21,6 +33,10 @@ CUDA_LIB_PATH            ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name
 CUFILE_INCLUDE_PATH      ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cufile.h \
                             -printf '%h\n' 2>/dev/null | head -n1)
 CUFILE_LIB_PATH          ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name libcufile.so \
+                            -printf '%h\n' 2>/dev/null | head -n1)
+CUOBJ_INCLUDE_PATH       ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name cuobjclient.h \
+                            -printf '%h\n' 2>/dev/null | head -n1)
+CUOBJ_LIB_PATH           ?= $(shell find /usr/local/cuda/ /usr/local/cuda* -name libcuobjclient.so \
                             -printf '%h\n' 2>/dev/null | head -n1)
 
 # Prepare CUDA compile/link flags...
@@ -44,6 +60,22 @@ endif
 CXXFLAGS_CUFILE_SUPPORT    += -DCUFILE_SUPPORT
 LDFLAGS_CUFILE_SUPPORT     += -lcufile
 CUFILE_SUPPORT_DETECT_ARGS  = $(CXXFLAGS_CUFILE_SUPPORT) $(LDFLAGS_CUFILE_SUPPORT) \
+                              $(CUDA_SUPPORT_DETECT_ARGS)
+
+# Prepare cuObject (S3-over-RDMA) compile/link flags...
+# Note: libcuobjclient pulls in the RDMA verbs stack (ibverbs/rdmacm). We link these
+# explicitly (matching the minio-cpp recipe) rather than relying on libcuobjclient's
+# transitive NEEDED entries, so the build is robust to "--as-needed" linkers. The
+# pthread/numa/dl/rt deps it also needs are already provided by elbencho's base LDFLAGS.
+ifneq ($(CUOBJ_INCLUDE_PATH),)
+ CXXFLAGS_CUOBJ_SUPPORT    += -I $(CUOBJ_INCLUDE_PATH)
+endif
+ifneq ($(CUOBJ_LIB_PATH),)
+ LDFLAGS_CUOBJ_SUPPORT     += -L $(CUOBJ_LIB_PATH)
+endif
+CXXFLAGS_CUOBJ_SUPPORT     += $(CXXFLAGS_CUOBJ_PKGCONFIG) -DCUOBJ_SUPPORT
+LDFLAGS_CUOBJ_SUPPORT      += $(LDFLAGS_CUOBJ_PKGCONFIG) -lcuobjclient -lcufile -libverbs -lrdmacm
+CUOBJ_SUPPORT_DETECT_ARGS   = $(CXXFLAGS_CUOBJ_SUPPORT) $(LDFLAGS_CUOBJ_SUPPORT) \
                               $(CUDA_SUPPORT_DETECT_ARGS)
 
 ####### LIB "backtrace" ########
@@ -140,6 +172,34 @@ ifeq ($(CUFILE_SUPPORT),1)
 endif
 
 ###### End CUFILE (GDS) Support #####
+
+
+####### cuObject (S3-over-RDMA) Support ########
+##### (Depends on CUDA_SUPPORT and S3_SUPPORT) #####
+
+# Auto-enable when the cuObject SDK (CUDA 13.1+) is present and S3 support is on.
+# cuObjClient provides GPU-direct S3 GET/PUT over RDMA via the x-amz-rdma-* protocol.
+ifeq ($(CUOBJ_SUPPORT),)
+ ifeq ($(S3_SUPPORT),1)
+  ifdef BUILD_VERBOSE
+   $(info [TEST_CUOBJ] $(CXX) -o $(TEST_OBJ_FILE) $(TEST_C_FILE) $(CUOBJ_SUPPORT_DETECT_ARGS) )
+  endif
+
+  CUOBJ_SUPPORT := $(shell \
+     if $(CXX) -o $(TEST_OBJ_FILE) $(TEST_C_FILE) $(CUOBJ_SUPPORT_DETECT_ARGS) 1>/dev/null 2>&1; \
+     then echo 1; \
+     else echo 0; \
+     fi)
+ endif
+endif
+
+ifeq ($(CUOBJ_SUPPORT),1)
+ CXXFLAGS     += $(CXXFLAGS_CUOBJ_SUPPORT)
+ LDFLAGS      += $(LDFLAGS_CUOBJ_SUPPORT)
+ override CUDA_SUPPORT = 1
+endif
+
+###### End cuObject (S3-over-RDMA) Support #####
 
 ########## CUDA Support #############
 

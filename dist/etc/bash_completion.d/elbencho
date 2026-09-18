@@ -143,6 +143,7 @@ _elbencho_opts()
         --s3endpoints
         --s3fastget
         --s3fastput
+        --s3insecure
         --s3key
         --s3listobj
         --s3listobjpar
