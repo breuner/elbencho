@@ -10,6 +10,11 @@
 : ${S3_KEY:="elbenchotest"}
 : ${S3_SECRET:="elbenchotestsecret"}
 : ${S3_REGION:="us-east-1"}
+# Set this to enable S3 over RDMA for the S3 tests.
+: ${ELBENCHO_TEST_S3RDMA:="0"}
+# Set this to use an already running S3-compatible server instead of starting
+# a private minio instance for each test.
+: ${ELBENCHO_TEST_S3_ENDPOINT:=""}
 S3_ENDPOINT=""
 MINIO_PORT=""
 MINIO_CONSOLE_PORT=""
@@ -128,11 +133,42 @@ bucket_name()
 # printed would result in two plan lines, which is not valid TAP.
 require_minio()
 {
+    if [ "$ELBENCHO_TEST_S3RDMA" = "1" ]; then
+        require_build_feature s3rdma
+    fi
+
+    if [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ]; then
+        require_cmd aws
+        return 0
+    fi
+
     require_cmd curl
 
     if [ ! -x "$ELBENCHO_TEST_MINIO" ]; then
         tap_skip_all "minio server not found at $ELBENCHO_TEST_MINIO (use \"run-tests.sh -s\" to download it)"
     fi
+}
+
+# Configure the elbencho arguments and aws cli environment shared by both the
+# private-server and external-server modes.
+configure_s3()
+{
+    S3_OPTS=( --s3endpoints "$S3_ENDPOINT"
+              --s3key "$S3_KEY"
+              --s3secret "$S3_SECRET"
+              --s3region "$S3_REGION" )
+
+    if [ "$ELBENCHO_TEST_S3RDMA" = "1" ]; then
+        S3_OPTS+=( --s3rdma )
+    fi
+
+    # for the aws cli
+    export AWS_ACCESS_KEY_ID="$S3_KEY"
+    export AWS_SECRET_ACCESS_KEY="$S3_SECRET"
+    export AWS_REGION="$S3_REGION"
+    export AWS_DEFAULT_REGION="$S3_REGION"
+    export AWS_EC2_METADATA_DISABLED="true"
+    export AWS_PAGER=""
 }
 
 # Wait until the minio instance can actually serve S3 requests. Gives up if the
@@ -174,6 +210,12 @@ start_minio()
     local tries=0
     local maxtries=5
     local console_addr="${MINIO_CONSOLE_LISTEN_ADDR:-$MINIO_LISTEN_ADDR}"
+
+    if [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ]; then
+        S3_ENDPOINT="$ELBENCHO_TEST_S3_ENDPOINT"
+        configure_s3
+        return 0
+    fi
 
     require_cmd curl
 
@@ -243,18 +285,7 @@ start_minio()
         if wait_for_minio_ready; then
             S3_ENDPOINT="http://$MINIO_ADDR:$MINIO_PORT"
 
-            S3_OPTS=( --s3endpoints "$S3_ENDPOINT"
-                      --s3key "$S3_KEY"
-                      --s3secret "$S3_SECRET"
-                      --s3region "$S3_REGION" )
-
-            # for the aws cli
-            export AWS_ACCESS_KEY_ID="$S3_KEY"
-            export AWS_SECRET_ACCESS_KEY="$S3_SECRET"
-            export AWS_REGION="$S3_REGION"
-            export AWS_DEFAULT_REGION="$S3_REGION"
-            export AWS_EC2_METADATA_DISABLED="true"
-            export AWS_PAGER=""
+            configure_s3
 
             return 0
         fi

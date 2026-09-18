@@ -92,6 +92,7 @@
 // Names of features for printVersionAndBuildInfo()
 #define FEATURE_NAME_S3_SUPPORT     "s3"
 #define FEATURE_NAME_S3_AWSCRT      "s3crt"
+#define FEATURE_NAME_S3_RDMA        "s3rdma"
 #define FEATURE_NAME_SPDK           "spdk"
 
 
@@ -300,7 +301,7 @@ void ProgArgs::defineAllowedArgs()
             "username.)")
 #ifdef CUFILE_SUPPORT
 /*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
-			"Use cuFile API for reads/writes to/from GPU memory, also known as GPUDirect Storage "
+			"Use cuFile or cuObj API for reads/writes to/from GPU memory, also known as GPUDirect Storage "
 			"(GDS).")
 /*cu*/	(ARG_CUFILEDRIVEROPEN_LONG, bpo::bool_switch(&this->useCuFileDriverOpen),
 			"Explicitly initialize cuFile lib and open the nvida-fs driver.")
@@ -308,6 +309,10 @@ void ProgArgs::defineAllowedArgs()
 #ifdef CUDA_SUPPORT
 /*cu*/	(ARG_CUHOSTBUFREG_LONG, bpo::bool_switch(&this->useCuHostBufReg),
 			"Pin host memory buffers and register with CUDA for faster transfer to/from GPU.")
+#endif
+#if defined(S3_SUPPORT) && defined(S3_RDMA_SUPPORT)
+/*cu*/	(ARG_CUOBJHOSTBUFREG_LONG, bpo::bool_switch(&this->useCuObjHostBufReg),
+			"Pre-register host memory buffers with cuObj.")
 #endif
 /*D*/	(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
 			"Delete directories.")
@@ -355,7 +360,7 @@ void ProgArgs::defineAllowedArgs()
 			"Use Nvidia GPUDirect Storage API. Enables \"--" ARG_DIRECTIO_LONG "\", \"--"
 			ARG_CUFILE_LONG "\", \"--" ARG_GDSBUFREG_LONG "\".")
 /*gd*/	(ARG_GDSBUFREG_LONG, bpo::bool_switch(&this->useGDSBufReg),
-			"Register GPU buffers for GPUDirect Storage (GDS) when using cuFile API.")
+			"Register GPU buffers for GPUDirect Storage (GDS) when using cuFile or cuObj API.")
 #endif
 #ifdef CUDA_SUPPORT
 /*gp*/	(ARG_GPUIDS_LONG, bpo::value(&this->gpuIDsStr),
@@ -755,6 +760,10 @@ void ProgArgs::defineAllowedArgs()
 			"effective in read phase and in combination with \"-" ARG_NUMDIRS_SHORT "\" & \"-"
 			ARG_NUMFILES_SHORT "\". Read limit for all threads is defined by \"--"
 			ARG_RANDOMAMOUNT_LONG "\".")
+#ifdef S3_RDMA_SUPPORT
+/*s3r*/	(ARG_S3RDMA_LONG, bpo::bool_switch(&this->useS3Rdma),
+            "Enable RDMA for S3 objects using cuObj API.")
+#endif
 /*s3o*/	(ARG_S3SSE_LONG, bpo::bool_switch(&this->useS3SSE),
             "Server-side encryption of S3 objects using SSE-S3. (EXPERIMENTAL)")
 /*s3s*/	(ARG_S3SSECKEY_LONG, bpo::value(&this->s3SSECKey),
@@ -1054,6 +1063,7 @@ void ProgArgs::defineDefaults()
     this->useCuFile = false;
     this->useCuFileDriverOpen = false;
     this->useCuHostBufReg = false;
+    this->useCuObjHostBufReg = false;
     this->useDirectIO = false;
     this->useExtendedLiveCSV = false;
     this->useExtendedLiveJSON = false;
@@ -1071,6 +1081,7 @@ void ProgArgs::defineDefaults()
     this->useS3MPUSharing = false;
     this->useS3ObjectPrefixRand = false;
     this->useS3RandObjSelect = false;
+    this->useS3Rdma = false;
     this->useS3SSE = false;
     this->useS3VirtualAddressing = false;
     this->useStridedAccess = false;
@@ -1528,7 +1539,7 @@ void ProgArgs::checkArgs()
 
     precreateS3MpuSharingUploadIDs(); // requires customTree to be initialized
 
-	if(useCuFile && (ioDepth > 1) )
+	if(useCuFile && (ioDepth > 1) && !useS3Rdma && (benchMode != BenchMode_S3) )
 		throw ProgException("cuFile API does not support \"IO depth > 1\"");
 
 	if(useCuFile && !useDirectIO)
@@ -1648,8 +1659,32 @@ void ProgArgs::checkArgs()
             "Resulting number of parts: " +
             std::to_string(fileSize / blockSizeMix.getMinSize() ) );
 
-    if(useCuFile && (benchMode == BenchMode_S3) )
+    if(useCuFile && (benchMode == BenchMode_S3) && !useS3Rdma )
         throw ProgException("cuFile API cannot be used with S3");
+
+#ifdef S3_RDMA_SUPPORT
+    if(useS3Rdma && (benchMode != BenchMode_S3) )
+        throw ProgException("Option \"--" ARG_S3RDMA_LONG "\" can only be used with S3");
+
+    if(useS3Rdma && useS3FastRead )
+        throw ProgException("Option \"--" ARG_S3RDMA_LONG "\" cannot be used together with "
+            "\"--" ARG_S3FASTGET_LONG "\"");
+
+    if(useCuObjHostBufReg && (benchMode != BenchMode_S3) )
+        throw ProgException("Option \"--" ARG_CUOBJHOSTBUFREG_LONG "\" can only be used with S3");
+
+    if(useCuObjHostBufReg && !useS3Rdma )
+        throw ProgException("Option \"--" ARG_CUOBJHOSTBUFREG_LONG "\" can only be used together with "
+            "\"--" ARG_S3RDMA_LONG "\"");
+
+    if(useCuObjHostBufReg && useGDSBufReg )
+        throw ProgException("Option \"--" ARG_CUOBJHOSTBUFREG_LONG "\" cannot be used together with "
+            "\"--" ARG_GDSBUFREG_LONG "\"");
+
+    if(useCuObjHostBufReg && useCuHostBufReg )
+        throw ProgException("Option \"--" ARG_CUOBJHOSTBUFREG_LONG "\" cannot be used together with "
+            "\"--" ARG_CUHOSTBUFREG_LONG "\"");
+#endif
 
     if(hasUserSetRWMixPercent() && (benchMode == BenchMode_S3) )
         throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
@@ -4188,12 +4223,19 @@ void ProgArgs::printVersionAndBuildInfo()
 #if defined(S3_SUPPORT) && defined(S3_AWSCRT)
     includedStream << FEATURE_NAME_S3_SUPPORT << " ";
     includedStream << FEATURE_NAME_S3_AWSCRT << " ";
+    notIncludedStream << FEATURE_NAME_S3_RDMA << " ";
 #elif defined(S3_SUPPORT)
     includedStream << FEATURE_NAME_S3_SUPPORT << " ";
     notIncludedStream << FEATURE_NAME_S3_AWSCRT << " ";
+#ifdef S3_RDMA_SUPPORT
+    includedStream << FEATURE_NAME_S3_RDMA << " ";
+#else
+    notIncludedStream << FEATURE_NAME_S3_RDMA << " ";
+#endif // S3_RDMA_SUPPORT
 #else
     notIncludedStream << FEATURE_NAME_S3_SUPPORT << " ";
     notIncludedStream << FEATURE_NAME_S3_AWSCRT << " ";
+    notIncludedStream << FEATURE_NAME_S3_RDMA << " ";
 #endif
 
 #ifdef SPDK_SUPPORT
@@ -4338,6 +4380,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useCuFile = tree.get<bool>(ARG_CUFILE_LONG);
 	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
 	useCuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
+	useCuObjHostBufReg = tree.get<bool>(ARG_CUOBJHOSTBUFREG_LONG);
 	useCustomTreeRandomize = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
     useCustomTreeRoundRobin = tree.get<bool>(ARG_TREEROUNDROBIN_LONG);
 	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
@@ -4353,6 +4396,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
     useS3MPUSharing = tree.get<bool>(ARG_S3MPUSHARING_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
+    useS3Rdma = tree.get<bool>(ARG_S3RDMA_LONG);
     useS3SSE = tree.get<bool>(ARG_S3SSE_LONG);
     useS3VirtualAddressing = tree.get<bool>(ARG_S3VIRTADDRESSING_LONG);
 	useStridedAccess = tree.get<bool>(ARG_STRIDEDACCESS_LONG);
@@ -4424,6 +4468,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_CUFILE_LONG, useCuFile);
 	outTree.put(ARG_CUFILEDRIVEROPEN_LONG, useCuFileDriverOpen);
 	outTree.put(ARG_CUHOSTBUFREG_LONG, useCuHostBufReg);
+	outTree.put(ARG_CUOBJHOSTBUFREG_LONG, useCuObjHostBufReg);
 	outTree.put(ARG_DELETEDIRS_LONG, runDeleteDirsPhase);
 	outTree.put(ARG_DELETEFILES_LONG, runDeleteFilesPhase);
 	outTree.put(ARG_DIRSHARING_LONG, doDirSharing);
@@ -4509,6 +4554,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
+    outTree.put(ARG_S3RDMA_LONG, useS3Rdma);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
     outTree.put(ARG_S3SESSION_TOKEN_LONG, s3SessionToken);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);

@@ -46,6 +46,21 @@ Note that this server is licensed under the AGPL-3.0. It is only downloaded for
 running the tests and is neither linked against elbencho nor redistributed with
 it, so it does not affect elbencho's own licensing.
 
+To run the S3 tests against an already running S3-compatible server, set
+`ELBENCHO_TEST_S3_ENDPOINT` to its endpoint URL. The tests then do not download
+or start minio. Set `S3_KEY`, `S3_SECRET` and `S3_REGION` to the credentials and
+region accepted by that server; the defaults are the test credentials used by
+the private server. For example:
+
+```bash
+ELBENCHO_TEST_S3_ENDPOINT=https://s3.example.test \
+S3_KEY=test-access-key S3_SECRET=test-secret S3_REGION=us-east-1 \
+tests/run-tests.sh -s
+```
+
+Set `ELBENCHO_TEST_S3RDMA=1` to add `--s3rdma` to every S3 test command. The
+tested binary must have S3RDMA support, and the S3 endpoint must support RDMA.
+
 Requirements: `prove`, `jq`, `timeout`, for the S3 tests the `aws` cli tool, and
 for the SPDK tests `python3` (spdk's `rpc.py`). The S3 server is downloaded
 automatically into the temporary dir when the S3 tests are enabled for the first

@@ -60,11 +60,19 @@
     #include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
     #include INCLUDE_AWS_S3(model/PutBucketTaggingRequest.h)
     #include INCLUDE_AWS_S3(model/PutObjectAclRequest.h)
+#ifndef S3_RDMA_SUPPORT
     #include INCLUDE_AWS_S3(model/PutObjectRequest.h)
+#else
+    #include INCLUDE_AWS_S3(model/PutObjectRDMARequest.h)
+#endif
     #include INCLUDE_AWS_S3(model/PutObjectTaggingRequest.h)
     #include INCLUDE_AWS_S3(model/PutObjectLockConfigurationRequest.h)
     #include INCLUDE_AWS_S3(model/PutBucketVersioningRequest.h)
+#ifndef S3_RDMA_SUPPORT
     #include INCLUDE_AWS_S3(model/UploadPartRequest.h)
+#else
+    #include INCLUDE_AWS_S3(model/UploadPartRDMARequest.h)
+#endif
 #endif
 
 #define PATH_BUF_LEN					64
@@ -127,8 +135,13 @@
         std::chrono::steady_clock::time_point ioStartT;
 
         S3::GetObjectRequest request;
+#ifndef S3_RDMA_SUPPORT
         std::promise<S3::GetObjectOutcome> partCompletePromise;
         std::future<S3::GetObjectOutcome> partCompleteFuture;
+#else
+        std::promise<S3::GetObjectRDMAOutcome> partCompletePromise;
+        std::future<S3::GetObjectRDMAOutcome> partCompleteFuture;
+#endif
     };
 
     /**
@@ -155,9 +168,15 @@
 
         std::chrono::steady_clock::time_point ioStartT;
 
+#ifndef S3_RDMA_SUPPORT
         S3::UploadPartRequest uploadPartRequest;
         std::promise<S3::UploadPartOutcome> partCompletePromise;
         std::future<S3::UploadPartOutcome> partCompleteFuture;
+#else
+        S3::UploadPartRDMARequest uploadPartRequest;
+        std::promise<S3::UploadPartRDMAOutcome> partCompletePromise;
+        std::future<S3::UploadPartRDMAOutcome> partCompleteFuture;
+#endif
         S3::CompletedPart completedPart;
     };
 
@@ -1352,6 +1371,8 @@ void LocalWorker::initPhaseFunctionPointers()
     const unsigned rwMixThreadsReadPercent = progArgs->getRWMixThreadsReadPercent();
     const size_t blockSize = progArgs->getBlockSize();
     const BenchPhase globalBenchPhase = workersSharedData->currentBenchPhase;
+    rdmaGpuBuf = useCuFileAPI && areGPUsGiven && progArgs->getUseGPUBufReg();
+    rdmaBufRegistered = rdmaGpuBuf || progArgs->getUseCuObjHostBufReg();
 
     nullifyPhaseFunctionPointers(); // set all function pointers to NULL
 
@@ -1587,6 +1608,12 @@ void LocalWorker::allocIOBuffer()
         // fill buffer with random data to ensure it's really alloc'ed (and not "sparse")
         RandAlgoXoshiro256ss randGen;
         randGen.fillBuf(ioBuf, progArgs->getBlockSize() );
+
+#if defined(S3_SUPPORT) && defined(S3_RDMA_SUPPORT)
+        if(!progArgs->getS3EndpointsVec().empty() && progArgs->getUseCuObjHostBufReg()) {
+            rdmaBufVec.emplace_back(reinterpret_cast<const void *>(ioBuf), progArgs->getBlockSize());
+        }
+#endif
     }
 
     LOGGER(Log_DEBUG, "Allocated IO buffers for ioBufVec. "
@@ -1716,6 +1743,13 @@ void LocalWorker::allocGPUIOBuffer()
 	{
 		if(!progArgs->getUseCuFile() || !gpuIOBuf || !progArgs->getUseGPUBufReg() )
 			continue;
+
+#if defined(S3_SUPPORT) && defined(S3_RDMA_SUPPORT)
+		if(!progArgs->getS3EndpointsVec().empty()) {
+			rdmaBufVec.emplace_back(reinterpret_cast<const void *>(gpuIOBuf), progArgs->getBlockSize());
+			continue;
+		}
+#endif
 
 		CUfileError_t registerRes = cuFileBufRegister(gpuIOBuf, progArgs->getBlockSize(), 0);
 
@@ -1857,6 +1891,14 @@ void LocalWorker::cleanup()
 		if(!progArgs->getUseCuFile() || !gpuIOBuf || !progArgs->getUseGPUBufReg() )
 			continue;
 
+#if defined(S3_SUPPORT) && defined(S3_RDMA_SUPPORT)
+		if(!progArgs->getS3EndpointsVec().empty()) {
+			// Deregisters RDMA buffers in opposite order
+			rdmaBufVec.pop_back();
+			continue;
+		}
+#endif
+
 		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
 
 		if(deregRes.err != CU_FILE_SUCCESS)
@@ -1896,6 +1938,13 @@ void LocalWorker::cleanup()
 	{
 		curandDestroyGenerator(gpuRandGen);
 		gpuRandGen = NULL;
+	}
+#endif
+
+#if defined(S3_SUPPORT) && defined(S3_RDMA_SUPPORT)
+	if(!progArgs->getS3EndpointsVec().empty() && progArgs->getUseCuObjHostBufReg()) {
+		while(!rdmaBufVec.empty())
+			rdmaBufVec.pop_back();
 	}
 #endif
 
@@ -5827,6 +5876,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 	const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
 
+#ifndef S3_RDMA_SUPPORT
 	std::shared_ptr<Aws::IOStream> s3MemStream;
 
     if(blockSize)
@@ -5836,6 +5886,7 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
         ((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
     }
+#endif
 
 	std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
@@ -5845,13 +5896,19 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
 	}
 
+#ifndef S3_RDMA_SUPPORT
 	S3::PutObjectRequest request;
+#else
+	S3::PutObjectRDMARequest request;
+#endif
 	request.WithBucket(bucketName)
 		.WithKey(objectName)
 		.WithContentLength(blockSize);
 
+#ifndef S3_RDMA_SUPPORT
     if(blockSize)
         request.SetBody(s3MemStream);
+#endif
 
     if(doS3AclPutInline)
         TranslatorTk::applyS3PutObjectAclGrants(progArgs, request);
@@ -5873,7 +5930,12 @@ void LocalWorker::s3ModeUploadObjectSinglePart(std::string bucketName, std::stri
 
 	OPLOG_PRE_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
+#ifndef S3_RDMA_SUPPORT
 	S3::PutObjectOutcome outcome = s3Client->PutObject(request);
+#else
+	S3::PutObjectRDMAOutcome outcome = s3Client->PutObjectRDMA(request,
+		Aws::S3::RdmaPtr(rdmaGpuBuf ? gpuIOBufVec[0] : ioBufVec[0], blockSize, rdmaBufRegistered));
+#endif
 
 	OPLOG_POST_OP("S3PutObject", bucketName + "/" + objectName, currentOffset, blockSize,
 		!outcome.IsSuccess() );
@@ -5989,8 +6051,10 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
         /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
             have the exact remaining blockSize as len. otherwise the AWS SDK will send full
             streamBuf len despite smaller contentLength in UploadPartRequest. */
+#ifndef S3_RDMA_SUPPORT
         std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
             (unsigned char*) ioBufVec[0], blockSize);
+#endif
 
 		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
@@ -6002,7 +6066,11 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		// prepare part upload
 
 		S3::CompletedPart completedPart;
+#ifndef S3_RDMA_SUPPORT
 		S3::UploadPartRequest uploadPartRequest;
+#else
+		S3::UploadPartRDMARequest uploadPartRequest;
+#endif
 		uploadPartRequest.WithBucket(bucketName)
 			.WithKey(objectName)
 			.WithUploadId(uploadID)
@@ -6019,7 +6087,9 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
             S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
                 s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
 
+#ifndef S3_RDMA_SUPPORT
 		uploadPartRequest.SetBody(s3MemStream);
+#endif
 
 		uploadPartRequest.SetDataSentEventHandler(
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
@@ -6032,7 +6102,12 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
+#ifndef S3_RDMA_SUPPORT
 		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
+#else
+		auto uploadPartOutcome = s3Client->UploadPartRDMA(uploadPartRequest,
+			Aws::S3::RdmaPtr(rdmaGpuBuf ? gpuIOBufVec[0] : ioBufVec[0], blockSize, rdmaBufRegistered));
+#endif
 
 		/* note: there is no way to tell the server about the offset of a part within an object, so
 			concurrent part uploads might add overhead on completion for the S3 server to assemble
@@ -6246,8 +6321,10 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                 /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
                     have the exact remaining blockSize as len. otherwise the AWS SDK will send full
                     streamBuf len despite smaller contentLength in UploadPartRequest. */
+#ifndef S3_RDMA_SUPPORT
                 std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
                     (unsigned char*) ioBufVec[currentIODepth], blockSize);
+#endif
 
                 asyncPartContext.ioStartT = std::chrono::steady_clock::now();
 
@@ -6258,7 +6335,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
 
                 // prepare part upload
 
+#ifndef S3_RDMA_SUPPORT
                 S3::UploadPartRequest& uploadPartRequest = asyncPartContext.uploadPartRequest;
+#else
+                S3::UploadPartRDMARequest& uploadPartRequest = asyncPartContext.uploadPartRequest;
+#endif
                 uploadPartRequest.WithBucket(bucketName)
                     .WithKey(objectName)
                     .WithUploadId(uploadID)
@@ -6276,7 +6357,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                         &asyncPartContext.completedPart, s3ChecksumAlgorithm,
                         (unsigned char*) ioBufVec[currentIODepth], blockSize);
 
+#ifndef S3_RDMA_SUPPORT
                 uploadPartRequest.SetBody(s3MemStream);
+#endif
 
                 uploadPartRequest.SetDataSentEventHandler(
                     [&atomicLiveOps = atomicLiveOps]
@@ -6293,12 +6376,25 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
 
+#ifndef S3_RDMA_SUPPORT
                 s3Client->UploadPartAsync(uploadPartRequest,
                     [partCompletePromise = &asyncPartContext.partCompletePromise]
                     (const S3Client*, const S3::UploadPartRequest&,
                     S3::UploadPartOutcome outcome,
                     const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
                     { partCompletePromise->set_value(std::move(outcome) ); });
+#else
+                s3Client->UploadPartRDMAAsync(uploadPartRequest,
+                    Aws::S3::RdmaPtr(rdmaGpuBuf ? gpuIOBufVec[currentIODepth] : ioBufVec[currentIODepth], blockSize, rdmaBufRegistered),
+                    [partCompletePromise = &asyncPartContext.partCompletePromise]
+                    (const S3Client*, const S3::UploadPartRDMARequest&, Aws::S3::RdmaPtr&& ptr,
+                    S3::UploadPartRDMAOutcome outcome,
+                    const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
+                    {
+                        ptr.release();
+                        partCompletePromise->set_value(std::move(outcome));
+                    });
+#endif
 
                 numIOPSSubmitted++;
                 rwOffsetGen->addBytesSubmitted(asyncPartContext.blockSize);
@@ -6314,7 +6410,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::
                 S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec[currentIODepth];
 
                 // wait for part upload to complete ("future.get()" blocks)
-                S3::UploadPartOutcome uploadPartOutcome = asyncPartContext.partCompleteFuture.get();
+                const auto uploadPartOutcome = asyncPartContext.partCompleteFuture.get();
 
                 OPLOG_POST_OP("S3UploadPartAsync", bucketName + "/" + objectName,
                     asyncPartContext.currentOffset, asyncPartContext.blockSize,
@@ -6507,11 +6603,13 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		const uint64_t currentPartNum =
 			1 + (currentOffset / rwOffsetGen->getBlockSize() ); // +1 because valid range is 1..10K
 
+#ifndef S3_RDMA_SUPPORT
         /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
             have the exact remaining blockSize as len. otherwise the AWS SDK will send full
             streamBuf len despite smaller contentLength in UploadPartRequest. */
         std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
             (unsigned char*) ioBufVec[0], blockSize);
+#endif
 
 		((*this).*funcRWRateLimiter)(blockSize, isInterruptionRequested);
 
@@ -6523,7 +6621,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		// prepare part upload
 
 		S3::CompletedPart completedPart;
+#ifndef S3_RDMA_SUPPORT
 		S3::UploadPartRequest uploadPartRequest;
+#else
+		S3::UploadPartRDMARequest uploadPartRequest;
+#endif
 		uploadPartRequest.WithBucket(bucketName)
 			.WithKey(objectName)
 			.WithUploadId(uploadID)
@@ -6534,7 +6636,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
             S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
                 s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
 
+#ifndef S3_RDMA_SUPPORT
 		uploadPartRequest.SetBody(s3MemStream);
+#endif
 
 		uploadPartRequest.SetDataSentEventHandler(
 			[&](const Aws::Http::HttpRequest* request, long long numBytes)
@@ -6547,7 +6651,12 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 
 		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
 
+#ifndef S3_RDMA_SUPPORT
 		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
+#else
+		auto uploadPartOutcome = s3Client->UploadPartRDMA(uploadPartRequest,
+			Aws::S3::RdmaPtr(rdmaGpuBuf ? gpuIOBufVec[0] : ioBufVec[0], blockSize, rdmaBufRegistered));
+#endif
 
 		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
 			!uploadPartOutcome.IsSuccess() );
@@ -6737,8 +6846,10 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                 /* note: streamBuf (member of S3MemoryStream) needs to be initialized in loop to
                     have the exact remaining blockSize as len. otherwise the AWS SDK will send full
                     streamBuf len despite smaller contentLength in UploadPartRequest. */
+#ifndef S3_RDMA_SUPPORT
                 std::shared_ptr<Aws::IOStream> s3MemStream = std::make_shared<S3MemoryStream>(
                     (unsigned char*) ioBufVec[currentIODepth], blockSize);
+#endif
 
                 asyncPartContext.ioStartT = std::chrono::steady_clock::now();
 
@@ -6749,7 +6860,11 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
 
                 // prepare part upload
 
+#ifndef S3_RDMA_SUPPORT
                 S3::UploadPartRequest& uploadPartRequest = asyncPartContext.uploadPartRequest;
+#else
+                S3::UploadPartRDMARequest& uploadPartRequest = asyncPartContext.uploadPartRequest;
+#endif
                 uploadPartRequest.WithBucket(bucketName)
                     .WithKey(objectName)
                     .WithUploadId(uploadID)
@@ -6767,7 +6882,9 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                         &asyncPartContext.completedPart, s3ChecksumAlgorithm,
                         (unsigned char*) ioBufVec[currentIODepth], blockSize);
 
+#ifndef S3_RDMA_SUPPORT
                 uploadPartRequest.SetBody(s3MemStream);
+#endif
 
                 uploadPartRequest.SetDataSentEventHandler(
                     [&atomicLiveOps = atomicLiveOps]
@@ -6784,12 +6901,25 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                 OPLOG_PRE_OP("S3UploadPartAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
 
+#ifndef S3_RDMA_SUPPORT
                 s3Client->UploadPartAsync(uploadPartRequest,
                     [partCompletePromise = &asyncPartContext.partCompletePromise]
                     (const S3Client*, const S3::UploadPartRequest&,
                     S3::UploadPartOutcome outcome,
                     const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
                     { partCompletePromise->set_value(std::move(outcome) ); });
+#else
+                s3Client->UploadPartRDMAAsync(uploadPartRequest,
+                    Aws::S3::RdmaPtr(rdmaGpuBuf ? gpuIOBufVec[currentIODepth] : ioBufVec[currentIODepth], blockSize, rdmaBufRegistered),
+                    [partCompletePromise = &asyncPartContext.partCompletePromise]
+                    (const S3Client*, const S3::UploadPartRDMARequest&, Aws::S3::RdmaPtr&& ptr,
+                    S3::UploadPartRDMAOutcome outcome,
+                    const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
+                    {
+                        ptr.release();
+                        partCompletePromise->set_value(std::move(outcome) );
+                    });
+#endif
 
                 numIOPSSubmitted++;
                 rwOffsetGen->addBytesSubmitted(asyncPartContext.blockSize);
@@ -6805,7 +6935,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName,
                 S3AsyncUploadPartContext& asyncPartContext = partCompletionsVec[currentIODepth];
 
                 // wait for part upload to complete ("future.get()" blocks)
-                S3::UploadPartOutcome uploadPartOutcome = asyncPartContext.partCompleteFuture.get();
+                const auto uploadPartOutcome = asyncPartContext.partCompleteFuture.get();
 
                 OPLOG_POST_OP("S3UploadPartAsync", bucketName + "/" + objectName,
                     asyncPartContext.currentOffset, asyncPartContext.blockSize,
@@ -7153,6 +7283,18 @@ void LocalWorker::s3ModeAbortUnfinishedSharedUploads()
 #endif // S3_SUPPORT
 }
 
+#ifdef S3_SUPPORT
+#ifdef S3_RDMA_SUPPORT
+static size_t GetTransferred(const S3::GetObjectRDMAOutcome& outcome) {
+    return static_cast<size_t>(outcome.GetResult().GetRDMABytesTransferred());
+}
+#else
+static size_t GetTransferred(const S3::GetObjectOutcome& outcome) {
+    return static_cast<size_t>(outcome.GetResult().GetContentLength());
+}
+#endif // S3_RDMA_SUPPORT
+#endif // S3_SUPPORT
+
 /**
  * Block-sized download of an S3 object.
  *
@@ -7212,6 +7354,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
                     .WithSSECustomerKey(s3SSECKey)
                     .WithSSECustomerKeyMD5(s3SSECKeyMD5);
 
+#ifndef S3_RDMA_SUPPORT
         if(!useS3FastRead)
             request.SetResponseStreamFactory([&]()
             { /* note: this lambda will be called async after additional for-loop passes, so
@@ -7233,6 +7376,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
             {
                 return new Aws::FStream("/dev/null", std::ios_base::out | std::ios_base::binary);
             });
+#endif
 
 		request.SetDataReceivedEventHandler(
 			[&](const Aws::Http::HttpRequest* request, Aws::Http::HttpResponse* response,
@@ -7251,7 +7395,12 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 
 		OPLOG_PRE_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize);
 
+#ifndef S3_RDMA_SUPPORT
 		S3::GetObjectOutcome outcome = s3Client->GetObject(request);
+#else
+		S3::GetObjectRDMAOutcome outcome = s3Client->GetObjectRDMA(request,
+			Aws::S3::RdmaPtr(rdmaGpuBuf ? gpuIOBuf : ioBuf, blockSize, rdmaBufRegistered));
+#endif
 
 		OPLOG_POST_OP("S3GetObject", bucketName + "/" + objectName, currentOffset, blockSize,
 		    !outcome.IsSuccess() );
@@ -7261,7 +7410,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
 		IF_UNLIKELY(!outcome.IsSuccess() && !ignoreS3Errors)
             s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
 
-		IF_UNLIKELY( ( (size_t)outcome.GetResult().GetContentLength() < blockSize) &&
+		IF_UNLIKELY( ( GetTransferred(outcome) < blockSize) &&
             !ignoreS3Errors)
 		{
             throw WorkerException(std::string("Object too small. ") +
@@ -7270,7 +7419,7 @@ void LocalWorker::s3ModeDownloadObject(std::string bucketName, std::string objec
                 "Object: " + objectName + "; "
                 "Offset: " + std::to_string(currentOffset) + "; "
                 "Requested blocksize: " + std::to_string(blockSize) + "; "
-                "Received length: " + std::to_string(outcome.GetResult().GetContentLength() ) );
+                "Received length: " + std::to_string(GetTransferred(outcome) ) );
 		}
 
 		((*this).*funcPostReadCudaMemcpy)(ioBuf, gpuIOBuf, blockSize);
@@ -7373,6 +7522,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                             .WithSSECustomerKey(s3SSECKey)
                             .WithSSECustomerKeyMD5(s3SSECKeyMD5);
 
+#ifndef S3_RDMA_SUPPORT
                 if(!useS3FastRead)
                     request.SetResponseStreamFactory([ioBuf, blockSize]()
                     { /* note: this lambda will be called async after additional for-loop passes, so
@@ -7395,6 +7545,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                         return new Aws::FStream("/dev/null",
                             std::ios_base::out | std::ios_base::binary);
                     });
+#endif
 
                 request.SetDataReceivedEventHandler(
                     [&isRWMixedReader, &atomicLiveOpsReadMix = atomicLiveOpsReadMix,
@@ -7418,11 +7569,24 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                 OPLOG_PRE_OP("S3GetObjectAsync", bucketName + "/" + objectName, currentOffset,
                     blockSize);
 
+#ifndef S3_RDMA_SUPPORT
                 s3Client->GetObjectAsync(request,
                     [partCompletePromise = &asyncPartContext.partCompletePromise]
                     (const S3Client*, const S3::GetObjectRequest&, S3::GetObjectOutcome outcome,
                         const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
                     { partCompletePromise->set_value(std::move(outcome)); });
+#else
+                s3Client->GetObjectRDMAAsync(request,
+                    Aws::S3::RdmaPtr(rdmaGpuBuf ? gpuIOBuf : ioBuf, blockSize, rdmaBufRegistered),
+                    [partCompletePromise = &asyncPartContext.partCompletePromise]
+                    (const S3Client*, const S3::GetObjectRequest&, Aws::S3::RdmaPtr&& ptr,
+                        S3::GetObjectRDMAOutcome outcome,
+                        const std::shared_ptr<const Aws::Client::AsyncCallerContext>&)
+                    {
+                        ptr.release();
+                        partCompletePromise->set_value(std::move(outcome));
+                    });
+#endif
 
                 numIOPSSubmitted++;
                 rwOffsetGen->addBytesSubmitted(blockSize);
@@ -7439,7 +7603,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                 S3AsyncDownloadContext& asyncPartContext = partCompletionsVec[currentIODepth];
 
                 // wait for this part to complete ("future.get()" blocks)
-                S3::GetObjectOutcome outcome = asyncPartContext.partCompleteFuture.get();
+                const auto outcome = asyncPartContext.partCompleteFuture.get();
 
                 OPLOG_POST_OP("S3GetObjectAsync", bucketName + "/" + objectName,
                     asyncPartContext.currentOffset, asyncPartContext.blockSize,
@@ -7451,7 +7615,7 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                     s3ModeThrowOnError(outcome, "Object download failed.", bucketName, objectName);
 
                 IF_UNLIKELY(
-                    ( (size_t)outcome.GetResult().GetContentLength() <
+                    ( GetTransferred(outcome) <
                         asyncPartContext.blockSize) &&
                     !ignoreS3Errors)
                 {
@@ -7462,9 +7626,8 @@ void LocalWorker::s3ModeDownloadObjectAsync(std::string bucketName, std::string 
                         "Offset: " + std::to_string(asyncPartContext.currentOffset) + "; "
                         "Requested blocksize: " + std::to_string(asyncPartContext.blockSize) + "; "
                         "Received length: " + std::to_string(
-                            outcome.GetResult().GetContentLength() ) );
+                            GetTransferred(outcome) ) );
                 }
-
                 char* ioBuf = useS3FastRead ? NULL : ioBufVec[currentIODepth];
                 char* gpuIOBuf = useS3FastRead ? NULL : gpuIOBufVec[currentIODepth];
 
