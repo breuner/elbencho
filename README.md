@@ -173,6 +173,10 @@ sudo make install
 make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
 ```
 
+##### TLS Certificate Verification
+
+The certificate of an `https://` S3 endpoint is verified against the system trust store. Add `--s3insecure` to skip the verification, which test setups typically need because they use self-signed certificates or address the endpoint by IP address instead of the hostname in the certificate.
+
 #### GPU-Direct S3-over-RDMA (cuObject) Support
 
 The `--cuobj` option performs single-part S3 GET/PUT using NVIDIA's cuObject (`cuObjClient`) API — the object-storage counterpart of `--cufile` (GDS). The object payload moves out-of-band over RDMA (directly to/from GPU memory when `--gpuids` is given, otherwise host/CPU memory), while a small body-less HTTP control request carries the `x-amz-rdma-*` protocol headers. It requires an RDMA-capable S3 endpoint that implements that protocol.
@@ -215,7 +219,7 @@ LD_LIBRARY_PATH=/path/to/elbencho/vendor/cuobj/lib/x86_64 \
     --cuobj --iodepth 1 -w -r -t 16 -s 8m -b 8m s3://mybucket
 ```
 
-Add `--gpuids <id>` to the command above for VRAM-direct transfers.
+Add `--gpuids <id>` to the command above for VRAM-direct transfers, and `--s3insecure` if the endpoint uses a self-signed certificate. The RDMA control request is pinned to HTTP/1.1, so the `x-amz-rdma-*` header exchange doesn't depend on HTTP/2 negotiation.
 
 #### macOS Support
 

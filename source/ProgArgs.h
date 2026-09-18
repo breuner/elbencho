@@ -174,6 +174,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3FASTGET_LONG               "s3fastget"
 #define ARG_S3FASTPUT_LONG               "s3fastput"
 #define ARG_S3IGNOREERRORS_LONG          "s3ignoreerrors"
+#define ARG_S3INSECURE_LONG              "s3insecure"
 #define ARG_S3LISTOBJ_LONG               "s3listobj"
 #define ARG_S3LISTOBJPARALLEL_LONG       "s3listobjpar"
 #define ARG_S3LISTOBJVERIFY_LONG         "s3listverify"
@@ -540,6 +541,7 @@ class ProgArgs
         std::string s3MpuSplitSizeOrigStr; // original s3MpuSplitSize str from user with unit
         bool s3NoCompression; // disable request compression of aws sdk cpp
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
+        bool s3NoTlsVerify; // don't verify s3 server tls certificates (e.g. self-signed)
         std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
         std::string s3Region; // s3 region
         std::string s3SessionToken; // s3 session token (same as secret token)
@@ -837,6 +839,7 @@ class ProgArgs
         size_t getS3MpuSizeVariance() const { return s3MpuSizeVariance; }
         bool getS3NoCompression() const { return s3NoCompression; };
         bool getS3NoMpuCompletion() const { return s3NoMpuCompletion; };
+        bool getS3NoTlsVerify() const { return s3NoTlsVerify; };
         unsigned getS3MaxConnections() const { return s3MaxConnections; }
         size_t getS3MpuSplitSize() const { return s3MpuSplitSize; }
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }

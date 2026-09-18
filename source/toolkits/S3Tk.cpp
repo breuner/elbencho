@@ -187,7 +187,7 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         (std::shared_ptr<Aws::Utils::Threading::Executor>)
             std::make_shared<Aws::Utils::Threading::DefaultExecutor>();
 
-    config.verifySSL = false; // to avoid self-signed certificate errors; ignored by S3CrtClient
+    config.verifySSL = !progArgs->getS3NoTlsVerify(); // ignored by S3CrtClient
     config.enableEndpointDiscovery = false; // to avoid delays for discovery
     config.maxConnections = maxConnections ? maxConnections : numParallelRequests; /* max tcp conns;
         ignored by S3CrtClient, which uses throughputTargetGbps for implicit calculation */
@@ -229,10 +229,10 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         https://github.com/aws/aws-sdk-cpp/issues/3653) */
     config.clientBootstrap = bootstrap;
 
-    // create tls context to disable SSL certificate verification
+    // create tls context for the configured certificate verification mode
 
     auto tlsCtxOptions = Aws::Crt::Io::TlsContextOptions::InitDefaultClient();
-    tlsCtxOptions.SetVerifyPeer(false); // equivalent of "config.verifySSL=false" for S3CrtClient
+    tlsCtxOptions.SetVerifyPeer(!progArgs->getS3NoTlsVerify() ); // config.verifySSL equivalent
 
     Aws::Crt::Io::TlsContext tlsContext(tlsCtxOptions, Aws::Crt::Io::TlsMode::CLIENT);
 

@@ -666,6 +666,10 @@ void ProgArgs::defineAllowedArgs()
             "\"--" ARG_S3NOCOMPRESS_LONG "\".")
 /*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
+/*s3i*/	(ARG_S3INSECURE_LONG, bpo::bool_switch(&this->s3NoTlsVerify),
+			"Don't verify the TLS certificate of https S3 endpoints. Needed for endpoints using "
+			"self-signed or otherwise untrusted certificates and for endpoints addressed by "
+			"IP address instead of the certificate hostname.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
 			"S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
@@ -1009,6 +1013,7 @@ void ProgArgs::defineDefaults()
     this->s3MpuSplitSizeOrigStr = "0";
     this->s3NoCompression = false;
     this->s3NoMpuCompletion = false;
+    this->s3NoTlsVerify = false;
     this->s3IgnoreMultipartUpload404 = false;
     this->s3SessionToken = "";
     this->s3SignPolicy = 0;
@@ -3812,6 +3817,10 @@ void ProgArgs::printHelpS3()
             "S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
         (ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
              "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN " env variable.)")
+        (ARG_S3INSECURE_LONG, bpo::bool_switch(&this->s3NoTlsVerify),
+            "Don't verify the TLS certificate of https S3 endpoints. Needed for endpoints using "
+            "self-signed or otherwise untrusted certificates and for endpoints addressed by "
+            "IP address instead of the certificate hostname.")
     ;
 
     std::cout << argsS3ServiceArgsDescription << std::endl;
@@ -4240,6 +4249,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     s3MpuSizeVariance = tree.get<size_t>(ARG_S3MPUSIZEVAR_LONG);
     s3MpuSplitSize = tree.get<size_t>(ARG_S3MPUSPLITSIZE_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
+	s3NoTlsVerify = tree.get<bool>(ARG_S3INSECURE_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
@@ -4421,6 +4431,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
     outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
+    outTree.put(ARG_S3INSECURE_LONG, s3NoTlsVerify);
     outTree.put(ARG_S3NOMPUCOMPLETION_LONG, s3NoMpuCompletion);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);

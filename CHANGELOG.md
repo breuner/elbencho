@@ -13,9 +13,11 @@
   * This is because the new higher resolution latency histogram for the `--lathisto` option can easily get inconveniently long on the console.
   * When the `--lathistogrpd` option is given, the full histogram is available in the json result file (see `--jsonfile` option), same as when using the `--lathisto` option.
 * New option `--offset`. With this new option, `--size` is now interpreted relative to the given `--offset` value, so that it is possible to work only with certain byte ranges within files/objects/bdevs.
+* New option `--s3insecure` to skip TLS certificate verification for https S3 endpoints, e.g. for endpoints using self-signed certificates or endpoints addressed by IP address.
 * New option to specify a comma-separated weighted mix of block sizes, e.g. `-b 4k:3,64k:1` for 3 parts 4KiB and 1 part 64KiB (75%/25% mix), which is equivalent to using `-b 4k:75,64k:25`.
 
 ### General Changes
+* TLS certificates of https S3 endpoints are now verified by default. Previously, certificate verification was always disabled. Use the new `--s3insecure` option for endpoints with self-signed or otherwise untrusted certificates and for endpoints addressed by IP address instead of the hostname in the certificate.
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
 * Removed dockerfiles without `.local` extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
 * Updated ftxui lib for fullscreen live stats to latest v7.0.3.

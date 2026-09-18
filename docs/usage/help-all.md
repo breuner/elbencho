@@ -376,6 +376,11 @@ All options in alphabetical order:
                           (never)", "--s3nocompress".
   --s3ignoreerrors        Ignore any S3 upload/download errors. Useful for 
                           stress-testing.
+  --s3insecure            Don't verify the TLS certificate of https S3 
+                          endpoints. Needed for endpoints using self-signed or 
+                          otherwise untrusted certificates and for endpoints 
+                          addressed by IP address instead of the certificate 
+                          hostname.
   --s3key arg             S3 access key. (This can also be set via the 
                           AWS_ACCESS_KEY_ID env variable.)
   --s3listobj arg         List objects. The given number is the maximum number 

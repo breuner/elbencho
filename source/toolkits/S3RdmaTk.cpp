@@ -19,6 +19,7 @@
 #include <aws/core/http/HttpRequest.h>
 #include <aws/core/http/HttpResponse.h>
 #include <aws/core/http/URI.h>
+#include <aws/core/http/Version.h>
 #include <aws/core/utils/DateTime.h>
 #include <aws/core/utils/HashingUtils.h>
 #include <aws/core/utils/StringUtils.h>
@@ -231,7 +232,12 @@ S3RdmaControlPlane::S3RdmaControlPlane(const ProgArgs* progArgs, size_t workerRa
 
 		Aws::Client::ClientConfiguration config;
 		config.region = impl->region;
-		config.verifySSL = false;
+		config.verifySSL = !progArgs->getS3NoTlsVerify();
+
+		/* pin the control connection to HTTP/1.1, so the x-amz-rdma-* header exchange doesn't
+			depend on whether the endpoint negotiates HTTP/2 via ALPN. (Only honored by the SDK's
+			curl http client; the CRT http client hardcodes its ALPN list.) */
+		config.version = Aws::Http::Version::HTTP_VERSION_1_1;
 		config.connectTimeoutMs = RDMA_CONNECT_TIMEOUT_SECS * 1000;
 		config.requestTimeoutMs = RDMA_TIMEOUT_SECS * 1000;
 		impl->http = Aws::Http::CreateHttpClient(config);
