@@ -24,9 +24,11 @@
 * Updated S3 to latest AWS SDK CPP v1.11.895.
 * Added test suite to repo based on "prove". `tests/run-tests.sh -a` can be used to run all tests supported by the current executable in `bin/`. (Tests for not included build features will automatically be skipped.) Details available at [`tests/README.md`](tests/README.md).
 
+### Fixes
+* The AWS SDK CPP for S3 differs in retry behavior from the public documentation [here](https://docs.aws.amazon.com/sdkref/latest/guide/feature-retry-behavior.html), so that e.g. http response code 429 (Too many requests) does not always lead to the intended retries. Thus, we now manually mark such reponse codes as retryable for the AWS SDK CPP in elbencho's custom retry strategy class.
 
 ### Contributors
-Thanks to GitHub user rjohnson-ha for code contributions. Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop, Github user git4ghw, Nathan Foster for helpful comments and suggestions.
+Thanks to GitHub user rjohnson-ha for code contributions. Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop, Github user git4ghw, Nathan Foster, Joshua Hoblitt for helpful comments and suggestions.
 
 ## v3.1.11 (July 24, 2026)
 

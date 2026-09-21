@@ -193,7 +193,8 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
         ignored by S3CrtClient, which uses throughputTargetGbps for implicit calculation */
     config.retryStrategy = std::make_shared<S3InterruptibleRetryStrategy>(
         Aws::Client::InitRetryStrategy(),
-        isInterruptionRequested); // note: retryStrategy is not used by S3CrtClient
+        isInterruptionRequested); /* S3CrtClient uses this for SDK-level ops (e.g.
+        CreateMultipartUpload); CRT-internal Put/Get retries are separate */
     config.connectTimeoutMs = 5000;
     config.requestTimeoutMs = 300000;
     config.disableExpectHeader = true;
