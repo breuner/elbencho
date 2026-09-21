@@ -17,7 +17,6 @@
     #include <aws/core/auth/AWSCredentialsProviderChain.h>
     #include <aws/core/Aws.h>
     #include <aws/core/utils/crypto/MD5.h>
-    #include <aws/core/utils/logging/DefaultLogSystem.h>
     #include <aws/core/utils/logging/AWSLogging.h>
     #include INCLUDE_AWS_S3(model/ListObjectsV2Request.h)
 
@@ -26,6 +25,7 @@
     #endif
 
     #include "toolkits/S3InterruptibleRetryStrategy.h"
+    #include "toolkits/S3UnbufferedLogSystem.h"
 
     /* print a note for AWS CRT with older SDK versions because of known issue with
         SetContinueRequestHandler: https://github.com/aws/aws-sdk-cpp/issues/3639 */
@@ -78,8 +78,8 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 
         s3SDKOptions->loggingOptions.logger_create_fn = [&]()
         {
-            return Aws::MakeShared<Aws::Utils::Logging::DefaultLogSystem>(
-                "CustomLogSystem", (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
+            return Aws::MakeShared<S3UnbufferedLogSystem>(
+                "S3UnbufferedLogSystem", (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
                 progArgs->getS3LogfilePrefix() );
         };
 
