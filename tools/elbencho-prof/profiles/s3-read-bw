@@ -1,0 +1,9 @@
+# S3 sequential read bandwidth test.
+#
+# 4MiB sequential reads from 64 threads.
+
+block=4m
+iodepth=1
+read=1
+s3nocompress=1
+threads=64

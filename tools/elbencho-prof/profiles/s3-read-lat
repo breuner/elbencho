@@ -1,0 +1,14 @@
+# S3 read latency test.
+#
+# 4KiB random reads from a single thread of a single client.
+
+block=4k
+iodepth=1
+lat=1
+latpercent=1
+latpercent9s=1
+numhosts=1
+rand=1
+read=1
+s3nocompress=1
+threads=1

@@ -1,0 +1,10 @@
+# S3 random read IOPS test.
+#
+# 4KiB random reads from 64 threads.
+
+block=4k
+iodepth=1
+rand=1
+read=1
+s3nocompress=1
+threads=64

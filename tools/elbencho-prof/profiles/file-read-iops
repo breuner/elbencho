@@ -1,0 +1,11 @@
+# File random read IOPS test.
+#
+# 4KiB random reads from 64 threads with asynchronous IO depth 16 using direct
+# IO to bypass client cache.
+
+block=4k
+direct=1
+iodepth=16
+rand=1
+read=1
+threads=64

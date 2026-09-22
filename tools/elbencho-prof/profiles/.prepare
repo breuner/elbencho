@@ -1,0 +1,10 @@
+# Profile for dataset preparation phase.
+#
+# Large 8MiB sequential writes using 64 threads per host and using direct IO to
+# bypass client cache.
+
+block=8m
+direct=1
+iodepth=1
+threads=64
+write=1

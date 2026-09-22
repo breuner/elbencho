@@ -1,0 +1,9 @@
+# S3 sequential write bandwidth test.
+#
+# 5MiB sequential multipart uploads from 64 threads.
+
+block=5m
+iodepth=1
+s3nocompress=1
+threads=64
+write=1

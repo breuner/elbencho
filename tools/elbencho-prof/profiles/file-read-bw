@@ -1,0 +1,10 @@
+# File sequential read bandwidth test.
+#
+# 1MiB sequential reads from 64 threads with asynchronous IO depth 4 using
+# direct IO to bypass client cache.
+
+block=1m
+direct=1
+iodepth=4
+read=1
+threads=64
