@@ -42,6 +42,8 @@ S3_SUPPORT         ?= 0
 SYSCALLH_SUPPORT   ?= 1
 THREADNAME_SUPPORT ?= 1
 
+S3_RDMA_SUPPORT = 0
+
 CXXFLAGS_COMMON   = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 $(CXXFLAGS_BOOST) \
 	-DEXE_NAME=\"$(EXE_NAME)\" -DEXE_VERSION=\"$(EXE_VERSION)\" \
 	-I $(SOURCE_PATH) -I $(EXTERNAL_PATH)/Simple-Web-Server \
@@ -120,6 +122,13 @@ ifeq ($(S3_SUPPORT), 1)
     CXXFLAGS += -I $(EXTERNAL_PATH)/aws-sdk-cpp_install/include
   else
     CXXFLAGS += -I $(AWS_INCLUDE_DIR)
+    ifneq ("$(wildcard $(AWS_INCLUDE_DIR)/aws/s3/RdmaPtr.h)","")
+      ifeq ($(S3_AWSCRT), 1)
+        $(error S3_RDMA_SUPPORT is not compatible with S3_AWSCRT. Please disable S3_AWSCRT to enable S3_RDMA_SUPPORT)
+      endif
+      CXXFLAGS += -DS3_RDMA_SUPPORT
+      S3_RDMA_SUPPORT = 1
+    endif
   endif
 
 endif
@@ -308,13 +317,15 @@ externals:
 # there will be sub-make calls in this script.
 ifdef BUILD_VERBOSE
 	$(info [EXT] Preparing external libraries)
-	+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
+	+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) S3_RDMA_SUPPORT=$(S3_RDMA_SUPPORT) \
+		AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
 		PREP_SPDK=$(SPDK_SUPPORT) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 else
-	@+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
+	@+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) S3_RDMA_SUPPORT=$(S3_RDMA_SUPPORT) \
+		AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
 		PREP_SPDK=$(SPDK_SUPPORT) \
@@ -405,6 +416,9 @@ ifeq ($(S3_SUPPORT),1)
 	$(info [OPT] S3 support enabled (AWS CRT))
   else
 	$(info [OPT] S3 support enabled)
+  endif
+  ifeq ($(S3_RDMA_SUPPORT),1)
+	$(info [OPT] S3 RDMA support detected)
   endif
 else
 	$(info [OPT] S3 support disabled. (Enable via S3_SUPPORT=1))

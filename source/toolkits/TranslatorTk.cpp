@@ -1008,6 +1008,10 @@ void TranslatorTk::applyS3PutObjectAclGrants(const ProgArgs* progArgs, S3REQUEST
 // teach the linker which template instantiation we need so that definition can be in cpp file
 template void TranslatorTk::applyS3PutObjectAclGrants<S3::PutObjectRequest>(
     const ProgArgs* progArgs, S3::PutObjectRequest& outRequest);
+#ifdef S3_RDMA_SUPPORT
+template void TranslatorTk::applyS3PutObjectAclGrants<S3::PutObjectRDMARequest>(
+    const ProgArgs* progArgs, S3::PutObjectRDMARequest& outRequest);
+#endif
 template void TranslatorTk::applyS3PutObjectAclGrants<S3::CreateMultipartUploadRequest>(
     const ProgArgs* progArgs, S3::CreateMultipartUploadRequest& outRequest);
 

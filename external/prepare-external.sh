@@ -138,9 +138,18 @@ prepare_awssdk_prebuilt_libs()
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
 	local INSTALL_LIB_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install/lib"
 	local AWS_LIBS="libaws-c-auth.a libaws-c-compression.a libaws-c-http.a libaws-cpp-sdk-core.a \
-		libaws-crt-cpp.a libaws-c-cal.a libaws-c-event-stream.a libaws-c-io.a libaws-cpp-sdk-s3.a \
-		libaws-c-s3.a libaws-c-common.a libaws-checksums.a libaws-c-mqtt.a \
-		libaws-cpp-sdk-transfer.a libaws-c-sdkutils.a"
+		libaws-crt-cpp.a libaws-c-cal.a libaws-c-event-stream.a libaws-c-io.a \
+		libaws-c-s3.a libaws-c-common.a libaws-checksums.a libaws-c-mqtt.a libaws-c-sdkutils.a"
+	local AWS_CPP_S3_LIB="libaws-cpp-sdk-s3.a"
+	if [ "$S3_RDMA_SUPPORT" = 1 ]; then
+		AWS_LIBS="$AWS_LIBS libcloudian-aws-cpp-sdk-s3.a libs2n.a"
+		AWS_CPP_S3_LIB="libcloudian-aws-cpp-sdk-s3.a"
+	else
+		AWS_LIBS="$AWS_LIBS libaws-cpp-sdk-s3.a "
+		if [ "$S3_AWSCRT" = 1 ]; then
+			AWS_LIBS="$AWS_LIBS libaws-cpp-sdk-transfer.a"
+		fi
+	fi
 
 	echo "Resolving given AWS SDK libs path: $AWS_LIB_DIR"
 
@@ -154,8 +163,8 @@ prepare_awssdk_prebuilt_libs()
 	echo "Resolved AWS SDK libs path: $AWS_LIB_DIR"
 
 	# Simple sanity check for provided AWS_LIB_DIR
-	if [ ! -e "${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a" ]; then
-		echo "AWS_LIB_DIR invalid. File not found: ${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a"
+	if [ ! -e "${AWS_LIB_DIR}/${AWS_CPP_S3_LIB}" ]; then
+		echo "AWS_LIB_DIR invalid. File not found: ${AWS_LIB_DIR}/${AWS_CPP_S3_LIB}"
 		exit 1
 	fi
 

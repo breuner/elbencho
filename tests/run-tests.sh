@@ -47,7 +47,9 @@ usage()
     echo "            of these commands to one transcript file per test script in the"
     echo "            \"commands\" subdir of the dir for temporary files."
     echo "  -s        Also run the S3 tests. The minio S3 server gets downloaded"
-    echo "            into the temporary dir if it does not exist there yet."
+    echo "            into the temporary dir if it does not exist there yet, unless"
+    echo "            ELBENCHO_TEST_S3_ENDPOINT points at an external S3 server."
+    echo "            Set ELBENCHO_TEST_S3RDMA=1 to enable S3 over RDMA."
     echo "  -p        Also run the SPDK tests. Each of these starts its own private"
     echo "            SPDK NVMe-oF target and requires python3 for spdk's rpc.py."
     echo "  -a        Run all test groups."
@@ -171,6 +173,10 @@ prepare_minio_or_exit()
         echo "ERROR: The aws cli tool is required for the S3 tests, but was not" >&2
         echo "       found in PATH." >&2
         exit 1
+    fi
+
+    if [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ]; then
+        return 0
     fi
 
     # the download itself lives in the library, so that the interactive tools in
