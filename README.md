@@ -23,6 +23,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
   - [Nvidia CUDA Support](#nvidia-cuda-support)
   - [Nvidia GPUDirect Storage \(GDS\) Support](#nvidia-gpudirect-storage-gds-support)
   - [S3 Object Storage Support](#s3-object-storage-support)
+  - [GPU-Direct S3-over-RDMA \(cuObject\) Support](#gpu-direct-s3-over-rdma-cuobject-support)
   - [macOS Support](#macos-support)
   - [NVMe-oF Support](#nvme-of-support)
 
@@ -173,6 +174,54 @@ sudo make install
 # In the elbencho git clone top level dir:
 make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
 ```
+
+##### TLS Certificate Verification
+
+The certificate of an `https://` S3 endpoint is verified against the system trust store. Add `--s3insecure` to skip the verification, which test setups typically need because they use self-signed certificates or address the endpoint by IP address instead of the hostname in the certificate.
+
+#### GPU-Direct S3-over-RDMA (cuObject) Support
+
+The `--cuobj` option performs single-part S3 GET/PUT using NVIDIA's cuObject (`cuObjClient`) API — the object-storage counterpart of `--cufile` (GDS). The object payload moves out-of-band over RDMA (directly to/from GPU memory when `--gpuids` is given, otherwise host/CPU memory), while a small body-less HTTP control request carries the `x-amz-rdma-*` protocol headers. It requires an RDMA-capable S3 endpoint that implements that protocol.
+
+Support is auto-enabled with `S3_SUPPORT=1` when the cuObject client library is installed and links, which additionally requires `libibverbs`/`librdmacm`. The library is located through its pkg-config module (`cuobjclient-<major>.<minor>`), falling back to a search under `/usr/local/cuda*`; `CUOBJ_INCLUDE_PATH` and `CUOBJ_LIB_PATH` override both, and `CUOBJ_SUPPORT=0|1` forces the feature off or on. A build environment without cuObject is unaffected — the feature is simply left out, exactly like `--cufile`.
+
+No cuObject binaries are shipped with elbencho: they are NVIDIA proprietary and carry their own EULA. Install the `libcuobjclient` development package that matches your S3 server's cuObject version.
+
+**Version compatibility (important):** the `libcuobjclient` that elbencho links must be compatible with the cuObject version of your S3 server — 1.2.0 here pairs with `libcuobjserver` 1.2.0. Do not mix major/minor versions. A client/server mismatch typically surfaces as RDMA buffer-registration failures or `retry exceeded` transfer errors even though the control-plane HTTP request succeeds.
+
+**Runtime configuration:** cuObject reads a JSON config file (point `CUFILE_ENV_PATH_JSON` at it). The client NIC(s) and RDMA properties must be set, for example:
+
+```json
+{
+  "properties": {
+    "allow_compat_mode": true,
+    "use_pci_p2pdma": true,
+    "rdma_peer_type": "dmabuf",
+    "rdma_dev_addr_list": ["<client-nic-ipv4>"],
+    "rdma_multipath_enabled": true
+  }
+}
+```
+
+**Multi-NIC clients:** NIC selection across multiple RDMA NICs is handled entirely by cuObject, not by elbencho — list each client RDMA NIC IPv4 in `rdma_dev_addr_list` and set `rdma_multipath_enabled: true`. cuObject then chooses the NIC, embeds its GID in the RDMA token (so the server transfers to the correct interface regardless of which NIC the HTTP control request used), and handles failover/failback across the listed NICs (see the `rdma_max_backup_devices`, `rdma_io_retry_count`, `rdma_failback_enabled` and `rdma_health_check_interval_ms` properties). With a single entry it transparently runs single-path.
+
+**Constraints:**
+* Single-part transfers only: the block size (`-b`) must equal the object size (`-s`), and `--iodepth=1` is required.
+* An RDMA decline or failure is a hard error — there is no automatic HTTP fallback.
+* The host needs RDMA-capable NICs (RoCEv2 or InfiniBand) and a sufficiently high locked-memory limit (`memlock`). For VRAM-direct transfers (`--gpuids`), GPUDirect RDMA must be working between the GPU and NIC (e.g. PCIe ACS redirect disabled on the data-path bridges).
+* `libcufile` loads `libcufile_rdma.so` with `dlopen`, which does not consult the executable's rpath. Put the directory holding it on `LD_LIBRARY_PATH`, or RDMA registration fails with `no devices found in configuration` even though `rdma_dev_addr_list` is set. The cuFile log reports this as `--rdma library : Not Loaded (libcufile_rdma.so)`.
+* On a client without a GPU or without `nvidia-fs.ko` loaded, set `allow_compat_mode: true`. cuFile otherwise refuses to initialize (`nvidia-fs.ko driver not loaded`) and `--cuobj` reports the fabric as not connected. Host-memory RDMA transfers work normally in this mode.
+
+Example (16 threads, 8 MiB objects, host/CPU buffers):
+
+```bash
+CUFILE_ENV_PATH_JSON=/path/to/cuobj.json \
+LD_LIBRARY_PATH=/path/to/cuobject/lib \
+  elbencho --s3endpoints https://S3SERVER:9000 --s3key KEY --s3secret SECRET \
+    --cuobj --iodepth 1 -w -r -t 16 -s 8m -b 8m s3://mybucket
+```
+
+Add `--gpuids <id>` to the command above for VRAM-direct transfers, and `--s3insecure` if the endpoint uses a self-signed certificate. The RDMA control request is pinned to HTTP/1.1, so the `x-amz-rdma-*` header exchange doesn't depend on HTTP/2 negotiation.
 
 #### macOS Support
 

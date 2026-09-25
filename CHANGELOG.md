@@ -13,11 +13,13 @@
   * This is because the new higher resolution latency histogram for the `--lathisto` option can easily get inconveniently long on the console.
   * When the `--lathistogrpd` option is given, the full histogram is available in the json result file (see `--jsonfile` option), same as when using the `--lathisto` option.
 * New option `--offset`. With this new option, `--size` is now interpreted relative to the given `--offset` value, so that it is possible to work only with certain byte ranges within files/objects/bdevs.
+* New option `--s3insecure` to skip TLS certificate verification for https S3 endpoints, e.g. for endpoints using self-signed certificates or endpoints addressed by IP address.
 * New option to specify a comma-separated weighted mix of block sizes, e.g. `-b 4k:3,64k:1` for 3 parts 4KiB and 1 part 64KiB (75%/25% mix), which is equivalent to using `-b 4k:75,64k:25`.
 * Added support for journaled data verification. User guide is available at [`docs/journaling.md`](docs/journaling.md).
 * Added new `elbencho-prof.sh` tool for profile-driven automatic file & object bandwidth, IOPS, latency tests. (See `tools/elbencho-prof/`)
 
 ### General Changes
+* TLS certificates of https S3 endpoints are now verified by default. Previously, certificate verification was always disabled. Use the new `--s3insecure` option for endpoints with self-signed or otherwise untrusted certificates and for endpoints addressed by IP address instead of the hostname in the certificate.
 * Dockerfile symlink in repo root dir now points to Ubuntu 26.04 Dockerfile instead of Ubuntu 24.04.
 * Removed dockerfiles without `.local` extension from `build_helpers/docker` subdir. These pulled from GitHub instead of using a local clone and were otherwise redundant.
 * Updated ftxui lib for fullscreen live stats to latest v7.0.3.
@@ -38,6 +40,9 @@ Thanks to GitHub user rjohnson-ha for code contributions. Thanks to Dan Gluskin,
 ### General Changes
 * Updated ftxui lib for fullscreen live stats to latest v7.0.1.
 * Updated mimalloc lib for static builds to latest v3.4.1.
+
+### New Features & Enhancements
+* New option "--cuobj" for GPU-direct S3-over-RDMA via the NVIDIA cuObject (cuObjClient) API shipped with CUDA 13.1+ (the object-storage counterpart of "--cufile"). Single-part object GET/PUT move their payload out-of-band over RDMA (directly to/from GPU VRAM when "--gpuids" is given) while a body-less HTTP control request carries the x-amz-rdma-* protocol headers. Requires a build with cuObject support and an RDMA-capable S3 endpoint.
 
 ### Fixes
 * Fixed potential issue on macOS with async S3 requests not getting cleaned up correctly after error or interruption.
