@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.1.12 (work in progress)
+## v3.2.1 (Sep 25, 2026)
 
 ### New Features & Enhancements
 * Added NVMe-oF support based on SPDK. This can be used to test NVMe-oF block devices directly, as an alternative to the NVMe-oF stack of the Linux kernel.
@@ -28,6 +28,7 @@
 
 ### Fixes
 * The AWS SDK CPP for S3 differs in retry behavior from the public documentation [here](https://docs.aws.amazon.com/sdkref/latest/guide/feature-retry-behavior.html), so that e.g. http response code 429 (Too many requests) does not always lead to the intended retries. Thus, we now manually mark such reponse codes as retryable for the AWS SDK CPP in elbencho's custom retry strategy class.
+* Prevent switching into fullscreen live stats in standard Windows terminal because of key event handling issues with ftxui on Windows.
 
 ### Contributors
 Thanks to GitHub user rjohnson-ha for code contributions. Thanks to Dan Gluskin, Aviv Ben David, Darrell Bishop, Github user git4ghw, Nathan Foster, Joshua Hoblitt for helpful comments and suggestions.

@@ -44,7 +44,9 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 
 The [built-in help](docs/usage/help.md) (`elbencho --help`) provides simple examples to get started.
 
-You can get elbencho pre-built for Linux & Windows from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho).
+  | ℹ️ **Note** |
+  | :--- |
+  | If you don't want to build elbencho from source, you can get elbencho pre-built for Linux & Windows from the [Releases section](https://github.com/breuner/elbencho/releases) and from [Docker Hub](https://hub.docker.com/r/breuner/elbencho). The [`elbencho-prof`](https://github.com/breuner/elbencho/tree/master/tools/elbencho-prof) tool is available to get started with automatic profile-driven tests for shared filesystems and S3 object stores. |
 
 ## Build Prerequisites
 
