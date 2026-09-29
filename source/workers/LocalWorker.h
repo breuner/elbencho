@@ -42,6 +42,10 @@
     #include "toolkits/spdk/SpdkNvmeClient.h"
 #endif
 
+#if defined(S3_SUPPORT) && defined(S3_RDMA_SUPPORT)
+	#include <aws/s3/RdmaPtr.h>
+#endif
+
 typedef std::vector<BasicSocket*> SocketVec;
 
 // delaration for function typedefs below
@@ -79,6 +83,9 @@ typedef void (LocalWorker::*BLOCK_MODIFIER)(char* hostIOBuf, char* gpuIOBuf, siz
 typedef bool (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
     std::atomic_bool& isInterruptionRequested);
 
+#if defined(S3_SUPPORT) && defined(S3_RDMA_SUPPORT)
+typedef std::vector<Aws::S3::RdmaPtr> RdmaBufferVec;
+#endif
 
 /**
  * Each worker represents a single thread performing local I/O.
@@ -149,6 +156,8 @@ class LocalWorker : public Worker
 		std::unique_ptr<RandAlgoInterface> randOffsetAlgo; // for random offsets
 		std::unique_ptr<RandAlgoInterface> randBlockVarAlgo; // for random block contents variance
 		std::unique_ptr<RandAlgoInterface> randBlockVarReseed; // reseed for golden prime block var
+		bool rdmaGpuBuf = false; // GPU buffers for cuObj RDMA
+		bool rdmaBufRegistered = false; // buffers for RDMA registered
 
 		PathStore customTreeDirs; // non-shared dirs for custom tree mode
 		PathStore customTreeFiles; // non-shared and shared files for custom tree mode
@@ -220,6 +229,9 @@ class LocalWorker : public Worker
         std::shared_ptr<S3Client> s3Client; // (shared_ptr expected by some SDK functions)
         std::string s3EndpointStr; // set after s3Client initialized
         static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
+#ifdef S3_RDMA_SUPPORT
+        RdmaBufferVec rdmaBufVec; // RDMA buffers for read/write via cuobj (count matches iodepth)
+#endif
 
         bool useS3SSE{false}; // for plain server-side encryption
         std::string s3SSECKey; // SSE-C encryption key

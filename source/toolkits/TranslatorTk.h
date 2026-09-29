@@ -13,6 +13,9 @@
     #include INCLUDE_AWS_S3(model/PutObjectAclRequest.h)
     #include INCLUDE_AWS_S3(model/PutBucketAclRequest.h)
     #include INCLUDE_AWS_S3(model/PutObjectRequest.h)
+#ifdef S3_RDMA_SUPPORT
+    #include INCLUDE_AWS_S3(model/PutObjectRDMARequest.h)
+#endif
     #include INCLUDE_AWS_S3(model/ObjectCannedACL.h)
 #endif // S3_SUPPORT
 

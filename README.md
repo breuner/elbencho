@@ -174,6 +174,10 @@ sudo make install
 make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
 ```
 
+##### S3 RDMA Support
+
+S3 over RDMA is supported by building with Cloudian's RDMA-enabled aws-sdk-cpp; see the [S3 RDMA guide](docs/s3rdma.md).
+
 #### macOS Support
 
 Building elbencho on macOS requires homebrew. Run the following steps in a terminal.
