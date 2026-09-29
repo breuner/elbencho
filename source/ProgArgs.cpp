@@ -305,6 +305,16 @@ void ProgArgs::defineAllowedArgs()
 /*cu*/	(ARG_CUFILEDRIVEROPEN_LONG, bpo::bool_switch(&this->useCuFileDriverOpen),
 			"Explicitly initialize cuFile lib and open the nvida-fs driver.")
 #endif
+#ifdef CUOBJ_SUPPORT
+/*cu*/	(ARG_CUOBJ_LONG, bpo::bool_switch(&this->useCuObj),
+			"Use cuObject API for GPU-direct S3-over-RDMA, the object-storage counterpart of "
+			"\"--" ARG_CUFILE_LONG "\". Single-part object GET/PUT move their payload out-of-band "
+			"over RDMA (directly to/from GPU memory when \"--" ARG_GPUIDS_LONG "\" is given, "
+			"otherwise host memory), while a body-less HTTP control request carries the "
+			"x-amz-rdma-* protocol headers. Requires an RDMA-capable S3 endpoint, block size equal "
+			"to object size (single-part) and \"--" ARG_IODEPTH_LONG "=1\". An RDMA "
+			"decline/failure is a hard error (no HTTP fallback).")
+#endif
 #ifdef CUDA_SUPPORT
 /*cu*/	(ARG_CUHOSTBUFREG_LONG, bpo::bool_switch(&this->useCuHostBufReg),
 			"Pin host memory buffers and register with CUDA for faster transfer to/from GPU.")
@@ -675,6 +685,10 @@ void ProgArgs::defineAllowedArgs()
             "\"--" ARG_S3NOCOMPRESS_LONG "\".")
 /*s3i*/	(ARG_S3IGNOREERRORS_LONG, bpo::bool_switch(&this->ignoreS3Errors),
 			"Ignore any S3 upload/download errors. Useful for stress-testing.")
+/*s3i*/	(ARG_S3INSECURE_LONG, bpo::bool_switch(&this->s3NoTlsVerify),
+			"Don't verify the TLS certificate of https S3 endpoints. Needed for endpoints using "
+			"self-signed or otherwise untrusted certificates and for endpoints addressed by "
+			"IP address instead of the certificate hostname.")
 /*s3k*/	(ARG_S3ACCESSKEY_LONG, bpo::value(&this->s3AccessKey),
 			"S3 access key. (This can also be set via the " S3_ENV_ACCESS_KEY " env variable.)")
 /*s3l*/	(ARG_S3LISTOBJ_LONG, bpo::value(&this->runS3ListObjNum),
@@ -1021,6 +1035,7 @@ void ProgArgs::defineDefaults()
     this->s3MpuSplitSizeOrigStr = "0";
     this->s3NoCompression = false;
     this->s3NoMpuCompletion = false;
+    this->s3NoTlsVerify = false;
     this->s3IgnoreMultipartUpload404 = false;
     this->s3SessionToken = "";
     this->s3SignPolicy = 0;
@@ -1054,6 +1069,7 @@ void ProgArgs::defineDefaults()
     this->useCuFile = false;
     this->useCuFileDriverOpen = false;
     this->useCuHostBufReg = false;
+    this->useCuObj = false;
     this->useDirectIO = false;
     this->useExtendedLiveCSV = false;
     this->useExtendedLiveJSON = false;
@@ -1650,6 +1666,35 @@ void ProgArgs::checkArgs()
 
     if(useCuFile && (benchMode == BenchMode_S3) )
         throw ProgException("cuFile API cannot be used with S3");
+
+    if(useCuObj)
+    {
+        #ifndef CUOBJ_SUPPORT
+            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" requires a build with cuObject "
+                "(GPU-direct S3-over-RDMA) support, but this executable was built without it.");
+        #endif // CUOBJ_SUPPORT
+
+        if(benchMode != BenchMode_S3)
+            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" can only be used with S3.");
+
+        if(ioDepth != 1)
+            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" requires \"--"
+                ARG_IODEPTH_LONG "=1\" (async/multi-depth transfers are not supported on the "
+                "RDMA path).");
+
+        if(useS3FastRead)
+            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" cannot be used together with "
+                "\"--" ARG_S3FASTGET_LONG "\", which discards downloaded data and thus has no "
+                "buffer to receive the RDMA transfer.");
+
+        if(fileSize && blockSize && (blockSize < fileSize) )
+            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" requires single-part transfers, "
+                "i.e. the block size (\"-" ARG_BLOCK_SHORT "\") must be equal to or larger than "
+                "the object size (\"-" ARG_FILESIZE_SHORT "\"). Multi-part RDMA transfers are not "
+                "supported. "
+                "Object size: " + std::to_string(fileSize) + "; "
+                "Block size: " + std::to_string(blockSize) );
+    }
 
     if(hasUserSetRWMixPercent() && (benchMode == BenchMode_S3) )
         throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used with S3. "
@@ -3905,6 +3950,10 @@ void ProgArgs::printHelpS3()
             "S3 access secret. (This can also be set via the " S3_ENV_SECRET_KEY " env variable.)")
         (ARG_S3SESSION_TOKEN_LONG, bpo::value(&this->s3SessionToken),
              "S3 session token. (Optional. This can also be set via the " S3_ENV_SESSION_TOKEN " env variable.)")
+        (ARG_S3INSECURE_LONG, bpo::bool_switch(&this->s3NoTlsVerify),
+            "Don't verify the TLS certificate of https S3 endpoints. Needed for endpoints using "
+            "self-signed or otherwise untrusted certificates and for endpoints addressed by "
+            "IP address instead of the certificate hostname.")
     ;
 
     std::cout << argsS3ServiceArgsDescription << std::endl;
@@ -3956,6 +4005,11 @@ void ProgArgs::printHelpS3()
 			"Send downloaded objects directly to /dev/null instead of a memory buffer. This option "
 			"is incompatible with any buffer post-processing options like data verification or "
 			"GPU data transfer.")
+		(ARG_CUOBJ_LONG, bpo::bool_switch(&this->useCuObj),
+			"Use cuObject API for GPU-direct S3-over-RDMA (object-storage counterpart of \"--"
+			ARG_CUFILE_LONG "\") for single-part object GET/PUT. Requires a build with cuObject "
+			"support (CUDA 13.1+) and an RDMA-capable S3 endpoint. Use \"--" ARG_GPUIDS_LONG
+			"\" for VRAM-direct transfers.")
 		(ARG_TREEFILE_LONG, bpo::value(&this->treeFilePath),
 			"The path to a treefile containing a list of object names to use for shared upload or "
 			"download if the object size exceeds \"--" ARG_FILESHARESIZE_LONG "\".")
@@ -4161,6 +4215,12 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "cufile/gds ";
 #endif
 
+#ifdef CUOBJ_SUPPORT
+	includedStream << "cuobj/s3rdma ";
+#else
+	notIncludedStream << "cuobj/s3rdma ";
+#endif
+
 #ifdef HDFS_SUPPORT
 	includedStream << "hdfs ";
 #else
@@ -4322,6 +4382,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     s3MpuSizeVariance = tree.get<size_t>(ARG_S3MPUSIZEVAR_LONG);
     s3MpuSplitSize = tree.get<size_t>(ARG_S3MPUSPLITSIZE_LONG);
 	s3NoCompression = tree.get<bool>(ARG_S3NOCOMPRESS_LONG);
+	s3NoTlsVerify = tree.get<bool>(ARG_S3INSECURE_LONG);
     s3NoMpuCompletion = tree.get<bool>(ARG_S3NOMPUCOMPLETION_LONG);
 	s3ObjectPrefix = tree.get<std::string>(ARG_S3OBJECTPREFIX_LONG);
 	s3Region = tree.get<std::string>(ARG_S3REGION_LONG);
@@ -4353,6 +4414,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	useS3FastRead = tree.get<bool>(ARG_S3FASTGET_LONG);
     useS3MPUSharing = tree.get<bool>(ARG_S3MPUSHARING_LONG);
 	useS3RandObjSelect = tree.get<bool>(ARG_S3RANDOBJ_LONG);
+	useCuObj = tree.get<bool>(ARG_CUOBJ_LONG);
     useS3SSE = tree.get<bool>(ARG_S3SSE_LONG);
     useS3VirtualAddressing = tree.get<bool>(ARG_S3VIRTADDRESSING_LONG);
 	useStridedAccess = tree.get<bool>(ARG_STRIDEDACCESS_LONG);
@@ -4502,6 +4564,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_S3MULTIDELETE_LONG, runS3MultiDelObjNum);
     outTree.put(ARG_S3MULTI_IGNORE_404, s3IgnoreMultipartUpload404);
     outTree.put(ARG_S3NOCOMPRESS_LONG, s3NoCompression);
+    outTree.put(ARG_S3INSECURE_LONG, s3NoTlsVerify);
     outTree.put(ARG_S3NOMPUCOMPLETION_LONG, s3NoMpuCompletion);
 	outTree.put(ARG_S3OBJECTPREFIX_LONG, s3ObjectPrefix);
     outTree.put(ARG_S3OBJLOCKCFG_LONG, doS3ObjectLockCfg);
@@ -4509,6 +4572,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
     outTree.put(ARG_S3OBJTAG_LONG, doS3ObjectTag);
     outTree.put(ARG_S3OBJTAGVERIFY_LONG, doS3ObjectTagVerify);
 	outTree.put(ARG_S3RANDOBJ_LONG, useS3RandObjSelect);
+	outTree.put(ARG_CUOBJ_LONG, useCuObj);
 	outTree.put(ARG_S3REGION_LONG, s3Region);
     outTree.put(ARG_S3SESSION_TOKEN_LONG, s3SessionToken);
 	outTree.put(ARG_S3SIGNPAYLOAD_LONG, s3SignPolicy);

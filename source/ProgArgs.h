@@ -56,6 +56,7 @@ namespace bpt = boost::property_tree;
 #define ARG_CUFILE_LONG                  "cufile"
 #define ARG_CUFILEDRIVEROPEN_LONG        "cufiledriveropen"
 #define ARG_CUHOSTBUFREG_LONG            "cuhostbufreg"
+#define ARG_CUOBJ_LONG                   "cuobj"
 #define ARG_DELETEDIRS_LONG              "deldirs"
 #define ARG_DELETEDIRS_SHORT             "D"
 #define ARG_DELETEFILES_LONG             "delfiles"
@@ -177,6 +178,7 @@ namespace bpt = boost::property_tree;
 #define ARG_S3FASTGET_LONG               "s3fastget"
 #define ARG_S3FASTPUT_LONG               "s3fastput"
 #define ARG_S3IGNOREERRORS_LONG          "s3ignoreerrors"
+#define ARG_S3INSECURE_LONG              "s3insecure"
 #define ARG_S3LISTOBJ_LONG               "s3listobj"
 #define ARG_S3LISTOBJPARALLEL_LONG       "s3listobjpar"
 #define ARG_S3LISTOBJVERIFY_LONG         "s3listverify"
@@ -548,6 +550,7 @@ class ProgArgs
         std::string s3MpuSplitSizeOrigStr; // original s3MpuSplitSize str from user with unit
         bool s3NoCompression; // disable request compression of aws sdk cpp
         bool s3NoMpuCompletion; // don't send finalizing multi-part upload completion message
+        bool s3NoTlsVerify; // don't verify s3 server tls certificates (e.g. self-signed)
         std::string s3ObjectPrefix; // object name/path prefix for s3 "directory mode"
         std::string s3Region; // s3 region
         std::string s3SessionToken; // s3 session token (same as secret token)
@@ -594,6 +597,8 @@ class ProgArgs
         bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
         bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
         bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
+        bool useCuObj; /* use cuObject (cuObjClient) API for GPU-direct S3-over-RDMA single-part
+                            GET/PUT instead of the regular HTTP data path */
         bool useCustomTreeRandomize; // randomize order of custom tree files
         bool useCustomTreeRoundRobin; // assign blocks round-robin to workers
         bool useDirectIO; // open files with O_DIRECT
@@ -850,6 +855,7 @@ class ProgArgs
         size_t getS3MpuSizeVariance() const { return s3MpuSizeVariance; }
         bool getS3NoCompression() const { return s3NoCompression; };
         bool getS3NoMpuCompletion() const { return s3NoMpuCompletion; };
+        bool getS3NoTlsVerify() const { return s3NoTlsVerify; };
         unsigned getS3MaxConnections() const { return s3MaxConnections; }
         size_t getS3MpuSplitSize() const { return s3MpuSplitSize; }
         uint64_t getS3MultiDelObjNum() const { return runS3MultiDelObjNum; }
@@ -886,6 +892,7 @@ class ProgArgs
         bool getUseBriefLiveStatsNewLine() const { return useBriefLiveStatsNewLine; }
         bool getUseCuFile() const { return useCuFile; }
         bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
+        bool getUseCuObj() const { return useCuObj; }
         bool getUseCuHostBufReg() const { return useCuHostBufReg; }
         bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
         bool getUseCustomTreeRoundRobin() const { return useCustomTreeRoundRobin; }
