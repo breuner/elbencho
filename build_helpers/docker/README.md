@@ -15,7 +15,7 @@ The default dockerfile defines the path to the elbencho executable as an entrypo
 To just confirm that fetching of the container works, try showing elbencho's built-in help:
 
 ```bash
-docker run -it breuner/elbencho --help
+docker run --rm -it breuner/elbencho --help
 ```
 
 ### Simple Benchmark
@@ -23,7 +23,7 @@ docker run -it breuner/elbencho --help
 Use docker's `-v HOST_PATH:CONTAINER_PATH` option to make your test directory available inside the container. E.g. if your benchmark files should be in `/data` and you want to create a single 10GiB file:
 
 ```bash
-docker run -v /data:/data -it breuner/elbencho /data/mytestfile -s 10G -w
+docker run -v /data:/data --rm -it breuner/elbencho /data/mytestfile -s 10G -w
 ```
 
 ### Distributed Mode
@@ -35,51 +35,51 @@ If you want to use elbencho's distributed mode for coordinated throughput tests 
 Run this command on all nodes that should participate in your distributed storage benchmarks:
 
 ```bash
-docker run -v /data:/data --net=host -dt breuner/elbencho --service --foreground
+docker run -v /data:/data --net=host --rm -dit --init breuner/elbencho --service --foreground
 ```
 
 Now you're ready to control the service instances, again by using the `--net=host` option for the master instance. Here we write a single shared 10GiB file from all service instances:
 ```bash
-docker run --net=host -it breuner/elbencho /data/mytestfile -s 10G -w --hosts HOST1,HOST2,...
+docker run --net=host --rm -it breuner/elbencho /data/mytestfile -s 10G -w --hosts HOST1,HOST2,...
 ```
 
 When you're done with your distributed benchmarks and want to stop the service instances, use elbencho's `--quit` option to terminate them:
 
 ```bash
-docker run --net=host -it breuner/elbencho --quit --hosts HOST1,HOST2,...
+docker run --net=host --rm -it breuner/elbencho --quit --hosts HOST1,HOST2,...
 ```
+
+## Docker Image Flavors & Tags
+
+The default image (tagged `latest`) is based on Ubuntu 26.04. It refers to the latest stable release version of elbencho. The image tags `master-*` refer to builds based on the GitHub master branch.
+
+Ubuntu and RHEL-clone based images contain the full `.deb` / `.rpm` package installation with the corresponding additional tools. To use e.g. one of the contained elbencho tools, simply specify the tool name as an alternative entrypoint:
+
+```bash
+docker run --rm -it --entrypoint elbencho-scan-path breuner/elbencho --help
+```
+
+The Alpine Linux based image (tagged `master-alpine`) is optimized for minimum size and only contains the elbencho main executable, no other tools.
 
 ### GPUs & GPUDirect Storage (GDS)
 
-To test GPU storage access performance through Nvidia CUDA or GPUDirect Storage (GDS/cuFile), use the multi-arch Ubuntu container with CUDA installed (tag "master-ubuntu-cuda-multiarch").
+To test GPU storage access performance through Nvidia CUDA or GPUDirect Storage (GDS/cuFile), use the multi-arch Ubuntu container with CUDA installed (tag `master-ubuntu-cuda-multiarch`).
 
 Here is an example to write and read 128 large file via GDS, using 256 threads and all available GPUs in the host:
 
 ```bash
-nvidia-docker run --privileged -v /data:/data -it breuner/elbencho:master-ubuntu-cuda-multiarch "/data/mylargefile[1..128]" -w -r -t 256 -s 12g -b 4m --direct --gpuids all --gds
+nvidia-docker run --privileged -v /data:/data --rm -it breuner/elbencho:master-ubuntu-cuda-multiarch "/data/mylargefile[1..128]" -w -r -t 256 -s 12g -b 4m --direct --gpuids all --gds
 ```
 
 If you don't have `nvidia-docker`, you can alternatively use `docker run --gpus all ...`.
 
-## Docker Image Flavors
-
-The default image (tagged "`latest`") is based Ubuntu 26.04. It contains the latest stable release version of elbencho, while the other image tags ("`master-*`") contain builds based on the Github master branch.
-
-The Ubuntu and RHEL-clone based images contain the full `.deb` / `.rpm` package installation with the corresponding additional tools. To use e.g. one of the contained elbencho tools, simply specify the tool name as an alternative entrypoint:
-
-```bash
-docker run -it --entrypoint elbencho-scan-path breuner/elbencho --help
-```
-
-The Alpine Linux based image (tagged "`master-alpine`") is optimized for minimum size and only contains the elbencho main executable, no other tools.
-
 ### S3 Support
 
-S3 support is included in the images tagged "`latest`", "`master-alpine`", "`master-ubuntu-cuda-multiarch`" and in the images with stable version number tags.
+S3 support is included in the images tagged `latest`, `master-alpine`, `master-ubuntu-cuda-multiarch` and in the images with stable version number tags.
 
 ### NVMe-oF Initiator Support
 
-NVMe-oF initiator support through SPDK is included in the image tagged "`master-ubuntu2604`".
+NVMe-oF initiator support through SPDK is included in the image tagged `master-ubuntu2604`.
 
 ### Local Image Builds
 
@@ -91,7 +91,7 @@ docker build -t elbencho-local -f build_helpers/docker/Dockerfile.ubuntu2604.loc
 
 ### ARM64 & Multi-Platform
 
-The image tags "`latest`" and "`master-ubuntu-cuda-multiarch`" support amd64 (aka x86_64) and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs. (Other image tags might be available for only one of these platforms.)
+The image tags `latest` and `master-ubuntu-cuda-multiarch` support amd64 (aka x86_64) and arm64/v8 (aka aarch64) platforms like Nvidia Grace CPUs. (Other image tags might be available for only one of these platforms.)
 
 ### FIPS mode
 
