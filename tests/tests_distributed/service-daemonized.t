@@ -125,7 +125,8 @@ trace_result "second daemonized service start" "$SECOND_START_RC" "" "$TEST_DIR/
 
 assert_nok $SECOND_START_RC "a second service on the same port does not start"
 
-assert_match "$(cat "$TEST_DIR/start2.out")" "Unable to bind to desired port. Port: $SERVICE_PORT" \
+assert_match "$(cat "$TEST_DIR/start2.out")" \
+    "Unable to bind to desired port\. Service already running\? Port: $SERVICE_PORT" \
     "the second service reports that the port is already in use"
 
 ################## Run a benchmark through the service ##################

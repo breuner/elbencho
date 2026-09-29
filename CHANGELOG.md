@@ -2,6 +2,9 @@
 
 ## v3.2.2 (work in progress)
 
+### Fixes
+* Fixed IPv6 compatibility of TCP port availability preflight check for service instances.
+
 ## v3.2.1 (Sep 25, 2026)
 
 ### New Features & Enhancements

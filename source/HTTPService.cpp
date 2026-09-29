@@ -1,8 +1,10 @@
-// SPDX-FileCopyrightText: 2020-2025 Sven Breuner and elbencho contributors
+// SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <arpa/inet.h>
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <libgen.h>
 #include <netinet/in.h>
@@ -162,67 +164,143 @@ void HTTPService::daemonize()
 }
 
 /**
+ * Bind and listen on the wildcard address of the given family, then close the socket.
+ * This is a preflight so a port conflict can be reported before daemonizing.
+ *
+ * @return false if this address family is not supported on this host.
+ * @throw ProgException if the port is not available or another socket error occurred.
+ */
+static bool checkWildcardPortAvailable(int addressFamily, unsigned short port)
+{
+    const int listenBacklogSize = 1;
+
+    int sockFD = socket(addressFamily, SOCK_STREAM, 0);
+    if(sockFD == -1)
+    {
+        if(errno == EAFNOSUPPORT)
+            return false;
+
+        throw ProgException(std::string("Unable to create socket to check port availability. ") +
+            "SysErr: " + strerror(errno) );
+    }
+
+    /* note: reuse option is important because http server sock will be in TIME_WAIT state for
+        quite a while after stopping the service via --quit */
+
+    int enableAddrReuse = 1;
+
+    int setOptRes = setsockopt(
+        sockFD, SOL_SOCKET, SO_REUSEADDR, &enableAddrReuse, sizeof(enableAddrReuse) );
+    if(setOptRes == -1)
+    {
+        int errnoCopy = errno; // close() below could change errno
+
+        close(sockFD);
+
+        throw ProgException(std::string("Unable to enable socket address reuse. ") +
+            "SysErr: " + strerror(errnoCopy) );
+    }
+
+#ifdef IPV6_V6ONLY
+
+    // this platform provides the IPV6_V6ONLY flag, so we can turn it off to listen for IPv4 & IPv6
+
+    if(addressFamily == AF_INET6)
+    {
+        // Match the HTTP servers, which accept IPv4 connections on the IPv6 wildcard socket.
+        int v6Only = 0;
+
+        setOptRes = setsockopt(sockFD, IPPROTO_IPV6, IPV6_V6ONLY, &v6Only, sizeof(v6Only) );
+        if(setOptRes == -1)
+        {
+            int errnoCopy = errno; // close() below could change errno
+
+            close(sockFD);
+
+            throw ProgException(std::string("Unable to disable IPV6_V6ONLY for preflight check. ") +
+                "SysErr: " + strerror(errnoCopy) );
+        }
+    }
+#endif // IPV6_V6ONLY
+
+    int bindRes;
+
+    if(addressFamily == AF_INET6)
+    {
+        struct sockaddr_in6 sockAddr = {};
+
+        sockAddr.sin6_family = AF_INET6;
+        sockAddr.sin6_addr = in6addr_any;
+        sockAddr.sin6_port = htons(port);
+
+        bindRes = bind(sockFD, (struct sockaddr*) &sockAddr, sizeof(sockAddr) );
+    }
+    else
+    {
+        struct sockaddr_in sockAddr = {};
+
+        sockAddr.sin_family = AF_INET;
+        sockAddr.sin_addr.s_addr = INADDR_ANY;
+        sockAddr.sin_port = htons(port);
+
+        bindRes = bind(sockFD, (struct sockaddr*) &sockAddr, sizeof(sockAddr) );
+    }
+
+    if(bindRes == -1)
+    {
+        int errnoCopy = errno; // close() below could change errno
+
+        close(sockFD);
+
+        throw ProgException(std::string("Unable to bind to desired port. "
+            "Service already running? ") +
+            "Port: " + std::to_string(port) + "; "
+            "SysErr: " + strerror(errnoCopy) );
+    }
+
+    int listenRes = listen(sockFD, listenBacklogSize);
+    if(listenRes == -1)
+    {
+        int errnoCopy = errno; // close() below could change errno
+
+        close(sockFD);
+
+        throw ProgException(std::string("Unable to listen on desired port. ") +
+            "Port: " + std::to_string(port) + "; "
+            "SysErr: " + strerror(errnoCopy) );
+    }
+
+    close(sockFD);
+
+    return true;
+}
+
+/**
  * Check if desired TCP port is available, so that an error message can be printed before
  * daemonizing.
+ *
+ * Prefers the same dual-stack IPv6 wildcard the HTTP servers bind. Falls back to IPv4 only when
+ * this host has no IPv6. A busy port is reported immediately and is not retried on the other
+ * family, because the real listen socket would fail the same way.
  *
  * @throw ProgException if port not available or other error occured.
  */
 void HTTPService::checkPortAvailable()
 {
-	unsigned short port = progArgs.getServicePort();
-	struct sockaddr_in sockAddr;
-	int listenBacklogSize = 1;
+    unsigned short port = progArgs.getServicePort();
 
-	int sockFD = socket(AF_INET, SOCK_STREAM, 0);
-	if(sockFD == -1)
-		throw ProgException(std::string("Unable to create socket to check port availability. ") +
-			"SysErr: " + strerror(errno) );
+#ifdef CYGWIN_SUPPORT
+    // we force HTTPServiceSWS to IPv4-only on cygwin, so the preflight has to match that.
+    if(!checkWildcardPortAvailable(AF_INET, port) )
+        throw ProgException(std::string("Unable to create socket to check port availability. ") +
+            "SysErr: " + strerror(EAFNOSUPPORT) );
+#else
+    if(checkWildcardPortAvailable(AF_INET6, port) )
+        return;
 
-	/* note: reuse option is important because http server sock will be in TIME_WAIT state for
-		quite a while after stopping the service via --quit */
-
-	int enableAddrReuse = 1;
-
-	int setOptRes = setsockopt(
-		sockFD, SOL_SOCKET, SO_REUSEADDR, &enableAddrReuse, sizeof(enableAddrReuse) );
-	if(setOptRes == -1)
-	{
-		int errnoCopy = errno; // close() below could change errno
-
-		close(sockFD);
-
-		throw ProgException(std::string("Unable to enable socket address reuse. ") +
-			"SysErr: " + strerror(errnoCopy) );
-	}
-
-	sockAddr.sin_family = AF_INET;
-	sockAddr.sin_addr.s_addr = INADDR_ANY;
-	sockAddr.sin_port = htons(port);
-
-	int bindRes = bind(sockFD, (struct sockaddr*) &sockAddr, sizeof(sockAddr) );
-	if(bindRes == -1)
-	{
-		int errnoCopy = errno; // close() below could change errno
-
-		close(sockFD);
-
-		throw ProgException(std::string("Unable to bind to desired port. ") +
-			"Port: " + std::to_string(port) + "; "
-			"SysErr: " + strerror(errnoCopy) );
-	}
-
-	int listenRes = listen(sockFD, listenBacklogSize);
-	if(listenRes == -1)
-	{
-		int errnoCopy = errno; // close() below could change errno
-
-		close(sockFD);
-
-		throw ProgException(std::string("Unable to listen on desired port. ") +
-			"Port: " + std::to_string(port) + "; "
-			"SysErr: " + strerror(errnoCopy) );
-	}
-
-	close(sockFD);
+    if(!checkWildcardPortAvailable(AF_INET, port) )
+        throw ProgException(std::string("Unable to create socket to check port availability. ") +
+            "SysErr: " + strerror(EAFNOSUPPORT) );
+#endif // CYGWIN_SUPPORT
 }
 
