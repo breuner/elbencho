@@ -44,6 +44,21 @@ namespace
 		}
 		return s.substr(b, e - b);
 	}
+
+	/* A request that got no HTTP response at all (e.g. timeout, connection reset or refused)
+		has a client error instead of a status code; log it so it isn't mistaken for a decline. */
+	bool logClientError(const char* op, Aws::Http::HttpResponse& resp, const std::string& key)
+	{
+		if(!resp.HasClientError() )
+			return false;
+
+		ERRLOGGER(Log_NORMAL, op << " failed without an HTTP response. "
+			"Error type: " << static_cast<int>(resp.GetClientErrorType() ) << "; "
+			"Message: " << resp.GetClientErrorMessage() << "; "
+			"Request timeout: " << RDMA_TIMEOUT_SECS << "s; "
+			"key=" << key << std::endl);
+		return true;
+	}
 } // anonymous namespace
 
 // S3RdmaControlPlane::Impl holds the AWS SDK low-level HTTP/signing primitives;
@@ -293,6 +308,9 @@ ssize_t S3RdmaControlPlane::rdmaPut(S3RdmaClientCtx& ctx, const char* token, uin
 			return RDMA_ERROR;
 		}
 
+		if(logClientError("rdmaPut", *resp, ctx.object) )
+			return RDMA_ERROR;
+
 		const int httpStatus = static_cast<int>(resp->GetResponseCode() );
 		const std::string etag =
 			resp->HasHeader("etag") ? stripQuotes(resp->GetHeader("etag").c_str() ) : "";
@@ -361,6 +379,9 @@ ssize_t S3RdmaControlPlane::rdmaGet(S3RdmaClientCtx& ctx, const char* token, uin
 			return RDMA_ERROR;
 		}
 
+		if(logClientError("rdmaGet", *resp, ctx.object) )
+			return RDMA_ERROR;
+
 		// A non-RDMA server omits x-amz-rdma-reply, which parseRdmaReply maps to
 		// "declined".
 		const int httpStatus = static_cast<int>(resp->GetResponseCode() );
@@ -369,7 +390,15 @@ ssize_t S3RdmaControlPlane::rdmaGet(S3RdmaClientCtx& ctx, const char* token, uin
 		const int replyCode = parseRdmaReply(reply);
 
 		if(replyCode == static_cast<int>(RDMA_NOT_SUPPORTED) )
+		{
+			std::ostringstream body;
+			body << resp->GetResponseBody().rdbuf();
+
+			ERRLOGGER(Log_NORMAL, "rdmaGet declined. http=" << httpStatus <<
+				"; x-amz-rdma-reply='" << reply << "'; key=" << ctx.object <<
+				"; body=" << body.str().substr(0, 400) << std::endl);
 			return RDMA_NOT_SUPPORTED;
+		}
 
 		if(replyCode != RDMA_REPLY_SUCCESS && replyCode != RDMA_REPLY_PARTIAL_CONTENT)
 		{
