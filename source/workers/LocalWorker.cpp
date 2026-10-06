@@ -5538,6 +5538,59 @@ void LocalWorker::s3ModeUploadObjectSinglePartRdma(std::string bucketName, std::
 }
 
 /**
+ * Upload one part of a multipart upload via GPU-direct S3-over-RDMA (NVIDIA cuObject). The part
+ * payload must already be in the host I/O buffer; it is staged to GPU VRAM when GPUs are given.
+ *
+ * @return the part's ETag, or an empty string if the RDMA transfer failed.
+ *
+ * @throw WorkerException if built without S3 RDMA (cuObject) support.
+ */
+std::string LocalWorker::s3ModeUploadPartRdma(const std::string& bucketName,
+	const std::string& objectName, const std::string& uploadID, uint64_t partNum,
+	uint64_t offset, size_t blockSize)
+{
+#if !defined(S3_SUPPORT) || !defined(CUOBJ_SUPPORT)
+	throw WorkerException(std::string(__func__) +
+		" called, but this was built without S3 RDMA (cuObject) support");
+#else
+
+	const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
+	char* rdmaBuf = areGPUsGiven ? gpuIOBufVec[0] : ioBufVec[0];
+
+	if(areGPUsGiven)
+		cudaMemcpyHostToGPU(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+	S3RdmaClientCtx ctx;
+	ctx.bucket = bucketName;
+	ctx.object = objectName;
+	ctx.uploadID = uploadID;
+	ctx.partNumber = partNum;
+
+	OPLOG_PRE_OP("S3UploadPartRDMA", bucketName + "/" + objectName, offset, blockSize);
+
+	ssize_t rdmaRes = rdmaPutWithRetry(*s3RdmaClient, *s3RdmaControlPlane, ctx, rdmaBuf, blockSize);
+
+	OPLOG_POST_OP("S3UploadPartRDMA", bucketName + "/" + objectName, offset, blockSize,
+		rdmaRes <= 0);
+
+	if(rdmaRes <= 0)
+	{
+		ERRLOGGER(Log_NORMAL, "S3 RDMA part upload failed. "
+			"Bucket: " << bucketName << "; "
+			"Object: " << objectName << "; "
+			"Part: " << partNum << "; "
+			"RDMA result: " << rdmaRes << std::endl);
+		return "";
+	}
+
+	atomicLiveOps.numBytesDone += rdmaRes;
+
+	return ctx.etag;
+
+#endif // S3_SUPPORT && CUOBJ_SUPPORT
+}
+
+/**
  * Block-sized multipart upload of an S3 object to an existing bucket.
  *
  * This will delegate to s3ModeUploadObjectMultiPartAsync() if iodepth > 1.
@@ -5554,6 +5607,7 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 	const bool ignoreS3Errors = progArgs->getIgnoreS3Errors();
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
     const size_t s3MpuSizeVariance = progArgs->getS3MpuSizeVariance();
+    const bool useCuObj = progArgs->getUseCuObj();
 
     // S T E P 0: hand over to async function if iodepth is given
 
@@ -5630,80 +5684,105 @@ void LocalWorker::s3ModeUploadObjectMultiPart(std::string bucketName, std::strin
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
-		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-
-		// prepare part upload
 
 		S3::CompletedPart completedPart;
-		S3::UploadPartRequest uploadPartRequest;
-		uploadPartRequest.WithBucket(bucketName)
-			.WithKey(objectName)
-			.WithUploadId(uploadID)
-			.WithPartNumber(currentPartNum)
-			.WithContentLength(blockSize);
-
-        // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
-        if(!s3SSECKey.empty() )
-            uploadPartRequest.WithSSECustomerAlgorithm("AES256")
-                    .WithSSECustomerKey(s3SSECKey)
-                    .WithSSECustomerKeyMD5(s3SSECKeyMD5);
-
-        IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
-            S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
-                s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
-
-		uploadPartRequest.SetBody(s3MemStream);
-
-		uploadPartRequest.SetDataSentEventHandler(
-			[&](const Aws::Http::HttpRequest* request, long long numBytes)
-			{ atomicLiveOps.numBytesDone += numBytes; } );
-
-        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
-            uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-                { return !isInterruptionRequested.load(); } );
-        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
-
-		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
-
-		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
-
-		/* note: there is no way to tell the server about the offset of a part within an object, so
-			concurrent part uploads might add overhead on completion for the S3 server to assemble
-			the full object in correct parts order. */
-
-		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
-			!uploadPartOutcome.IsSuccess() );
-
-		checkInterruptionRequest( // (placed here to avoid outcome check on interruption)
-			[&] { s3ModeAbortMultipartUpload(bucketName, objectName, uploadID); } );
-
-		IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
-		{
-			s3ModeAbortMultipartUpload(bucketName, objectName, uploadID);
-
-			if (!ignoreS3Errors)
-			{
-                auto s3Error = uploadPartOutcome.GetError();
-
-                throw WorkerException(std::string("Multipart part upload failed. ") +
-                    "Endpoint: " + s3EndpointStr + "; "
-                    "Bucket: " + bucketName + "; "
-                    "Object: " + objectName + "; "
-                    "Part: " + std::to_string(currentPartNum) + "; "
-                    "Exception: " + s3Error.GetExceptionName() + "; " +
-                    "Message: " + s3Error.GetMessage() + "; " +
-                    "HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) + " (" +
-                        TranslatorTk::httpErrorCodeToHumanStr( (int)s3Error.GetResponseCode() ) +
-                        "); "
-                    "Request ID: " + s3Error.GetRequestId() );
-			}
-		}
-
-		// mark part as completed
-
 		completedPart.SetPartNumber(currentPartNum);
-		auto partETag = uploadPartOutcome.GetResult().GetETag();
-		completedPart.SetETag(partETag);
+
+		if(useCuObj)
+		{
+			const std::string partETag = s3ModeUploadPartRdma(bucketName, objectName,
+				uploadID.c_str(), currentPartNum, currentOffset, blockSize);
+
+			checkInterruptionRequest( // (placed here to avoid outcome check on interruption)
+				[&] { s3ModeAbortMultipartUpload(bucketName, objectName, uploadID); } );
+
+			IF_UNLIKELY(partETag.empty() )
+			{
+				s3ModeAbortMultipartUpload(bucketName, objectName, uploadID);
+
+				if(!ignoreS3Errors)
+					throw WorkerException(std::string("Multipart RDMA part upload failed. ") +
+						"Endpoint: " + s3EndpointStr + "; "
+						"Bucket: " + bucketName + "; "
+						"Object: " + objectName + "; "
+						"Part: " + std::to_string(currentPartNum) );
+			}
+
+			completedPart.SetETag(partETag.c_str() );
+		}
+		else
+		{
+			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+			// prepare part upload
+
+			S3::UploadPartRequest uploadPartRequest;
+			uploadPartRequest.WithBucket(bucketName)
+				.WithKey(objectName)
+				.WithUploadId(uploadID)
+				.WithPartNumber(currentPartNum)
+				.WithContentLength(blockSize);
+
+            // (no s3ModeAddServerSideEncryptionHeaders() because this one is only for SSE-C)
+            if(!s3SSECKey.empty() )
+                uploadPartRequest.WithSSECustomerAlgorithm("AES256")
+                        .WithSSECustomerKey(s3SSECKey)
+                        .WithSSECustomerKeyMD5(s3SSECKeyMD5);
+
+            IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+                S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
+                    s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
+
+			uploadPartRequest.SetBody(s3MemStream);
+
+			uploadPartRequest.SetDataSentEventHandler(
+				[&](const Aws::Http::HttpRequest* request, long long numBytes)
+				{ atomicLiveOps.numBytesDone += numBytes; } );
+
+            #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+                uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                    { return !isInterruptionRequested.load(); } );
+            #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
+
+			OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
+
+			auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
+
+			/* note: there is no way to tell the server about the offset of a part within an
+				object, so concurrent part uploads might add overhead on completion for the S3
+				server to assemble the full object in correct parts order. */
+
+			OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
+				!uploadPartOutcome.IsSuccess() );
+
+			checkInterruptionRequest( // (placed here to avoid outcome check on interruption)
+				[&] { s3ModeAbortMultipartUpload(bucketName, objectName, uploadID); } );
+
+			IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
+			{
+				s3ModeAbortMultipartUpload(bucketName, objectName, uploadID);
+
+				if (!ignoreS3Errors)
+				{
+                    auto s3Error = uploadPartOutcome.GetError();
+
+                    throw WorkerException(std::string("Multipart part upload failed. ") +
+                        "Endpoint: " + s3EndpointStr + "; "
+                        "Bucket: " + bucketName + "; "
+                        "Object: " + objectName + "; "
+                        "Part: " + std::to_string(currentPartNum) + "; "
+                        "Exception: " + s3Error.GetExceptionName() + "; " +
+                        "Message: " + s3Error.GetMessage() + "; " +
+                        "HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) + " (" +
+                            TranslatorTk::httpErrorCodeToHumanStr( (int)s3Error.GetResponseCode() ) +
+                            "); "
+                        "Request ID: " + s3Error.GetRequestId() );
+				}
+			}
+
+			auto partETag = uploadPartOutcome.GetResult().GetETag();
+			completedPart.SetETag(partETag);
+		}
 
 		completedMultipartUpload.AddParts(completedPart);
 
@@ -6109,6 +6188,7 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 #else
 
     const bool s3NoMpuCompletion = progArgs->getS3NoMpuCompletion();
+    const bool useCuObj = progArgs->getUseCuObj();
 
     // S T E P 0: hand over to async function if iodepth is given
 
@@ -6151,69 +6231,91 @@ void LocalWorker::s3ModeUploadObjectMultiPartShared(std::string bucketName, std:
 		std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
 		((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], blockSize, currentOffset);
-		((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
-
-		// prepare part upload
 
 		S3::CompletedPart completedPart;
-		S3::UploadPartRequest uploadPartRequest;
-		uploadPartRequest.WithBucket(bucketName)
-			.WithKey(objectName)
-			.WithUploadId(uploadID)
-			.WithPartNumber(currentPartNum)
-			.WithContentLength(blockSize);
-
-        IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
-            S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
-                s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
-
-		uploadPartRequest.SetBody(s3MemStream);
-
-		uploadPartRequest.SetDataSentEventHandler(
-			[&](const Aws::Http::HttpRequest* request, long long numBytes)
-			{ atomicLiveOps.numBytesDone += numBytes; } );
-
-        #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
-            uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
-                { return !isInterruptionRequested.load(); } );
-        #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
-
-		OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
-
-		auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
-
-		OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
-			!uploadPartOutcome.IsSuccess() );
-
-		checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption; abort
-			message will be sent during s3SharedUploadStore cleanup) */
-
-		IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
-		{
-			// (note: abort message will be sent during s3SharedUploadStore cleanup)
-
-			auto s3Error = uploadPartOutcome.GetError();
-
-            throw WorkerException(std::string("Shared multipart part upload failed. ") +
-                "Endpoint: " + s3EndpointStr + "; "
-                "Bucket: " + bucketName + "; "
-                "Object: " + objectName + "; "
-                "Part: " + std::to_string(currentPartNum) + "; "
-                "UploadID: " + uploadID + "; "
-                "Rank: " + std::to_string(workerRank) + "; "
-                "Exception: " + s3Error.GetExceptionName() + "; " +
-                "Message: " + s3Error.GetMessage() + "; " +
-                "HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) + " (" +
-                    TranslatorTk::httpErrorCodeToHumanStr( (int)s3Error.GetResponseCode() ) +
-                    "); " +
-                "Request ID: " + s3Error.GetRequestId() );
-        }
-
-		// mark part as completed
-
 		completedPart.SetPartNumber(currentPartNum);
-		auto partETag = uploadPartOutcome.GetResult().GetETag();
-		completedPart.SetETag(partETag);
+
+		if(useCuObj)
+		{
+			const std::string partETag = s3ModeUploadPartRdma(bucketName, objectName,
+				uploadID.c_str(), currentPartNum, currentOffset, blockSize);
+
+			checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption;
+				abort message will be sent during s3SharedUploadStore cleanup) */
+
+			IF_UNLIKELY(partETag.empty() )
+				throw WorkerException(std::string("Shared multipart RDMA part upload failed. ") +
+					"Endpoint: " + s3EndpointStr + "; "
+					"Bucket: " + bucketName + "; "
+					"Object: " + objectName + "; "
+					"Part: " + std::to_string(currentPartNum) + "; "
+					"UploadID: " + uploadID + "; "
+					"Rank: " + std::to_string(workerRank) );
+
+			completedPart.SetETag(partETag.c_str() );
+		}
+		else
+		{
+			((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], blockSize);
+
+			// prepare part upload
+
+			S3::UploadPartRequest uploadPartRequest;
+			uploadPartRequest.WithBucket(bucketName)
+				.WithKey(objectName)
+				.WithUploadId(uploadID)
+				.WithPartNumber(currentPartNum)
+				.WithContentLength(blockSize);
+
+            IF_UNLIKELY(s3ChecksumAlgorithm != S3ChecksumAlgorithm::NOT_SET)
+                S3Tk::addUploadPartRequestChecksum(uploadPartRequest, &completedPart,
+                    s3ChecksumAlgorithm, (unsigned char*) ioBufVec[0], blockSize);
+
+			uploadPartRequest.SetBody(s3MemStream);
+
+			uploadPartRequest.SetDataSentEventHandler(
+				[&](const Aws::Http::HttpRequest* request, long long numBytes)
+				{ atomicLiveOps.numBytesDone += numBytes; } );
+
+            #if !defined(S3_AWSCRT) || AWS_SDK_AT_LEAST(1, 11, 708)
+                uploadPartRequest.SetContinueRequestHandler( [&](const Aws::Http::HttpRequest* request)
+                    { return !isInterruptionRequested.load(); } );
+            #endif // !S3_AWSCRT or AWS SDK >= 1.11.708
+
+			OPLOG_PRE_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize);
+
+			auto uploadPartOutcome = s3Client->UploadPart(uploadPartRequest);
+
+			OPLOG_POST_OP("S3UploadPart", bucketName + "/" + objectName, currentOffset, blockSize,
+				!uploadPartOutcome.IsSuccess() );
+
+			checkInterruptionRequest(); /* (placed here to avoid outcome check on interruption; abort
+				message will be sent during s3SharedUploadStore cleanup) */
+
+			IF_UNLIKELY(!uploadPartOutcome.IsSuccess() )
+			{
+				// (note: abort message will be sent during s3SharedUploadStore cleanup)
+
+				auto s3Error = uploadPartOutcome.GetError();
+
+                throw WorkerException(std::string("Shared multipart part upload failed. ") +
+                    "Endpoint: " + s3EndpointStr + "; "
+                    "Bucket: " + bucketName + "; "
+                    "Object: " + objectName + "; "
+                    "Part: " + std::to_string(currentPartNum) + "; "
+                    "UploadID: " + uploadID + "; "
+                    "Rank: " + std::to_string(workerRank) + "; "
+                    "Exception: " + s3Error.GetExceptionName() + "; " +
+                    "Message: " + s3Error.GetMessage() + "; " +
+                    "HTTP Error Code: " + std::to_string( (int)s3Error.GetResponseCode() ) + " (" +
+                        TranslatorTk::httpErrorCodeToHumanStr( (int)s3Error.GetResponseCode() ) +
+                        "); " +
+                    "Request ID: " + s3Error.GetRequestId() );
+            }
+
+			auto partETag = uploadPartOutcome.GetResult().GetETag();
+			completedPart.SetETag(partETag);
+		}
 
         LOGGER_DEBUG_BUILD(__func__ << __LINE__ << ": worker=" << workerRank << "; "
             "blocksize=" << blockSize << "; "

@@ -179,7 +179,7 @@ The certificate of an `https://` S3 endpoint is verified against the system trus
 
 #### GPU-Direct S3-over-RDMA (cuObject) Support
 
-The `--cuobj` option performs single-part S3 GET/PUT using NVIDIA's cuObject (`cuObjClient`) API — the object-storage counterpart of `--cufile` (GDS). The object payload moves out-of-band over RDMA (directly to/from GPU memory when `--gpuids` is given, otherwise host/CPU memory), while a small body-less HTTP control request carries the `x-amz-rdma-*` protocol headers. It requires an RDMA-capable S3 endpoint that implements that protocol.
+The `--cuobj` option performs S3 GET/PUT using NVIDIA's cuObject (`cuObjClient`) API — the object-storage counterpart of `--cufile` (GDS). The object payload moves out-of-band over RDMA (directly to/from GPU memory when `--gpuids` is given, otherwise host/CPU memory), while a small body-less HTTP control request carries the `x-amz-rdma-*` protocol headers. It requires an RDMA-capable S3 endpoint that implements that protocol.
 
 Support is auto-enabled with `S3_SUPPORT=1` when the cuObject client library is installed and links, which additionally requires `libibverbs`/`librdmacm`. The library is located through its pkg-config module (`cuobjclient-<major>.<minor>`), falling back to a search under `/usr/local/cuda*`; `CUOBJ_INCLUDE_PATH` and `CUOBJ_LIB_PATH` override both, and `CUOBJ_SUPPORT=0|1` forces the feature off or on. A build environment without cuObject is unaffected — the feature is simply left out, exactly like `--cufile`.
 
@@ -204,7 +204,9 @@ No cuObject binaries are shipped with elbencho: they are NVIDIA proprietary and 
 **Multi-NIC clients:** NIC selection across multiple RDMA NICs is handled entirely by cuObject, not by elbencho — list each client RDMA NIC IPv4 in `rdma_dev_addr_list` and set `rdma_multipath_enabled: true`. cuObject then chooses the NIC, embeds its GID in the RDMA token (so the server transfers to the correct interface regardless of which NIC the HTTP control request used), and handles failover/failback across the listed NICs (see the `rdma_max_backup_devices`, `rdma_io_retry_count`, `rdma_failback_enabled` and `rdma_health_check_interval_ms` properties). With a single entry it transparently runs single-path.
 
 **Constraints:**
-* Single-part transfers only: the block size (`-b`) must equal the object size (`-s`), and `--iodepth=1` is required.
+* `--iodepth=1` is required.
+* The block size is capped at 4095 MiB, because cuObject cannot register a 4 GiB buffer. If the object size (`-s`) is larger than the block size (`-b`), elbencho uploads the object as a multipart upload and sends each block-sized part over RDMA. The create, complete and abort requests go over regular HTTP. Downloads read each block as a ranged RDMA GET.
+* `--s3chksumalgo` and `--s3sseckey` are not supported, because RDMA transfers carry no checksum or SSE-C headers.
 * An RDMA decline or failure is a hard error — there is no automatic HTTP fallback.
 * The host needs RDMA-capable NICs (RoCEv2 or InfiniBand) and a sufficiently high locked-memory limit (`memlock`). For VRAM-direct transfers (`--gpuids`), GPUDirect RDMA must be working between the GPU and NIC (e.g. PCIe ACS redirect disabled on the data-path bridges).
 * `libcufile` loads `libcufile_rdma.so` with `dlopen`, which does not consult the executable's rpath. Put the directory holding it on `LD_LIBRARY_PATH`, or RDMA registration fails with `no devices found in configuration` even though `rdma_dev_addr_list` is set. The cuFile log reports this as `--rdma library : Not Loaded (libcufile_rdma.so)`.

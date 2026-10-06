@@ -588,8 +588,8 @@ class ProgArgs
         bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
         bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
         bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
-        bool useCuObj; /* use cuObject (cuObjClient) API for GPU-direct S3-over-RDMA single-part
-                            GET/PUT instead of the regular HTTP data path */
+        bool useCuObj; /* use cuObject (cuObjClient) API for GPU-direct S3-over-RDMA GET/PUT
+                            instead of the regular HTTP data path */
         bool useCustomTreeRandomize; // randomize order of custom tree files
         bool useCustomTreeRoundRobin; // assign blocks round-robin to workers
         bool useDirectIO; // open files with O_DIRECT

@@ -294,6 +294,9 @@ class LocalWorker : public Worker
 		void s3ModeUploadObjectSinglePartRdma(std::string bucketName, std::string objectName);
 		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
         void s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::string objectName);
+		std::string s3ModeUploadPartRdma(const std::string& bucketName,
+			const std::string& objectName, const std::string& uploadID, uint64_t partNum,
+			uint64_t offset, size_t blockSize);
 		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
 			uint64_t objectTotalSize);
         void s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName, std::string objectName,

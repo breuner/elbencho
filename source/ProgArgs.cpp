@@ -44,6 +44,7 @@
 #endif
 
 #define DIRECTIO_MINSIZE            512 // min size in bytes for direct IO
+#define CUOBJ_MAX_BLOCKSIZE         (4095ULL << 20) // cuObject can't register 4GiB buffers
 
 #define BENCHPATH_DELIMITER         ",\n\r@" // delimiters for user-defined bench dir paths
 #define HOSTLIST_DELIMITERS         ", \n\r" // delimiters for hosts string (comma or space)
@@ -309,11 +310,12 @@ void ProgArgs::defineAllowedArgs()
 #ifdef CUOBJ_SUPPORT
 /*cu*/	(ARG_CUOBJ_LONG, bpo::bool_switch(&this->useCuObj),
 			"Use cuObject API for GPU-direct S3-over-RDMA, the object-storage counterpart of "
-			"\"--" ARG_CUFILE_LONG "\". Single-part object GET/PUT move their payload out-of-band "
+			"\"--" ARG_CUFILE_LONG "\". Object GET/PUT move their payload out-of-band "
 			"over RDMA (directly to/from GPU memory when \"--" ARG_GPUIDS_LONG "\" is given, "
 			"otherwise host memory), while a body-less HTTP control request carries the "
-			"x-amz-rdma-* protocol headers. Requires an RDMA-capable S3 endpoint, block size equal "
-			"to object size (single-part) and \"--" ARG_IODEPTH_LONG "=1\". An RDMA "
+			"x-amz-rdma-* protocol headers. Objects larger than the block size are uploaded as "
+			"multipart, with each part sent over RDMA, and downloaded as ranged RDMA GETs. "
+			"Requires an RDMA-capable S3 endpoint and \"--" ARG_IODEPTH_LONG "=1\". An RDMA "
 			"decline/failure is a hard error (no HTTP fallback).")
 #endif
 #ifdef CUDA_SUPPORT
@@ -1629,13 +1631,14 @@ void ProgArgs::checkArgs()
                 "\"--" ARG_S3FASTGET_LONG "\", which discards downloaded data and thus has no "
                 "buffer to receive the RDMA transfer.");
 
-        if(fileSize && blockSize && (blockSize < fileSize) )
-            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" requires single-part transfers, "
-                "i.e. the block size (\"-" ARG_BLOCK_SHORT "\") must be equal to or larger than "
-                "the object size (\"-" ARG_FILESIZE_SHORT "\"). Multi-part RDMA transfers are not "
-                "supported. "
-                "Object size: " + std::to_string(fileSize) + "; "
-                "Block size: " + std::to_string(blockSize) );
+        if(!s3ChecksumAlgoStr.empty() )
+            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" cannot be used together with "
+                "\"--" ARG_S3CHECKSUM_ALGO_LONG "\", because RDMA transfers carry no checksum "
+                "headers.");
+
+        if(!s3SSECKey.empty() )
+            throw ProgException("Option \"--" ARG_CUOBJ_LONG "\" cannot be used together with "
+                "\"--" ARG_S3SSECKEY_LONG "\", because RDMA transfers carry no SSE-C headers.");
     }
 
     if(hasUserSetRWMixPercent() && (benchMode == BenchMode_S3) )
@@ -1783,6 +1786,17 @@ void ProgArgs::checkPathDependentArgs()
 
 		if(fileSize) // collapse mix to a single size matching the new scalar blockSize
 			blockSizeMix = BlockSizeMix::parse(std::to_string(fileSize) );
+	}
+
+	if(useCuObj && (blockSize > CUOBJ_MAX_BLOCKSIZE) )
+	{
+		LOGGER(Log_NORMAL, "NOTE: Reducing block size to the maximum cuObject RDMA transfer size, "
+			"so that larger objects get uploaded as multipart. "
+			"Old: " << blockSize << "; " <<
+			"New: " << CUOBJ_MAX_BLOCKSIZE << std::endl);
+
+		blockSize = CUOBJ_MAX_BLOCKSIZE;
+		blockSizeMix = BlockSizeMix::parse(std::to_string(blockSize) );
 	}
 
 	// reduce file size to multiple of (smallest) block size for directIO and random IO
@@ -3874,7 +3888,7 @@ void ProgArgs::printHelpS3()
 			"GPU data transfer.")
 		(ARG_CUOBJ_LONG, bpo::bool_switch(&this->useCuObj),
 			"Use cuObject API for GPU-direct S3-over-RDMA (object-storage counterpart of \"--"
-			ARG_CUFILE_LONG "\") for single-part object GET/PUT. Requires a build with cuObject "
+			ARG_CUFILE_LONG "\") for object GET/PUT. Requires a build with cuObject "
 			"support (CUDA 13.1+) and an RDMA-capable S3 endpoint. Use \"--" ARG_GPUIDS_LONG
 			"\" for VRAM-direct transfers.")
 		(ARG_TREEFILE_LONG, bpo::value(&this->treeFilePath),
