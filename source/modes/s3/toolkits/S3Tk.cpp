@@ -3,11 +3,11 @@
 
 #include "Common.h"
 #include "Logger.h"
-#include "OpsLogger.h"
+#include "toolkits/OpsLogger.h"
 #include "ProgArgs.h"
 #include "toolkits/Base64Encoder.h"
-#include "toolkits/S3CredentialStore.h"
-#include "toolkits/S3Tk.h"
+#include "modes/s3/toolkits/S3CredentialStore.h"
+#include "modes/s3/toolkits/S3Tk.h"
 #include "toolkits/StringTk.h"
 #include "toolkits/TerminalTk.h"
 #include "toolkits/UnitTk.h"
@@ -24,8 +24,8 @@
         #include <aws/core/utils/logging/CRTLogSystem.h>
     #endif
 
-    #include "toolkits/S3InterruptibleRetryStrategy.h"
-    #include "toolkits/S3UnbufferedLogSystem.h"
+    #include "modes/s3/toolkits/S3InterruptibleRetryStrategy.h"
+    #include "modes/s3/toolkits/S3UnbufferedLogSystem.h"
 
     /* print a note for AWS CRT with older SDK versions because of known issue with
         SetContinueRequestHandler: https://github.com/aws/aws-sdk-cpp/issues/3639 */
@@ -59,6 +59,8 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 {
 #ifdef S3_SUPPORT
 
+    const S3ProgArgs& s3Args = progArgs->getS3Args();
+
     if(globalInitCalled)
     {
         LOGGER(Log_DEBUG, "Skipping repeated S3 SDK init." << std::endl);
@@ -71,23 +73,23 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 
     s3SDKOptions = new Aws::SDKOptions;
 
-    if(progArgs->getS3LogLevel() > 0)
+    if(s3Args.getS3LogLevel() > 0)
     {
         s3SDKOptions->loggingOptions.logLevel =
-	        (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel();
+	        (Aws::Utils::Logging::LogLevel)s3Args.getS3LogLevel();
 
         s3SDKOptions->loggingOptions.logger_create_fn = [&]()
         {
             return Aws::MakeShared<S3UnbufferedLogSystem>(
-                "S3UnbufferedLogSystem", (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel(),
-                progArgs->getS3LogfilePrefix() );
+                "S3UnbufferedLogSystem", (Aws::Utils::Logging::LogLevel)s3Args.getS3LogLevel(),
+                s3Args.getS3LogfilePrefix() );
         };
 
         #ifdef S3_AWSCRT
             s3SDKOptions->loggingOptions.crt_logger_create_fn = [&]()
             {
                 return Aws::MakeShared<Aws::Utils::Logging::DefaultCRTLogSystem>("DebugLogging",
-                    (Aws::Utils::Logging::LogLevel)progArgs->getS3LogLevel() );
+                    (Aws::Utils::Logging::LogLevel)s3Args.getS3LogLevel() );
             };
         #endif // S3_AWSCRT
 	}
@@ -105,24 +107,24 @@ void S3Tk::initS3Global(const ProgArgs* progArgs)
 
 
     // Initialize credential store if multi-credentials are specified
-    if(!progArgs->getS3CredentialsFile().empty() )
+    if(!s3Args.getS3CredentialsFile().empty() )
     {
-        S3CredentialStore::getInstance().loadCredentialsFromFile(progArgs->getS3CredentialsFile() );
+        S3CredentialStore::getInstance().loadCredentialsFromFile(s3Args.getS3CredentialsFile() );
         LOGGER(Log_DEBUG, "Loaded S3 credentials from file: "
-               << progArgs->getS3CredentialsFile() << std::endl);
+               << s3Args.getS3CredentialsFile() << std::endl);
     }
     else
-    if(!progArgs->getS3CredentialsList().empty() )
+    if(!s3Args.getS3CredentialsList().empty() )
     {
-        S3CredentialStore::getInstance().loadCredentialsFromList(progArgs->getS3CredentialsList() );
+        S3CredentialStore::getInstance().loadCredentialsFromList(s3Args.getS3CredentialsList() );
         LOGGER(Log_DEBUG, "Loaded S3 credentials from command line list" << std::endl);
     }
     else
-    if(!progArgs->getS3AccessKey().empty() || !progArgs->getS3AccessSecret().empty() )
+    if(!s3Args.getS3AccessKey().empty() || !s3Args.getS3AccessSecret().empty() )
     {
         // Add single credential to store if provided
         S3CredentialStore::getInstance().addCredential(
-            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret() );
+            s3Args.getS3AccessKey(), s3Args.getS3AccessSecret() );
         LOGGER(Log_DEBUG, "Using single S3 credential" << std::endl);
     }
 
@@ -167,12 +169,14 @@ void S3Tk::uninitS3Global(const ProgArgs* progArgs)
 std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     size_t workerRank, std::atomic_bool* isInterruptionRequested, std::string* outS3EndpointStr)
 {
+    const S3ProgArgs& s3Args = progArgs->getS3Args();
+
     S3ClientConfiguration config;
 
-    size_t numParallelRequests = progArgs->getUseS3ClientSingleton() ?
+    size_t numParallelRequests = s3Args.getUseS3ClientSingleton() ?
         progArgs->getNumThreads() * progArgs->getIODepth() : progArgs->getIODepth();
-    unsigned maxConnections = progArgs->getS3MaxConnections();
-    bool useVirtualAddressing = progArgs->getUseS3VirtualAddressing();
+    unsigned maxConnections = s3Args.getS3MaxConnections();
+    bool useVirtualAddressing = s3Args.getUseS3VirtualAddressing();
 
     /* note: DefaultExecutor creates a new temporary thread for each async request, so is unbounded
         and has overhead for thread creation. Thus, we only use it without I/O depth (i.e. no async
@@ -200,7 +204,7 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
     config.disableExpectHeader = true;
     config.enableTcpKeepAlive = true;
     config.requestCompressionConfig.requestMinCompressionSizeBytes = 1;
-    config.requestCompressionConfig.useRequestCompression = (progArgs->getS3NoCompression() ?
+    config.requestCompressionConfig.useRequestCompression = (s3Args.getS3NoCompression() ?
         Aws::Client::UseRequestCompression::DISABLE : Aws::Client::UseRequestCompression::ENABLE);
 
 
@@ -208,16 +212,16 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     config.useVirtualAddressing = useVirtualAddressing; /* only exists in config of
         s3-crt and not effective in client constructor, but effective there for non-crt s3 client */
-    config.partSize = progArgs->getS3MpuSplitSize() ? progArgs->getS3MpuSplitSize() :
+    config.partSize = s3Args.getS3MpuSplitSize() ? s3Args.getS3MpuSplitSize() :
         (progArgs->getBlockSize() ? progArgs->getBlockSize() : 5 * 1024 * 1024); /* S3CrtClient
         internally splits simple PUTs into MPU parts if obj is larger than config.partSize */
-    config.throughputTargetGbps = progArgs->getS3ThroughputTargetGbps(); /* used for implicit
+    config.throughputTargetGbps = s3Args.getS3ThroughputTargetGbps(); /* used for implicit
         calculation of max connections, as S3CrtClient has no explicit number of max connections;
         see aws-c-s3/source/s3_client.c s_get_ideal_connection_number_from_throughput() */
 
     // create event loop group (async I/O threads)
     auto eventLoopGroup = std::make_shared<Aws::Crt::Io::EventLoopGroup>(
-        progArgs->getUseS3ClientSingleton() ? 0 /* 0 = "one for each core" */ : 1);
+        s3Args.getUseS3ClientSingleton() ? 0 /* 0 = "one for each core" */ : 1);
 
     // create custom hostname resolver for round-robin selection
     // (note: "8, 30" defaults taken from InitAPI() in Aws.cpp)
@@ -244,14 +248,14 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
 #endif // S3_AWSCRT
 
-    if(!progArgs->getS3Region().empty() )
-        config.region = progArgs->getS3Region();
+    if(!s3Args.getS3Region().empty() )
+        config.region = s3Args.getS3Region();
 
     // select endpoint...
 
-    if(!progArgs->getS3EndpointsVec().empty() )
+    if(!s3Args.getS3EndpointsVec().empty() )
     {
-        const StringVec& endpointsVec = progArgs->getS3EndpointsVec();
+        const StringVec& endpointsVec = s3Args.getS3EndpointsVec();
         size_t numEndpoints = endpointsVec.size();
         std::string endpoint = endpointsVec[workerRank % numEndpoints];
 
@@ -277,17 +281,17 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentialsProvider;
 
-    if(!progArgs->getS3AccessKey().empty() || !progArgs->getS3AccessSecret().empty())
+    if(!s3Args.getS3AccessKey().empty() || !s3Args.getS3AccessSecret().empty())
     { // Single credential mode
         credentialsProvider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
-            progArgs->getS3AccessKey(), progArgs->getS3AccessSecret(),
-            progArgs->getS3SessionToken() );
+            s3Args.getS3AccessKey(), s3Args.getS3AccessSecret(),
+            s3Args.getS3SessionToken() );
 
         LOGGER(Log_DEBUG, "Using single S3 credential. "
             "Worker rank: " << workerRank << std::endl);
     }
     else
-    if(!progArgs->getS3CredentialsFile().empty() || !progArgs->getS3CredentialsList().empty() )
+    if(!s3Args.getS3CredentialsFile().empty() || !s3Args.getS3CredentialsList().empty() )
     { // Multi-credential mode (round-robin)
         credentialsProvider = S3CredentialStore::getInstance().getCredential(workerRank);
 
@@ -304,7 +308,7 @@ std::shared_ptr<S3Client> S3Tk::initS3Client(const ProgArgs* progArgs,
 
     // create s3 client for this worker
     std::shared_ptr<S3Client> s3Client = std::make_shared<S3Client>(credentialsProvider,
-        config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)progArgs->getS3SignPolicy(),
+        config, (Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy)s3Args.getS3SignPolicy(),
         useVirtualAddressing);
 
     return s3Client;

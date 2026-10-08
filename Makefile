@@ -14,6 +14,7 @@ BIN_PATH           ?= ./bin
 EXTERNAL_PATH      ?= ./external
 PACKAGING_PATH     ?= ./packaging
 BUILD_HELPERS_PATH ?= ./build_helpers
+PLUGINS_PATH       ?= ./contrib/plugins
 
 INST_PATH          ?= /usr/local/bin
 PKG_INST_PATH      ?= /usr/bin
@@ -55,9 +56,6 @@ LDFLAGS_RELASE       = -O3
 LDFLAGS_DEBUG        = -O0
 
 SOURCES          := $(shell find $(SOURCE_PATH) -name '*.cpp')
-OBJECTS          := $(SOURCES:.cpp=.o)
-OBJECTS_CLEANUP  := $(shell find $(SOURCE_PATH) -name '*.o') # separate to clean after C file rename
-DEPENDENCY_FILES := $(shell find $(SOURCE_PATH) -name '*.d')
 
 # Release & debug flags for compiler and linker
 ifeq ($(BUILD_DEBUG), 1)
@@ -230,6 +228,11 @@ ifeq ($(THREADNAME_SUPPORT), 1)
   CXXFLAGS += -DTHREADNAME_SUPPORT
 endif
 
+# Contributed plugins (see contrib/plugins/README.md). Each plugin.mk adds its sources and flags
+# when its ELB_PLUGIN_<NAME>=1 option is set. Included before the auto detection, because a plugin
+# may need to force e.g. CUDA_SUPPORT=1 before it gets detected.
+include $(wildcard $(PLUGINS_PATH)/*/plugin.mk)
+
 # Include build helpers for auto detection
 include build_helpers/AutoDetection.mk
 
@@ -247,6 +250,12 @@ ifeq ($(BACKTRACE_SUPPORT), 1)
 
 endif
 
+
+
+# (after the plugin includes, because plugins add to SOURCES)
+OBJECTS          := $(SOURCES:.cpp=.o)
+OBJECTS_CLEANUP  := $(shell find $(SOURCE_PATH) $(PLUGINS_PATH) -name '*.o') # for renamed sources
+DEPENDENCY_FILES := $(shell find $(SOURCE_PATH) $(PLUGINS_PATH) -name '*.d')
 
 
 all: $(SOURCES) $(EXE)
@@ -300,7 +309,7 @@ endif
 
 # "Makefile" as dependency to rebuild all on Makefile change.
 # Dependency chain is: Makefile -> features-info -> features-detect -> externals
-$(OBJECTS): Makefile | features-info
+$(OBJECTS): Makefile $(wildcard $(PLUGINS_PATH)/*/plugin.mk) | features-info
 
 
 externals:
@@ -311,13 +320,13 @@ ifdef BUILD_VERBOSE
 	+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
-		PREP_SPDK=$(SPDK_SUPPORT) \
+		PREP_SPDK=$(SPDK_SUPPORT) $(PLUGINS_EXTERNALS_ENV) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 else
 	@+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
-		PREP_SPDK=$(SPDK_SUPPORT) \
+		PREP_SPDK=$(SPDK_SUPPORT) $(PLUGINS_EXTERNALS_ENV) \
 		$(EXTERNAL_PATH)/prepare-external.sh
 endif
 
@@ -425,6 +434,11 @@ endif
 ifeq ($(SPDK_SUPPORT),1)
 	$(info [OPT] SPDK support enabled)
 endif
+ifneq ($(PLUGINS_ENABLED),)
+	$(info [OPT] Plugins enabled: $(PLUGINS_ENABLED))
+else
+	$(info [OPT] Plugins enabled: none)
+endif
 
 
 clean: clean-packaging clean-buildhelpers
@@ -480,7 +494,11 @@ else
 endif
 
 
-clean-all: clean clean-externals clean-packaging clean-buildhelpers
+clean-all: clean clean-externals clean-packaging clean-buildhelpers clean-s3rdma-tools
+
+# the S3-over-RDMA test tools in tools/s3rdma have their own Makefiles
+clean-s3rdma-tools:
+	$(MAKE) -C tools/s3rdma clean-all
 
 
 install: all
@@ -620,6 +638,9 @@ help:
 	@echo '                             allocation management. Recommended when using'
 	@echo '                             musl-libc. (Default: 0)'
 	@echo
+	@echo 'Contributed Plugins (see contrib/plugins/README.md):'
+	$(foreach plugin,$(PLUGIN_NAMES),$(PLUGIN_HELP_$(plugin))$(newline))
+	@echo
 	@echo 'Optional Compile/Link Arguments:'
 	@echo '   BUILD_VERBOSE=1         - Enable verbose build output.'
 	@echo '   BUILD_STATIC=1          - Generate a static binary without dependencies.'
@@ -658,8 +679,14 @@ help:
 	@echo 'Note: Use "make clean-all" when changing any optional build features.'
 
 
-.PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers deb externals \
-features-info help prepare-buildroot rpm version
+# for multi-line variable expansion in recipes (e.g. plugin help)
+define newline
+
+
+endef
+
+.PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers clean-s3rdma-tools deb \
+externals features-info help prepare-buildroot rpm version
 
 
 .DEFAULT_GOAL := all

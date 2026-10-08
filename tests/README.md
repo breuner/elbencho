@@ -4,8 +4,8 @@ Black-box tests that run the `elbencho` binary and verify its results. The
 [prove](https://perldoc.perl.org/prove) TAP harness executes the tests, the
 tests themselves are plain bash scripts.
 
-Nothing in here is part of a release build or package. The whole `tests/` dir is
-excluded from git via its `.gitignore`.
+Nothing in here is part of a release build or package. Only `tests/tmp/`, the
+dir for temporary files, is excluded from git via the `.gitignore` in here.
 
 ## Running the tests
 
@@ -13,6 +13,7 @@ excluded from git via its `.gitignore`.
 tests/run-tests.sh              # all posix & distributed mode tests
 tests/run-tests.sh -a           # everything, including S3
 tests/run-tests.sh -s -j 4      # add the S3 tests, 4 test scripts in parallel
+tests/run-tests.sh -r           # add the S3-over-RDMA plugin tests
 tests/run-tests.sh -v tests/tests_posix/smallfiles-dirmode.t   # a single test, verbose
 tests/run-tests.sh -c tests/tests_posix/smallfiles-dirmode.t   # ... and log its commands
 tests/run-tests.sh -e /usr/bin/elbencho                  # test an installed binary
@@ -31,8 +32,9 @@ be pasted into a shell as it is. The dir is emptied at the start of a run, so it
 always holds the transcripts of the most recent one.
 
 By default only the tests for backends that are always compiled in are run.
-Tests for optional backends are enabled explicitly (`-s` for S3, `-p` for SPDK)
-and skip themselves if the given binary was built without the feature.
+Tests for optional backends are enabled explicitly (`-s` for S3, `-p` for SPDK,
+`-r` for the S3-over-RDMA plugins) and skip themselves if the given binary was
+built without the feature.
 
 The S3 server used by the S3 tests is [libreFS](https://github.com/libreFS/libreFS),
 a community fork of the minio server, which was discontinued as open source. It
@@ -46,14 +48,116 @@ Note that this server is licensed under the AGPL-3.0. It is only downloaded for
 running the tests and is neither linked against elbencho nor redistributed with
 it, so it does not affect elbencho's own licensing.
 
+The S3 tests can also run against an already running S3 server instead of
+private minio instances, e.g. an RDMA-capable one. Point `ELBENCHO_TEST_S3_ENDPOINT`
+at it and set the credentials; nothing gets downloaded or started then:
+
+```bash
+ELBENCHO_TEST_S3_ENDPOINT=http://s3.example.test:9000 S3_KEY=mykey S3_SECRET=mysecret \
+    tests/run-tests.sh -s -r
+```
+
+The tests create and delete buckets named `elbencho-test-<test script name>` on
+that server.
+
 Requirements: `prove`, `jq`, `timeout`, for the S3 tests the `aws` cli tool, and
 for the SPDK tests `python3` (spdk's `rpc.py`). The S3 server is downloaded
 automatically into the temporary dir when the S3 tests are enabled for the first
 time. The SPDK tests need no download: `nvmf_tgt` and `rpc.py` are built
-together with elbencho when `SPDK_SUPPORT=1` is used.
+together with elbencho when `SPDK_SUPPORT=1` is used. The S3-over-RDMA tests
+need `make` and a C++17 compiler for their server, see below.
 
 Each running SPDK test occupies roughly one CPU core, because elbencho's SPDK
 I/O thread polls without sleeping. Prefer `-j 4` or lower together with `-p`.
+
+## S3-over-RDMA plugin tests
+
+`-r` runs the tests of the `s3rdma_*` plugins from `contrib/plugins/` against
+[tools/s3rdma/server](../tools/s3rdma/server/README.md), a minimal S3 server that
+moves object data over RDMA and stores the objects as plain files. The whole
+group skips when elbencho was built without an `s3rdma_*` plugin. Otherwise
+`run-tests.sh` builds the server, the
+[cuObject client shim](../tools/s3rdma/cuobjclient-shim/README.md) and
+[tools/s3rdma/client](../tools/s3rdma/client/README.md) once before the test
+scripts start (so parallel runs never build), in a copy of their sources below
+the temporary dir (`<tmp dir>/s3rdma/`), so that the tests write nothing outside
+of it; `make -C tools/s3rdma` builds them in place for interactive use. Each test
+script starts its own private server instance in its temporary dir, like the
+minio tests do. A failed build is reported as a note, not as an error, and the
+tests skip themselves while a tool is missing.
+
+The plugins reach the server through NVIDIA's cuObject client API, and the tests
+run them with one of two libraries behind that API:
+
+* NVIDIA's `libcuobjclient` (`cuobj`): RDMA with DC transport. This needs a NIC
+  with DC support (ConnectX-5 or newer), the NVIDIA GPU driver on the client,
+  `libcufile_rdma.so` (auto-detected, or `ELBENCHO_TEST_CUFILE_LIB_DIR`) and
+  `libcuobjserver` for the server build. The cuObject client config is written
+  per test (`cuobj.json` in the test's temp dir) with the detected NIC address
+  and without `allow_compat_mode`, so that nothing silently falls back;
+  `ELBENCHO_TEST_CUFILE_COMPAT_MODE=1` adds it for hosts where cuFile refuses to
+  initialize otherwise. On hosts without the `nvidia_peermem` module (the open
+  kernel module uses dma-buf instead), cuFile would disable userspace RDMA, so
+  the config then sets `rdma_peer_type` to `dmabuf`; `ELBENCHO_TEST_CUOBJ_PEER_TYPE`
+  overrides this choice.
+* The cuObject client shim from `tools/s3rdma/` (`rc`): the same API over
+  Reliable Connections on plain `libibverbs`, which works on any RoCE NIC and
+  without a GPU. The tests put it on `LD_LIBRARY_PATH`, which also redirects an
+  elbencho that was linked against NVIDIA's library to the shim (and the Cloudian
+  SDK fork, which loads the library at runtime). `ELBENCHO_TEST_CUOBJ_SHIM_LIB_DIR`
+  points at a shim built elsewhere.
+
+By default a test uses NVIDIA's library where it can work (`s3rdma-server
+--rdma-check` tries the DC transport on the NIC, and the GPU needs 2 GiB of free
+memory for the CUDA contexts of the cuObject clients, because cuFile aborts the
+process otherwise) and otherwise falls back to the shim, with a note on stderr
+that says why. `ELBENCHO_TEST_S3RDMA_TRANSPORT=cuobj|rc`
+pins one of the two. Both need an active RDMA link with an IPv4 address
+(auto-detected, or `ELBENCHO_TEST_RDMA_ADDR`), a locked memory limit of at
+least 64 MiB (`ulimit -l`; systemd services get 8 MiB by default, so a test
+runner started as a service skips these tests unless its unit raises
+`LimitMEMLOCK`), and elbencho built with an `s3rdma_*` plugin
+(`ELB_PLUGIN_S3RDMA_MINIO=1` or `ELB_PLUGIN_S3RDMA_CLOUDIAN=1`); the first one
+found is used, or the one named in `ELBENCHO_TEST_S3RDMA_PLUGIN`.
+
+That the data really moved over RDMA is checked independently of the plugin and
+the library: the server only stores what it received via RDMA (the control
+requests have no body), its log is checked for one RDMA transfer per object or
+part, and the NIC's `rx_read_requests` / `rx_write_requests` hardware counters
+have to grow. The NIC and the GPU may be in use by other programs while the tests
+run: the counters are only required to grow, each test counts the transfers in
+the log of its private server, every server instance gets its own cuObject port
+(one process per port) and the buffers stay small, a few MiB per thread on both
+sides.
+
+The test scripts in `tests_plugin_s3rdma/`:
+
+* `putget-rdma.t`: single-part PUT and GET over RDMA with an `s3rdma_*` plugin,
+  with data verification.
+* `gpu-rdma.t`: the same from and to GPU memory (`--gpuids`; with the
+  `s3rdma_cloudian` plugin both host-staged and GPU-direct via `--gds`). Needs
+  NVIDIA's cuObject library, elbencho built with CUDA support and a GPU (the
+  first one that `nvidia-smi` lists, or `ELBENCHO_TEST_GPU_ID`); the GPU-direct
+  modes also need a working GPUDirect RDMA path between the GPU and the NIC.
+* `mpu-rdma.t`: multipart upload and ranged download over RDMA with an
+  `s3rdma_*` plugin, including shared uploads of one object by several threads
+  (`--sharesize`).
+* `service-rdma.t`: distributed mode. The coordinator activates the plugin on a
+  local service instance per run, and a run without the plugin against the same
+  service has to move the data in the HTTP body again.
+* `plugin-argchecks.t`: activation via `--plugins` and the argument checks of the
+  active plugin. Needs neither a server nor RDMA hardware.
+* `plainhttp-mpu.t`: self-test of the server over plain HTTP (multipart upload,
+  ranged reads, listing, declining an RDMA token). Only needs the server
+  executable and runs on hosts without RDMA hardware as well.
+* `client-shim-rc.t`: the cuObject-style protocol over Reliable Connections with
+  `tools/s3rdma/client` linked against the shim, independent of elbencho's
+  plugins.
+* `hipobj-rc-v2.t`: the server's third protocol, AMD hipObject's `hipobj-rc-v2`
+  with RC transport. No elbencho plugin speaks it yet, so the test drives it with
+  hipObject's own RDMA test client, which the server's `Makefile` builds from the
+  downloaded hipObject sources when `libibverbs` and OpenSSL development files
+  are present (`libibverbs-dev`, `libssl-dev`). It always uses the private server.
 
 ## Temporary files
 
@@ -81,7 +185,7 @@ Dirs holding test cases are prefixed with `tests_`; everything else holds suppor
 | :--- | :--- |
 | `run-tests.sh` | Wrapper that checks the prerequisites and calls `prove`. |
 | `lib/testlib.sh` | TAP output, assertions, temp dir & watchdog handling, command tracing, free port selection, result file, file system and process inspection. |
-| `lib/minio.sh` | Download-once S3 server (libreFS, a minio fork), one private instance per test. |
+| `lib/minio.sh` | Download-once S3 server (libreFS, a minio fork), one private instance per test, or an external S3 server via `ELBENCHO_TEST_S3_ENDPOINT`. Also the aws cli helpers shared by all S3 tests. |
 | `tests_posix/` | Local file & dir benchmarks. Always run. |
 | `tests_distributed/` | Benchmarks through a local elbencho service instance. Always run. |
 | `tests_netbench/` | Network benchmarks (`--netbench`) between local elbencho service instances. Always run. |
@@ -89,6 +193,8 @@ Dirs holding test cases are prefixed with `tests_`; everything else holds suppor
 | `tests_s3/` | S3 object benchmarks against minio. Enabled via `-s`. |
 | `tests_spdk/` | SPDK NVMe-oF benchmarks. Each script starts its own private target. Enabled via `-p`. See [tests_spdk/README.md](tests_spdk/README.md). |
 | `lib/spdk.sh` | Starts and provisions a private `nvmf_tgt`, plus target side and SPDK specific result helpers. |
+| `tests_plugin_s3rdma/` | S3-over-RDMA tests via the `s3rdma_*` plugins and the test client against `tools/s3rdma/server`. Enabled via `-r`. See [S3-over-RDMA plugin tests](#s3-over-rdma-plugin-tests). |
+| `lib/plugin_s3rdma.sh` | Builds nothing itself, but starts a private `s3rdma-server` with the RDMA transport under test, configures the cuObject client or the RC shim, runs the test clients and inspects the server's files, log and the NIC's RDMA counters. |
 | `lib/journal.sh` | Journal dir and sidecar inspection for the `--journaldir` tests, plus target corruption helpers. |
 | `lib/interactive.sh` | Lets the two server helpers above run outside a test, for the scripts in `tools/`. |
 | `tools/` | Ad-hoc servers for interactive use, not test cases. See [Interactive servers](#interactive-servers). |
@@ -266,6 +372,13 @@ Rules to keep tests independent, fast and safe to run in parallel:
   runs the write phase (so no `-w` and no other phase option), it reports its
   phase as `NET` with a `path_type` of `net`, and it populates only byte
   counters - `entries` is absent, so `json_value` returns `0` for it.
+* The netbench services use ports 20000-20899 and, only while a run is active,
+  the data ports 21000-21899. That relies on the kernel's local port range for
+  outgoing connections (`net.ipv4.ip_local_port_range`, usually starting at
+  32768) staying clear of them. On a host with a wider range the tests print a
+  note, because a connection of a concurrently running test can occasionally
+  take a data port and fail a run; `sysctl -w net.ipv4.ip_local_reserved_ports=20000-21899`
+  reserves them.
 * A netbench run transfers, counting both directions,
   `clients * threads * (size / blocksize) * (blocksize + respsize)` bytes, and
   the send and receive totals are both equal to that. The coordinator sums the

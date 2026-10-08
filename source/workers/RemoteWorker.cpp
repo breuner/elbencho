@@ -294,7 +294,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
     if(!treeFilePath.empty() )
         prepareRemoteFile(treeFilePath, SERVICE_UPLOAD_TREEFILE);
 
-    if(progArgs->getUseS3MPUSharing() )
+    if(progArgs->getS3Args().getUseS3MPUSharing() )
         prepareRemoteFile(S3_IMPLICIT_MPUSHAING_PATH, SERVICE_UPLOAD_MPUSHARINGFILE);
  }
 

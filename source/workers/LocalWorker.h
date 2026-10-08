@@ -13,6 +13,7 @@
 
 #include "Common.h"
 #include "CuFileHandleData.h"
+#include "modes/s3/S3Mode.h"
 #include "toolkits/Journal.h"
 #include "toolkits/net/BasicSocket.h"
 #include "toolkits/offsetgen/OffsetGenerator.h"
@@ -21,8 +22,6 @@
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
 #include "toolkits/RateLimiterRWMixThreads.h"
-#include "toolkits/S3Tk.h"
-#include "S3UploadStore.h"
 #include "Worker.h"
 
 #ifdef CUDA_SUPPORT
@@ -41,6 +40,9 @@
 #ifdef SPDK_SUPPORT
     #include "toolkits/spdk/SpdkNvmeClient.h"
 #endif
+
+#define PATH_BUF_LEN                    64
+#define INTERRUPTION_CHECK_INTERVAL     128
 
 typedef std::vector<BasicSocket*> SocketVec;
 
@@ -85,6 +87,8 @@ typedef bool (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
  */
 class LocalWorker : public Worker
 {
+    friend class S3Mode;
+
 	public:
 		explicit LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank);
 		~LocalWorker();
@@ -216,18 +220,6 @@ class LocalWorker : public Worker
 		curandGenerator_t gpuRandGen{NULL};
 #endif
 
-#ifdef S3_SUPPORT
-        std::shared_ptr<S3Client> s3Client; // (shared_ptr expected by some SDK functions)
-        std::string s3EndpointStr; // set after s3Client initialized
-        static S3UploadStore s3SharedUploadStore; // singleton for shared uploads
-
-        bool useS3SSE{false}; // for plain server-side encryption
-        std::string s3SSECKey; // SSE-C encryption key
-        std::string s3SSECKeyMD5; // SSE-C encryption key MD5 hash
-        std::string s3SSEKMSKey; // SSE-KMS encryption key
-		S3ChecksumAlgorithm s3ChecksumAlgorithm; // for x-amz-sdk-checksum-algorithm header
-#endif
-
 #ifdef HDFS_SUPPORT
 		hdfsFS hdfsFSHandle{NULL}; // currently referenced hdfs instance
 		hdfsFile hdfsFileHandle{NULL}; // currently open file on hdfs
@@ -264,6 +256,8 @@ class LocalWorker : public Worker
 
 		OpsLogger opsLog; // logger for IO operations
 
+        S3Mode s3Mode; // s3 benchmark mode (works on this worker's buffers & stats)
+
 
 		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
 
@@ -272,8 +266,6 @@ class LocalWorker : public Worker
 
         void initLibAio();
         void uninitLibAio();
-		void initS3Client();
-		void uninitS3Client();
 		void initHDFS();
 		void uninitHDFS();
 		void initNetBench();
@@ -319,66 +311,6 @@ class LocalWorker : public Worker
 		void fileModeIterateFilesSeq();
 		void fileModeDeleteFiles();
 		std::string fileModeLogPathFromFileHandlesErr();
-
-		void s3ModeIterateBuckets();
-		void s3ModeIterateObjects();
-		void s3ModeIterateObjectsRand();
-		void s3ModeIterateCustomObjects();
-        void s3ModeIterateAndCompleteMpuIDs();
-
-#ifdef S3_SUPPORT
-        template <typename R>
-        void s3ModeThrowOnError(const Aws::Utils::Outcome<R, S3ErrorType>& outcome, const std::string& failMessage,
-                                const std::string& bucketName, const std::string& objectName="");
-#endif // S3_SUPPORT
-
-        template <typename REQUESTTYPE>
-            void s3ModeAddServerSideEncryption(REQUESTTYPE& request);
-        template <typename REQUESTTYPE>
-			inline void s3ModeAddChecksumAlgorithm(REQUESTTYPE& request);
-		void s3ModeCreateBucket(std::string bucketName);
-		void s3ModeHeadBucket(std::string bucketName);
-		void s3ModeCreateBucketTagging(const std::string& bucketName);
-		void s3ModeDeleteBucketTagging(const std::string& bucketName);
-		void s3ModeGetBucketTagging(const std::string& bucketName);
-		void s3ModeDeleteBucket(const std::string& bucketName);
-		void s3ModePutBucketAcl(std::string bucketName);
-		void s3ModeGetBucketAcl(std::string bucketName);
-        void s3ModeGetBucketVersioning(const std::string& bucketName);
-        void s3ModePutBucketVersioning(const std::string& bucketName, bool enable = true);
-		void s3ModeUploadObjectSinglePart(std::string bucketName, std::string objectName);
-		void s3ModeUploadObjectMultiPart(std::string bucketName, std::string objectName);
-        void s3ModeUploadObjectMultiPartAsync(std::string bucketName, std::string objectName);
-		void s3ModeUploadObjectMultiPartShared(std::string bucketName, std::string objectName,
-			uint64_t objectTotalSize);
-        void s3ModeUploadObjectMultiPartSharedAsync(std::string bucketName, std::string objectName,
-            uint64_t objectTotalSize);
-        void s3ModeQueryAndFinishMultipartUpload(std::string bucketName,
-            std::string objectName, std::string uploadID, uint64_t expectedTotalSize);
-		bool s3ModeAbortMultipartUpload(std::string bucketName, std::string objectName,
-			std::string uploadID);
-		void s3ModeAbortUnfinishedSharedUploads();
-		void s3ModeDownloadObject(std::string bucketName, std::string objectName,
-			const bool isRWMixedReader);
-        void s3ModeDownloadObjectAsync(std::string bucketName, std::string objectName,
-            const bool isRWMixedReader);
-		void s3ModeStatObject(std::string bucketName, std::string objectName);
-		void s3ModeDeleteObject(std::string bucketName, std::string objectName);
-		void s3ModeListObjects();
-		void s3ModeListObjParallel();
-		void s3ModeVerifyListing(StringSet& expectedSet, StringList& receivedList,
-			std::string bucketName, std::string listPrefix);
-		void s3ModeListAndMultiDeleteObjects();
-		void s3ModePutObjectAcl(std::string bucketName, std::string objectName);
-		void s3ModeGetObjectAcl(std::string bucketName, std::string objectName);
-        void s3ModeGetObjectTags(const std::string& bucketName, const std::string& objectName);
-        void s3ModePutObjectTags(const std::string& bucketName, const std::string& objectName);
-        void s3ModeDeleteObjectTags(const std::string& bucketName, const std::string& objectName);
-        void s3ModeGetObjectLockConfiguration(const std::string& bucketName);
-        void s3ModePutObjectLockConfiguration(const std::string& bucketName, bool unset = false);
-		bool getS3ModeDoReverseSeqFallback();
-		std::string getS3RandObjectPrefix(size_t workerRank, size_t dirIdx, size_t fileIdx,
-			const std::string& objectPrefix);
 
 		void hdfsDirModeIterateDirs();
 		void hdfsDirModeIterateFiles();
@@ -491,12 +423,22 @@ class LocalWorker : public Worker
          */
         static void resetSingletons()
         {
-        #ifdef S3_SUPPORT
-            s3SharedUploadStore.reset();
-        #endif // S3_SUPPORT
-
+            S3Mode::resetSingletons();
             serverSocketVec.clear(); // (actual cleanup in uninitNetBenchAfterPhaseDone() )
         }
+
+        // forwarders to the phase-dependent function pointers for the bench mode classes
+
+        void preWriteBlockModifier(char* hostIOBuf, char* gpuIOBuf, size_t bufLen, off_t fileOffset)
+            { ((*this).*funcPreWriteBlockModifier)(hostIOBuf, gpuIOBuf, bufLen, fileOffset); }
+        void postReadBlockChecker(char* hostIOBuf, char* gpuIOBuf, size_t bufLen, off_t fileOffset)
+            { ((*this).*funcPostReadBlockChecker)(hostIOBuf, gpuIOBuf, bufLen, fileOffset); }
+        void preWriteCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
+            { ((*this).*funcPreWriteCudaMemcpy)(hostIOBuf, gpuIOBuf, count); }
+        void postReadCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
+            { ((*this).*funcPostReadCudaMemcpy)(hostIOBuf, gpuIOBuf, count); }
+        bool rwRateLimiter(size_t rwSize)
+            { return ((*this).*funcRWRateLimiter)(rwSize, isInterruptionRequested); }
 
 };
 

@@ -3,7 +3,10 @@
 # Prepare git clones and checkout the required tags of external sources.
 # * Simple-Web-Server will always be prepared when this is called.
 # * AWS SDK CPP will only be prepared when PREP_AWS_SDK=1 is set.
-#   (S3_AWSCRT=1 controls build options for the AWS SDK CPP.)
+#   (S3_AWSCRT=1 controls build options for the AWS SDK CPP. AWS_GIT_REPO and AWS_REQUIRED_TAG
+#   select the source, AWS_PATCHES patch files for a fresh clone, AWS_PREBUILT_LIBS the libs to
+#   merge when AWS_LIB_DIR is given; plugins may
+#   set these for a modified SDK.)
 # * Mimalloc will only be prepared when PREP_MIMALLOC=1 is set.
 # * uWebSockets will only be prepared when PREP_UWS=1 is set.
 # * libbacktrace will only be prepared when PREP_LIBBACKTRACE=1 is set.
@@ -137,10 +140,11 @@ prepare_awssdk_prebuilt_libs()
 
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
 	local INSTALL_LIB_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install/lib"
-	local AWS_LIBS="libaws-c-auth.a libaws-c-compression.a libaws-c-http.a libaws-cpp-sdk-core.a \
-		libaws-crt-cpp.a libaws-c-cal.a libaws-c-event-stream.a libaws-c-io.a libaws-cpp-sdk-s3.a \
-		libaws-c-s3.a libaws-c-common.a libaws-checksums.a libaws-c-mqtt.a \
-		libaws-cpp-sdk-transfer.a libaws-c-sdkutils.a"
+	# (AWS_PREBUILT_LIBS can be set e.g. by a plugin that uses a modified AWS SDK)
+	local AWS_LIBS="${AWS_PREBUILT_LIBS:-libaws-c-auth.a libaws-c-compression.a libaws-c-http.a \
+		libaws-cpp-sdk-core.a libaws-crt-cpp.a libaws-c-cal.a libaws-c-event-stream.a \
+		libaws-c-io.a libaws-cpp-sdk-s3.a libaws-c-s3.a libaws-c-common.a libaws-checksums.a \
+		libaws-c-mqtt.a libaws-cpp-sdk-transfer.a libaws-c-sdkutils.a}"
 
 	echo "Resolving given AWS SDK libs path: $AWS_LIB_DIR"
 
@@ -154,8 +158,8 @@ prepare_awssdk_prebuilt_libs()
 	echo "Resolved AWS SDK libs path: $AWS_LIB_DIR"
 
 	# Simple sanity check for provided AWS_LIB_DIR
-	if [ ! -e "${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a" ]; then
-		echo "AWS_LIB_DIR invalid. File not found: ${AWS_LIB_DIR}/libaws-cpp-sdk-s3.a"
+	if [ ! -e "${AWS_LIB_DIR}/libaws-cpp-sdk-core.a" ]; then
+		echo "AWS_LIB_DIR invalid. File not found: ${AWS_LIB_DIR}/libaws-cpp-sdk-core.a"
 		exit 1
 	fi
 
@@ -268,6 +272,20 @@ prepare_awssdk()
 				"Consider \"make clean-all\" before retrying a partially completed clone."
 			exit 1
 		fi
+
+		# apply patches to the fresh clone, e.g. a plugin's workarounds for its SDK fork
+		local PATCH_FILE
+
+		for PATCH_FILE in $AWS_PATCHES; do
+			echo "Applying AWS SDK patch: $(basename "$PATCH_FILE")..."
+
+			patch -d "$CLONE_DIR" -p1 < "$PATCH_FILE"
+			if [ $? -ne 0 ]; then
+				echo "ERROR: Applying AWS SDK patch failed: $PATCH_FILE" \
+					"Consider \"make clean-all\" before retrying."
+				exit 1
+			fi
+		done
 	fi
 
 	# configure, build and install
@@ -509,7 +527,7 @@ prepare_ftxui()
 prepare_spdk()
 {
 	local REQUIRED_TAG="${SPDK_REQUIRED_TAG:-"v26.05"}"
-	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/spdk/spdk.git"}"
+	local GIT_REPO="${SPDK_GIT_REPO:-"https://github.com/spdk/spdk.git"}"
 
 	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/spdk"

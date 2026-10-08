@@ -6,10 +6,19 @@
 # Every test gets its own minio process, its own data dir below the test's
 # temporary dir and its own random TCP ports, so S3 tests stay independent and
 # can run in parallel.
+#
+# Alternatively, the tests run against an already running S3 server when
+# ELBENCHO_TEST_S3_ENDPOINT is set. No minio instance is started then, and the
+# credentials below have to match that server.
 
 : ${S3_KEY:="elbenchotest"}
 : ${S3_SECRET:="elbenchotestsecret"}
 : ${S3_REGION:="us-east-1"}
+
+# Endpoint url of an external S3 server to use instead of a private minio
+# instance, e.g. "http://s3.example.test:9000". Empty means "start minio".
+: ${ELBENCHO_TEST_S3_ENDPOINT:=""}
+
 S3_ENDPOINT=""
 MINIO_PORT=""
 MINIO_CONSOLE_PORT=""
@@ -37,8 +46,27 @@ MINIO_PID=""
 # Address the endpoint url actually points at, resolved by start_minio.
 MINIO_ADDR="127.0.0.1"
 
-# elbencho arguments to talk to this test's minio instance. Set by start_minio.
+# elbencho arguments to talk to this test's S3 server. Set by configure_s3.
 S3_OPTS=()
+
+# Derive the elbencho arguments and the aws cli environment from S3_ENDPOINT and
+# the credentials above. Called by start_minio, and by the other S3 server
+# libraries of this test suite for their own endpoints.
+configure_s3()
+{
+    S3_OPTS=( --s3endpoints "$S3_ENDPOINT"
+              --s3key "$S3_KEY"
+              --s3secret "$S3_SECRET"
+              --s3region "$S3_REGION" )
+
+    # for the aws cli
+    export AWS_ACCESS_KEY_ID="$S3_KEY"
+    export AWS_SECRET_ACCESS_KEY="$S3_SECRET"
+    export AWS_REGION="$S3_REGION"
+    export AWS_DEFAULT_REGION="$S3_REGION"
+    export AWS_EC2_METADATA_DISABLED="true"
+    export AWS_PAGER=""
+}
 
 ########################## Downloading the server ###########################
 
@@ -125,9 +153,12 @@ bucket_name()
 
 # Skip the whole test file unless a minio server binary is available. Call this
 # before test_init/tap_plan, because skipping after the plan line has been
-# printed would result in two plan lines, which is not valid TAP.
+# printed would result in two plan lines, which is not valid TAP. Nothing is
+# needed for an external S3 server.
 require_minio()
 {
+    [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ] && return 0
+
     require_cmd curl
 
     if [ ! -x "$ELBENCHO_TEST_MINIO" ]; then
@@ -168,12 +199,19 @@ wait_for_minio_ready()
 
 # Start a private minio server. Skips the whole test file if the minio binary
 # has not been downloaded yet. Returns non-zero if the server did not come up.
+# With ELBENCHO_TEST_S3_ENDPOINT set, this only points S3_OPTS at that server.
 start_minio()
 {
     local datadir="$TEST_DIR/minio-data"
     local tries=0
     local maxtries=5
     local console_addr="${MINIO_CONSOLE_LISTEN_ADDR:-$MINIO_LISTEN_ADDR}"
+
+    if [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ]; then
+        S3_ENDPOINT="$ELBENCHO_TEST_S3_ENDPOINT"
+        configure_s3
+        return 0
+    fi
 
     require_cmd curl
 
@@ -242,20 +280,7 @@ start_minio()
 
         if wait_for_minio_ready; then
             S3_ENDPOINT="http://$MINIO_ADDR:$MINIO_PORT"
-
-            S3_OPTS=( --s3endpoints "$S3_ENDPOINT"
-                      --s3key "$S3_KEY"
-                      --s3secret "$S3_SECRET"
-                      --s3region "$S3_REGION" )
-
-            # for the aws cli
-            export AWS_ACCESS_KEY_ID="$S3_KEY"
-            export AWS_SECRET_ACCESS_KEY="$S3_SECRET"
-            export AWS_REGION="$S3_REGION"
-            export AWS_DEFAULT_REGION="$S3_REGION"
-            export AWS_EC2_METADATA_DISABLED="true"
-            export AWS_PAGER=""
-
+            configure_s3
             return 0
         fi
 
@@ -294,7 +319,7 @@ stop_minio()
     return 0
 }
 
-# aws cli wrapper for the s3api subcommand against this test's minio instance.
+# aws cli wrapper for the s3api subcommand against this test's S3 server.
 aws_s3api()
 {
     trace_cmd "aws s3api" \

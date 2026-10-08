@@ -300,6 +300,9 @@ All options in alphabetical order:
                           "--opslog".
   --phasedelay arg        Delay between different benchmark phases in seconds. 
                           (Default: 0)
+  --plugins arg           Comma-separated list of plugins to activate. Plugins 
+                          compiled into this executable: - (See "--help-all" 
+                          for their options.)
   --port arg              TCP port of background service. (Default: 1611)
   --preallocfile          Preallocate file disk space in a write phase via 
                           posix_fallocate().

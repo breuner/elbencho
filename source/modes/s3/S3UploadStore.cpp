@@ -8,8 +8,9 @@
 #include "Logger.h"
 #include "PathStore.h"
 #include "ProgArgs.h"
-#include "S3UploadStore.h"
+#include "modes/s3/S3UploadStore.h"
 #include "toolkits/OpsLogger.h"
+#include "modes/s3/toolkits/S3AclTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "workers/WorkerException.h"
 
@@ -26,7 +27,7 @@ void S3UploadStore::setProgArgs(const ProgArgs* progArgs, size_t workerRank)
 
     // only first local worker needs to populate the mpu store
     size_t workerRankLocal = workerRank - progArgs->getRankOffset();
-	if(progArgs->getUseS3MPUSharing() && !workerRankLocal)
+	if(progArgs->getS3Args().getUseS3MPUSharing() && !workerRankLocal)
 		loadSvcMPUSharingFile();
 }
 
@@ -41,7 +42,7 @@ void S3UploadStore::setProgArgs(const ProgArgs* progArgs, size_t workerRank)
     const PathStore& pathStore = progArgs->getCustomTreeFilesShared();
     const PathList& pathList = pathStore.getPaths();
     const std::string bucketName = progArgs->getBenchPaths()[0];
-    const std::string objectPrefix = progArgs->getS3ObjectPrefix();
+    const std::string objectPrefix = progArgs->getS3Args().getS3ObjectPrefix();
 	const unsigned short servicePort = progArgs->getServicePort();
 
     // (sanity check; should never happen)
@@ -105,14 +106,14 @@ std::string S3UploadStore::getMultipartUploadID(const std::string& bucketName,
 
 	// no uploadID for this object yet, so get one from S3 server...
 
-    const bool doS3AclPutInline = progArgs->getDoS3AclPutInline();
+    const bool doS3AclPutInline = progArgs->getS3Args().getDoS3AclPutInline();
 
 	S3::CreateMultipartUploadRequest createMultipartUploadRequest;
 	createMultipartUploadRequest.SetBucket(bucketName);
 	createMultipartUploadRequest.SetKey(objectName);
 
     if(doS3AclPutInline)
-        TranslatorTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
+        S3AclTk::applyS3PutObjectAclGrants(progArgs, createMultipartUploadRequest);
 
     OPLOG_PRE_OP("S3CreateMultipartUpload", bucketName + "/" + objectName, 0, 0);
 
@@ -184,7 +185,7 @@ std::unique_ptr<Aws::Vector<S3::CompletedPart>> S3UploadStore::addCompletedPart(
 		"elem.numBytesDone: " << elem.numBytesDone << "; "
         "objectTotalSize: " << objectTotalSize << std::endl);
 
-	if( (elem.numBytesDone < objectTotalSize) || progArgs->getS3NoMpuCompletion() )
+	if( (elem.numBytesDone < objectTotalSize) || progArgs->getS3Args().getS3NoMpuCompletion() )
 		return std::unique_ptr<Aws::Vector<S3::CompletedPart>>(nullptr); // not finished yet
 
 	// ready for completion => remove object from map and transfer parts vec ownership to caller

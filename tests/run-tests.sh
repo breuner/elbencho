@@ -20,6 +20,7 @@ KEEP_FAILED=0                         # user-definable via "-k"
 SHOW_COMMANDS=0                       # user-definable via "-c"
 RUN_S3_TESTS=0                        # user-definable via "-s" or "-a"
 RUN_SPDK_TESTS=0                      # user-definable via "-p" or "-a"
+RUN_S3RDMA_TESTS=0                    # user-definable via "-r" or "-a"
 CMD_TIMEOUT=60                        # user-definable via "-w"
 SCRIPT_TIMEOUT=300                    # user-definable via "-W"
 VERBOSE=0                             # user-definable via "-v"
@@ -47,9 +48,14 @@ usage()
     echo "            of these commands to one transcript file per test script in the"
     echo "            \"commands\" subdir of the dir for temporary files."
     echo "  -s        Also run the S3 tests. The minio S3 server gets downloaded"
-    echo "            into the temporary dir if it does not exist there yet."
+    echo "            into the temporary dir if it does not exist there yet, unless"
+    echo "            ELBENCHO_TEST_S3_ENDPOINT points at an external S3 server."
     echo "  -p        Also run the SPDK tests. Each of these starts its own private"
     echo "            SPDK NVMe-oF target and requires python3 for spdk's rpc.py."
+    echo "  -r        Also run the S3-over-RDMA plugin tests. These build the test tools"
+    echo "            of tools/s3rdma (server, cuObject client shim, client) below the"
+    echo "            temporary dir first and skip themselves if elbencho has no s3rdma"
+    echo "            plugin, if the build fails or if the host has no RDMA NIC."
     echo "  -a        Run all test groups."
     echo "  -w SECS   Timeout for a single elbencho or aws invocation, after which"
     echo "            it gets killed and the test fails. (Default: $CMD_TIMEOUT)"
@@ -77,11 +83,12 @@ parse_args()
 {
     local OPTIND # local to prevent effects from other subscripts
 
-    while getopts ":ace:hj:kpsT:vw:W:" opt; do
+    while getopts ":ace:hj:kprsT:vw:W:" opt; do
         case "${opt}" in
         a)
             RUN_S3_TESTS=1
             RUN_SPDK_TESTS=1
+            RUN_S3RDMA_TESTS=1
             ;;
         c)
             SHOW_COMMANDS=1
@@ -97,6 +104,9 @@ parse_args()
             ;;
         p)
             RUN_SPDK_TESTS=1
+            ;;
+        r)
+            RUN_S3RDMA_TESTS=1
             ;;
         s)
             RUN_S3_TESTS=1
@@ -156,6 +166,11 @@ check_prereqs_or_exit()
     fi
 
     mkdir -p "$TMP_PATH"
+
+    # cuFile logs into the current dir by default, also for a mere "--version" of
+    # a build whose S3 plugin initializes cuObject at startup. Keep it below the
+    # temporary dir, like the test library does for the test scripts.
+    export CUFILE_LOGFILE_PATH="${CUFILE_LOGFILE_PATH:-$(readlink -f "$TMP_PATH")/cufile.log}"
     if [ $? -ne 0 ]; then
         echo "ERROR: Unable to create dir for temporary files: $TMP_PATH" >&2
         exit 1
@@ -164,13 +179,18 @@ check_prereqs_or_exit()
 
 # Make sure the prerequisites for the S3 tests are in place. The minio server
 # lives in the temp dir parent, so it is downloaded only once and gets removed
-# together with everything else by a plain "rm -rf tests/tmp".
+# together with everything else by a plain "rm -rf tests/tmp". No download is
+# needed when the tests run against an external S3 server.
 prepare_minio_or_exit()
 {
     if ! command -v aws >/dev/null 2>&1; then
         echo "ERROR: The aws cli tool is required for the S3 tests, but was not" >&2
         echo "       found in PATH." >&2
         exit 1
+    fi
+
+    if [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ]; then
+        return 0
     fi
 
     # the download itself lives in the library, so that the interactive tools in
@@ -181,6 +201,71 @@ prepare_minio_or_exit()
     if [ $? -ne 0 ]; then
         exit 1
     fi
+}
+
+# Build the S3-over-RDMA test tools (tools/s3rdma: server, cuObject client shim
+# and client) once, before prove starts the test scripts, which may run in
+# parallel. They are built in a copy of their sources below the temporary dir,
+# so that the tests write nothing outside of it; the copy is kept and only
+# rebuilt as needed. Nothing is built when elbencho has no s3rdma plugin (the
+# plugin tests skip then), when the tests run against an external S3 server or
+# when the user points at own executables. A failed build is not fatal: the tests
+# skip themselves while an executable is missing, because the tools need RDMA
+# libraries that are not available everywhere.
+prepare_s3rdma_tools()
+{
+    local srcdir="$REPO_PATH/tools/s3rdma"
+    local builddir="$TMP_PATH/s3rdma"
+    local build_log="$TMP_PATH/s3rdma-build.log"
+
+    if [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ]; then
+        return 0
+    fi
+
+    if [ -n "$ELBENCHO_TEST_S3RDMA_SERVER" ] && [ -n "$ELBENCHO_TEST_S3RDMA_CLIENT" ] &&
+        [ -n "$ELBENCHO_TEST_CUOBJ_SHIM_LIB_DIR" ]; then
+        return 0
+    fi
+
+    if ! "$EXE_PATH" --version 2>/dev/null | grep -q 'Included plugins: .*s3rdma_'; then
+        echo "NOTE: elbencho was built without an S3-over-RDMA plugin, so the plugin tests will"
+        echo "      be skipped and their test tools are not built."
+        return 0
+    fi
+
+    echo "Building the S3-over-RDMA test tools in $builddir ..."
+
+    mkdir -p "$builddir"
+
+    # (the tools' build outputs live in these dirs, so they stay as they are)
+    if ! tar -C "$srcdir" --exclude=build --exclude=bin --exclude=lib --exclude=external -cf - . \
+        2> "$build_log" | tar -C "$builddir" -xf - 2>> "$build_log"; then
+        echo "NOTE: Copying the S3-over-RDMA test tools failed, so their tests will be skipped."
+        echo "      Log: $build_log"
+        return 0
+    fi
+
+    if ! make -C "$builddir" -j 4 >> "$build_log" 2>&1; then
+        echo "NOTE: Building the S3-over-RDMA test tools failed, so their tests will be skipped."
+        echo "      Build log: $build_log"
+        return 0
+    fi
+
+    # Executables that exist but do not run were built elsewhere, e.g. copied
+    # along with the temporary dir from a host with a different libc. Rebuild.
+    for exe in "$builddir/server/bin/s3rdma-server" "$builddir/client/bin/s3rdma-client"; do
+        if [ -x "$exe" ] && ! "$exe" --help > /dev/null 2>&1; then
+            echo "NOTE: $exe does not run on this host, rebuilding the S3-over-RDMA test tools."
+
+            if ! make -C "$builddir" clean >> "$build_log" 2>&1 ||
+                ! make -C "$builddir" -j 4 >> "$build_log" 2>&1; then
+                echo "NOTE: Rebuilding the S3-over-RDMA test tools failed, so their tests will be skipped."
+                echo "      Build log: $build_log"
+            fi
+
+            return 0
+        fi
+    done
 }
 
 # Add a test group dir to the target list, unless it contains no test scripts.
@@ -214,6 +299,10 @@ select_default_targets()
 
     if [ $RUN_SPDK_TESTS -ne 0 ]; then
         add_group spdk
+    fi
+
+    if [ $RUN_S3RDMA_TESTS -ne 0 ]; then
+        add_group plugin_s3rdma
     fi
 
     if [ ${#TARGETS[@]} -eq 0 ]; then
@@ -254,6 +343,10 @@ if [ $RUN_S3_TESTS -ne 0 ]; then
     prepare_minio_or_exit
 fi
 
+if [ $RUN_S3RDMA_TESTS -ne 0 ]; then
+    prepare_s3rdma_tools
+fi
+
 EXE_PATH="$(readlink -f "$EXE_PATH")"
 TMP_PATH="$(readlink -f "$TMP_PATH")"
 
@@ -290,6 +383,13 @@ fi
 : ${ELBENCHO_TEST_SPDK_RPC:="$REPO_PATH/external/spdk/scripts/rpc.py"}
 export ELBENCHO_TEST_NVMF_TGT
 export ELBENCHO_TEST_SPDK_RPC
+
+# The S3-over-RDMA test tools, built by "-r" in a copy below the temporary dir.
+# Can be overridden to test with different builds of them.
+: ${ELBENCHO_TEST_S3RDMA_SERVER:="$TMP_PATH/s3rdma/server/bin/s3rdma-server"}
+: ${ELBENCHO_TEST_S3RDMA_CLIENT:="$TMP_PATH/s3rdma/client/bin/s3rdma-client"}
+: ${ELBENCHO_TEST_CUOBJ_SHIM_LIB_DIR:="$TMP_PATH/s3rdma/cuobjclient-shim/lib"}
+export ELBENCHO_TEST_S3RDMA_SERVER ELBENCHO_TEST_S3RDMA_CLIENT ELBENCHO_TEST_CUOBJ_SHIM_LIB_DIR
 
 if [ ${#TARGETS[@]} -eq 0 ]; then
     # No test scripts or dirs given, so run the default groups. Paths are

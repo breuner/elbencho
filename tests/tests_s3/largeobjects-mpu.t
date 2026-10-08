@@ -23,7 +23,7 @@ EXPECTED_PARTS_PER_OBJ=$((OBJ_SIZE / PART_SIZE))
 EXPECTED_PARTS=$((EXPECTED_OBJECTS * EXPECTED_PARTS_PER_OBJ))
 
 require_build_feature s3
-require_cmd aws
+require_aws_cli
 require_minio
 
 test_init

@@ -369,7 +369,7 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 				{
 					if( (benchPhase == BenchPhase_READFILES) &&
 						(progArgs.getBenchMode() == BenchMode_S3) &&
-						progArgs.getUseS3RandObjSelect() )
+						progArgs.getS3Args().getUseS3RandObjSelect() )
 					{ // special case: s3 random object selection is based on randomAmount
 						outNumEntriesPerWorker = 0;
 						outNumBytesPerWorker = progArgs.getRandomAmount() /

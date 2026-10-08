@@ -9,7 +9,7 @@
 #include "Common.h"
 #include "Logger.h"
 #include "ProgException.h"
-#include "toolkits/S3CredentialStore.h"
+#include "modes/s3/toolkits/S3CredentialStore.h"
 #include "toolkits/StringTk.h"
 
 /**

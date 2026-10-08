@@ -25,7 +25,10 @@ NETBENCH_PORT_OFFSET=1000
 #   uses for outgoing connections (see /proc/sys/net/ipv4/ip_local_port_range,
 #   usually 32768). That matters because a data port is not bound while the
 #   service is idle, but only for the duration of each run, so it has to stay
-#   reservable in between.
+#   reservable in between. Hosts with a wider local port range (e.g. 1024-65000)
+#   break this property: outgoing connections of concurrently running tests can
+#   occasionally take a port, which fails a run; netbench_start_services says so
+#   and names the sysctl that reserves the ports.
 NETBENCH_PORT_BASE=20000
 NETBENCH_PORT_SPAN=900
 
@@ -110,6 +113,23 @@ netbench_data_ports_free()
 # The services run with verbose logging, because their log is the only place
 # that shows which client thread connected to which server, which is what the
 # round-robin assignment test needs.
+# A note when the kernel may hand out the netbench ports for outgoing connections
+# (see the port range comments above) and they are not reserved.
+netbench_warn_port_overlap()
+{
+    local first="$NETBENCH_PORT_BASE"
+    local last=$(( NETBENCH_PORT_BASE + NETBENCH_PORT_OFFSET + NETBENCH_PORT_SPAN - 1 ))
+    local lo hi
+
+    read -r lo hi < /proc/sys/net/ipv4/ip_local_port_range 2>/dev/null || return 0
+
+    [ -n "$lo" ] && [ "$lo" -le "$last" ] && [ "$hi" -ge "$first" ] || return 0
+
+    grep -q "$first-$last" /proc/sys/net/ipv4/ip_local_reserved_ports 2>/dev/null && return 0
+
+    tap_note "$(basename "$0"): the kernel's local port range ($lo-$hi) includes the netbench ports $first-$last, so an outgoing connection of a concurrent test can occasionally take one and fail a run. Reserve them: sysctl -w net.ipv4.ip_local_reserved_ports=$first-$last"
+}
+
 netbench_start_services()
 {
     local num="$1"
@@ -121,6 +141,8 @@ netbench_start_services()
 
     NETBENCH_PORTS=()
     NETBENCH_LOGS=()
+
+    netbench_warn_port_overlap
 
     while [ $idx -lt "$num" ]; do
         tries=0

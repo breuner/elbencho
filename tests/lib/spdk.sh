@@ -722,7 +722,7 @@ spdk_start_background_elbencho()
 
     SPDK_FAULT_TRACE_SIZE_BEFORE="$(spdk_fault_trace_size)"
 
-    ELB_BG_OUT="$TEST_DIR/$tag.out"
+    ELB_BG_OUT="$TEST_DIR/$(tag_to_filename "$tag").out"
     : > "$ELB_BG_OUT"
     ELB_BG_RC=""
     ELB_BG_SELF_EXITED=0

@@ -14,7 +14,7 @@
 #include "Logger.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
-#include "toolkits/S3Tk.h"
+#include "modes/s3/toolkits/S3Tk.h"
 #include "toolkits/SignalTk.h"
 #include "toolkits/spdk/SpdkNvmeClient.h"
 #include "workers/WorkerException.h"
@@ -302,6 +302,8 @@ void Coordinator::runSyncAndDropCaches()
  */
 void Coordinator::runBenchmarks()
 {
+    const S3ProgArgs& s3Args = progArgs.getS3Args();
+
 	struct BenchPhaseConfig
 	{
 	    BenchPhase benchPhase;
@@ -315,25 +317,25 @@ void Coordinator::runBenchmarks()
 	std::array allBenchPhasesArray
 	{
 		BenchPhaseConfig { BenchPhase_CREATEDIRS, progArgs.getRunCreateDirsPhase() },
-        BenchPhaseConfig { BenchPhase_PUTBUCKETACL, progArgs.getRunS3BucketAclPut() },
+        BenchPhaseConfig { BenchPhase_PUTBUCKETACL, s3Args.getRunS3BucketAclPut() },
         BenchPhaseConfig { BenchPhase_PUT_S3_BUCKET_MD, progArgs.getRunS3PutBucketMetadata() },
-		BenchPhaseConfig { BenchPhase_STATDIRS, progArgs.getRunS3StatDirs() },
+		BenchPhaseConfig { BenchPhase_STATDIRS, s3Args.getRunS3StatDirs() },
         BenchPhaseConfig { BenchPhase_GET_S3_BUCKET_MD, progArgs.getRunS3GetBucketMetadata() },
 		BenchPhaseConfig { BenchPhase_CREATEFILES, progArgs.getRunCreateFilesPhase() },
-        BenchPhaseConfig { BenchPhase_S3MPUCOMPLETE, progArgs.getRunS3MPUSharingCompletionPhase() },
-        BenchPhaseConfig { BenchPhase_PUTOBJACL, progArgs.getRunS3AclPut() },
+        BenchPhaseConfig { BenchPhase_S3MPUCOMPLETE, s3Args.getRunS3MPUSharingCompletionPhase() },
+        BenchPhaseConfig { BenchPhase_PUTOBJACL, s3Args.getRunS3AclPut() },
         BenchPhaseConfig { BenchPhase_PUT_S3_OBJECT_MD, progArgs.getRunS3PutObjectMetadata() },
 		BenchPhaseConfig { BenchPhase_STATFILES, progArgs.getRunStatFilesPhase() },
         BenchPhaseConfig { BenchPhase_GET_S3_OBJECT_MD, progArgs.getRunS3GetObjectMetadata() },
-		BenchPhaseConfig { BenchPhase_GETOBJACL, progArgs.getRunS3AclGet() },
-		BenchPhaseConfig { BenchPhase_LISTOBJECTS, progArgs.getRunListObjPhase() },
-		BenchPhaseConfig { BenchPhase_LISTOBJPARALLEL, progArgs.getRunListObjParallelPhase() },
+		BenchPhaseConfig { BenchPhase_GETOBJACL, s3Args.getRunS3AclGet() },
+		BenchPhaseConfig { BenchPhase_LISTOBJECTS, s3Args.getRunListObjPhase() },
+		BenchPhaseConfig { BenchPhase_LISTOBJPARALLEL, s3Args.getRunListObjParallelPhase() },
 		BenchPhaseConfig { BenchPhase_READFILES, progArgs.getRunReadPhase() },
         BenchPhaseConfig { BenchPhase_DEL_S3_OBJECT_MD, progArgs.getRunS3DelObjectMetadata() },
-        BenchPhaseConfig { BenchPhase_MULTIDELOBJ, progArgs.getRunMultiDelObjPhase() },
+        BenchPhaseConfig { BenchPhase_MULTIDELOBJ, s3Args.getRunMultiDelObjPhase() },
 		BenchPhaseConfig { BenchPhase_DELETEFILES, progArgs.getRunDeleteFilesPhase() },
         BenchPhaseConfig { BenchPhase_DEL_S3_BUCKET_MD, progArgs.getRunS3DelBucketMetadata() },
-        BenchPhaseConfig { BenchPhase_GETBUCKETACL, progArgs.getRunS3BucketAclGet() },
+        BenchPhaseConfig { BenchPhase_GETBUCKETACL, s3Args.getRunS3BucketAclGet() },
 		BenchPhaseConfig { BenchPhase_DELETEDIRS, progArgs.getRunDeleteDirsPhase() },
 	};
 

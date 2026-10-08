@@ -2891,6 +2891,8 @@ void Statistics::getBenchResultAsPropertyTreeForService(bpt::ptree& outTree)
  */
 void Statistics::printDryRunInfo()
 {
+    const S3ProgArgs& s3Args = progArgs.getS3Args();
+
 	if(progArgs.getBenchMode() == BenchMode_NETBENCH)
 	{
 		printDryRunInfoNetBench();
@@ -2915,16 +2917,16 @@ void Statistics::printDryRunInfo()
 	if(progArgs.getRunStatFilesPhase() )
 		printDryRunPhaseInfo(BenchPhase_STATFILES);
 
-	if(progArgs.getRunS3AclPut() )
+	if(s3Args.getRunS3AclPut() )
 		printDryRunPhaseInfo(BenchPhase_PUTOBJACL);
 
-	if(progArgs.getRunS3AclGet() )
+	if(s3Args.getRunS3AclGet() )
 		printDryRunPhaseInfo(BenchPhase_GETOBJACL);
 
-	if(progArgs.getRunS3BucketAclPut() )
+	if(s3Args.getRunS3BucketAclPut() )
 		printDryRunPhaseInfo(BenchPhase_PUTBUCKETACL);
 
-	if(progArgs.getRunS3BucketAclGet() )
+	if(s3Args.getRunS3BucketAclGet() )
 		printDryRunPhaseInfo(BenchPhase_GETBUCKETACL);
 }
 

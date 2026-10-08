@@ -27,6 +27,13 @@ REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
 : ${ELBENCHO_TEST_TRACE:="0"}
 : ${ELBENCHO_TEST_TRACE_DIR:="$ELBENCHO_TEST_TMP/commands"}
 
+# cuFile logs into the current dir by default, which a GDS run or a plugin build
+# that initializes cuObject at startup would do even for "--version". Keep the
+# log below the temporary dir, so that tests write nothing outside of it. (The
+# S3-over-RDMA tests set a per-test log path on top of this.)
+mkdir -p "$ELBENCHO_TEST_TMP"
+export CUFILE_LOGFILE_PATH="${CUFILE_LOGFILE_PATH:-$ELBENCHO_TEST_TMP/cufile.log}"
+
 # Exact header line written by Statistics::prepLiveCSVFile(). Note the trailing
 # comma after the last column, which the C++ code really does emit.
 LIVECSV_HEADER='ISO Date,Label,Phase,RuntimeMS,Rank,MixType,Done%,DoneBytes,MiB/s,IOPS,Entries,Entries/s,Lat Ent us,Lat IO us,Active,CPU,Service,'
@@ -43,6 +50,13 @@ TEST_DIR=""
 tap_diag()
 {
     echo "# $*"
+}
+
+# A note for the person running the tests. It goes to stderr, which prove passes
+# through, while diagnostics on stdout only show up in verbose mode.
+tap_note()
+{
+    echo "# NOTE: $*" >&2
 }
 
 # Emit the contents of a file as TAP diagnostics (max 40 lines).
@@ -532,21 +546,32 @@ kill_registered()
 
 ############################ elbencho invocation ############################
 
+# tag_to_filename TAG
+#
+# A tag turned into a safe file name: tests use their check descriptions as tags,
+# and e.g. NFS servers can reject quotes in file names.
+tag_to_filename()
+{
+    printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
+}
+
 # run_elbencho TAG ARGS...
 #
 # Runs the binary under a watchdog timeout with quiet output and per-invocation
-# result files under "$TEST_DIR/TAG.{txt,csv,json,out}". Explicit result file
-# paths keep /var/tmp/elbencho_results_$USER clean and avoid appending to a csv
-# file of a different column count. Returns the exit code of the run.
+# result files under "$TEST_DIR/<tag>.{txt,csv,json,out}" (see tag_to_filename).
+# Explicit result file paths keep /var/tmp/elbencho_results_$USER clean and
+# avoid appending to a csv file of a different column count. Returns the exit
+# code of the run.
 run_elbencho()
 {
     local tag="$1"
+    local filename="$(tag_to_filename "$1")"
     shift
 
-    ELB_JSON="$TEST_DIR/$tag.json"
-    ELB_CSV="$TEST_DIR/$tag.csv"
-    ELB_RES="$TEST_DIR/$tag.txt"
-    ELB_OUT="$TEST_DIR/$tag.out"
+    ELB_JSON="$TEST_DIR/$filename.json"
+    ELB_CSV="$TEST_DIR/$filename.csv"
+    ELB_RES="$TEST_DIR/$filename.txt"
+    ELB_OUT="$TEST_DIR/$filename.out"
 
     local started="$(trace_now_ms)"
 
@@ -943,9 +968,11 @@ file_size()
 # Allocated disk space of a file in KiB, which is smaller than its apparent
 # size for a sparse file. Uses the 512 byte block count of stat, because the
 # block size of "du" depends on its environment.
+# allocated_kb FILE -> allocated space in KiB, rounded up so that a single
+# 512-byte block (e.g. a tiny file on NFS) counts as allocated
 allocated_kb()
 {
-    echo $(( $(stat -c %b "$1" 2>/dev/null) / 2 ))
+    echo $(( ( $(stat -c %b "$1" 2>/dev/null) + 1 ) / 2 ))
 }
 
 # Sorted "relative/path size" listing of all files below the given dir.
@@ -1032,10 +1059,53 @@ require_build_feature()
     tap_skip_all "elbencho was built without \"$1\" support"
 }
 
+# Whether the binary was built with the given plugin (contrib/plugins/), as
+# reported by the "Included plugins:" line of "--version".
+has_plugin()
+{
+    local plugin="$1"
+    local included
+
+    trace_cmd "plugin check" "$ELBENCHO_TEST_BIN" --version
+
+    included=$("$ELBENCHO_TEST_BIN" --version 2>/dev/null | grep 'Included plugins:')
+
+    case " $included " in
+        *" $plugin "*) return 0 ;;
+    esac
+
+    return 1
+}
+
+# Skip the whole test file unless the binary was built with the given plugin.
+require_plugin()
+{
+    if has_plugin "$1"; then
+        return 0
+    fi
+
+    tap_skip_all "elbencho was built without plugin \"$1\""
+}
+
 require_cmd()
 {
     command -v "$1" >/dev/null 2>&1 && return 0
     tap_skip_all "required command not found in PATH: $1"
+}
+
+# Skip the whole test file unless the aws cli is installed and actually runs: it
+# is a Python program whose module can go missing when the default python3 of
+# the host changes (e.g. through an unrelated package installation).
+require_aws_cli()
+{
+    local error
+
+    require_cmd aws
+
+    error="$(aws --version 2>&1 >/dev/null | tail -n1)"
+    [ $? -eq 0 ] && [ -z "$error" ] && return 0
+
+    tap_skip_all "the aws cli does not run: ${error:-aws --version failed}"
 }
 
 # Some file systems reject O_DIRECT. Probe once so that direct IO subtests can

@@ -16,7 +16,7 @@
 #include <mutex>
 #include <string>
 
-#include "toolkits/S3Tk.h"
+#include "modes/s3/toolkits/S3Tk.h"
 
 
 class OpsLogger; // forward declaration to avoid cyclic include

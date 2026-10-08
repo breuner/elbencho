@@ -15,7 +15,7 @@
 
 #include "HTTPServiceUWS.h"
 #include "ProgException.h"
-#include "toolkits/S3Tk.h"
+#include "modes/s3/toolkits/S3Tk.h"
 #include "toolkits/spdk/SpdkNvmeClient.h"
 #include "toolkits/SystemTk.h"
 #include "toolkits/TranslatorTk.h"

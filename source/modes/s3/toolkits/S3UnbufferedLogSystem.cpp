@@ -12,7 +12,7 @@
 #include <aws/core/utils/DateTime.h>
 
 #include "Logger.h"
-#include "toolkits/S3UnbufferedLogSystem.h"
+#include "modes/s3/toolkits/S3UnbufferedLogSystem.h"
 
 namespace
 {

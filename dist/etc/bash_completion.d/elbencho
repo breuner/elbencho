@@ -109,6 +109,7 @@ _elbencho_opts()
         --opsloglock
         --perthread
         --phasedelay
+        --plugins
         --port
         --preallocfile
         --quit
@@ -267,6 +268,8 @@ _elbencho()
         --offset)
         ;&
         --phasedelay)
+        ;&
+        --plugins)
         ;&
         --port)
         ;&

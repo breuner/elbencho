@@ -2,6 +2,9 @@
 
 ## v3.2.2 (work in progress)
 
+### New Features & Enhancements
+* New support for contributed S3 plugins.
+
 ### Fixes
 * Fixed IPv6 compatibility of TCP port availability preflight check for service instances.
 

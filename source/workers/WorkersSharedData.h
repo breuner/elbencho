@@ -15,7 +15,7 @@
 #include <vector>
 #include "CPUUtil.h"
 #include "Common.h"
-#include "S3UploadStore.h"
+#include "modes/s3/S3UploadStore.h"
 
 
 class Worker; // forward declaration for WorkerVec;

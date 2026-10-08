@@ -25,6 +25,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
   - [S3 Object Storage Support](#s3-object-storage-support)
   - [macOS Support](#macos-support)
   - [NVMe-oF Support](#nvme-of-support)
+  - [Contributed Plugins](#contributed-plugins)
 
 </details>
 
@@ -174,6 +175,9 @@ sudo make install
 make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
 ```
 
+##### Build elbencho with S3-over-RDMA Support
+S3-over-RDMA (s3rdma) support is available through contributed plugins. See [contrib/plugins/README.md](contrib/plugins/README.md).
+
 #### macOS Support
 
 Building elbencho on macOS requires homebrew. Run the following steps in a terminal.
@@ -208,3 +212,7 @@ bin/elbencho --help
 #### NVMe-oF Support
 
 NVMe-oF initiator support based on the SPDK toolkit can be enabled to test block devices directly, as an alternative to testing through the NVMe-oF stack of the Linux kernel. A guide on how to enable and use elbencho for NVMe-oF benchmarking is available in the `docs` subdir [here](docs/spdk.md).
+
+#### Contributed Plugins
+
+Contributed extensions live as plugins outside of the core code in the `contrib/plugins` subdir. Each plugin gets compiled in via its own `make ELB_PLUGIN_<NAME>=1` option and activated at runtime via `--plugins <name>`. Currently available: `s3rdma_minio` (GPU-direct S3-over-RDMA via NVIDIA cuObject) and `s3rdma_cloudian` (S3-over-RDMA via Cloudian's aws-sdk-cpp fork). See [contrib/plugins/README.md](contrib/plugins/README.md) for details and for how to add a plugin.

@@ -21,7 +21,7 @@ EXPECTED_BYTES=$((EXPECTED_OBJECTS * OBJ_SIZE))
 EXPECTED_PARTS=$((EXPECTED_BYTES / PART_SIZE))
 
 require_build_feature s3
-require_cmd aws
+require_aws_cli
 require_minio
 
 test_init

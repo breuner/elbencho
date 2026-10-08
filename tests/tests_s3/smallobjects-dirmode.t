@@ -26,7 +26,7 @@ EXPECTED_PREFIXED=$((PREFIX_THREADS * PREFIX_DIRS * PREFIX_FILES))
 EXPECTED_TOTAL=$((EXPECTED_OBJECTS + EXPECTED_PREFIXED))
 
 require_build_feature s3
-require_cmd aws
+require_aws_cli
 require_minio
 
 test_init
