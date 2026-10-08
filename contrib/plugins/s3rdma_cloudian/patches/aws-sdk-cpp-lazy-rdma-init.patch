@@ -1,0 +1,105 @@
+Defer the cuObject initialization of Cloudian's aws-sdk-cpp fork (tag 1.11.893+rdma) from
+process start to the first use by an S3 client.
+
+The fork constructs a cuObject client in a static initializer, which creates a CUDA context and
+initializes cuFile in every process of an executable linked against it, also for runs that do
+not use S3 (e.g. "elbencho --version", file I/O benchmarks, service instances). That costs about
+a second per process start, writes errors to the cuFile log when no cuObject config is present,
+and aborts the process (an assertion in cuFile) when the GPU has no free memory for another
+context, e.g. on a host shared with other GPU jobs. With this patch the same check runs when the
+first S3 client is created or RDMA is queried/enabled, so only S3 runs pay for it.
+
+Applied by external/prepare-external.sh to a fresh clone of the fork (AWS_PATCHES, set by
+contrib/plugins/s3rdma_cloudian/plugin.mk). Apply it by hand when building the fork yourself.
+
+diff --git a/generated/src/aws-cpp-sdk-s3/source/RdmaObj.cpp b/generated/src/aws-cpp-sdk-s3/source/RdmaObj.cpp
+index 79be107c0..ef4f232ea 100644
+--- a/generated/src/aws-cpp-sdk-s3/source/RdmaObj.cpp
++++ b/generated/src/aws-cpp-sdk-s3/source/RdmaObj.cpp
+@@ -79,15 +79,25 @@ namespace RdmaObj
+         return nullptr;
+     }
+ 
+-    const char* rdma_status = rdmaStatusCheck();
+-
+-    // Declared before local_rdmaobj so it's already initialized with its
+-    // real value by the time createLocalRdmaObj() (local_rdmaobj's own
+-    // initializer) reads it - same-TU dynamic initializers run in
+-    // declaration order.
+-    bool native_io = rdma_status != nullptr;
++    // Set by init(), i.e. on first use rather than at process start: constructing
++    // the cuObject client creates a CUDA context and initializes cuFile, which
++    // every process of the executable would otherwise pay for (and which aborts
++    // when the GPU has no memory left), also processes that never touch S3.
++    const char* rdma_status = nullptr;
++    bool native_io = true;
++
++    void init() {
++        static const bool initialized = []() {
++            rdma_status = rdmaStatusCheck();
++            native_io = rdma_status != nullptr;
++            return true;
++        }();
++        (void) initialized;
++    }
+ 
+     static std::unique_ptr<CuObjClient> createLocalRdmaObj() {
++        init();
++
+         if (native_io) {
+             // RDMA isn't usable process-wide, so skip constructing (and,
+             // since ~CuObjClient() deliberately skips the vendor
+diff --git a/generated/src/aws-cpp-sdk-s3/source/RdmaObj.h b/generated/src/aws-cpp-sdk-s3/source/RdmaObj.h
+index 8c52fd037..69611695e 100644
+--- a/generated/src/aws-cpp-sdk-s3/source/RdmaObj.h
++++ b/generated/src/aws-cpp-sdk-s3/source/RdmaObj.h
+@@ -23,5 +23,10 @@ namespace RdmaObj
+     extern thread_local std::unique_ptr<CuObjClient> local_rdmaobj;
+     extern bool native_io;
+ 
++    // Initializes cuObject (rdmaobj, rdma_status, native_io) on first use.
++    // Called by everything that reads them, so that the CUDA context and the
++    // cuFile setup only happen in processes that create an S3 client.
++    void init();
++
+     cuObjMemoryType_t rdmaObjGetMemoryType(const void *ptr);
+ }
+diff --git a/generated/src/aws-cpp-sdk-s3/source/RdmaPtr.cpp b/generated/src/aws-cpp-sdk-s3/source/RdmaPtr.cpp
+index 18287e5d2..ae704a959 100644
+--- a/generated/src/aws-cpp-sdk-s3/source/RdmaPtr.cpp
++++ b/generated/src/aws-cpp-sdk-s3/source/RdmaPtr.cpp
+@@ -21,6 +21,8 @@ namespace S3
+ 
+     RdmaPtr::RdmaPtr(const void* pdata, size_t len, bool registered) : data_{pdata}, size_{len}, registered_{registered}, owns_registration_{false}, slice_offset_{0}, slice_size_{len}
+     {
++        RdmaObj::init();
++
+         if (!RdmaObj::native_io && !registered_)
+         {
+             AWS_LOGSTREAM_TRACE(PTR_TAG, "Registering buffer: ptr=" << pdata << " length=" << len);
+diff --git a/generated/src/aws-cpp-sdk-s3/source/S3ClientRDMA.cpp b/generated/src/aws-cpp-sdk-s3/source/S3ClientRDMA.cpp
+index 8d65a53b5..d34086cf1 100644
+--- a/generated/src/aws-cpp-sdk-s3/source/S3ClientRDMA.cpp
++++ b/generated/src/aws-cpp-sdk-s3/source/S3ClientRDMA.cpp
+@@ -59,6 +59,8 @@ namespace S3
+ 
+     void S3ClientRDMA::CheckRdmaStatus()
+     {
++        RdmaObj::init();
++
+         if (RdmaObj::rdma_status) {
+             AWS_LOGSTREAM_WARN(CUOBJ_S3_CLIENT_LOG_TAG, RdmaObj::rdma_status);
+         } else if (RdmaObj::native_io) {
+@@ -69,10 +71,12 @@ namespace S3
+     }
+ 
+     bool S3ClientRDMA::IsRDMAEnabled() {
++        RdmaObj::init();
+         return !RdmaObj::native_io;
+     }
+ 
+     void S3ClientRDMA::EnableRDMA(bool enabled) {
++        RdmaObj::init();
+         RdmaObj::native_io = !enabled;
+     }
+ 
