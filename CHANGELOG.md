@@ -10,6 +10,9 @@
 ### Fixes
 * Fixed IPv6 compatibility of TCP port availability preflight check for service instances.
 
+### Contributors
+Thanks to GitHub user harshavardhana (Harsha Vardhana R) and GitHub user jteh-cloudian (Jonathan Teh) for s3rdma plugin contributions.
+
 ## v3.2.1 (Sep 25, 2026)
 
 ### New Features & Enhancements
