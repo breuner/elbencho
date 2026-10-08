@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * New support for contributed S3 plugins.
+  * New plugin for S3-over-RDMA support contributed by MinIO. See [`contrib/plugins/s3rdma_minio/README.md`](contrib/plugins/s3rdma_minio/README.md).
 
 ### Fixes
 * Fixed IPv6 compatibility of TCP port availability preflight check for service instances.
