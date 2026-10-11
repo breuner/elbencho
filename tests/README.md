@@ -79,9 +79,10 @@ group skips when elbencho was built without an `s3rdma_*` plugin. Otherwise
 `run-tests.sh` builds the server, the
 [cuObject client shim](../tools/s3rdma/cuobjclient-shim/README.md) and
 [tools/s3rdma/client](../tools/s3rdma/client/README.md) once before the test
-scripts start (so parallel runs never build), in a copy of their sources below
-the temporary dir (`<tmp dir>/s3rdma/`), so that the tests write nothing outside
-of it; `make -C tools/s3rdma` builds them in place for interactive use. Each test
+scripts start (so parallel runs never build; the build uses the job count of
+`-j`), in a copy of their sources below the temporary dir (`<tmp dir>/s3rdma/`),
+so that the tests write nothing outside of it; `make -C tools/s3rdma` builds them
+in place for interactive use. Each test
 script starts its own private server instance in its temporary dir, like the
 minio tests do. A failed build is reported as a note, not as an error, and the
 tests skip themselves while a tool is missing.

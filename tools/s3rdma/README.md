@@ -17,7 +17,7 @@ Typical use on a host with a RoCE NIC but no GPU, with the test client and with 
 plugin works the same way):
 
 ```bash
-make -C tools/s3rdma            # builds all three (or make -C tools/s3rdma/<tool> for one)
+make -C tools/s3rdma -j 8       # builds all three (or make -C tools/s3rdma/<tool> for one)
 
 tools/s3rdma/server/bin/s3rdma-server --dir /tmp/s3data --rdma-addr 192.168.100.10 --no-cuobj &
 

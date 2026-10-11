@@ -245,7 +245,7 @@ prepare_s3rdma_tools()
         return 0
     fi
 
-    if ! make -C "$builddir" -j 4 >> "$build_log" 2>&1; then
+    if ! make -C "$builddir" -j "$NUM_JOBS" >> "$build_log" 2>&1; then
         echo "NOTE: Building the S3-over-RDMA test tools failed, so their tests will be skipped."
         echo "      Build log: $build_log"
         return 0
@@ -258,7 +258,7 @@ prepare_s3rdma_tools()
             echo "NOTE: $exe does not run on this host, rebuilding the S3-over-RDMA test tools."
 
             if ! make -C "$builddir" clean >> "$build_log" 2>&1 ||
-                ! make -C "$builddir" -j 4 >> "$build_log" 2>&1; then
+                ! make -C "$builddir" -j "$NUM_JOBS" >> "$build_log" 2>&1; then
                 echo "NOTE: Rebuilding the S3-over-RDMA test tools failed, so their tests will be skipped."
                 echo "      Build log: $build_log"
             fi

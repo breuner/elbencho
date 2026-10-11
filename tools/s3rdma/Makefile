@@ -3,19 +3,29 @@
 # subdirs, each with its own Makefile. "clean" and "clean-all" are forwarded to them as well.
 # The main elbencho Makefile forwards its "clean-all" here.
 #
+# With "make -j N" the tools build in parallel. The shared download of cpp-httplib into
+# common/external happens here first, so that the sub-makes never download at the same time;
+# the client's object files compile while the shim that it links against gets built.
+#
 
-# the shim first, because the client links against it by default
-SUBDIRS := cuobjclient-shim server client
+SUBDIRS       := cuobjclient-shim server client
 
-# one tool after the other (each one may still compile in parallel): they share the download of
-# cpp-httplib into common/external, which must not happen several times at once
-.NOTPARALLEL:
+EXTERNAL_PATH := common/external
 
-.PHONY: all clean clean-all help $(SUBDIRS)
+.DEFAULT_GOAL := all
+include common/httplib.mk
+
+.PHONY: all clean clean-all help $(SUBDIRS) client-objects
 
 all: $(SUBDIRS)
 
-$(SUBDIRS):
+cuobjclient-shim server: $(HTTPLIB_H)
+	$(MAKE) -C $@
+
+client-objects: $(HTTPLIB_H)
+	$(MAKE) -C client objects
+
+client: client-objects cuobjclient-shim
 	$(MAKE) -C $@
 
 clean clean-all:

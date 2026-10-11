@@ -65,13 +65,17 @@ else
   Q := @
 endif
 
-.PHONY: all shim clean clean-all help
+.PHONY: all objects shim clean clean-all help
 
 all: $(EXE)
 	@echo "[OPT] cuObject client library: $(CUOBJ_LIB_PATH)"
 
-shim:
+# (after the download of cpp-httplib, which the shim's own build must not start at the same time)
+shim: | $(HTTPLIB_H)
 	$(Q)$(MAKE) -C $(SHIM_PATH)
+
+# only the object files, for a build that provides the shim itself (../Makefile)
+objects: $(OBJECTS)
 
 $(EXE): $(OBJECTS) | $(SHIM_TARGET)
 	@mkdir -p $(BIN_PATH)
@@ -103,6 +107,7 @@ help:
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)            - Build $(EXE) (and the shim, if in use)'
+	@echo '   objects                  - Only compile the object files, without linking'
 	@echo '   clean                    - Remove object files and the executable'
 	@echo '   clean-all                - Also remove the downloaded external files'
 
