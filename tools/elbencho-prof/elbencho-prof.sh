@@ -870,8 +870,10 @@ generate_summary_table()
         printf "Profile\tHosts\tThreads\tBlock\tThroughput\tIOPS\tAvg_IO_Lat\tElapsed\n" > "$ARTIFACTS_DIR/summary.tsv"
         printf -- "---------------\t-----\t-------\t-----\t----------\t--------\t-----------\t------------\n" >> "$ARTIFACTS_DIR/summary.tsv"
         
-        # Extract last N lines matching the number of runs to avoid showing past executions
-        tail -n "$TOTAL_RUNS" "$RESULTS_DIR/results.json" | jq -r '
+        # Last N JSON objects from this run. Elbencho can leave a blank line
+        # after each record, so line count is not the same as object count.
+        jq -s -r --argjson n "$TOTAL_RUNS" '
+        .[- $n :][] |
         [
           .label,
           .config.hosts,
@@ -882,7 +884,7 @@ generate_summary_table()
           (try (.last_done.latency.IO.avg_us | tonumber | if . >= 1000 then ((. / 1000 * 10 | round / 10 | tostring) + " ms") else (. | tostring + " us") end) catch "-"),
           (try (.last_done.elapsed_time_ms | tonumber | (. / 3600000 | floor) as $h | ((. / 60000 | floor) % 60) as $m | ((. % 60000) / 1000) as $s | (($s * 10 | round) / 10 | tostring | if contains(".") then . else . + ".0" end) as $s_str | (if . >= 3600000 then ($h | tostring) + "h" else "" end) + (if . >= 60000 then ($m | tostring) + "m" else "" end) + $s_str + "s") catch "-")
         ] | @tsv
-        ' >> "$ARTIFACTS_DIR/summary.tsv"
+        ' "$RESULTS_DIR/results.json" >> "$ARTIFACTS_DIR/summary.tsv"
         
         # Format perfectly aligned output using awk (tab delimited to visual column widths)
         {
@@ -997,7 +999,17 @@ run_auto_prepare_loop()
         
         run_prepare_write
         
-        local last_time_ms=$(tail -n 1 "$RESULTS_DIR/results.json" | jq -r '.last_done.elapsed_time_ms // 0')
+        # Dry-run does not write results.json. A real run must yield a duration;
+        # an empty read used to compare as "too fast" and double the dataset forever.
+        local last_time_ms=0
+        if [[ "$DRYRUN" == false ]]; then
+            last_time_ms=$(jq -s -r '(.[-1].last_done.elapsed_time_ms // 0) | tonumber' \
+                "$RESULTS_DIR/results.json")
+            if [[ -z "$last_time_ms" ]]; then
+                log_msg 0 "Could not read preparation elapsed time from $RESULTS_DIR/results.json."
+                exit 1
+            fi
+        fi
         
         if [[ "$capped" == true || "$last_time_ms" -ge "$auto_time_ms" ]] || [[ "$DRYRUN" == true ]]; then
             log_msg 2 "Auto-preparation complete (Elapsed: ${last_time_ms}ms)."
