@@ -165,9 +165,5 @@ endif
 ########## End CUDA Support #########
 
 clean-buildhelpers:
-ifdef BUILD_VERBOSE
-	rm -f $(TEST_OBJ_FILE)
-else
-	@echo "[DELETE] BUILD_HELPERS"
-	@rm -f $(TEST_OBJ_FILE)
-endif
+	$(MSG) "[DELETE] BUILD_HELPERS"
+	$(QUIET)rm -f $(TEST_OBJ_FILE)

@@ -130,9 +130,9 @@ ifeq ($(HIPOBJ_CLIENT),1)
 endif
 
 ifdef BUILD_VERBOSE
-  Q :=
+  QUIET :=
 else
-  Q := @
+  QUIET := @
 endif
 
 .PHONY: all clean clean-all help
@@ -145,44 +145,44 @@ all: $(EXE) $(HIPOBJ_CLIENT_TARGET)
 $(EXE): $(OBJECTS)
 	@mkdir -p $(BIN_PATH)
 	@echo "[LINK] $@"
-	$(Q)$(CXX) -o $@ $(OBJECTS) $(LDFLAGS)
+	$(QUIET)$(CXX) -o $@ $(OBJECTS) $(LDFLAGS)
 
 $(BUILD_PATH)/%.o: %.cpp $(HTTPLIB_H)
 	@mkdir -p $(BUILD_PATH)
 	@echo "[CXX] $@"
-	$(Q)$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+	$(QUIET)$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 # The hipObject sources: download the pinned commit and unpack it under a stable dir name
 $(HIPOBJ_PATH)/.unpacked:
 	@echo "[DOWNLOAD] $(HIPOBJ_URL)"
 	@mkdir -p $(BUILD_PATH)
-	$(Q)if command -v curl >/dev/null 2>&1; then \
+	$(QUIET)if command -v curl >/dev/null 2>&1; then \
 	    curl -fLsS -o $(HIPOBJ_PATH).tar.gz "$(HIPOBJ_URL)"; \
 	elif command -v wget >/dev/null 2>&1; then \
 	    wget -q -O $(HIPOBJ_PATH).tar.gz "$(HIPOBJ_URL)"; \
 	else \
 	    echo "ERROR: Neither curl nor wget found to download hipObject" >&2; exit 1; \
 	fi
-	$(Q)rm -rf $(HIPOBJ_PATH) $(HIPOBJ_PATH).tmp && mkdir -p $(HIPOBJ_PATH).tmp
-	$(Q)tar -xzf $(HIPOBJ_PATH).tar.gz -C $(HIPOBJ_PATH).tmp --strip-components=1
-	$(Q)rm -f $(HIPOBJ_PATH).tar.gz && mv $(HIPOBJ_PATH).tmp $(HIPOBJ_PATH)
-	$(Q)touch $@
+	$(QUIET)rm -rf $(HIPOBJ_PATH) $(HIPOBJ_PATH).tmp && mkdir -p $(HIPOBJ_PATH).tmp
+	$(QUIET)tar -xzf $(HIPOBJ_PATH).tar.gz -C $(HIPOBJ_PATH).tmp --strip-components=1
+	$(QUIET)rm -f $(HIPOBJ_PATH).tar.gz && mv $(HIPOBJ_PATH).tmp $(HIPOBJ_PATH)
+	$(QUIET)touch $@
 
 # hipObject's own RC test client (plain libibverbs and OpenSSL, no ROCm needed)
 $(HIPOBJ_CLIENT_EXE): $(HIPOBJ_PATH)/.unpacked
 	@mkdir -p $(BIN_PATH)
 	@echo "[CXX] $@"
-	$(Q)$(CXX) -std=$(CXX_FLAVOR) -O2 -DHIPOBJECT_V2_API -I $(HIPOBJ_PATH)/src/common \
+	$(QUIET)$(CXX) -std=$(CXX_FLAVOR) -O2 -DHIPOBJECT_V2_API -I $(HIPOBJ_PATH)/src/common \
 	    -I $(HIPOBJ_PATH)/src/rdma -I $(HIPOBJ_PATH)/test/integration/rdma-test-server \
 	    -o $@ $(addprefix $(HIPOBJ_PATH)/,$(HIPOBJ_CLIENT_SRC) ) -lcrypto -libverbs
 
 clean:
 	@echo "[DELETE] OBJECTS, EXECUTABLES"
-	$(Q)rm -rf $(OBJECTS) $(DEPENDENCY_FILES) $(EXE) $(HIPOBJ_CLIENT_EXE)
+	$(QUIET)rm -rf $(OBJECTS) $(DEPENDENCY_FILES) $(EXE) $(HIPOBJ_CLIENT_EXE)
 
 clean-all:
 	@echo "[DELETE] BUILD DIR (incl. hipObject sources), EXECUTABLES, SHARED EXTERNALS"
-	$(Q)rm -rf $(BUILD_PATH) $(BIN_PATH) $(EXTERNAL_PATH)
+	$(QUIET)rm -rf $(BUILD_PATH) $(BIN_PATH) $(EXTERNAL_PATH)
 
 help:
 	@echo 'Optional Arguments:'

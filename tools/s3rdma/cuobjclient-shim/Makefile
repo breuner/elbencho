@@ -49,9 +49,9 @@ ifeq ($(shell uname -s),Darwin)
 endif
 
 ifdef BUILD_VERBOSE
-  Q :=
+  QUIET :=
 else
-  Q := @
+  QUIET := @
 endif
 
 .PHONY: all clean clean-all help
@@ -61,10 +61,10 @@ all: $(LIB_LINKNAME)
 $(LIB): $(OBJECTS)
 	@mkdir -p $(LIB_PATH)
 	@echo "[LINK] $@"
-	$(Q)$(CXX) -o $@ $(OBJECTS) $(LDFLAGS)
+	$(QUIET)$(CXX) -o $@ $(OBJECTS) $(LDFLAGS)
 
 $(LIB_LINKNAME): $(LIB)
-	$(Q)ln -sf $(LIB_SONAME) $@
+	$(QUIET)ln -sf $(LIB_SONAME) $@
 
 # The cuObject API symbols have to be visible, everything else stays hidden.
 $(BUILD_PATH)/CuObjClientShim.o: CXXFLAGS += -fvisibility=default
@@ -72,15 +72,15 @@ $(BUILD_PATH)/CuObjClientShim.o: CXXFLAGS += -fvisibility=default
 $(BUILD_PATH)/%.o: %.cpp $(HTTPLIB_H)
 	@mkdir -p $(BUILD_PATH)
 	@echo "[CXX] $@"
-	$(Q)$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+	$(QUIET)$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 clean:
 	@echo "[DELETE] OBJECTS, LIBRARY"
-	$(Q)rm -rf $(BUILD_PATH) $(LIB_PATH)
+	$(QUIET)rm -rf $(BUILD_PATH) $(LIB_PATH)
 
 clean-all: clean
 	@echo "[DELETE] SHARED EXTERNALS"
-	$(Q)rm -rf $(EXTERNAL_PATH)
+	$(QUIET)rm -rf $(EXTERNAL_PATH)
 
 help:
 	@echo 'Optional Arguments:'

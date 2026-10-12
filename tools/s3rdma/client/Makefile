@@ -60,9 +60,9 @@ else
 endif
 
 ifdef BUILD_VERBOSE
-  Q :=
+  QUIET :=
 else
-  Q := @
+  QUIET := @
 endif
 
 .PHONY: all objects shim clean clean-all help
@@ -72,7 +72,7 @@ all: $(EXE)
 
 # (after the download of cpp-httplib, which the shim's own build must not start at the same time)
 shim: | $(HTTPLIB_H)
-	$(Q)$(MAKE) -C $(SHIM_PATH)
+	$(QUIET)$(MAKE) -C $(SHIM_PATH)
 
 # only the object files, for a build that provides the shim itself (../Makefile)
 objects: $(OBJECTS)
@@ -80,20 +80,20 @@ objects: $(OBJECTS)
 $(EXE): $(OBJECTS) | $(SHIM_TARGET)
 	@mkdir -p $(BIN_PATH)
 	@echo "[LINK] $@"
-	$(Q)$(CXX) -o $@ $(OBJECTS) $(LDFLAGS)
+	$(QUIET)$(CXX) -o $@ $(OBJECTS) $(LDFLAGS)
 
 $(BUILD_PATH)/%.o: %.cpp $(HTTPLIB_H)
 	@mkdir -p $(BUILD_PATH)
 	@echo "[CXX] $@"
-	$(Q)$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+	$(QUIET)$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 clean:
 	@echo "[DELETE] OBJECTS, EXECUTABLE"
-	$(Q)rm -rf $(BUILD_PATH) $(BIN_PATH)
+	$(QUIET)rm -rf $(BUILD_PATH) $(BIN_PATH)
 
 clean-all: clean
 	@echo "[DELETE] SHARED EXTERNALS"
-	$(Q)rm -rf $(EXTERNAL_PATH)
+	$(QUIET)rm -rf $(EXTERNAL_PATH)
 
 help:
 	@echo 'Optional Arguments:'

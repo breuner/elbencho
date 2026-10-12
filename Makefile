@@ -23,6 +23,15 @@ CXX                ?= g++
 STRIP              ?= strip
 CXX_FLAVOR         ?= c++17
 
+# Recipes print a short tag per step and hide the commands, unless BUILD_VERBOSE=1 is given.
+ifdef BUILD_VERBOSE
+  QUIET :=
+  MSG   := @:
+else
+  QUIET := @
+  MSG   := @echo
+endif
+
 # "BOOST_STACKTRACE_USE_BACKTRACE" is to force libbacktrace backend, which is most reliable for
 # static builds on Alpine with musl.
 CXXFLAGS_BOOST     ?= -DBOOST_BIND_GLOBAL_PLACEHOLDERS -DBOOST_SPIRIT_THREADSAFE \
@@ -262,49 +271,30 @@ all: $(SOURCES) $(EXE)
 
 
 $(EXE): $(OBJECTS)
-ifdef BUILD_VERBOSE
-	$(CXX) -o $(EXE) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
-else
-	@echo [LINK] $@
-	@$(CXX) -o $(EXE) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
-endif
+	$(MSG) [LINK] $@
+	$(QUIET)$(CXX) -o $(EXE) $(OBJECTS) $(LDFLAGS) $(LDFLAGS_MIMALLOC_TAIL)
 
 
 .c.o:
-ifdef BUILD_VERBOSE
-	$(CXX) $(CXXFLAGS) $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	$(CXX) $(CXXFLAGS) $(@:.o=.c) -c -o $(@)
-else
-	@echo [DEP] $(@:.o=.d)
-	@$(CXX) $(CXXFLAGS) $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	@echo [CXX] $@
-	@$(CXX) $(CXXFLAGS) $(@:.o=.c) -c -o $(@)
-endif
+	$(MSG) [DEP] $(@:.o=.d)
+	$(QUIET)$(CXX) $(CXXFLAGS) $(@:.o=.c) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(MSG) [CXX] $@
+	$(QUIET)$(CXX) $(CXXFLAGS) $(@:.o=.c) -c -o $(@)
 
 
 .cpp.o:
-ifdef BUILD_VERBOSE
-	$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -c -o $(@)
-else
-	@echo [DEP] $(@:.o=.d)
-	@$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	@echo [CXX] $@
-	@$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -c -o $(@)
-endif
+	$(MSG) [DEP] $(@:.o=.d)
+	$(QUIET)$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(MSG) [CXX] $@
+	$(QUIET)$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -c -o $(@)
 
 # This is a special case because we need special compile options to get gcc to enable loop unrolling
 # and SIMD conversion, hence the additional "CXXFLAGS_SPECIAL_SIMD".
 source/toolkits/random/RandAlgoSelectorTk.o: source/toolkits/random/RandAlgoSelectorTk.cpp
-ifdef BUILD_VERBOSE
-	$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) $(@:.o=.cpp) -c -o $(@)
-else
-	@echo [DEP] $(@:.o=.d)
-	@$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
-	@echo [CXX special SIMD] $@
-	@$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) $(@:.o=.cpp) -c -o $(@)
-endif
+	$(MSG) [DEP] $(@:.o=.d)
+	$(QUIET)$(CXX) $(CXXFLAGS) $(@:.o=.cpp) -E -MMD -MF $(@:.o=.d) -MT $(@) -o /dev/null
+	$(MSG) [CXX special SIMD] $@
+	$(QUIET)$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) $(@:.o=.cpp) -c -o $(@)
 
 
 # "Makefile" as dependency to rebuild all on Makefile change.
@@ -315,20 +305,11 @@ $(OBJECTS): Makefile $(wildcard $(PLUGINS_PATH)/*/plugin.mk) | features-info
 externals:
 # Note: The "+" prefix is to let "make" know that it needs to increase the MAKELEVEL env var because
 # there will be sub-make calls in this script.
-ifdef BUILD_VERBOSE
-	$(info [EXT] Preparing external libraries)
-	+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
+	$(QUIET)+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
 		PREP_SPDK=$(SPDK_SUPPORT) $(PLUGINS_EXTERNALS_ENV) \
 		$(EXTERNAL_PATH)/prepare-external.sh
-else
-	@+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
-		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
-		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
-		PREP_SPDK=$(SPDK_SUPPORT) $(PLUGINS_EXTERNALS_ENV) \
-		$(EXTERNAL_PATH)/prepare-external.sh
-endif
 
 # Compiler and linker flags for SPDK support.
 # This is located under the "externals" make target because the "pkg-config" depends on the SPDK
@@ -382,29 +363,19 @@ endif # SPDK_SUPPORT
 
 features-info: features-detect
 ifeq ($(BACKTRACE_SUPPORT),1)
- ifdef BUILD_VERBOSE
-	$(info [OPT] Backtrace support enabled)
- endif
+	$(if $(BUILD_VERBOSE),$(info [OPT] Backtrace support enabled))
 else
 	$(info [OPT] Backtrace support disabled)
 endif
 
 ifeq ($(CUFILE_SUPPORT),1)
- ifdef BUILD_VERBOSE
-	$(info [OPT] CUFILE (GDS) support enabled (CUFILE_INCLUDE_PATH: $(CUFILE_INCLUDE_PATH)))
- else
-	$(info [OPT] CUFILE (GDS) support enabled)
- endif
+	$(info [OPT] CUFILE (GDS) support enabled$(if $(BUILD_VERBOSE), (CUFILE_INCLUDE_PATH: $(CUFILE_INCLUDE_PATH))))
 else
 	$(info [OPT] CUFILE (GDS) support disabled)
 endif
 
 ifeq ($(CUDA_SUPPORT),1)
- ifdef BUILD_VERBOSE
-	$(info [OPT] CUDA support enabled (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH)))
- else
-	$(info [OPT] CUDA support enabled)
- endif
+	$(info [OPT] CUDA support enabled$(if $(BUILD_VERBOSE), (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH))))
 else
 	$(info [OPT] CUDA support disabled)
 endif
@@ -442,63 +413,40 @@ endif
 
 
 clean: clean-packaging clean-buildhelpers
-ifdef BUILD_VERBOSE
-	rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe
-else
-	@echo "[DELETE] OBJECTS, DEPENDENCY_FILES, EXECUTABLES"
-	@rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe
-endif
+	$(MSG) "[DELETE] OBJECTS, DEPENDENCY_FILES, EXECUTABLES"
+	$(QUIET)rm -rf $(OBJECTS_CLEANUP) $(DEPENDENCY_FILES) $(EXE) $(EXE).exe
 
 
 clean-externals:
-ifdef BUILD_VERBOSE
-	rm -f "$(EXTERNAL_PATH)/alpine-chroot-install"
-	rm -rf "$(EXTERNAL_PATH)/aws-sdk-cpp" "$(EXTERNAL_PATH)/aws-sdk-cpp_install"
-	rm -rf "$(EXTERNAL_PATH)/ftxui"
-	rm -rf "$(EXTERNAL_PATH)/libbacktrace"
-	rm -rf "$(EXTERNAL_PATH)/mimalloc"
-	rm -rf "$(EXTERNAL_PATH)/Simple-Web-Server"
-	rm -rf "$(EXTERNAL_PATH)/spdk"
-	rm -rf "$(EXTERNAL_PATH)/uWebSockets"
-else
-	@echo "[DELETE] EXTERNALS"
-	@rm -f "$(EXTERNAL_PATH)/alpine-chroot-install"
-	@rm -rf "$(EXTERNAL_PATH)/aws-sdk-cpp" "$(EXTERNAL_PATH)/aws-sdk-cpp_install"
-	@rm -rf "$(EXTERNAL_PATH)/ftxui"
-	@rm -rf "$(EXTERNAL_PATH)/libbacktrace"
-	@rm -rf "$(EXTERNAL_PATH)/mimalloc"
-	@rm -rf "$(EXTERNAL_PATH)/Simple-Web-Server"
-	@rm -rf "$(EXTERNAL_PATH)/spdk"
-	@rm -rf "$(EXTERNAL_PATH)/uWebSockets"
-endif
+	$(MSG) "[DELETE] EXTERNALS"
+	$(QUIET)rm -f "$(EXTERNAL_PATH)/alpine-chroot-install"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/aws-sdk-cpp" "$(EXTERNAL_PATH)/aws-sdk-cpp_install"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/ftxui"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/libbacktrace"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/mimalloc"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/Simple-Web-Server"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/spdk"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/uWebSockets"
 
 
 clean-packaging:
-ifdef BUILD_VERBOSE
-	rm -rf \
+	$(MSG) "[DELETE] PACKAGING_FILES"
+	$(QUIET)rm -rf \
 		$(EXE)-*-static-* \
-		$(PACKAGING_PATH)/$(EXE_NAME)-*static-*.tar.* \
-	rm -rf \
+		$(PACKAGING_PATH)/$(EXE_NAME)-*static-*.tar.*
+	$(QUIET)rm -rf \
 		$(PACKAGING_PATH)/BUILDROOT \
 		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
-	bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
-else
-	@echo "[DELETE] PACKAGING_FILES"
-	@rm -rf \
-		$(EXE)-*-static-* \
-		$(PACKAGING_PATH)/$(EXE_NAME)-*static-*.tar.* \
-	@rm -rf \
-		$(PACKAGING_PATH)/BUILDROOT \
-		$(PACKAGING_PATH)/RPMS/* $(PACKAGING_PATH)/SPECS/rpm.spec
-	@bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
-endif
+	$(QUIET)bash -c "rm -rf $(PACKAGING_PATH)/$(EXE_NAME)*.{deb,ddeb,build,buildinfo,changes}"
 
 
 clean-all: clean clean-externals clean-packaging clean-buildhelpers clean-s3rdma-tools
 
-# the S3-over-RDMA test tools in tools/s3rdma have their own Makefiles
+# The S3-over-RDMA test tools in tools/s3rdma have their own Makefiles. Without BUILD_VERBOSE,
+# their output is reduced to the one tag here (errors go to stderr, so they are still shown).
 clean-s3rdma-tools:
-	$(MAKE) -C tools/s3rdma clean-all
+	$(MSG) "[DELETE] S3RDMA_TOOLS"
+	$(QUIET)$(MAKE) -C tools/s3rdma clean-all $(if $(BUILD_VERBOSE),,-s --no-print-directory > /dev/null)
 
 
 install: all
