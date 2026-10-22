@@ -89,7 +89,7 @@ typedef std::vector<uint32_t> UInt32Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.2.3"
+#define HTTP_PROTOCOLVERSION	"3.3.1"
 
 /**
  * Default access mode bits for new files.

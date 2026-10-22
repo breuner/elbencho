@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.2.2 (work in progress)
+## v3.3.1 (Oct 22, 2026)
 
 ### New Features & Enhancements
 * New support for contributed S3 plugins.
