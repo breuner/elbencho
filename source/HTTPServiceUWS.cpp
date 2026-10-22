@@ -15,6 +15,8 @@
 
 #include "HTTPServiceUWS.h"
 #include "ProgException.h"
+#include "modes/netbench/NetBenchProtocol.h"
+#include "modes/netbench/NetBenchServer.h"
 #include "modes/s3/toolkits/S3Tk.h"
 #include "toolkits/spdk/SpdkNvmeClient.h"
 #include "toolkits/SystemTk.h"
@@ -300,6 +302,95 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 			res->end(stream.str() );
 		}
 	});
+
+	// netbench client registers its stream and gets the address of its data endpoint
+	uWSApp.post(HTTPCLIENTPATH_NETBENCHCONNECT,
+		[&](uWS::HttpResponse<false>* res, uWS::HttpRequest* req)
+	{
+		logReqAndError(res, std::string(req->getUrl() ), std::string(req->getQuery() ) );
+
+		// (checked here because the request object is gone when the body arrives)
+		std::string errorStr;
+
+		if(req->getQuery(XFER_PREP_PROTCOLVERSION) != HTTP_PROTOCOLVERSION)
+			errorStr = "Protocol version mismatch. Service version: " HTTP_PROTOCOLVERSION;
+		else
+		if(req->getQuery(XFER_PREP_AUTHORIZATION) != progArgs.getSvcPasswordHash() )
+			errorStr = "Invalid authorization code.";
+
+		std::string recvChunkStr; // our "state" between multiple onData calls via std::move
+
+		res->onData(
+			[this, res, errorStr, recvChunkStr = std::move(recvChunkStr) ]
+				(std::string_view chunk, bool isLastChunk) mutable
+		{
+			recvChunkStr.append(chunk.data(), chunk.length() );
+
+			if(!isLastChunk)
+				return;
+
+			try
+			{
+				if(!errorStr.empty() )
+					throw ProgException(errorStr);
+
+				std::stringstream recvJsonStream(recvChunkStr);
+				bpt::ptree recvTree;
+				bpt::read_json(recvJsonStream, recvTree);
+
+				bpt::ptree replyTree;
+
+				if(!NetBenchServer::get().connectClient(recvTree, replyTree) )
+				{ // the client retries until our preparation for this run is done
+					res->writeStatus("503 Service Unavailable");
+					res->end("Not prepared for this netbench run.");
+					return;
+				}
+
+				std::stringstream replyStream;
+				bpt::write_json(replyStream, replyTree, true);
+
+				res->end(replyStream.str() );
+			}
+			catch(const std::exception& e)
+			{
+				res->writeStatus("400 Bad Request");
+				res->end(std::string("Netbench connect error: ") + e.what() );
+			}
+		}); // end of onData handler
+	});
+
+    // netbench: the current interfaces of this service for the coordinator's stream placement
+    uWSApp.get(HTTPCLIENTPATH_NETBENCHIFACES,
+        [&](uWS::HttpResponse<false>* res, uWS::HttpRequest* req)
+    {
+        logReqAndError(res, std::string(req->getUrl() ), std::string(req->getQuery() ) );
+
+        try
+        {
+            if(req->getQuery(XFER_PREP_PROTCOLVERSION) != HTTP_PROTOCOLVERSION)
+                throw ProgException("Protocol version mismatch. "
+                    "Service version: " HTTP_PROTOCOLVERSION);
+
+            if(req->getQuery(XFER_PREP_AUTHORIZATION) != progArgs.getSvcPasswordHash() )
+                throw ProgException("Invalid authorization code.");
+
+            bpt::ptree tree;
+            progArgs.getNetBenchArgs().getIfacesAsPropertyTree(
+                std::string(req->getQuery(NETBENCH_QUERY_HOST) ),
+                req->getQuery(NETBENCH_QUERY_DEVSUBNETS) == "1", tree);
+
+            std::stringstream stream;
+            bpt::write_json(stream, tree, true);
+
+            res->end(stream.str() );
+        }
+        catch(const std::exception& e)
+        {
+            res->writeStatus("400 Bad Request");
+            res->end(std::string("Netbench interfaces error: ") + e.what() );
+        }
+    });
 
 	// prepare new benchmark phase: transfer ProgArgs, prepare workers, reply when all ready
 	uWSApp.post(HTTPCLIENTPATH_PREPAREPHASE,

@@ -62,7 +62,8 @@ RUN apk add boost-regex boost-program_options libaio libcurl libstdc++ \
 # Alpine doesn't bring the tools for deb package build, so we build the deb
 # and rpm package on Ubuntu.
 # We copy the elbencho build dir via a tar file to preserve mtimes, so that
-# Ubuntu's "make deb/rpm" doesn't run the compile steps again.
+# Ubuntu's "make deb/rpm" doesn't run the compile steps again (they take the
+# existing executable as it is).
 
 FROM ubuntu:latest AS prep-extract-tar
 

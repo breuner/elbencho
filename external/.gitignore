@@ -3,8 +3,10 @@ aws-sdk-cpp/
 aws-sdk-cpp_install/
 ftxui/
 libbacktrace/
+libfabric/
+libfabric_install/
 mimalloc/
 Simple-Web-Server/
 spdk/
 uWebSockets/
-
+.prepared-features

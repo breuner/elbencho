@@ -12,6 +12,7 @@
 #include "Common.h"
 #include "CuFileHandleData.h"
 #include "Logger.h"
+#include "modes/netbench/NetBenchProgArgs.h"
 #include "modes/s3/S3ProgArgs.h"
 #include "PathStore.h"
 #include "toolkits/BlockSizeMix.h"
@@ -40,8 +41,6 @@ namespace bpt = boost::property_tree;
 #define ARG_BLOCKVARIANCE_LONG           "blockvarpct"
 #define ARG_BLOCKVARIANCEALGO_LONG       "blockvaralgo"
 #define ARG_BRIEFLIVESTATS_LONG          "live1"
-#define ARG_CLIENTS_LONG                 "clients"
-#define ARG_CLIENTSFILE_LONG             "clientsfile"
 #define ARG_CONFIGFILE_LONG              "configfile"
 #define ARG_CONFIGFILE_SHORT             "c"
 #define ARG_CPUCORES_LONG                "cores"
@@ -84,6 +83,7 @@ namespace bpt = boost::property_tree;
 #define ARG_HELPDISTRIBUTED_LONG         "help-dist"
 #define ARG_HELPLARGE_LONG               "help-large"
 #define ARG_HELPMULTIFILE_LONG           "help-multi"
+#define ARG_HELPNETBENCH_LONG            "help-netbench"
 #define ARG_HELPS3_LONG                  "help-s3"
 #define ARG_HOSTS_LONG                   "hosts"
 #define ARG_HOSTSFILE_LONG               "hostsfile"
@@ -113,9 +113,6 @@ namespace bpt = boost::property_tree;
 #define ARG_LOGLEVEL_LONG                "log"
 #define ARG_MADVISE_LONG                 "madv"
 #define ARG_MMAP_LONG                    "mmap"
-#define ARG_NETBENCH_LONG                "netbench"
-#define ARG_NETBENCHSERVERSSTR_LONG      "netbenchservers" // internal (not set by user)
-#define ARG_NETDEVS_LONG                 "netdevs"
 #define ARG_NOCSVLABELS_LONG             "nocsvlabels"
 #define ARG_NODETACH_LONG                "nodetach"
 #define ARG_NODIRECTIOCHECK_LONG         "nodiocheck"
@@ -131,7 +128,6 @@ namespace bpt = boost::property_tree;
 #define ARG_NUMFILES_LONG                "files"
 #define ARG_NUMFILES_SHORT               "N"
 #define ARG_NUMHOSTS_LONG                "numhosts"
-#define ARG_NUMNETBENCHSERVERS_LONG      "numservers"
 #define ARG_NUMTHREADS_LONG              "threads"
 #define ARG_NUMTHREADS_SHORT             "t"
 #define ARG_OPSLOGLOCKING_LONG           "opsloglock"
@@ -147,8 +143,6 @@ namespace bpt = boost::property_tree;
 #define ARG_READ_LONG                    "read"
 #define ARG_READ_SHORT                   "r"
 #define ARG_READINLINE_LONG              "readinline"
-#define ARG_RECVBUFSIZE_LONG             "recvbuf"
-#define ARG_RESPSIZE_LONG                "respsize"
 #define ARG_RESULTSFILE_LONG             "resfile"
 #define ARG_REVERSESEQOFFSETS_LONG       "backward"
 #define ARG_ROTATEHOSTS_LONG             "rotatehosts"
@@ -156,12 +150,10 @@ namespace bpt = boost::property_tree;
 #define ARG_RWMIXPERCENT_LONG            "rwmixpct"
 #define ARG_RWMIXTHREADS_LONG            "rwmixthr"
 #define ARG_RWMIXTHREADSPCT_LONG         "rwmixthrpct"
-#define ARG_SENDBUFSIZE_LONG             "sendbuf"
-#define ARG_SERVERS_LONG                 "servers"
-#define ARG_SERVERSFILE_LONG             "serversfile"
 #define ARG_SERVICEPORT_LONG             "port"
 #define ARG_SHOWALLELAPSED_LONG          "allelapsed"
 #define ARG_SHOWSVCELAPSED_LONG          "svcelapsed"
+#define ARG_SHOWSVCMINMAX_LONG           "svcminmax"
 #define ARG_SPDKCONFFILE_LONG            "spdkconffile"
 #define ARG_SPDKCONFJSON_LONG            "spdkconf"
 #define ARG_STARTTIME_LONG               "start"
@@ -255,20 +247,12 @@ namespace bpt = boost::property_tree;
 typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
 typedef std::vector<CuFileHandleData*> CuFileHandleDataPtrVec;
 
-struct NetBenchServerAddr
-{
-    std::string host;
-    unsigned short port;
-};
-
-typedef std::vector<NetBenchServerAddr> NetBenchServerAddrVec;
-
-
 /**
  * Program arguments parser and central config store.
  */
 class ProgArgs
 {
+    friend class NetBenchProgArgs;
     friend class S3ProgArgs;
 
     public:
@@ -322,6 +306,7 @@ class ProgArgs
         int stdoutDupFD; // dup of stdout file descriptor if overridden e.g. due to csv to stdout
 
         S3ProgArgs s3Args; // s3 mode options (defined, checked & transferred by that class)
+        NetBenchProgArgs netBenchArgs; // netbench options (see modes/netbench/)
 
         // config options in alphabetic order...
 
@@ -336,8 +321,6 @@ class ProgArgs
         BlockSizeMix blockSizeMix; // parsed from blockSizeOrigStr; single entry if no mix given
         unsigned blockVariancePercent; // % of blocks that should differ between writes
         std::string blockVarianceAlgo; // rand algo for buffer fill variance
-        std::string clientsFilePath; // path to file for appended service hosts
-        std::string clientsStr; // appended to hostsStr in netbench mode
         std::string configFilePath; // Configuration input using a config file (empty for none)
         std::string cpuCoresStr; // comma-separated cpu cores that this process may run on
         IntVec cpuCoresVec; // list from cpuCoresStr broken down into individual elements
@@ -392,12 +375,6 @@ class ProgArgs
         std::string madviseFlagsOrigStr; // flags for madvise() (ARG_MADVISE_FLAG_x_NAME)
         BufferVec mmapVec; /* pointers to mmap regions if user selected mmap IO; number of
             entries and their order matches fdVec. only used in file/bdev random mode. */
-        std::string netBenchRespSizeOrigStr; // original netBenchRespSize str from user with unit
-        size_t netBenchRespSize; // server response length for each received client block
-        std::string netBenchServersStr; // implictly inited from numNetBenchServers and hosts list
-        NetBenchServerAddrVec netBenchServersVec; // set for services based on netBenchServersStr
-        std::string netDevsStr; // user-given network devices for round-robin conn binding
-        StringVec netDevsVec; // netDevsStr broken down into individual elements
         unsigned nextPhaseDelaySecs; // delay between bench phases in seconds
         bool noCSVLabels; // true to not print headline with labels to csv file
         bool noDirectIOCheck; // ignore directIO alignment and block size sanity checks
@@ -412,7 +389,6 @@ class ProgArgs
         size_t numFiles; // files per directory
         std::string numFilesOrigStr; // original numDirs str from user with unit
         unsigned short numLatencyPercentile9s; // decimal 9s to show (0=99%, 1=99.9%, 2=99.99%, ...)
-        unsigned numNetBenchServers; // number of servers in service hosts list for netbench mode
         size_t numRWMixReadThreads; // number of rwmix read threads in file/bdev write phase
         size_t numThreads; // parallel I/O worker threads per instance
         std::string opsLogPath; // path to operations log file (empty to disable)
@@ -440,8 +416,6 @@ class ProgArgs
         unsigned rwMixReadPercent; // % of blocks that should be read (the rest will be written)
         unsigned rwMixThreadsReadPercent; // % of blocks to be read (the rest will be written)
         unsigned short servicePort; // HTTP/TCP port for service
-        std::string serversFilePath; // path to file for preprended service hosts
-        std::string serversStr; // prepended to hostsStr in netbench mode
         bool showAllElapsed; // print elapsed time of each I/O worker thread
         bool showCPUUtilization; // show cpu utilization in phase stats results
         bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
@@ -450,11 +424,8 @@ class ProgArgs
         bool showLatencyHistogramGrouped; // show consolidated, decade-grouped latency histogram
         bool showLatencyPercentiles; // show latency percentiles
         bool showServicesElapsed; // print elapsed time of each service by slowest thread
+        bool showServicesMinMax; // print services with lowest/highest IOPS and throughput
         bool showThroughputBase10; // show throughput in base10 instead base2 (MB/s instead MiB/s)
-        int sockRecvBufSize; // custom netbench socket recv buf size (0 means no change)
-        int sockSendBufSize; // custom netbench socket send buf size (0 means no change)
-        std::string sockRecvBufSizeOrigStr; // original sockRecvBufSize str from user with unit
-        std::string sockSendBufSizeOrigStr; // original sockSendBufSize str from user with unit
         std::string spdkConfFile; // path to spdk json config file (sets spdkConfJSON)
         std::string spdkConfJSON; // json config for spdk
         time_t startTime; /* UTC start time to coordinate multiple benchmarks, in seconds since the
@@ -485,7 +456,6 @@ class ProgArgs
         bool useGDSBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
         bool useHDFS; // use Hadoop HDFS
         bool useMmap; // use memory mapped IO
-        bool useNetBench; // run network benchmarking
         bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
         bool useOpsLogLocking; // use file locking to sync opsLogPath writes
         bool useRandomUnaligned; // don't use block-aligned offsets for random IO
@@ -513,13 +483,14 @@ class ProgArgs
         void prepareFileSize(int fd, std::string& path);
         void prepareJournals();
         void parseHosts();
-        void parseNetBenchServersForService();
+        void parseHostsList(std::string hostsStr, const std::string& hostsFilePath,
+            StringVec& outHostsVec);
+        void applyBlockSizeStr();
         void parseNumaZones();
         void parseCPUCores();
         void parseGPUIDs();
         void parseRandAlgos();
         void loadSpdkConfigFile();
-        void parseNetDevs();
         void parsePlugins();
         void checkDuplicateArgNames();
         void scanCustomTree();
@@ -551,6 +522,8 @@ class ProgArgs
         const IntVec& getBenchPathSpdkNsIds() const { return benchPathSpdkNsIdsVec; }
         BenchPathType getBenchPathType() const { return benchPathType; }
         const S3ProgArgs& getS3Args() const { return s3Args; }
+        const NetBenchProgArgs& getNetBenchArgs() const { return netBenchArgs; }
+        void prepareNetBenchRun() { netBenchArgs.prepareRun(*this); }
         void setS3InterruptionRequested() { s3Args.setS3InterruptionRequested(); }
 
         // getters for indirect values in alphabetic order...
@@ -567,6 +540,15 @@ class ProgArgs
         bool getRunS3PutObjectMetadata() const
             { return s3Args.getS3ObjectMetadataRequested() && runCreateFilesPhase; }
 
+        /**
+         * @return true if the given phase has a second counter set: rwmix reads, or the received
+         *      side in netbench mode.
+         */
+        bool hasRWMixReadCounters(BenchPhase benchPhase) const
+        {
+            return (benchPhase == BenchPhase_CREATEFILES) &&
+                (rwMixReadPercent || numRWMixReadThreads || netBenchArgs.getUseNetBench() );
+        }
 
         // getters for config options in alphabetic order...
 
@@ -632,7 +614,6 @@ class ProgArgs
         LogLevel getLogLevel() const { return (LogLevel)logLevel; }
         unsigned getMadviseFlags() const { return madviseFlags; };
         const BufferVec& getMmapVec() const { return mmapVec; }
-        const NetBenchServerAddrVec& getNetBenchServers() const { return netBenchServersVec; }
         unsigned getNextPhaseDelaySecs() const { return nextPhaseDelaySecs; }
         std::string getNumaZonesStr() const { return numaZonesStr; }
         const IntVec& getNumaZonesVec() const { return numaZonesVec; }
@@ -641,12 +622,8 @@ class ProgArgs
         size_t getNumFiles() const { return numFiles; }
         int getNumHosts() const { return numHosts; }
         unsigned getNumLatencyPercentile9s() const { return numLatencyPercentile9s; }
-        unsigned getNumNetBenchServers() const { return numNetBenchServers; }
         size_t getNumRWMixReadThreads() const { return numRWMixReadThreads; }
         size_t getNumThreads() const { return numThreads; }
-        std::string getNetDevsStr() const { return netDevsStr; }
-        const StringVec& getNetDevsVec() const { return netDevsVec; }
-        size_t getNetBenchRespSize() const { return netBenchRespSize; }
         bool getNoDirectIOCheck() const { return noDirectIOCheck; }
         bool getPrintCSVLabels() const { return !noCSVLabels; }
         std::string getOpsLogPath() const { return opsLogPath; }
@@ -680,9 +657,8 @@ class ProgArgs
         bool getShowLatencyHistogramGrouped() const { return showLatencyHistogramGrouped; }
         bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
         bool getShowServicesElapsed() const { return showServicesElapsed; }
+        bool getShowServicesMinMax() const { return showServicesMinMax; }
         bool getShowThroughputBase10() const { return showThroughputBase10; }
-        int getSockRecvBufSize() const { return sockRecvBufSize; }
-        int getSockSendBufSize() const { return sockSendBufSize; }
         std::string getSpdkConfJSON() const { return spdkConfJSON; }
         std::string getSvcPasswordFile() const { return svcPasswordFile; }
         std::string getSvcPasswordHash() const { return svcPasswordHash; }
@@ -715,6 +691,7 @@ class ProgArgs
         uint64_t getTreeRoundUpSize() const { return treeRoundUpSize; }
         bool hasUserSetRWMixPercent() const { return useRWMixPercent; }
         bool hasUserSetRWMixReadThreads() const { return useRWMixReadThreads; }
+
 
         // setters for config options in alphabetic order...
 

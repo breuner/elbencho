@@ -9,6 +9,9 @@
 # dir even though they create their trees at the same time. Threads, dirs and
 # files are per service, so the expected totals are multiplied by the number of
 # services.
+#
+# The write/read run also uses "--svcminmax", which adds the slowest and the
+# fastest service per phase to the result table and to the json result file.
 
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
 
@@ -90,7 +93,7 @@ start_services()
 }
 
 test_init
-tap_plan 27
+tap_plan 34
 
 DATA_DIR="$TEST_DIR/data"
 
@@ -110,7 +113,7 @@ tap_ok "second service instance is listening on port $PORT2"
 
 run_elbencho bench \
     --hosts "$HOSTS" \
-    -d -w -r \
+    -d -w -r --svcminmax \
     -t $NUM_THREADS -n $NUM_DIRS -N $NUM_FILES -s $FILE_SIZE -b $FILE_SIZE \
     --verify 1 --blockvarpct 0 \
     "$DATA_DIR"
@@ -138,6 +141,31 @@ assert_eq "$(json_value "$ELB_JSON" READ last_done entries)" "$EXPECTED_FILES" \
 assert_eq "$(json_value "$ELB_JSON" READ last_done bytes)" "$EXPECTED_BYTES" \
     "read phase reports $EXPECTED_BYTES read bytes"
 
+################## Per-service min/avg/max rows and json entries ##################
+
+# One throughput row per data phase (WRITE and READ); the IOPS row too, because
+# the block size equals the file size and the IOPS row is not suppressed here.
+assert_eq "$(res_row_count "$ELB_RES" "Svc MiB/s")" "2" \
+    "the result table has a \"Svc MiB/s\" row for the write and the read phase"
+assert_eq "$(res_row_count "$ELB_RES" "Svc IOPS")" "2" \
+    "the result table has a \"Svc IOPS\" row for the write and the read phase"
+assert_eq "$(json_has_key "$ELB_JSON" WRITE last_done services)" "true" \
+    "the write phase json result has the services subtree"
+
+SVC_MIN_HOST="$(jq -r 'select(.phase_type == "WRITE") | .last_done.services["bytes/s"].min_host' \
+    "$ELB_JSON" | head -1)"
+SVC_MAX_HOST="$(jq -r 'select(.phase_type == "WRITE") | .last_done.services["bytes/s"].max_host' \
+    "$ELB_JSON" | head -1)"
+SVC_ORDER="$(jq -r 'select(.phase_type == "WRITE") | .last_done.services["bytes/s"] |
+    ((.min | tonumber) <= (.avg | tonumber)) and ((.avg | tonumber) <= (.max | tonumber))' \
+    "$ELB_JSON" | head -1)"
+
+assert_match "$SVC_MIN_HOST" "^localhost:($PORT1|$PORT2)\$" \
+    "the slowest service is one of the two service addresses"
+assert_match "$SVC_MAX_HOST" "^localhost:($PORT1|$PORT2)\$" \
+    "the fastest service is one of the two service addresses"
+assert_eq "$SVC_ORDER" "true" "min, avg and max throughput are in order"
+
 # This is what shows that the rank offset of the second service really keeps the
 # two services apart: without it they would write the same names.
 assert_eq "$(count_files "$DATA_DIR")" "$EXPECTED_FILES" \
@@ -157,6 +185,8 @@ assert_ok $? "the delete phase through both services succeeds"
 
 assert_eq "$(json_value "$ELB_JSON" RMFILES last_done entries)" "$EXPECTED_FILES" \
     "rmfiles phase reports $EXPECTED_FILES deleted files"
+assert_eq "$(json_has_key "$ELB_JSON" RMFILES last_done services)" "false" \
+    "without \"--svcminmax\" the json result has no services subtree"
 assert_eq "$(json_value "$ELB_JSON" RMDIRS last_done entries)" "$EXPECTED_DIR_ENTRIES" \
     "rmdirs phase reports $EXPECTED_DIR_ENTRIES deleted dirs"
 assert_eq "$(count_files "$DATA_DIR")" "0" \

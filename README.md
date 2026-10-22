@@ -25,6 +25,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
   - [S3 Object Storage Support](#s3-object-storage-support)
   - [macOS Support](#macos-support)
   - [NVMe-oF Support](#nvme-of-support)
+  - [Network Benchmarking](#network-benchmarking)
   - [Contributed Plugins](#contributed-plugins)
 
 </details>
@@ -36,10 +37,10 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 * For modern NVMe storage or classic spinning disk storage
 * GPU storage access performance testing through Nvidia CUDA or GPUDirect Storage (GDS)
 * Live statistics show how the system behaves under load
-* Multi-threaded and async I/O support through libaio
 * Results by first and by last finished thread
 * CSV file output to easily create graphs in spreadsheet apps or via elbencho-chart tool
 * Data integrity verification option
+* N-to-M network testing via TCP and RDMA
 
 ## Usage
 
@@ -152,28 +153,15 @@ Enabling S3 Object Storage support will automatically download a AWS SDK git rep
 
 The static Linux executable in the [Releases section](https://github.com/breuner/elbencho/releases) includes S3 support, in case you prefer to use this instead of building your own version.
 
-To build elbencho with S3 support, just add the `S3_SUPPORT=1` parameter to the make command. (If you previously built elbencho without S3 support, then run `make clean-all` before this.)
+To build elbencho with S3 support, just add the `S3_SUPPORT=1` parameter to the make command.
 
-The S3 support of elbencho is based on Amazon's AWS SDK CPP. Thus, you either need to provide it or elbencho needs to download and build it.
-
-<ins>Option A</ins>: If you are not sure whether you can provide a compatible build of the SDK or if you just generally prefer to have elbencho take care of the AWS SDK CPP build then use this command:
+The S3 support of elbencho is based on Amazon's official AWS SDK CPP. By default, the AWS SDK CPP will automatically get cloned from GitHub:
 
 ```bash
 make S3_SUPPORT=1 -j $(nproc)
 ```
 
-<ins>Option B</ins>: If you prefer to provide your own version of the AWS SDK CPP instead of having elbencho download it, then here is an example of a cmake command to generate an SDK that is compatible with elbencho and the corresponding elbencho build command:
-
-```bash
-# In the AWS SDK build dir:
-cmake ../aws-sdk-cpp -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local/ -DCMAKE_INSTALL_PREFIX=/usr/local/ -DBUILD_ONLY="s3;transfer" -DAUTORUN_UNIT_TESTS=OFF -DENABLE_TESTING=OFF -DBYO_CRYPTO=ON -DBUILD_SHARED_LIBS=OFF
-
-make -j $(nproc)
-sudo make install
-
-# In the elbencho git clone top level dir:
-make -j $(nproc) S3_SUPPORT=1 AWS_INCLUDE_DIR=/usr/local/include/ AWS_LIB_DIR=/usr/local/lib64/
-```
+Alternatively, you can use your own copy of the AWS SDK CPP by adding the `AWS_INCLUDE_DIR` and `AWS_LIB_DIR` Makefile variables.
 
 ##### Build elbencho with S3-over-RDMA Support
 S3-over-RDMA (s3rdma) support is available through contributed plugins. See [contrib/plugins/README.md](contrib/plugins/README.md).
@@ -212,6 +200,18 @@ bin/elbencho --help
 #### NVMe-oF Support
 
 NVMe-oF initiator support based on the SPDK toolkit can be enabled to test block devices directly, as an alternative to testing through the NVMe-oF stack of the Linux kernel. A guide on how to enable and use elbencho for NVMe-oF benchmarking is available in the `docs` subdir [here](docs/spdk.md).
+
+#### Network Benchmarking
+
+Elbencho has a built-in network benchmark mode. (See `elbencho --help-netbench` and [docs/netbench.md](docs/netbench.md).) In contrast to other common tools for network testing, this supports N-to-M communication, meaning multiple clients communicate in parallel with multiple servers, similar to typical shared storage access patterns.
+
+The network benchmark mode supports mulitple engines:
+* `tcp`: included by default.
+* `ibverbs`: for InfiniBand/RoCE through libibverbs, built when the libibverbs development files are found on the system.
+* `rdmacm`: for IndiniBand/RoCE connections established through the RDMA Connection Manager (RDMA CM), built when the rdmacm development files are found on the system.
+* `libfabric`: for connections established through [libfabric](https://github.com/ofiwg/libfabric).
+  * Libfabric is the chosen interface of the Ultra Ethernet Consortium and supports various providers, such as tcp, verbs, AWS EFA, HPE Slingshot.
+  * Libfabric support can be enabled via `make LIBFABRIC_SUPPORT=1`, which uses a system-installed libfabric (development package, version 1.11 or newer) when `pkg-config` finds one, and otherwise downloads and builds its own copy into `external/` (needs autoconf, automake and libtool); `BUILD_LIBFABRIC=1` forces the own copy.
 
 #### Contributed Plugins
 

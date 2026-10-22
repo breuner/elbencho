@@ -1,4 +1,4 @@
-# Full CUDA and elbencho deb install of latest github master on Ubuntu 24.04
+# Full CUDA and elbencho deb install of latest github master on Ubuntu 26.04
 #
 # For cross-compile on Ubuntu x86_64 prepare multi-platform builder from repository root dir like this:
 # docker buildx create --use --platform=linux/arm64,linux/amd64 --name multi-platform-builder --config build_helpers/docker/buildkitd.toml
@@ -8,7 +8,7 @@
 # docker buildx build --progress plain --push --platform linux/amd64,linux/arm64 -t breuner/elbencho:master-ubuntu-cuda-multiarch -f build_helpers/docker/Dockerfile.ubuntu-cuda-multiarch.local .
 
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 ARG NUM_JOBS
 ENV NUM_JOBS=${NUM_JOBS}
@@ -26,9 +26,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
         "(NUM_JOBS_CALCULATED: $NUM_JOBS_CALCULATED, RAM_GB: $RAM_GB, nproc: $(nproc))" && \
     DOCKER_BUILD_PLATFORM=$(uname -m) && \
     CUDA_SOURCE=$(if [ "$DOCKER_BUILD_PLATFORM" = "aarch64" ]; then \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/sbsa/cuda-keyring_1.1-1_all.deb"; \
         else \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/cuda-keyring_1.1-1_all.deb"; \
         fi) && \
     echo "[PLATFORM] CUDA_SOURCE: [$DOCKER_BUILD_PLATFORM] $CUDA_SOURCE" && \
     cd /root && \
@@ -38,22 +38,26 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg -i cuda-keyring_1.1-1_all.deb && \
     apt update && \
     apt -y upgrade && \
-    apt install -y build-essential cmake cuda-toolkit debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libnuma-dev libssl-dev lintian nvidia-open uuid-dev zlib1g-dev && \
+    apt install -y autoconf automake build-essential cmake cuda-toolkit debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libibverbs-dev libnuma-dev librdmacm-dev libssl-dev libtool lintian nvidia-open pkg-config uuid-dev zlib1g-dev && \
     cd /root/elbencho && \
     make clean-all && \
-    make S3_SUPPORT=1 -j $NUM_JOBS && \
+    make S3_SUPPORT=1 LIBFABRIC_SUPPORT=1 BUILD_LIBFABRIC=1 IBVERBS_SUPPORT=1 RDMACM_SUPPORT=1 \
+        -j $NUM_JOBS && \
     make deb
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 COPY --from=builder /root/elbencho/packaging/elbencho*.deb /tmp/
 
+# ibverbs-providers has the RDMA userspace drivers for the netbench ibverbs and rdmacm engines
+# and the libfabric verbs provider (InfiniBand and RoCE); libfabric itself is built into
+# elbencho from our own copy, so no libfabric package is needed.
 RUN export DEBIAN_FRONTEND=noninteractive && \
     DOCKER_BUILD_PLATFORM=$(uname -m) && \
     CUDA_SOURCE=$(if [ "$DOCKER_BUILD_PLATFORM" = "aarch64" ]; then \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/sbsa/cuda-keyring_1.1-1_all.deb"; \
         else \
-        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb"; \
+        echo "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/cuda-keyring_1.1-1_all.deb"; \
         fi) && \
     echo "[PLATFORM] CUDA_SOURCE: [$DOCKER_BUILD_PLATFORM] $CUDA_SOURCE" && \
     cd /root && \
@@ -63,7 +67,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg -i cuda-keyring_1.1-1_all.deb && \
     apt update && \
     apt -y upgrade && \
-    apt install -y /tmp/elbencho*.deb cuda-toolkit jq nvidia-open && \
+    apt install -y /tmp/elbencho*.deb cuda-toolkit ibverbs-providers jq nvidia-open && \
     rm -f /tmp/elbencho*.deb && \
     apt clean all && \
     /usr/bin/elbencho --version

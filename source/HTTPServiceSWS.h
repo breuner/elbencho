@@ -35,6 +35,8 @@ class HTTPServiceSWS : public HTTPService
         void defineServerResourcePreparePhase(HttpServer& server);
         void defineServerResourceStartPhase(HttpServer& server);
         void defineServerResourceInterruptPhase(HttpServer& server);
+        void defineServerResourceNetBenchConnect(HttpServer& server);
+        void defineServerResourceNetBenchIfaces(HttpServer& server);
         void defineServerResourceErrorHandler(HttpServer& server);
 };
 

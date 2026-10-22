@@ -13,9 +13,9 @@
 
 #include "Common.h"
 #include "CuFileHandleData.h"
+#include "modes/netbench/NetBenchMode.h"
 #include "modes/s3/S3Mode.h"
 #include "toolkits/Journal.h"
-#include "toolkits/net/BasicSocket.h"
 #include "toolkits/offsetgen/OffsetGenerator.h"
 #include "toolkits/offsetgen/OffsetGenRandomAlignedFullCoverageV2.h"
 #include "toolkits/OpsLogger.h"
@@ -43,8 +43,6 @@
 
 #define PATH_BUF_LEN                    64
 #define INTERRUPTION_CHECK_INTERVAL     128
-
-typedef std::vector<BasicSocket*> SocketVec;
 
 // delaration for function typedefs below
 class LocalWorker;
@@ -87,6 +85,7 @@ typedef bool (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
  */
 class LocalWorker : public Worker
 {
+    friend class NetBenchMode;
     friend class S3Mode;
 
 	public:
@@ -251,12 +250,10 @@ class LocalWorker : public Worker
         } spdkContext;
 #endif // SPDK_SUPPORT
 
-		static SocketVec serverSocketVec; // singleton netbench server sockets for all local threads
-		BasicSocket* clientSocket{NULL}; // netbench socket for client
-
 		OpsLogger opsLog; // logger for IO operations
 
         S3Mode s3Mode; // s3 benchmark mode (works on this worker's buffers & stats)
+        NetBenchMode netBench; // network benchmark mode (works on this worker's stats)
 
 
 		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
@@ -268,11 +265,6 @@ class LocalWorker : public Worker
         void uninitLibAio();
 		void initHDFS();
 		void uninitHDFS();
-		void initNetBench();
-		void initNetBenchServer();
-		void initNetBenchClient();
-		void uninitNetBench();
-		void uninitNetBenchAfterPhaseDone();
         void initSpdk();
         void uninitSpdk();
 		void initThreadFDVec();
@@ -314,10 +306,6 @@ class LocalWorker : public Worker
 
 		void hdfsDirModeIterateDirs();
 		void hdfsDirModeIterateFiles();
-
-		void netbenchDoTransfer();
-		void netbenchDoTransferServer();
-		void netbenchDoTransferClient();
 
 		void anyModeSync();
 		void anyModeDropCaches();
@@ -424,7 +412,7 @@ class LocalWorker : public Worker
         static void resetSingletons()
         {
             S3Mode::resetSingletons();
-            serverSocketVec.clear(); // (actual cleanup in uninitNetBenchAfterPhaseDone() )
+            NetBenchMode::resetSingletons();
         }
 
         // forwarders to the phase-dependent function pointers for the bench mode classes

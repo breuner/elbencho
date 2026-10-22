@@ -44,6 +44,10 @@ Miscellaneous Options:
                         dataset instead of its own fraction of the data set.
   --svcelapsed          Show elapsed time to completion of each service 
                         instance ordered by slowest thread.
+  --svcminmax           Show the service instances with the lowest and the 
+                        highest IOPS and throughput (rate and host name, plus 
+                        the average) to make outliers visible. Also adds these 
+                        values to the json result file.
   --interrupt           Interrupt current benchmark phase on given service mode
                         hosts.
   --foreground          When running as service, stay in foreground and 

@@ -112,35 +112,6 @@ s3rdma_detect_plugin()
     return 1
 }
 
-# The IPv4 address of the first active RDMA link that has one.
-rdma_first_ipv4()
-{
-    local netdev
-    local addr
-    local netdevs
-
-    netdevs=$(rdma link show 2>/dev/null | \
-        awk '/state ACTIVE/ { for(i=1; i<=NF; i++) if($i == "netdev") print $(i+1) }')
-
-    # fallback without the rdma tool: every netdev of an RDMA device
-    if [ -z "$netdevs" ]; then
-        netdevs=$(find /sys/class/infiniband/*/device/net -mindepth 1 -maxdepth 1 \
-            -printf '%f\n' 2>/dev/null)
-    fi
-
-    for netdev in $netdevs; do
-        addr=$(ip -4 -o addr show dev "$netdev" 2>/dev/null | awk '{print $4}' | \
-            cut -d/ -f1 | head -n1)
-
-        if [ -n "$addr" ]; then
-            echo "$addr"
-            return 0
-        fi
-    done
-
-    return 1
-}
-
 # rdma_device_for_ipv4 ADDR
 #
 # The RDMA device (e.g. "mlx5_0") whose netdev carries the given IPv4 address.
@@ -221,23 +192,16 @@ require_s3rdma_server()
 
 # Skip the whole test file unless an RDMA NIC with an IPv4 address is available
 # and the locked memory limit allows the RDMA buffer registrations of the server
-# (its threads times the staging buffer size) and the clients. A limit of a few
-# MiB is e.g. what systemd gives its services by default. Sets S3RDMA_ADDR.
+# (its threads times the staging buffer size) and the clients. Sets S3RDMA_ADDR.
 require_rdma_addr()
 {
-    local memlock_kib
-
     S3RDMA_ADDR="${ELBENCHO_TEST_RDMA_ADDR:-$(rdma_first_ipv4)}"
 
     if [ -z "$S3RDMA_ADDR" ]; then
         tap_skip_all "no active RDMA link with an IPv4 address found on this host"
     fi
 
-    memlock_kib="$(ulimit -l)"
-
-    if [ "$memlock_kib" != "unlimited" ] && [ "$memlock_kib" -lt $((64 * 1024)) ]; then
-        tap_skip_all "the locked memory limit is too low for RDMA buffer registration (ulimit -l: $memlock_kib KiB, need at least 64 MiB)"
-    fi
+    require_memlock
 }
 
 # s3rdma_server_transport_usable cuobj|rc

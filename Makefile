@@ -42,9 +42,15 @@ LDFLAGS_BOOST      ?= -lboost_program_options -lboost_thread
 LDFLAGS_LINUX      ?= -l rt -l stdc++fs
 LDFLAGS_NUMA       ?= -lnuma
 
+COMMA              := ,
+
 ALTHTTPSVC_SUPPORT ?= 0
+BUILD_LIBFABRIC    ?= 0
 COREBIND_SUPPORT   ?= 1
+IBVERBS_SUPPORT    ?=
+RDMACM_SUPPORT     ?=
 LIBAIO_SUPPORT     ?= 1
+LIBFABRIC_SUPPORT  ?= 0
 LIBNUMA_SUPPORT    ?= 1
 SYNCFS_SUPPORT     ?= 1
 S3_AWSCRT          ?= 0
@@ -185,6 +191,8 @@ ifeq ($(shell uname -s),Darwin)
   CXXFLAGS_BOOST := $(filter-out -DBOOST_STACKTRACE_USE_BACKTRACE, $(CXXFLAGS_BOOST))
 
   COREBIND_SUPPORT   := 0
+  IBVERBS_SUPPORT    := 0
+  RDMACM_SUPPORT     := 0
   LIBAIO_SUPPORT     := 0
   LIBNUMA_SUPPORT    := 0
   SYNCFS_SUPPORT     := 0
@@ -259,12 +267,105 @@ ifeq ($(BACKTRACE_SUPPORT), 1)
 
 endif
 
+# Netbench engines. The tcp engine is always built and needs no library.
+# The libfabric engine (LIBFABRIC_SUPPORT, off by default) uses a system-installed libfabric (found via
+# pkg-config, min version 1.11). Without it, or with BUILD_LIBFABRIC=1, or for static binaries, our
+# own copy gets built as static lib in external/ and its link flags come from its pkg-config file.
+# That lookup is deferred (recursive variable) because it depends on the "externals" target having
+# built the lib.
+# The ibverbs engine (IBVERBS_SUPPORT) needs libibverbs with ibv_query_gid_ex() (rdma-core 30 or
+# newer) and gets auto-detected when not set explicitly. Not available for static binaries. The
+# rdmacm engine (RDMACM_SUPPORT) additionally needs librdmacm (same rdma-core) and is auto-detected
+# the same way.
+ifeq ($(LIBFABRIC_SUPPORT), 1)
+  CXXFLAGS += -DLIBFABRIC_SUPPORT
+
+  LIBFABRIC_DETECTED := $(shell pkg-config --atleast-version=1.11 libfabric 2>/dev/null && echo 1)
+
+  ifeq ($(BUILD_LIBFABRIC)$(LIBFABRIC_DETECTED),01)
+    ifneq ($(BUILD_STATIC),1)
+      USE_SYSTEM_LIBFABRIC := 1
+    endif
+  endif
+
+  ifeq ($(USE_SYSTEM_LIBFABRIC),1)
+    CXXFLAGS += $(shell pkg-config --cflags libfabric 2>/dev/null)
+    LDFLAGS  += -l fabric
+  else
+    PREP_LIBFABRIC := 1
+    LIBFABRIC_PKG_CONFIG_PATH := $(EXTERNAL_PATH)/libfabric_install/lib/pkgconfig
+    CXXFLAGS += -I $(EXTERNAL_PATH)/libfabric_install/include
+    LIBFABRIC_PKG_LIBS = $(shell PKG_CONFIG_PATH=$(LIBFABRIC_PKG_CONFIG_PATH) pkg-config --static \
+      --libs libfabric 2>/dev/null)
+    LDFLAGS  += $(if $(LIBFABRIC_PKG_LIBS),$(LIBFABRIC_PKG_LIBS),\
+      -L $(EXTERNAL_PATH)/libfabric_install/lib -l fabric)
+
+    ifeq ($(BUILD_STATIC), 1)
+      LIBFABRIC_TCP_ONLY := 1
+    endif
+  endif
+endif
+
+# (for the features info)
+ifeq ($(PREP_LIBFABRIC),1)
+  LIBFABRIC_INFO := libfabric (built in external/$(if $(LIBFABRIC_TCP_ONLY), with tcp provider only,))
+else
+  LIBFABRIC_INFO := libfabric (system$(if $(BUILD_VERBOSE), $(shell pkg-config --modversion libfabric),))
+endif
+
+ifeq ($(BUILD_STATIC), 1)
+  IBVERBS_SUPPORT := 0
+endif
+
+ifeq ($(IBVERBS_SUPPORT),)
+  IBVERBS_SUPPORT := $(shell printf '\043include <infiniband/verbs.h>\nint main() { struct ibv_gid_entry e; return ibv_query_gid_ex(0, 1, 0, &e, 0); }\n' | $(CXX) -x c++ -fsyntax-only - > /dev/null 2>&1 && echo 1 || echo 0)
+endif
+
+ifeq ($(IBVERBS_SUPPORT), 1)
+  CXXFLAGS += -DIBVERBS_SUPPORT
+  LDFLAGS  += -libverbs
+
+  ifeq ($(RDMACM_SUPPORT),)
+    RDMACM_SUPPORT := $(shell printf '\043include <rdma/rdma_cma.h>\nint main() { struct ibv_ece e; return rdma_get_remote_ece(0, &e); }\n' | $(CXX) -x c++ -fsyntax-only - > /dev/null 2>&1 && echo 1 || echo 0)
+  endif
+else
+  RDMACM_SUPPORT := 0
+endif
+
+ifeq ($(RDMACM_SUPPORT), 1)
+  CXXFLAGS += -DRDMACM_SUPPORT
+  LDFLAGS  += -lrdmacm
+endif
+
 
 
 # (after the plugin includes, because plugins add to SOURCES)
 OBJECTS          := $(SOURCES:.cpp=.o)
 OBJECTS_CLEANUP  := $(shell find $(SOURCE_PATH) $(PLUGINS_PATH) -name '*.o') # for renamed sources
 DEPENDENCY_FILES := $(shell find $(SOURCE_PATH) $(PLUGINS_PATH) -name '*.d')
+
+# The resolved build configuration as a file that the objects and the externals depend on. It is
+# only rewritten when the configuration changes, so changing a feature rebuilds exactly what
+# depends on it (no "make clean-all" needed) and a build with the same features leaves everything
+# alone. The externals get their own copy as stamp, so the (slow) preparation script only runs
+# when the configuration changed since it last ran.
+FEATURES_FILE    := $(BIN_PATH)/.build-features
+EXTERNALS_STAMP  := $(EXTERNAL_PATH)/.prepared-features
+FEATURES_STR     := ALTHTTPSVC_SUPPORT=$(ALTHTTPSVC_SUPPORT) BACKTRACE_SUPPORT=$(BACKTRACE_SUPPORT) \
+	BUILD_DEBUG=$(BUILD_DEBUG) BUILD_LIBFABRIC=$(BUILD_LIBFABRIC) BUILD_STATIC=$(BUILD_STATIC) \
+	COREBIND_SUPPORT=$(COREBIND_SUPPORT) CUDA_SUPPORT=$(CUDA_SUPPORT) \
+	CUFILE_SUPPORT=$(CUFILE_SUPPORT) HDFS_SUPPORT=$(HDFS_SUPPORT) \
+	IBVERBS_SUPPORT=$(IBVERBS_SUPPORT) LIBAIO_SUPPORT=$(LIBAIO_SUPPORT) \
+	LIBFABRIC_SUPPORT=$(LIBFABRIC_SUPPORT) LIBNUMA_SUPPORT=$(LIBNUMA_SUPPORT) \
+	PLUGINS_ENABLED=$(PLUGINS_ENABLED) \
+	RDMACM_SUPPORT=$(RDMACM_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) S3_SUPPORT=$(S3_SUPPORT) \
+	SPDK_SUPPORT=$(SPDK_SUPPORT) SYNCFS_SUPPORT=$(SYNCFS_SUPPORT) \
+	SYSCALLH_SUPPORT=$(SYSCALLH_SUPPORT) THREADNAME_SUPPORT=$(THREADNAME_SUPPORT) \
+	USE_MIMALLOC=$(USE_MIMALLOC)
+
+# "install" and the packaging targets take the executable as it is when it exists (whatever
+# features it was built with) and only build it when it is missing.
+EXE_IF_MISSING   := $(if $(wildcard $(EXE)),,$(EXE))
 
 
 all: $(SOURCES) $(EXE)
@@ -297,19 +398,30 @@ source/toolkits/random/RandAlgoSelectorTk.o: source/toolkits/random/RandAlgoSele
 	$(QUIET)$(CXX) $(CXXFLAGS) $(CXXFLAGS_SPECIAL_SIMD) $(@:.o=.cpp) -c -o $(@)
 
 
-# "Makefile" as dependency to rebuild all on Makefile change.
-# Dependency chain is: Makefile -> features-info -> features-detect -> externals
-$(OBJECTS): Makefile $(wildcard $(PLUGINS_PATH)/*/plugin.mk) | features-info
+# "Makefile" and the build configuration as dependencies to rebuild all on their change.
+# Dependency chain is: Makefile -> features-info -> features-detect -> externals -> FEATURES_FILE
+$(OBJECTS): Makefile $(wildcard $(PLUGINS_PATH)/*/plugin.mk) $(FEATURES_FILE) | features-info
 
+# (always checked, but only written when the configuration differs, so its timestamp only changes
+# then)
+$(FEATURES_FILE): FORCE
+	$(QUIET)mkdir -p $(dir $@)
+	$(QUIET)echo "$(FEATURES_STR)" | cmp -s - $@ 2>/dev/null || echo "$(FEATURES_STR)" > $@
 
-externals:
+FORCE:
+
+externals: $(EXTERNALS_STAMP)
+
+$(EXTERNALS_STAMP): $(FEATURES_FILE)
 # Note: The "+" prefix is to let "make" know that it needs to increase the MAKELEVEL env var because
 # there will be sub-make calls in this script.
 	$(QUIET)+PREP_AWS_SDK=$(S3_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) AWS_LIB_DIR=$(AWS_LIB_DIR) \
 		AWS_INCLUDE_DIR=$(AWS_INCLUDE_DIR) PREP_MIMALLOC=$(USE_MIMALLOC) \
 		PREP_UWS=$(ALTHTTPSVC_SUPPORT) PREP_LIBBACKTRACE=$(PREP_LIBBACKTRACE) \
-		PREP_SPDK=$(SPDK_SUPPORT) $(PLUGINS_EXTERNALS_ENV) \
+		PREP_SPDK=$(SPDK_SUPPORT) PREP_LIBFABRIC=$(PREP_LIBFABRIC) \
+		LIBFABRIC_TCP_ONLY=$(LIBFABRIC_TCP_ONLY) $(PLUGINS_EXTERNALS_ENV) \
 		$(EXTERNAL_PATH)/prepare-external.sh
+	$(QUIET)cp $(FEATURES_FILE) $@
 
 # Compiler and linker flags for SPDK support.
 # This is located under the "externals" make target because the "pkg-config" depends on the SPDK
@@ -332,7 +444,7 @@ ifeq ($(SPDK_SUPPORT), 1)
   LDFLAGS += $(shell \
     PKG_CONFIG_PATH="$(SPDK_PATH)/isa-l:$(SPDK_PATH)/isa-l-crypto:$(SPDK_PATH)/build/lib/pkgconfig:$(PKG_CONFIG_PATH)" \
 	pkg-config --static --libs-only-L $(SPDK_PKGS) libisal libisal_crypto | \
-	sed 's/-libverbs//g')
+	sed 's/-libverbs//g;s/-lrdmacm//g')
 
   # temporarily switch to static linking for spdk libs
   LDFLAGS += -Wl,-Bstatic
@@ -352,7 +464,7 @@ ifeq ($(SPDK_SUPPORT), 1)
   LDFLAGS += $(shell \
 	PKG_CONFIG_PATH="$(SPDK_PATH)/isa-l:$(SPDK_PATH)/isa-l-crypto:$(SPDK_PATH)/build/lib/pkgconfig:$(PKG_CONFIG_PATH)" \
 	pkg-config --static --libs-only-l $(SPDK_PKGS) libisal libisal_crypto | \
-	sed 's/-libverbs//g;s/-lssl//g;s/-lcrypto//g')
+	sed 's/-libverbs//g;s/-lrdmacm//g;s/-lssl//g;s/-lcrypto//g')
 
   # switch back to dynamic linking for system/standard libs
   LDFLAGS += -Wl,-Bdynamic
@@ -405,6 +517,9 @@ endif
 ifeq ($(SPDK_SUPPORT),1)
 	$(info [OPT] SPDK support enabled)
 endif
+
+	$(info [OPT] Netbench engines enabled: tcp$(if $(filter 1,$(IBVERBS_SUPPORT)),$(COMMA) ibverbs)$(if $(filter 1,$(RDMACM_SUPPORT)),$(COMMA) rdmacm)$(if $(filter 1,$(LIBFABRIC_SUPPORT)),$(COMMA) $(LIBFABRIC_INFO)))
+
 ifneq ($(PLUGINS_ENABLED),)
 	$(info [OPT] Plugins enabled: $(PLUGINS_ENABLED))
 else
@@ -419,10 +534,11 @@ clean: clean-packaging clean-buildhelpers
 
 clean-externals:
 	$(MSG) "[DELETE] EXTERNALS"
-	$(QUIET)rm -f "$(EXTERNAL_PATH)/alpine-chroot-install"
+	$(QUIET)rm -f "$(EXTERNALS_STAMP)" "$(EXTERNAL_PATH)/alpine-chroot-install"
 	$(QUIET)rm -rf "$(EXTERNAL_PATH)/aws-sdk-cpp" "$(EXTERNAL_PATH)/aws-sdk-cpp_install"
 	$(QUIET)rm -rf "$(EXTERNAL_PATH)/ftxui"
 	$(QUIET)rm -rf "$(EXTERNAL_PATH)/libbacktrace"
+	$(QUIET)rm -rf "$(EXTERNAL_PATH)/libfabric" "$(EXTERNAL_PATH)/libfabric_install"
 	$(QUIET)rm -rf "$(EXTERNAL_PATH)/mimalloc"
 	$(QUIET)rm -rf "$(EXTERNAL_PATH)/Simple-Web-Server"
 	$(QUIET)rm -rf "$(EXTERNAL_PATH)/spdk"
@@ -449,7 +565,7 @@ clean-s3rdma-tools:
 	$(QUIET)$(MAKE) -C tools/s3rdma clean-all $(if $(BUILD_VERBOSE),,-s --no-print-directory > /dev/null)
 
 
-install: all
+install: $(EXE_IF_MISSING)
 	@echo "Installing elbencho..."
 
 	install -p -m u=rwx,g=rx,o=rx $(EXE) $(INST_PATH)/
@@ -486,7 +602,7 @@ uninstall:
 
 
 # prepare generic part of build-root (not the .rpm or .deb specific part)
-prepare-buildroot: | all clean-packaging
+prepare-buildroot: | $(EXE_IF_MISSING) clean-packaging
 	@echo "[PACKAGING] PREPARE BUILDROOT"
 
 	mkdir -p $(PACKAGING_PATH)/BUILDROOT/$(PKG_INST_PATH)
@@ -557,6 +673,10 @@ help:
 	@echo '   ALTHTTPSVC_SUPPORT=0|1  - Build with support for alternative HTTP service.'
 	@echo '                             (Default: 0)'
 	@echo '   BACKTRACE_SUPPORT=0|1   - Build with backtrace support. (Default: detect)'
+	@echo '   BUILD_LIBFABRIC=0|1     - Build our own libfabric (static lib) for the netbench'
+	@echo '                             libfabric engine instead of using a system-installed'
+	@echo '                             libfabric. Happens automatically if no system'
+	@echo '                             libfabric is found or for BUILD_STATIC=1. (Default: 0)'
 	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
 	@echo '                             CUDA to work with GPU memory. By default, CUDA'
 	@echo '                             support will be enabled when CUDA development files'
@@ -573,6 +693,16 @@ help:
 	@echo '                             $$HADDOP_HOME/include/hdfs.h and'
 	@echo '                             $$JAVA_HOME/lib/server/libjvm.so can be found.'
 	@echo '                             (Default: 0)'
+	@echo '   IBVERBS_SUPPORT=0|1     - Build the netbench ibverbs engine (InfiniBand/RoCE'
+	@echo '                             via libibverbs, rdma-core 30 or newer). By default,'
+	@echo '                             it gets enabled when libibverbs development files'
+	@echo '                             are found.'
+	@echo '   RDMACM_SUPPORT=0|1      - Build the netbench rdmacm engine (RDMA CM connections'
+	@echo '                             via librdmacm, needs IBVERBS_SUPPORT). By default, it'
+	@echo '                             gets enabled when librdmacm development files are'
+	@echo '                             found.'
+	@echo '   LIBFABRIC_SUPPORT=0|1   - Build the netbench libfabric engine (see'
+	@echo '                             BUILD_LIBFABRIC). (Default: 0)'
 	@echo '   S3_AWSCRT=0|1           - Build S3 support based on AWS Common Runtime (CRT)'
 	@echo '                             instead of external libraries like libcurl. Only'
 	@echo '                             effective together with S3_SUPPORT=1. Not'
@@ -624,7 +754,9 @@ help:
 	@echo '   deb               - Create Debian package file'
 	@echo '   help              - Print this help message'
 	@echo
-	@echo 'Note: Use "make clean-all" when changing any optional build features.'
+	@echo 'Note: Changing an optional build feature rebuilds what depends on it. "make clean-all"'
+	@echo '  is only needed to build the downloaded externals differently (e.g. BUILD_STATIC).'
+	@echo '  "make install", "make deb" and "make rpm" take an existing executable as it is.'
 
 
 # for multi-line variable expansion in recipes (e.g. plugin help)
@@ -634,7 +766,7 @@ define newline
 endef
 
 .PHONY: clean clean-all clean-externals clean-packaging clean-buildhelpers clean-s3rdma-tools deb \
-externals features-info help prepare-buildroot rpm version
+externals features-info FORCE help prepare-buildroot rpm version
 
 
 .DEFAULT_GOAL := all

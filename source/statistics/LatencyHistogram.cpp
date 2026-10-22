@@ -3,7 +3,7 @@
 
 #include <algorithm>
 
-#include "LatencyHistogram.h"
+#include "statistics/LatencyHistogram.h"
 #include "toolkits/UnitTk.h"
 #include "workers/RemoteWorker.h"
 

@@ -5,9 +5,9 @@
 #define WORKERS_WORKER_H_
 
 #include <iostream>
-#include "LatencyHistogram.h"
-#include "LiveLatency.h"
-#include "LiveOps.h"
+#include "statistics/LatencyHistogram.h"
+#include "statistics/LiveLatency.h"
+#include "statistics/LiveOps.h"
 #include "ProgArgs.h"
 #include "WorkersSharedData.h"
 
@@ -106,15 +106,6 @@ class Worker
 		}
 
 		/**
-		 * Get sum of normal liveOps and liveOpsReadMix.
-		 */
-		void getLiveOpsCombined(LiveOps& outLiveOpsCombined) const
-		{
-			atomicLiveOps.getAsLiveOps(outLiveOpsCombined);
-			atomicLiveOpsReadMix.getAndAddLiveOps(outLiveOpsCombined);
-		}
-
-		/**
 		 * Get normal liveOps and liveOpsReadMix.
 		 */
 		void getLiveOps(LiveOps& outSumLiveOps, LiveOps& outSumLiveOpsReadMix) const
@@ -182,19 +173,6 @@ class Worker
 			outLiveOpsReadMixDiff.numIOPSDone = atomicLiveOpsReadMix.numIOPSDone -
 				oldAtomicLiveOpsReadMix.numIOPSDone.exchange(
 						atomicLiveOpsReadMix.numIOPSDone);
-		}
-
-		/**
-		 * Store difference of current and old live ops in outLiveOpsDiff and copy current
-		 * live ops to old live ops.
-		 */
-		void getAndResetDiffStatsCombined(LiveOps& outLiveOpsDiff)
-		{
-			LiveOps liveOpsReadMixDiff;
-
-			getAndResetDiffStats(outLiveOpsDiff, liveOpsReadMixDiff);
-
-			liveOpsReadMixDiff.getAndAddOps(outLiveOpsDiff);
 		}
 
 		/**

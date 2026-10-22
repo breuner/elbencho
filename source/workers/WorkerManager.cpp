@@ -338,12 +338,10 @@ void WorkerManager::getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPh
 	{
 		if(progArgs.getBenchMode() == BenchMode_NETBENCH)
 		{
-			// note: keep this in sync with Statistics::printDryRunInfoNetBench()
+			// note: keep this in sync with NetBenchProgArgs::printDryRunInfo()
 
-			size_t reqRespSizeSum = progArgs.getBlockSize() + progArgs.getNetBenchRespSize();
-			size_t numBlocks = progArgs.getBlockSize() ?
-				(progArgs.getFileSize() / progArgs.getBlockSize() ) : 0;
-			uint64_t numBytesTotal = progArgs.getNumThreads() * numBlocks * reqRespSizeSum;
+            uint64_t numBytesTotal =
+                progArgs.getNetBenchArgs().getExpectedBytesPerClient(progArgs);
 
 			outNumEntriesPerWorker = 0;
 			outNumBytesPerWorker = numBytesTotal;

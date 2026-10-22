@@ -619,13 +619,6 @@ port_in_use()
     return 1
 }
 
-# Port range that the netbench tests allocate their port pairs from, see
-# tests/lib/netbench.sh. It is skipped here, because a netbench data port is not
-# bound while its service is idle, so handing one out to another test would
-# make that netbench run fail later with an "address already in use".
-FIND_FREE_PORT_SKIP_LO=20000
-FIND_FREE_PORT_SKIP_HI=21899
-
 # Echo a random port that is currently not listened on. Because the port can
 # still be taken between check and bind, callers should retry the whole
 # start-and-wait sequence on failure.
@@ -637,11 +630,6 @@ find_free_port()
     while [ $tries -lt 50 ]; do
         tries=$((tries+1))
         port=$(( 20000 + (RANDOM % 40000) ))
-
-        if [ "$port" -ge "$FIND_FREE_PORT_SKIP_LO" ] && \
-           [ "$port" -le "$FIND_FREE_PORT_SKIP_HI" ]; then
-            continue
-        fi
 
         if ! port_in_use "$port"; then
             echo "$port"
@@ -663,11 +651,6 @@ find_free_port_pair()
     while [ $tries -lt 50 ]; do
         tries=$((tries+1))
         port=$(( 20000 + (RANDOM % 40000) ))
-
-        if [ "$port" -ge "$((FIND_FREE_PORT_SKIP_LO - 1))" ] && \
-           [ "$port" -le "$FIND_FREE_PORT_SKIP_HI" ]; then
-            continue
-        fi
 
         if ! port_in_use "$port" && ! port_in_use "$((port + 1))"; then
             echo "$port $((port + 1))"
@@ -1057,6 +1040,78 @@ require_build_feature()
     fi
 
     tap_skip_all "elbencho was built without \"$1\" support"
+}
+
+# The IPv4 address of the first active RDMA link that has one.
+rdma_first_ipv4()
+{
+    local netdev
+    local addr
+    local netdevs
+
+    netdevs=$(rdma link show 2>/dev/null | \
+        awk '/state ACTIVE/ { for(i=1; i<=NF; i++) if($i == "netdev") print $(i+1) }')
+
+    # fallback without the rdma tool: every netdev of an RDMA device
+    if [ -z "$netdevs" ]; then
+        netdevs=$(find /sys/class/infiniband/*/device/net -mindepth 1 -maxdepth 1 \
+            -printf '%f\n' 2>/dev/null)
+    fi
+
+    for netdev in $netdevs; do
+        addr=$(ip -4 -o addr show dev "$netdev" 2>/dev/null | awk '{print $4}' | \
+            cut -d/ -f1 | head -n1)
+
+        if [ -n "$addr" ]; then
+            echo "$addr"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# rdma_rnr_nak_count IPV4ADDR
+#
+# Print the receiver-not-ready NAK counter (summed over the ports) of the RDMA
+# device behind the interface that has the given address, from the device's
+# sysfs hw_counters (Mellanox). Prints nothing and fails if there is none.
+rdma_rnr_nak_count()
+{
+    local netdev dev count
+
+    netdev=$(ip -4 -o addr show to "$1" 2>/dev/null | awk '{print $2; exit}')
+    [ -n "$netdev" ] || return 1
+
+    for dev in /sys/class/net/"$netdev"/device/infiniband/*; do
+        count=$(cat "$dev"/ports/*/hw_counters/rnr_nak_retry_err 2>/dev/null | \
+            awk '{ sum += $1 } END { if(NR) print sum }')
+
+        if [ -n "$count" ]; then
+            echo "$count"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# require_memlock [MIN_MIB]
+#
+# Skip the whole test file if the locked memory limit is below MIN_MIB
+# (default 64), i.e. too low for the buffer registrations of an RDMA test. A
+# limit of a few MiB is what systemd gives its services by default, e.g. a
+# Jenkins agent, while interactive logins usually have no limit.
+require_memlock()
+{
+    local min_mib="${1:-64}"
+    local memlock_kib
+
+    memlock_kib="$(ulimit -l)"
+
+    if [ "$memlock_kib" != "unlimited" ] && [ "$memlock_kib" -lt $((min_mib * 1024)) ]; then
+        tap_skip_all "the locked memory limit is too low for RDMA buffer registration (ulimit -l: $memlock_kib KiB, need at least $min_mib MiB)"
+    fi
 }
 
 # Whether the binary was built with the given plugin (contrib/plugins/), as

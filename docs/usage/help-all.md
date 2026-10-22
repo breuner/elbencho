@@ -44,11 +44,6 @@ All options in alphabetical order:
                           as "OPTIONNAME=VALUE" in the config file. Multiple 
                           options are newline-separated. Lines starting with 
                           "#" are ignored.
-  --clients arg           Comma-separated list of service hosts to use as 
-                          clients in netbench mode. (Format: hostname[:port])
-  --clientsfile arg       Path to file containing line-separated service hosts 
-                          to use as clients in netbench mode. (Format: 
-                          hostname[:port])
   --cores arg             Comma-separated list of CPU cores to bind this 
                           process to. If multiple cores are given, then worker 
                           threads are bound round-robin to the cores. The 
@@ -243,25 +238,111 @@ All options in alphabetical order:
   -n [ --dirs ] arg       Number of directories per thread. This can be 0 to 
                           disable creation of any subdirs, in which case all 
                           workers share the given dir. (Default: 1)
-  --netbench              Run network benchmarking. To simulate the typical 
-                          storage access request/response pattern, each client 
-                          thread will send blocksized chunks ("-b") to one of 
-                          the servers and wait for a reponse of length 
-                          "--respsize" bytes before transmitting the next 
-                          block. Client threads will get connected round-robin 
-                          to the given servers. Blocksize larger than response 
-                          size simulates writes from clients to servers, 
-                          blocksize smaller than response size simulates reads.
-                          Client threads use filesize as limit for amount of 
-                          data to send. See "--servers" & "--clients" for how 
-                          to define servers and clients. The used network port 
-                          for data transfer connections will be "--port" plus 
-                          1000. (Netbench mode defaults to zero block 
-                          variance.)
-  --netdevs arg           Comma-separated list of network device names (e.g. 
-                          "eth0") for round-robin binding of outgoing 
-                          (client-side) connections in network benchmark mode. 
-                          Requires root privileges.
+  --clients arg           Comma-separated list of service hosts to use as 
+                          clients in netbench mode. (Format: hostname[:port])
+  --clientsfile arg       Path to file containing line-separated service hosts 
+                          to use as clients in netbench mode. (Format: 
+                          hostname[:port])
+  --netbench              Run network benchmarking between service instances. 
+                          Each client thread runs one stream to one of the 
+                          servers (round-robin): per round it sends 
+                          "--sendsize" bytes and receives a response of 
+                          "--recvsize" bytes, until "-s" bytes have been sent 
+                          (or received for a receive-only stream). Send size 
+                          larger than receive size simulates writes from 
+                          clients to servers, the other way around simulates 
+                          reads. Either size may be 0 for a one-directional 
+                          stream. See "--help-netbench" for details.
+  --netcrosssubnet        Allow netbench streams between interfaces in 
+                          different IP subnets. By default, a client interface 
+                          is only paired with a server interface in the same 
+                          subnet, because separate subnets are usually separate
+                          networks.
+  --netdevs arg           Comma-separated list of network interfaces for 
+                          netbench mode, given as interface name, IP address, 
+                          IP subnet in CIDR notation (e.g. "172.200.0.0/16" for
+                          all interfaces with an address in that subnet) or 
+                          libfabric domain name. Service option: a server 
+                          listens on each of them, a client binds its threads 
+                          to them. The coordinator pairs client and server 
+                          interfaces of the same subnet and balances the 
+                          streams over servers and interfaces; the interfaces 
+                          are checked when a run starts. (Default: the 
+                          interface matching the service address in "--servers"
+                          for servers, one interface per subnet for clients)
+  --netdevsubnets         Netbench mode: take the subnets for the stream 
+                          placement from the IP subnets given in the services' 
+                          "--netdevs" lists instead of from the interface 
+                          netmasks, e.g. for interfaces with host addresses 
+                          ("/32") in a routed network. Interfaces given by name
+                          or address keep the subnet of their netmask.
+  --netengine arg         Transport engine for netbench mode: "tcp" for plain 
+                          TCP sockets, "ibverbs" for InfiniBand/RoCE reliable 
+                          connections via libibverbs, "rdmacm" for the same 
+                          connections set up by RDMA CM (librdmacm), which lets
+                          the adapters negotiate ECE, e.g. for Zero Touch RoCE,
+                          "libfabric" for the libfabric provider selected via 
+                          "--netprov". All services of a run use the engine 
+                          given to the coordinator. (Default: tcp)
+  --netport arg           Netbench mode service option: fixed base port for the
+                          server data endpoints instead of ports chosen by the 
+                          OS. Endpoint number N listens on this port plus N. 
+                          (Default: 0 for OS-chosen ports)
+  --netprov arg           libfabric provider for netbench mode, e.g. "tcp" or 
+                          "verbs;ofi_rxm". Implies "--netengine libfabric". The
+                          special value "rdma" takes the first available RDMA 
+                          provider (verbs, efa, cxi, ...), "list" lists the 
+                          providers and interfaces available on this host. 
+                          (Default: tcp)
+  --netmemmax arg         Netbench mode limit for the send and receive buffer 
+                          memory of a service, for all engines. A client needs 
+                          "--iodepth" x "--sendsize" plus its receive buffers x
+                          "--recvsize" per thread, a server one receive buffer 
+                          for every block its clients can have in flight (see 
+                          "--netrecvpct") plus one response buffer per 
+                          endpoint; the RDMA engines pin this memory. A run 
+                          that would need more than this on a client or on a 
+                          server is rejected with the amounts it needs. 
+                          (Default: 1G; supports base2 suffixes, e.g. "4G"; 0 
+                          for no limit)
+  --netrecvpct arg        Netbench mode receive buffers of a one-directional 
+                          stream, in percent of the sender's "--iodepth": on 
+                          the server for send-only streams ("--recvsize 0"), on
+                          the client for receive-only streams ("--sendsize 0").
+                          Values above 100 give the receiver a margin before 
+                          the sender has to wait, values below 100 provoke 
+                          receiver-not-ready retries (see "--netrnr"). 
+                          Ping-pong streams always have one receive buffer per 
+                          round in flight. (Default: 200)
+  --netrnr arg            Netbench mode receiver-not-ready retry timer of the 
+                          ibverbs and rdmacm engines, as InfiniBand timer code 
+                          0-31 (1 = 10 us, 12 = 0.64 ms, 0 = 655 ms): how long 
+                          a peer waits before it resends a block that arrived 
+                          while the receiver had no buffer posted (a server 
+                          reposts a consumed buffer only after it saw the 
+                          completion). (Default: 1)
+  --recvsize arg          Netbench mode response size in bytes. Servers send 
+                          this amount of data to a client for each received 
+                          block, or as a continuous stream of blocks if the 
+                          send size is 0. (Default: 1; supports base2 suffixes,
+                          e.g. "2M")
+  --sendsize arg          Netbench mode block size in bytes that each client 
+                          thread sends per round. This is the netbench name for
+                          "-b" and may be 0 for a receive-only stream. 
+                          (Default: 1M; supports base2 suffixes)
+  --servers arg           Comma-separated list of service hosts to use as 
+                          servers in netbench mode. (Format: hostname[:port])
+  --serversfile arg       Path to file containing line-separated service hosts 
+                          to use as servers in netbench mode. (Format: 
+                          hostname[:port])
+  --tclients arg          Number of netbench threads per client service, if 
+                          fewer than "-t" should run streams. The remaining 
+                          threads of a client stay idle. Without "-t", the 
+                          thread count per service is the larger of 
+                          "--tservers" and "--tclients". (Default: "-t")
+  --tservers arg          Number of netbench threads per server service, if 
+                          fewer than "-t" should serve streams. The remaining 
+                          threads of a server stay idle. (Default: "-t")
   --no0usecerr            Do not warn if worker thread completion time is less 
                           than 1 microsecond.
   --nocsvlabels           Do not print headline with labels to csv file.
@@ -322,13 +403,6 @@ All options in alphabetical order:
   --rankoffset arg        Rank offset for worker threads. (Default: 0)
   --readinline            When benchmark path is a directory, read files 
                           immediately after write while they are still open.
-  --recvbuf arg           In netbench mode, this sets the receive buffer size 
-                          of sockets in bytes. (Supports base2 suffixes, e.g. 
-                          "2M")
-  --respsize arg          Netbench mode server response size in bytes. Servers 
-                          will send this amount of data as response to each 
-                          received block from a client. (Default: 1; supports 
-                          base2 suffixes, e.g. "2M")
   --resfile arg           Path to file for human-readable results, similar to 
                           console output. If the file exists, new results will 
                           be appended. (Default: Store in "/var/tmp" under a 
@@ -516,14 +590,6 @@ All options in alphabetical order:
                           builds with feature s3crt.]
   --s3virtaddr            Use S3 virtual addressing, where the bucket name gets
                           prepended as subdomain of the S3 server DNS name.
-  --sendbuf arg           In netbench mode, this sets the send buffer size of 
-                          sockets in bytes. (Supports base2 suffixes, e.g. 
-                          "2M")
-  --servers arg           Comma-separated list of service hosts to use as 
-                          servers in netbench mode. (Format: hostname[:port])
-  --serversfile arg       Path to file containing line-separated service hosts 
-                          to use as servers in netbench mode. (Format: 
-                          hostname[:port])
   --service               Run as service for distributed mode, waiting for 
                           requests from master.
   --spdkconf arg          JSON config for SPDK NVMe-oF initiator mode.
@@ -547,6 +613,13 @@ All options in alphabetical order:
                           Cannot be used with a block size mix.
   --svcelapsed            Show elapsed time to completion of each service 
                           instance ordered by slowest thread.
+  --svcminmax             Show the service instances with the lowest and the 
+                          highest IOPS and throughput of each phase (rate and 
+                          host name, plus the average over the services) to 
+                          make outliers visible. Rates are based on each 
+                          service's own completion time. In netbench mode, 
+                          servers and clients are shown separately. Also adds 
+                          these values to the json result file.
   --svcping               Show response time of service instances in fullscreen
                           live stats.
   --svcpwfile arg         Path to a text file containing a single line of text 

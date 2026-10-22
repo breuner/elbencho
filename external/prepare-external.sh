@@ -12,6 +12,8 @@
 # * libbacktrace will only be prepared when PREP_LIBBACKTRACE=1 is set.
 # * ftxui will always be prepared.
 # * SPDK will only be prepared when PREP_SPDK=1 is set.
+# * libfabric will only be prepared when PREP_LIBFABRIC=1 is set. (LIBFABRIC_TCP_ONLY=1 builds
+#   only the tcp and rxm providers, for static binaries.)
 
 EXTERNAL_BASE_DIR="$(pwd)/$(dirname $0)"
 
@@ -592,6 +594,61 @@ prepare_spdk()
 	return 0
 }
 
+# Prepare git clone, build and install of libfabric (static lib, used when no suitable system
+# libfabric is available or when BUILD_LIBFABRIC=1 is set).
+prepare_libfabric()
+{
+	local REQUIRED_TAG="v2.7.0"
+	local CLONE_DIR="${EXTERNAL_BASE_DIR}/libfabric"
+	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/libfabric_install"
+	local PROVIDER_FLAGS="--enable-only --enable-tcp --enable-rxm"
+
+	# change to external subdir if we were called from somewhere else
+	cd "$EXTERNAL_BASE_DIR" || exit 1
+
+	# this is the fast path for dependency calls from Makefile
+	if [ -f "$INSTALL_DIR/lib/libfabric.a" ]; then
+		return 0
+	fi
+
+	if [ "$LIBFABRIC_TCP_ONLY" = "1" ]; then
+		# (no dlopen because musl has no separate libdl and we build no loadable providers)
+		PROVIDER_FLAGS="$PROVIDER_FLAGS --without-dlopen"
+	else
+		PROVIDER_FLAGS="$PROVIDER_FLAGS --enable-verbs=auto --enable-efa=auto --enable-cxi=auto"
+	fi
+
+	# clone if directory does not exist yet
+	if [ ! -d "$CLONE_DIR" ]; then
+		echo "Cloning libfabric git repo..."
+		git clone --depth 1 --branch "$REQUIRED_TAG" https://github.com/ofiwg/libfabric.git \
+			"$CLONE_DIR"
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
+	fi
+
+	# we need to build it...
+	# (the memory registration cache monitors hook malloc/mmap of the whole process, which a
+	# benchmark does not want, and we register our buffers explicitly anyway)
+
+	echo "Configure, build and install libfabric... (parallel jobs: $NUM_PARALLEL_JOBS)"
+	mkdir -p "$INSTALL_DIR" && \
+		cd "$CLONE_DIR" && \
+		./autogen.sh && \
+		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared \
+			$PROVIDER_FLAGS \
+			--with-default-monitor=disabled --disable-memhooks-monitor --disable-uffd-monitor \
+			--without-cuda --without-rocr --without-ze --without-neuron --without-synapseai \
+			--without-gdrcopy && \
+		$MAKE_CMD install && \
+		cd "$EXTERNAL_BASE_DIR" && \
+		echo "DONE: libfabric prepared." && \
+		return 0
+
+	exit 1
+}
+
 ########### End of function definitions ############
 
 
@@ -628,4 +685,8 @@ prepare_ftxui
 
 if [ "$PREP_SPDK" = "1" ]; then
 	prepare_spdk
+fi
+
+if [ "$PREP_LIBFABRIC" = "1" ]; then
+	prepare_libfabric
 fi

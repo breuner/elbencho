@@ -5,7 +5,7 @@
 #define HTTPSERVICE_H_
 
 #include "ProgArgs.h"
-#include "Statistics.h"
+#include "statistics/Statistics.h"
 #include "workers/WorkerManager.h"
 
 /**

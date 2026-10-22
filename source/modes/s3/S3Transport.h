@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "Common.h"
-#include "LiveOps.h"
+#include "statistics/LiveOps.h"
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "modes/s3/toolkits/S3Tk.h"

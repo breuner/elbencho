@@ -14,6 +14,8 @@
 
 #include "HTTPServiceSWS.h"
 #include "ProgException.h"
+#include "modes/netbench/NetBenchProtocol.h"
+#include "modes/netbench/NetBenchServer.h"
 #include "modes/s3/toolkits/S3Tk.h"
 #include "toolkits/spdk/SpdkNvmeClient.h"
 #include "toolkits/TranslatorTk.h"
@@ -145,6 +147,8 @@ void HTTPServiceSWS::defineServerResources(HttpServer& server)
     defineServerResourcePreparePhase(server);
     defineServerResourceStartPhase(server);
     defineServerResourceInterruptPhase(server);
+    defineServerResourceNetBenchConnect(server);
+    defineServerResourceNetBenchIfaces(server);
     defineServerResourceErrorHandler(server);
 }
 
@@ -590,6 +594,109 @@ void HTTPServiceSWS::defineServerResourceStartPhase(HttpServer& server)
 
 		response->write(LoggerBase::getErrHistory() );
 	};
+}
+
+/**
+ * Define the HTTPSERVERPATH_NETBENCHCONNECT resource: a netbench client registers its stream and
+ * gets the address of its data endpoint on this server in return.
+ */
+void HTTPServiceSWS::defineServerResourceNetBenchConnect(HttpServer& server)
+{
+    server.resource[HTTPSERVERPATH_NETBENCHCONNECT]["POST"] =
+        [&, this](std::shared_ptr<HttpServer::Response> response,
+            std::shared_ptr<HttpServer::Request> request)
+    {
+        Logger(Log_DEBUG) << "HTTP: " << request->path << "?" << request->query_string <<
+            std::endl;
+
+        try
+        {
+            auto query_fields = request->parse_query_string();
+
+            auto iter = query_fields.find(XFER_PREP_PROTCOLVERSION);
+            if( (iter == query_fields.end() ) || (iter->second != HTTP_PROTOCOLVERSION) )
+                throw ProgException("Protocol version mismatch. "
+                    "Service version: " HTTP_PROTOCOLVERSION);
+
+            iter = query_fields.find(XFER_PREP_AUTHORIZATION);
+            if( (iter == query_fields.end() ) || (iter->second != progArgs.getSvcPasswordHash() ) )
+                throw ProgException("Invalid authorization code.");
+
+            bpt::ptree recvTree;
+            bpt::read_json(request->content, recvTree);
+
+            bpt::ptree replyTree;
+
+            if(!NetBenchServer::get().connectClient(recvTree, replyTree) )
+            { // the client retries until our preparation for this run is done
+                response->write(Web::StatusCode::server_error_service_unavailable,
+                    "Not prepared for this netbench run.");
+                return;
+            }
+
+            std::stringstream replyStream;
+            bpt::write_json(replyStream, replyTree, true);
+
+            response->write(replyStream);
+        }
+        catch(const std::exception& e)
+        {
+            std::stringstream stream;
+            stream << "Netbench connect error: " << e.what() << std::endl;
+
+            response->write(Web::StatusCode::client_error_bad_request, stream);
+        }
+    };
+}
+
+/**
+ * Define the HTTPSERVERPATH_NETBENCHIFACES resource: the current interfaces of this service for
+ * the coordinator's netbench stream placement.
+ */
+void HTTPServiceSWS::defineServerResourceNetBenchIfaces(HttpServer& server)
+{
+    server.resource[HTTPSERVERPATH_NETBENCHIFACES]["GET"] =
+        [&, this](std::shared_ptr<HttpServer::Response> response,
+            std::shared_ptr<HttpServer::Request> request)
+    {
+        Logger(Log_DEBUG) << "HTTP: " << request->path << "?" << request->query_string <<
+            std::endl;
+
+        try
+        {
+            auto query_fields = request->parse_query_string();
+
+            auto iter = query_fields.find(XFER_PREP_PROTCOLVERSION);
+            if( (iter == query_fields.end() ) || (iter->second != HTTP_PROTOCOLVERSION) )
+                throw ProgException("Protocol version mismatch. "
+                    "Service version: " HTTP_PROTOCOLVERSION);
+
+            iter = query_fields.find(XFER_PREP_AUTHORIZATION);
+            if( (iter == query_fields.end() ) || (iter->second != progArgs.getSvcPasswordHash() ) )
+                throw ProgException("Invalid authorization code.");
+
+            iter = query_fields.find(NETBENCH_QUERY_HOST);
+            const std::string ownHost = (iter == query_fields.end() ) ? "" : iter->second;
+
+            iter = query_fields.find(NETBENCH_QUERY_DEVSUBNETS);
+            const bool devSubnets = (iter != query_fields.end() ) && (iter->second == "1");
+
+            bpt::ptree tree;
+            progArgs.getNetBenchArgs().getIfacesAsPropertyTree(ownHost, devSubnets, tree);
+
+            std::stringstream stream;
+            bpt::write_json(stream, tree, true);
+
+            response->write(stream);
+        }
+        catch(const std::exception& e)
+        {
+            std::stringstream stream;
+            stream << "Netbench interfaces error: " << e.what() << std::endl;
+
+            response->write(Web::StatusCode::client_error_bad_request, stream);
+        }
+    };
 }
 
 /**

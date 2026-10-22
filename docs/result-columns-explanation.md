@@ -26,7 +26,7 @@ In a perfect world, "first done" and "last done" would be the same, meaning that
 The time between "first done" and "last done" is called the "tail phase", because in a graph it's typically the phase of decreasing throughput, given that more and more threads finish their work and the remainder of threads typically cannot push the same performance anymore that was achieved when all threads were still active.
 
 ## Which result should be used?
-If you're interested in the throughput that the storage system can achieve while all threads are still active (this is also often referred to as "hero number") then "first done" is the right value to look at. 
+If you're interested in the throughput that the storage system can achieve while all threads are still active (this is also often referred to as "hero number") then "first done" is the right value to look at.
 
 If you care about a result that is closer to typical real-world application experience (e.g. an application that needs to read a fair share of an input dataset into each client and will not continue until the last bit of that input dataset has been read) then the "last done" column is the one to look at.
 
@@ -40,8 +40,23 @@ This might require deeper knowledge about the storage system, such as the size o
 These details might not always be available and long test phases might not always be feasible.
 
 ### Limited accuracy of "first done" for distributed tests
-When using the distributed mode (`elbencho --hosts ...`) then the "first done" result has a precision of 500ms by default. (This is configurable via the `--svcupint` option.) That means for very short tests (e.g. less than 5sec runtime) it has low accuracy and should only be taken with a big grain of salt. 
+When using the distributed mode (`elbencho --hosts ...`) then the "first done" result has a precision of 500ms by default. (This is configurable via the `--svcupint` option.) That means for very short tests (e.g. less than 5sec runtime) it has reduced accuracy and should be taken with a grain of salt.
 
 The reason for the limited precision is that the "first done" result requires knowing the result from each client at the exact point in time when the first/fastest one finished its fair share. This is technically not possible in a distributed system without a small inaccuracy.
 
-This is only a something to consider for distributed tests and only for the "first done" result. For single host tests, the inaccuracy is so small that it's neglectible. The "last done" result is also always accurate, because it can easily be calculated from the results on each individual client and does not require knowing the status of each client at a certain point in time while the test was running.
+This is only something to consider for distributed tests and only for the "first done" result. For single host tests, the inaccuracy is so small that it's neglectible. The "last done" result is also always accurate, because it can easily be calculated from the end results on each individual client and does not require knowing the status of each client at a certain point in time while the test was running.
+
+### Finding slow service instances in distributed tests
+
+Besides looking at the live statistics during a run, two options help to spot a service instance that performs worse than the others, e.g. because of a broken cable or a misconfigured interface: `--svcelapsed` adds a row with the completion time of every service instance, sorted from fastest to slowest. `--svcminmax` adds a row for IOPS and a row for throughput with the minimum, average and maximum over the service instances and the host names of the two extremes:
+
+```
+            Svc IOPS         : [ min=2135 (node7:1611) avg=2171 max=2208 (node1:1611) ]
+            Svc MiB/s        : [ min=2135 (node7:1611) avg=2171 max=2208 (node1:1611) ]
+```
+
+Each service's rate is its own total (read and write together) over the completion time of its
+own slowest thread, so these values are exact and belong to the "last done" column; they also
+go into the json result file (`--jsonfile`) as a `services` subtree of `last_done`. In netbench
+mode, servers and clients are shown as separate groups ("Clients" and "Servers" rows, `clients`
+and `servers` subtrees).

@@ -34,7 +34,7 @@ always holds the transcripts of the most recent one.
 By default only the tests for backends that are always compiled in are run.
 Tests for optional backends are enabled explicitly (`-s` for S3, `-p` for SPDK,
 `-r` for the S3-over-RDMA plugins) and skip themselves if the given binary was
-built without the feature.
+built without the feature. The netbench tests are part of the default set.
 
 The S3 server used by the S3 tests is [libreFS](https://github.com/libreFS/libreFS),
 a community fork of the minio server, which was discontinued as open source. It
@@ -189,8 +189,8 @@ Dirs holding test cases are prefixed with `tests_`; everything else holds suppor
 | `lib/minio.sh` | Download-once S3 server (libreFS, a minio fork), one private instance per test, or an external S3 server via `ELBENCHO_TEST_S3_ENDPOINT`. Also the aws cli helpers shared by all S3 tests. |
 | `tests_posix/` | Local file & dir benchmarks. Always run. |
 | `tests_distributed/` | Benchmarks through a local elbencho service instance. Always run. |
-| `tests_netbench/` | Network benchmarks (`--netbench`) between local elbencho service instances. Always run. |
-| `lib/netbench.sh` | Starts the service instances for the netbench tests and allocates their port pairs. |
+| `tests_netbench/` | Network benchmarks (`--netbench`) between local elbencho service instances, over the tcp engine (the default), the libfabric engine and, where an RDMA interface exists, the ibverbs and rdmacm engines and the libfabric verbs provider. Run when the binary was built with netbench support. |
+| `lib/netbench.sh` | Starts the service instances for the netbench tests, inspects their logs and computes the expected transfer sizes. |
 | `tests_s3/` | S3 object benchmarks against minio. Enabled via `-s`. |
 | `tests_spdk/` | SPDK NVMe-oF benchmarks. Each script starts its own private target. Enabled via `-p`. See [tests_spdk/README.md](tests_spdk/README.md). |
 | `lib/spdk.sh` | Starts and provisions a private `nvmf_tgt`, plus target side and SPDK specific result helpers. |
@@ -371,35 +371,58 @@ Rules to keep tests independent, fast and safe to run in parallel:
 * Netbench mode is different from every other mode in several ways worth knowing
   before touching `tests_netbench/`: it needs **no benchmark path**, it always
   runs the write phase (so no `-w` and no other phase option), it reports its
-  phase as `NET` with a `path_type` of `net`, and it populates only byte
-  counters - `entries` is absent, so `json_value` returns `0` for it.
-* The netbench services use ports 20000-20899 and, only while a run is active,
-  the data ports 21000-21899. That relies on the kernel's local port range for
-  outgoing connections (`net.ipv4.ip_local_port_range`, usually starting at
-  32768) staying clear of them. On a host with a wider range the tests print a
-  note, because a connection of a concurrently running test can occasionally
-  take a data port and fail a run; `sysctl -w net.ipv4.ip_local_reserved_ports=20000-21899`
-  reserves them.
-* A netbench run transfers, counting both directions,
-  `clients * threads * (size / blocksize) * (blocksize + respsize)` bytes, and
-  the send and receive totals are both equal to that. The coordinator sums the
-  counters of the servers and of the clients, and since each side counts a
-  different direction, that is not double counting. Keep the size an exact
-  multiple of the block size, because elbencho divides them as integers.
-  `lib/netbench.sh` has `netbench_expected_bytes` for this.
-  The exact comparison matters: a data connection that dies mid-transfer is not
-  reported as an error, it only results in fewer transferred bytes.
-* Netbench servers listen on their service port **and** on `service port + 1000`
-  for the data transfer, so their ports have to be allocated in pairs. That is
-  what `netbench_alloc_port` does, drawing from a range whose `+1000` image lies
-  outside the range so that one service's port can never be another's data port.
-  The range is excluded from `find_free_port` in `lib/testlib.sh`, because a data
-  port is not bound while its service is idle and could otherwise be handed to
-  another test in between.
-* Always spell out the port in `--servers`/`--clients`. The coordinator forwards
-  the list to the services unchanged, and a service that finds no port in an
-  entry falls back to elbencho's compiled-in default port rather than the one
-  the coordinator was given.
+  phase as `NET/<engine>` (`$NET_PHASE` in `lib/netbench.sh`, e.g. `NET/tcp`)
+  with a `path_type` of `net`, and it populates only byte
+  counters - `entries` is absent, so `json_value` returns `0` for it. Its block
+  size is `--sendsize` (the same option as `-b`), and `-s` defaults to a huge
+  value, so a test has to give `-s` or the run only ends with the time limit.
+* The netbench data endpoints use ports chosen by the OS and announced through
+  the service HTTP API, so the tests only allocate service ports, with
+  `find_free_port` like the distributed tests. `--netport` on a server service
+  fixes the base port instead, see `fixed-port.t`.
+* A netbench result counts the clients only (the servers see the same bytes
+  from the other side): the clients send
+  `clients * client threads * rounds * sendsize` bytes (`bytes` in the json
+  result) and receive `clients * client threads * rounds * recvsize` bytes
+  (`rwmix_read` `bytes`), where `client threads` is `--tclients` (default `-t`)
+  and `rounds` is the size divided by the send size (or by the receive size for
+  a receive-only stream). Keep the size an exact multiple of the round size,
+  because elbencho divides them as integers. `lib/netbench.sh` has
+  `netbench_expected_send_bytes` and `netbench_expected_recv_bytes` for this.
+* Which client thread talks to which server endpoint is only visible in the
+  service logs (`--log 1`): a server logs `Accepted stream from client rank N:
+  <client address> -> <endpoint>`, a client logs `Established connection to:
+  <server service>; endpoint: <server endpoint>; via: <own endpoint>`. An
+  endpoint is described as `<engine words>: ADDRESS (DOMAIN)` by every engine
+  (`tcp socket: 127.0.0.1:1234 (lo)`, `ibverbs rc: 10.0.0.1 (mlx5_0 port 1
+  gid 3)`, `tcp FI_PROTO_XNET: 127.0.0.1:1234 (lo)`), which the
+  `netbench_log_*_since` helpers rely on when they extract the counts and
+  addresses from the lines written after a mark taken before the run
+  (`netbench_log_conn_pairs_since` gives the endpoint/own address pairs).
+* Streams are placed by the coordinator so that client and server interfaces
+  share a subnet (`--netcrosssubnet` relaxes that). On loopback, the IPv4 and
+  IPv6 addresses of `lo` (`127.0.0.0/24` given as subnet, `::1`) serve as two
+  separate subnets, and an address like `127.0.1.2` (covered by `lo` as
+  `127.0.0.0/8`, but not inside `127.0.0.0/24`) as a third one, see
+  `subnet-placement.t`. `--netdevsubnets` (subnets from the `--netdevs` entries)
+  is checked there through the interfaces the coordinator logs with `--log 1`,
+  because loopback cannot show a `/32` address without root. The service start
+  checks of `--netdevs` (error when no entry exists, warning when some do not)
+  are in `netdevs-subnet.t`.
+* Netbench mode is always built, but the engines are separate build features
+  (`libfabric`, which needs a `LIBFABRIC_SUPPORT=1` build, `ibverbs`, `rdmacm`)
+  for `require_build_feature`. `rdma-verbs.t`, `engine-ibverbs.t` and
+  `engine-rdmacm.t` additionally
+  need an RDMA-capable interface with an IPv4 address (`rdma_first_ipv4`) and
+  loop the traffic through the local adapter. `rdma-verbs.t` also needs a locked
+  memory limit of at least 512 MiB (`ulimit -l`; `require_memlock 512` skips
+  otherwise, as systemd services such as a Jenkins agent get 8 MiB by default),
+  because the libfabric verbs provider pins about 65 MiB per endpoint at
+  libfabric's defaults and the test has four endpoints. The ibverbs and rdmacm
+  engines only pin their own small buffers, so their tests run within a few MiB.
+  Both engine tests also provoke receiver-not-ready retries with a send-only run
+  at `--netrecvpct 50` and check the adapter's RNR NAK counter when sysfs has
+  one (`rdma_rnr_nak_count`, Mellanox `hw_counters`), else they skip that check.
 * `--verify <salt>` makes elbencho disable block variance implicitly, so
   `--blockvarpct 0` does not have to be given. Reading with a different salt has
   to fail, which is what proves the check is effective. The written pattern

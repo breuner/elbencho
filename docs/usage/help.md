@@ -24,6 +24,9 @@ S3 object storage:
 Multiple clients (e.g. shared file systems):
   $ elbencho <a href="help-dist.md">--help-dist</a>
 
+Network benchmarking between hosts:
+  $ elbencho <a href="help-netbench.md">--help-netbench</a>
+
 See all available options (e.g. csv file output):
   $ elbencho <a href="help-all.md">--help-all</a>
 

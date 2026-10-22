@@ -243,9 +243,7 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 
 		liveLatency.setToZero(); // this service is done, so no more latency
 
-		if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-			(progArgs->getRWMixReadPercent() || progArgs->getNumRWMixReadThreads() ||
-				(progArgs->getBenchMode() == BenchMode_NETBENCH) ) )
+		if(progArgs->hasRWMixReadCounters(workersSharedData->currentBenchPhase) )
 		{
 			atomicLiveOpsReadMix.numEntriesDone =
 					resultTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);
@@ -446,8 +444,6 @@ void RemoteWorker::startBenchPhase()
  */
 void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 {
-    const bool isNetBenchMode = (progArgs->getBenchMode() == BenchMode_NETBENCH);
-
     std::chrono::steady_clock::time_point lastRefreshT = workersSharedData->phaseStartT;
 
 	while(numWorkersDone < progArgs->getNumThreads() )
@@ -516,9 +512,7 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
                 liveLatency.numAvgEntriesLatValues = numAvgEntriesLatValues;
             }
 
-			if( (workersSharedData->currentBenchPhase == BenchPhase_CREATEFILES) &&
-				(progArgs->getRWMixReadPercent() || progArgs->getNumRWMixReadThreads() ||
-					isNetBenchMode) )
+			if(progArgs->hasRWMixReadCounters(workersSharedData->currentBenchPhase) )
 			{
 				atomicLiveOpsReadMix.numEntriesDone =
 					statusTree.get<size_t>(XFER_STATS_NUMENTRIESDONE_RWMIXREAD);

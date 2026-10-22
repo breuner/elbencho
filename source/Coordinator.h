@@ -4,7 +4,7 @@
 #ifndef COORDINATOR_H_
 #define COORDINATOR_H_
 
-#include "Statistics.h"
+#include "statistics/Statistics.h"
 #include "workers/Worker.h"
 #include "workers/WorkerManager.h"
 

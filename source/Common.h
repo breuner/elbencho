@@ -89,7 +89,7 @@ typedef std::vector<uint32_t> UInt32Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.2.2"
+#define HTTP_PROTOCOLVERSION	"3.2.3"
 
 /**
  * Default access mode bits for new files.
@@ -238,6 +238,8 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define HTTPCLIENTPATH_PREPAREPHASE             "/preparephase"
 #define HTTPCLIENTPATH_STARTPHASE               "/startphase"
 #define HTTPCLIENTPATH_INTERRUPTPHASE           "/interruptphase"
+#define HTTPCLIENTPATH_NETBENCHCONNECT          "/netbenchconnect"
+#define HTTPCLIENTPATH_NETBENCHIFACES           "/netbenchifaces"
 
 #define MAKE_SERVER_PATH(path)                  "^" path "$"
 #define HTTPSERVERPATH_INFO                     MAKE_SERVER_PATH(HTTPCLIENTPATH_INFO)
@@ -248,6 +250,8 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define HTTPSERVERPATH_PREPAREPHASE             MAKE_SERVER_PATH(HTTPCLIENTPATH_PREPAREPHASE)
 #define HTTPSERVERPATH_STARTPHASE               MAKE_SERVER_PATH(HTTPCLIENTPATH_STARTPHASE)
 #define HTTPSERVERPATH_INTERRUPTPHASE           MAKE_SERVER_PATH(HTTPCLIENTPATH_INTERRUPTPHASE)
+#define HTTPSERVERPATH_NETBENCHCONNECT          MAKE_SERVER_PATH(HTTPCLIENTPATH_NETBENCHCONNECT)
+#define HTTPSERVERPATH_NETBENCHIFACES           MAKE_SERVER_PATH(HTTPCLIENTPATH_NETBENCHIFACES)
 
 
 // http service transferred parameters (used as http GET parameters or in json document)

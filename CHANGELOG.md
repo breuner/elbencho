@@ -6,6 +6,13 @@
 * New support for contributed S3 plugins.
   * New plugin for S3-over-RDMA support contributed by MinIO. See [`contrib/plugins/s3rdma_minio/README.md`](contrib/plugins/s3rdma_minio/README.md).
   * New plugin for S3-over-RDMA support contributed by Cloudian. See [`contrib/plugins/s3rdma_cloudian/README.md`](contrib/plugins/s3rdma_cloudian/README.md).
+* Enhanced N-to-M network benchmark mode (`--netbench`) with engines support. See ['docs/netbench.md`](docs/netbench.md).
+  * Now supports multiple network ports per client/server, in same or different IP subnets (`--netdevs`).
+  * Available netbench engines (`--netengine`): `tcp`, `ibverbs`, `rdmacm`, `libfabrics`.
+* New option to make outliers visible in distrubuted runs, e.g. for netbench mode: `--svcminmax`.
+
+### General Changes
+* Added new `.build-features` and `.prepared-features` files to Makefile to ensure proper rebuilds after changing build feature flags.
 
 ### Fixes
 * Fixed IPv6 compatibility of TCP port availability preflight check for service instances.

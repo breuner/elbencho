@@ -66,6 +66,8 @@ int Coordinator::main()
 
         waitForServicesReady(); // wait for service instances to become reachable
 
+        progArgs.prepareNetBenchRun(); // (no-op outside netbench mode)
+
         workerManager.prepareThreads();
 
 		/* register signal handlers for clean worker stop and stats print after ctrl+c. This is not

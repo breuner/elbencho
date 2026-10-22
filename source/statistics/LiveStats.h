@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2020-2026 Sven Breuner and elbencho contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
-#ifndef STATISTICS_H_
-#define STATISTICS_H_
+#ifndef LIVESTATS_H_
+#define LIVESTATS_H_
 
+#include <chrono>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/loop.hpp>
@@ -11,41 +12,18 @@
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "CPUUtil.h"
 #include "Common.h"
-#include "LiveLatency.h"
+#include "statistics/LiveLatency.h"
 #include "ProgArgs.h"
 #include "toolkits/TranslatorTk.h"
 #include "workers/WorkerManager.h"
 #include "workers/WorkersSharedData.h"
 
-
-class PhaseResults
-{
-	public:
-		uint64_t firstFinishUSec; // stonewall: time to completion of fastest worker
-		uint64_t lastFinishUSec; // time to completion of slowest worker
-
-		LiveOps opsTotal; // processed by all workers
-		LiveOps opsTotalReadMix; // rwmix read processed by all workers
-		LiveOps opsStoneWallTotal; // processed by all workers when stonewall was hit
-		LiveOps opsStoneWallTotalReadMix; // rwmix read proc'ed by all workers when stonewall hit
-
-		LiveOps opsPerSec; // total per sec for all workers by last finisher
-		LiveOps opsPerSecReadMix; // rwmix read total per sec for all workers by last finisher
-		LiveOps opsStoneWallPerSec; // total per sec for all workers by 1st finisher
-		LiveOps opsStoneWallPerSecReadMix; // rwmix read total per sec for all workers by 1st fin
-
-		float cpuUtilPercent; // cpu utilization until last finisher
-		float cpuUtilStoneWallPercent; // cpu utilization until first finisher
-
-		LatencyHistogram iopsLatHisto; // sum of all histograms
-		LatencyHistogram iopsLatHistoReadMix; // rwmix read sum of all histograms
-		LatencyHistogram entriesLatHisto; // sum of all histograms
-		LatencyHistogram entriesLatHistoReadMix; // rwmix read sum of all histograms
-};
+class Statistics;
 
 /**
  * Phase values for live stats
@@ -106,55 +84,37 @@ class LiveStatsUIState
         ftxui::Element cachedView; // to prevent expensive UI redraw for quick key press check
 };
 
-
-class Statistics
+/**
+ * Live statistics while a phase runs: the countdown to the start time, the single-line and the
+ * fullscreen console stats and the live csv file. The counters come from Statistics, which also
+ * decides which workers count. The row labels come from ResultTerms.
+ */
+class LiveStats
 {
 	public:
-		Statistics(const ProgArgs& progArgs, WorkerManager& workerManager) :
+		LiveStats(const ProgArgs& progArgs, WorkerManager& workerManager, Statistics& statistics,
+            CPUUtil& liveCpuUtil) :
 			progArgs(progArgs), workerManager(workerManager),
 			workersSharedData(workerManager.getWorkersSharedData() ),
-			workerVec(workerManager.getWorkerVec() ) {}
-		~Statistics();
+			workerVec(workerManager.getWorkerVec() ), statistics(statistics),
+            liveCpuUtil(liveCpuUtil) {}
+		~LiveStats();
 
 		void printLiveCountdown();
 		void printLiveStats();
-
-		void printPhaseResultsTableHeader();
-		void printPhaseResults();
-
-		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
-			LiveLatency& outLiveLatency);
-		void getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree);
-		void getBenchResultAsPropertyTreeForService(bpt::ptree& outTree);
-
-		void printDryRunInfo();
 
 	private:
 		const ProgArgs& progArgs;
 		WorkerManager& workerManager;
 		WorkersSharedData& workersSharedData;
 		WorkerVec& workerVec;
+        Statistics& statistics;
+		CPUUtil& liveCpuUtil; // owned by Statistics, also updated through the http service
 		bool consoleBufferingDisabled{false};
-		const std::string phaseResultsFormatStr{"%|-11| %|-17|%|1| %|11| %|11|"}; // note line below
-		const std::string phaseResultsLeftFormatStr{"%|-11| %|-17|%|1| "}; // left side format str
-		const std::string phaseResultsFooterStr = std::string(3, '-');
-		CPUUtil liveCpuUtil; // updated by live stats loop or through http service live stat calls
 		int liveCSVFileFD = -1; // fd for live stats csv file
 
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();
-
-		void printPhaseStartISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec);
-		void printPhaseResultsTableHeaderToStream(std::ostream& outStream);
-		bool generatePhaseResults(PhaseResults& phaseResults);
-		void printPhaseResultsToStream(const PhaseResults& phaseResults, std::ostream& outStream);
-		void printPhaseResultsToStringVec(const PhaseResults& phaseResults, StringVec& outLabelsVec,
-			StringVec& outResultsVec);
-		void printPhaseResultsLatencyToStream(const LatencyHistogram& latHisto,
-			std::string latTypeStr, std::ostream& outStream);
-		void printPhaseResultsLatencyToStringVec(const LatencyHistogram& latHisto,
-			std::string latTypeStr, StringVec& outLabelsVec, StringVec& outResultsVec);
-		void printPhaseResultsAsJSON(const PhaseResults& phaseResults);
 
 		void printLiveCountdownLine(unsigned long long waittimeSec);
 
@@ -179,25 +139,11 @@ class Statistics
 		void updateLiveStatsRemoteInfo(LiveResults& liveResults);
 		void updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedMS);
 
-		void printDryRunPhaseInfo(BenchPhase benchPhase);
-		void printDryRunInfoNetBench();
-
 		void prepLiveCSVFile();
 		void printLiveStatsCSV(const LiveResults& liveResults);
 
         bool checkIfVec2DLeftElemEquals(std::vector<StringVec>& vec, int row, int column,
             const char* value);
-
-	// inliners
-	public:
-		/**
-		 * To be called by HTTP service on start of a benchmark phase.
-		 */
-		void updateLiveCPUUtil()
-		{
-			liveCpuUtil.update();
-		}
-
 };
 
-#endif /* STATISTICS_H_ */
+#endif /* LIVESTATS_H_ */
