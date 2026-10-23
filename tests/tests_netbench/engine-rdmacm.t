@@ -110,19 +110,24 @@ assert_eq "$(json_value_rwmix "$ELB_JSON" "$NET_PHASE" last_done bytes)" "$EXPEC
 
 ################## Provoked receiver-not-ready retries ##################
 
-# With half as many receive buffers as the client has blocks in flight, the
-# server answers some blocks with RNR NAKs and the adapter counts them (where
+# With eight small blocks in flight and two receive buffers per stream, the
+# client posts blocks faster than the server reposts its buffers, so the server
+# answers nearly every block with an RNR NAK and the adapter counts them (where
 # its sysfs counters exist); the stream still completes through the retries.
+# (Blocks of 64 KiB would leave the server time to repost while the client
+# fills the next buffer, which makes the count small and load dependent.)
+RNR_SEND_SIZE=4096
+RNR_IO_DEPTH=8
 RNR_BEFORE="$(rdma_rnr_nak_count "$RDMA_IP")"
 
 run_elbencho rdmacmrnr \
     --netbench --netengine rdmacm \
     --servers "$SERVERS" --clients "$CLIENTS" \
-    -s $FILE_SIZE --sendsize $SEND_SIZE --recvsize 0 -t $NUM_THREADS --iodepth $IO_DEPTH \
-    --netrecvpct 50
-assert_ok $? "send-only rdmacm run with half as many receive buffers as blocks in flight succeeds"
+    -s $FILE_SIZE --sendsize $RNR_SEND_SIZE --recvsize 0 -t $NUM_THREADS --iodepth $RNR_IO_DEPTH \
+    --netrecvpct 25
+assert_ok $? "send-only rdmacm run with a quarter as many receive buffers as blocks in flight succeeds"
 
-EXPECTED="$(netbench_expected_send_bytes 1 $NUM_THREADS $FILE_SIZE $SEND_SIZE 0)"
+EXPECTED="$(netbench_expected_send_bytes 1 $NUM_THREADS $FILE_SIZE $RNR_SEND_SIZE 0)"
 
 assert_eq "$(json_value "$ELB_JSON" "$NET_PHASE" last_done bytes)" "$EXPECTED" \
     "the rdmacm run with fewer receive buffers sent exactly $EXPECTED bytes"

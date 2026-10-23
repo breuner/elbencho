@@ -423,8 +423,11 @@ Rules to keep tests independent, fast and safe to run in parallel:
   libfabric's defaults and the test has four endpoints. The ibverbs and rdmacm
   engines only pin their own small buffers, so their tests run within a few MiB.
   Both engine tests also provoke receiver-not-ready retries with a send-only run
-  at `--netrecvpct 50` and check the adapter's RNR NAK counter when sysfs has
-  one (`rdma_rnr_nak_count`, Mellanox `hw_counters`), else they skip that check.
+  of 4 KiB blocks, eight in flight and two receive buffers (`--netrecvpct 25`),
+  and check the adapter's RNR NAK counter when sysfs has one
+  (`rdma_rnr_nak_count`, Mellanox `hw_counters`), else they skip that check.
+  Small blocks matter: with 64 KiB blocks the server reposts while the client
+  fills its next buffer, so the count is small and vanishes under load.
 * `--verify <salt>` makes elbencho disable block variance implicitly, so
   `--blockvarpct 0` does not have to be given. Reading with a different salt has
   to fail, which is what proves the check is effective. The written pattern
