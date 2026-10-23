@@ -65,7 +65,7 @@ write_journaled()
 
 for iodepth in 1 $IO_DEPTH; do
 
-    if [ "$iodepth" != "1" ] && ! has_build_feature libaio; then
+    if [ "$iodepth" != "1" ] && ! has_async_io; then
         tap_skip "the corrupted block is detected with IO depth $iodepth"
         tap_skip "the failure names an offset inside the corrupted region with IO depth $iodepth"
         tap_skip "rewriting the range makes it verify cleanly again with IO depth $iodepth"

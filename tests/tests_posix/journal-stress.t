@@ -21,7 +21,7 @@
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
 source "$ELBENCHO_TEST_LIB/journal.sh" || exit 1
 
-require_build_feature libaio
+require_async_io
 
 NUM_THREADS=8
 IO_DEPTH=16

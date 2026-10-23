@@ -32,7 +32,7 @@
 
 LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank) :
 	Worker(workersSharedData, workerRank), opsLog(workersSharedData->progArgs, workerRank),
-    s3Mode(*this), netBench(*this)
+    s3Mode(*this), netBench(*this), winIO(*this)
 {
 	nullifyPhaseFunctionPointers();
 
@@ -307,6 +307,7 @@ void LocalWorker::preparePhase()
 
     initAsyncIOSlots();
     initLibAio();
+    winIO.init();
     s3Mode.init();
     initHDFS();
     netBench.init();
@@ -522,6 +523,10 @@ void LocalWorker::initThreadFDVec()
 	if(progArgs->getBenchPathType() == BenchPathType_DIR)
 		return; // nothing to do in dir mode
 
+#ifdef CYGWIN_SUPPORT
+    return; // the windows I/O path always has its own per-thread handles (see WinIO::init)
+#endif
+
 	const StringVec& benchPathsVec = progArgs->getBenchPaths();
 
 	fileHandles.threadFDVec.reserve(benchPathsVec.size() );
@@ -706,6 +711,7 @@ void LocalWorker::initPhaseFileHandleVecs()
     fileHandles.cuFileHandleDataPtrVec.resize(0);
     fileHandles.journalPtrVec.resize(0);
 
+    winIO.initPhaseHandleVecs();
 
     if(benchPathType == BenchPathType_DIR)
     {
@@ -895,7 +901,11 @@ void LocalWorker::initPhaseFunctionPointers()
     if(useCuFileAPI)
         funcPositionalWrite = &LocalWorker::cuFileWriteWrapper;
     else
+#ifdef CYGWIN_SUPPORT
+        funcPositionalWrite = &LocalWorker::winPwriteWrapper;
+#else
         funcPositionalWrite = &LocalWorker::pwriteWrapper;
+#endif // CYGWIN_SUPPORT
 
     if(useHDFS)
         funcPositionalRead = &LocalWorker::hdfsReadWrapper;
@@ -909,7 +919,11 @@ void LocalWorker::initPhaseFunctionPointers()
     if(useCuFileAPI)
         funcPositionalRead = &LocalWorker::cuFileReadWrapper;
     else
+#ifdef CYGWIN_SUPPORT
+        funcPositionalRead = &LocalWorker::winPreadWrapper;
+#else
         funcPositionalRead = &LocalWorker::preadWrapper;
+#endif // CYGWIN_SUPPORT
 
     // phase-dependent settings...
 
@@ -922,8 +936,13 @@ void LocalWorker::initPhaseFunctionPointers()
         if(useSPDK)
             funcRWBlockSized = &LocalWorker::spdkAioBlockSized;
 #endif // SPDK_SUPPORT
+#ifdef CYGWIN_SUPPORT
+        else
+            funcRWBlockSized = &LocalWorker::winAioBlockSized;
+#else
         else
             funcRWBlockSized = &LocalWorker::aioBlockSized;
+#endif // CYGWIN_SUPPORT
 
         funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioWritePrepper;
 
@@ -956,7 +975,11 @@ void LocalWorker::initPhaseFunctionPointers()
                 funcPositionalWrite = &LocalWorker::spdkWriteAndReadWrapper;
             else
             if(!useCuFileAPI)
+#ifdef CYGWIN_SUPPORT
+                funcPositionalWrite = &LocalWorker::winPwriteAndReadWrapper;
+#else
                 funcPositionalWrite = &LocalWorker::pwriteAndReadWrapper;
+#endif // CYGWIN_SUPPORT
             else
             {
                 funcPositionalWrite = &LocalWorker::cuFileWriteAndReadWrapper;
@@ -996,8 +1019,13 @@ void LocalWorker::initPhaseFunctionPointers()
         if(useSPDK)
             funcRWBlockSized = &LocalWorker::spdkAioBlockSized;
 #endif // SPDK_SUPPORT
+#ifdef CYGWIN_SUPPORT
+        else
+            funcRWBlockSized = &LocalWorker::winAioBlockSized;
+#else
         else
             funcRWBlockSized = &LocalWorker::aioBlockSized;
+#endif // CYGWIN_SUPPORT
 
         funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioReadPrepper;
 
@@ -1353,6 +1381,7 @@ void LocalWorker::cleanup()
     netBench.uninit();
 	uninitHDFS();
 	s3Mode.uninit();
+    winIO.uninit();
     uninitLibAio();
 
 	// reset custom tree mode path store
@@ -3382,7 +3411,8 @@ void LocalWorker::dirModeIterateDirs()
 		{ // remove dir
 		    OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
 
-		    int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+            int rmdirRes = FileTk::unlinkatShared(pathFDs[pathFDsIndex], currentPath.data(),
+                AT_REMOVEDIR);
 
             OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
                 rmdirRes == -1);
@@ -3423,7 +3453,8 @@ void LocalWorker::dirModeIterateDirs()
 
             OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
 
-			int rmdirRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), AT_REMOVEDIR);
+            int rmdirRes = FileTk::unlinkatShared(pathFDs[pathFDsIndex], currentPath.data(),
+                AT_REMOVEDIR);
 
             OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
                 rmdirRes == -1);
@@ -3501,7 +3532,8 @@ void LocalWorker::dirModeIterateCustomDirs()
 		{ // remove dir
             OPLOG_PRE_OP("unlinkat", benchPathStr + "/" + currentPathElem.path, 0, 0);
 
-		    int rmdirRes = unlinkat(benchPathFD, currentPathElem.path.c_str(), AT_REMOVEDIR);
+            int rmdirRes = FileTk::unlinkatShared(benchPathFD, currentPathElem.path.c_str(),
+                AT_REMOVEDIR);
 
             OPLOG_POST_OP("unlinkat", benchPathStr + "/" + currentPathElem.path, 0, 0,
                 rmdirRes == -1);
@@ -3617,23 +3649,8 @@ void LocalWorker::dirModeIterateFiles()
 				{
 					((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
 
-					if(doStatInline)
-					{ // inline stat (i.e. stat immediately after file open)
-						struct stat statBuf;
-
-					    OPLOG_PRE_OP("fstat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0,
-					        0);
-
-                        int statRes = fstat(fd, &statBuf);
-
-					    OPLOG_POST_OP("fstat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0,
-					        0, statRes == -1);
-
-						IF_UNLIKELY(statRes == -1)
-							throw WorkerException(std::string("Inline file stat failed. ") +
-								"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
-								"SysErr: " + strerror(errno) );
-					}
+                    if(doStatInline) // inline stat (i.e. stat immediately after file open)
+                        dirModeStatInline(pathVec[pathFDsIndex] + "/" + currentPath.data() );
 
 					if(benchPhase == BenchPhase_CREATEFILES)
 					{
@@ -3687,11 +3704,7 @@ void LocalWorker::dirModeIterateFiles()
 
 					((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
-					OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
-
-					int closeRes = close(fd);
-
-					OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
+                    dirModeCloseFile(pathVec[pathFDsIndex] + "/" + currentPath.data(), false);
 
 					throw;
 				}
@@ -3711,17 +3724,7 @@ void LocalWorker::dirModeIterateFiles()
 
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
 
-                OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
-
-				int closeRes = close(fd);
-
-                OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
-
-				IF_UNLIKELY(closeRes == -1)
-					throw WorkerException(std::string("File close failed. ") +
-						"Path: " + pathVec[pathFDsIndex] + "/" + currentPath.data() + "; "
-						"FD: " + std::to_string(fd) + "; "
-						"SysErr: " + strerror(errno) );
+                dirModeCloseFile(pathVec[pathFDsIndex] + "/" + currentPath.data(), true);
 			}
 
 			if(benchPhase == BenchPhase_STATFILES)
@@ -3740,7 +3743,8 @@ void LocalWorker::dirModeIterateFiles()
 			{
                 OPLOG_PRE_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0);
 
-                int unlinkRes = unlinkat(pathFDs[pathFDsIndex], currentPath.data(), 0);
+                int unlinkRes = FileTk::unlinkatShared(pathFDs[pathFDsIndex], currentPath.data(),
+                    0);
 
 	            OPLOG_POST_OP("unlinkat", pathVec[pathFDsIndex] + "/" + currentPath.data(), 0, 0,
 	                unlinkRes == -1);
@@ -3845,17 +3849,8 @@ void LocalWorker::dirModeIterateCustomFiles()
 			{
 				((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
 
-				if(doStatInline)
-				{ // inline stat (i.e. stat immediately after file open)
-					struct stat statBuf;
-
-					int statRes = fstat(fd, &statBuf);
-
-					IF_UNLIKELY(statRes == -1)
-						throw WorkerException(std::string("File stat failed. ") +
-							"Path: " + benchPathStr + "/" + currentPath + "; "
-							"SysErr: " + strerror(errno) );
-				}
+                if(doStatInline) // inline stat (i.e. stat immediately after file open)
+                    dirModeStatInline(benchPathStr + "/" + currentPath);
 
 				if(benchPhase == BenchPhase_CREATEFILES)
 				{
@@ -3909,11 +3904,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
 
-                OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
-
-                int closeRes = close(fd);
-
-                OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
+                dirModeCloseFile(benchPathStr + "/" + currentPath, false);
 
                 throw;
 			}
@@ -3934,17 +3925,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 
 			((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
 
-            OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
-
-            int closeRes = close(fd);
-
-            OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
-
-			IF_UNLIKELY(closeRes == -1)
-				throw WorkerException(std::string("File close failed. ") +
-					"Path: " + benchPathStr + "/" + currentPath + "; "
-					"FD: " + std::to_string(fd) + "; "
-					"SysErr: " + strerror(errno) );
+            dirModeCloseFile(benchPathStr + "/" + currentPath, true);
 		}
 
 		if(benchPhase == BenchPhase_STATFILES)
@@ -3963,7 +3944,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 		{
             OPLOG_PRE_OP("unlinkat", benchPathStr + "/" + currentPath, 0, 0);
 
-            int unlinkRes = unlinkat(benchPathFD, currentPath, 0);
+            int unlinkRes = FileTk::unlinkatShared(benchPathFD, currentPath, 0);
 
             OPLOG_POST_OP("unlinkat", benchPathStr + "/" + currentPath, 0, 0, unlinkRes == -1);
 
@@ -4164,6 +4145,7 @@ void LocalWorker::fileModeIterateFilesSeq()
         // find the file index and inner file block index for current global block index
         const uint64_t currentFileIndex = currentBlockIdx / numBlocksPerFile;
         fileHandles.fdVec[0] = pathFDs[currentFileIndex];
+        winIO.setCurrentFile(currentFileIndex);
         fileHandles.cuFileHandleDataPtrVec[0] = !useCuFile ? nullptr :
             &(cuFileHandleDataVec[currentFileIndex]);
         if(!fileHandles.journalPtrVec.empty() ) // alias the journal of the current file, like above
@@ -4301,7 +4283,7 @@ void LocalWorker::fileModeDeleteFiles()
 		const std::string& path =
 			benchPaths[ (workerRank + fileIndex) % numFiles];
 
-		int unlinkRes = unlink(path.c_str() );
+        int unlinkRes = FileTk::unlinkatShared(AT_FDCWD, path.c_str(), 0);
 
 		// (note: all threads try to delete all files, so ignore ENOENT)
 		if( (unlinkRes == -1) && (errno != ENOENT) )
@@ -4377,13 +4359,20 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
     const bool useMmap = progArgs->getUseMmap();
     const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
 
+#ifdef CYGWIN_SUPPORT
+    const int fd = -1; // (the windows I/O path works with its own handle instead of a cygwin fd)
+    const bool openRes = winIO.openDirModeFile(currentPath, openFlags);
+#else
     OPLOG_PRE_OP("openat", currentPath, 0, 0);
 
     int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
 
     OPLOG_POST_OP("openat", currentPath, 0, 0, fd == -1);
 
-    IF_UNLIKELY(fd == -1)
+    const bool openRes = (fd != -1);
+#endif // CYGWIN_SUPPORT
+
+    IF_UNLIKELY(!openRes)
     {
         if( (errno == ENOENT) && (openFlags & O_CREAT) && !progArgs->getRunCreateDirsPhase() &&
             (progArgs->getNumDirs() || !progArgs->getCustomTreeDirs().getNumPaths() ) &&
@@ -4403,6 +4392,9 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
     {
         if(benchPhase == BenchPhase_CREATEFILES)
         {
+#ifdef CYGWIN_SUPPORT
+            winIO.prepDirModeFile(currentPath, fileLen, preallocOffset);
+#else
             if(progArgs->getDoTruncToSize() )
             {
                 int truncRes = ftruncate(fd, fileLen);
@@ -4432,6 +4424,7 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
                             "SysErr: " + strerror(preallocRes) );
                 #endif // linux
             }
+#endif // CYGWIN_SUPPORT
         }
 
         FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(), currentPath.c_str() );
@@ -4458,20 +4451,71 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
             fileHandles.mmapVec[0] = (char*)MAP_FAILED;
         }
 
-        OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
-
-        int closeRes = close(fd);
-
-        OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
-
-        if(closeRes == -1)
-            ERRLOGGER(Log_NORMAL, "File close failed. " <<
-                "Path: " << currentPath << "; " <<
-                "FD: " << std::to_string(fd) << "; " <<
-                "SysErr: " << strerror(errno) << std::endl);
+        dirModeCloseFile(currentPath, false);
 
         throw;
     }
+}
+
+/**
+ * Inline stat of the current dir mode file ("--statinline").
+ *
+ * @throw WorkerException on error.
+ */
+void LocalWorker::dirModeStatInline(const std::string& path)
+{
+#ifdef CYGWIN_SUPPORT
+    winIO.statCurrentFile(path);
+#else
+    struct stat statBuf;
+
+    OPLOG_PRE_OP("fstat", path, 0, 0);
+
+    int statRes = fstat(fileHandles.fdVec[0], &statBuf);
+
+    OPLOG_POST_OP("fstat", path, 0, 0, statRes == -1);
+
+    IF_UNLIKELY(statRes == -1)
+        throw WorkerException(std::string("Inline file stat failed. ") +
+            "Path: " + path + "; "
+            "SysErr: " + strerror(errno) );
+#endif // CYGWIN_SUPPORT
+}
+
+/**
+ * Close the current dir mode file.
+ *
+ * @throwOnError throw WorkerException on close error, otherwise just log it (for error paths).
+ */
+void LocalWorker::dirModeCloseFile(const std::string& path, bool throwOnError)
+{
+#ifdef CYGWIN_SUPPORT
+    winIO.closeCurrentFile(path, throwOnError);
+#else
+    int& fd = fileHandles.fdVec[0];
+
+    OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);
+
+    int closeRes = close(fd);
+
+    OPLOG_POST_OP("close", std::to_string(fd), 0, 0, closeRes == -1);
+
+    IF_UNLIKELY(closeRes == -1)
+    {
+        if(throwOnError)
+            throw WorkerException(std::string("File close failed. ") +
+                "Path: " + path + "; "
+                "FD: " + std::to_string(fd) + "; "
+                "SysErr: " + strerror(errno) );
+
+        ERRLOGGER(Log_NORMAL, "File close failed. " <<
+            "Path: " << path << "; " <<
+            "FD: " << fd << "; " <<
+            "SysErr: " << strerror(errno) << std::endl);
+    }
+
+    fd = -1;
+#endif // CYGWIN_SUPPORT
 }
 
 /**

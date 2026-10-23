@@ -45,6 +45,7 @@ LDFLAGS_NUMA       ?= -lnuma
 COMMA              := ,
 
 ALTHTTPSVC_SUPPORT ?= 0
+CYGWIN_SUPPORT     ?= 0
 BUILD_LIBFABRIC    ?= 0
 COREBIND_SUPPORT   ?= 1
 IBVERBS_SUPPORT    ?=
@@ -164,7 +165,11 @@ endif
 CXXFLAGS += -I $(EXTERNAL_PATH)/ftxui/include
 LDFLAGS += -L $(EXTERNAL_PATH)/ftxui/build -l ftxui-component -l ftxui-dom -l ftxui-screen
 
-# Support build in Cygwin environment
+# Support build in Cygwin environment (auto-detected; CYGWIN_SUPPORT=1 forces it)
+ifneq (,$(findstring CYGWIN,$(shell uname -s)))
+  CYGWIN_SUPPORT     := 1
+endif
+
 ifeq ($(CYGWIN_SUPPORT), 1)
   EXE                := $(EXE).exe
 
@@ -354,7 +359,7 @@ EXTERNALS_STAMP  := $(EXTERNAL_PATH)/.prepared-features
 FEATURES_STR     := ALTHTTPSVC_SUPPORT=$(ALTHTTPSVC_SUPPORT) BACKTRACE_SUPPORT=$(BACKTRACE_SUPPORT) \
 	BUILD_DEBUG=$(BUILD_DEBUG) BUILD_LIBFABRIC=$(BUILD_LIBFABRIC) BUILD_STATIC=$(BUILD_STATIC) \
 	COREBIND_SUPPORT=$(COREBIND_SUPPORT) CUDA_SUPPORT=$(CUDA_SUPPORT) \
-	CUFILE_SUPPORT=$(CUFILE_SUPPORT) HDFS_SUPPORT=$(HDFS_SUPPORT) \
+	CUFILE_SUPPORT=$(CUFILE_SUPPORT) CYGWIN_SUPPORT=$(CYGWIN_SUPPORT) HDFS_SUPPORT=$(HDFS_SUPPORT) \
 	IBVERBS_SUPPORT=$(IBVERBS_SUPPORT) LIBAIO_SUPPORT=$(LIBAIO_SUPPORT) \
 	LIBFABRIC_SUPPORT=$(LIBFABRIC_SUPPORT) LIBNUMA_SUPPORT=$(LIBNUMA_SUPPORT) \
 	PLUGINS_ENABLED=$(PLUGINS_ENABLED) \
@@ -686,7 +691,7 @@ help:
 	@echo '                             By default, GDS support will be enabled when GDS'
 	@echo '                             development files are found. (cufile.h and'
 	@echo '                             libcufile.so)'
-	@echo '   CYGWIN_SUPPORT=0|1      - Reduce build features to enable build in Cygwin'
+	@echo '   CYGWIN_SUPPORT=0|1      - Build for Windows via Cygwin (auto-detected there)'
 	@echo '                             environment. (Default: 0)'
 	@echo '   HDFS_SUPPORT=0|1        - Build with support for Hadoop HDFS. HADOOP_HOME'
 	@echo '                             and JAVA_HOME need to be set correctly so that'

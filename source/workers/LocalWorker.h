@@ -22,6 +22,7 @@
 #include "toolkits/random/RandAlgoInterface.h"
 #include "toolkits/RateLimiter.h"
 #include "toolkits/RateLimiterRWMixThreads.h"
+#include "toolkits/winio/WinIO.h"
 #include "Worker.h"
 
 #ifdef CUDA_SUPPORT
@@ -87,6 +88,7 @@ class LocalWorker : public Worker
 {
     friend class NetBenchMode;
     friend class S3Mode;
+    friend class WinIO;
 
 	public:
 		explicit LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank);
@@ -254,6 +256,7 @@ class LocalWorker : public Worker
 
         S3Mode s3Mode; // s3 benchmark mode (works on this worker's buffers & stats)
         NetBenchMode netBench; // network benchmark mode (works on this worker's stats)
+        WinIO winIO; // native windows I/O path for files & bdevs (cygwin builds only)
 
 
 		static void bufFill(char* buf, uint64_t fillValue, size_t bufLen);
@@ -314,6 +317,8 @@ class LocalWorker : public Worker
 		int dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pathFDs,
             unsigned pathFDsIndex, const char* relativePath, int openFlags, uint64_t fileLen,
             uint64_t preallocOffset);
+        void dirModeStatInline(const std::string& path);
+        void dirModeCloseFile(const std::string& path, bool throwOnError);
 
 		// for phase function pointers...
 
@@ -344,6 +349,19 @@ class LocalWorker : public Worker
         ssize_t spdkWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
             off_t offset);
         ssize_t spdkWriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+
+#ifdef CYGWIN_SUPPORT
+        // forwarders to the native windows I/O path (as the function pointers need members)
+        ssize_t winPreadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+            { return winIO.pread(fileHandleIdx, buf, nbytes, offset); }
+        ssize_t winPwriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+            { return winIO.pwrite(fileHandleIdx, buf, nbytes, offset); }
+        ssize_t winPwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+            off_t offset)
+            { return winIO.pwriteAndRead(fileHandleIdx, buf, nbytes, offset); }
+        int64_t winAioBlockSized()
+            { return winIO.aioBlockSized(); }
+#endif // CYGWIN_SUPPORT
 
 		void noOpIntegrityCheck(char* hostIOBuf, char* gpuIOBuf, size_t bufLen, off_t fileOffset);
 		void preWriteIntegrityCheckFillBuf(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,

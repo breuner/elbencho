@@ -14,6 +14,9 @@ REPO_PATH="$(cd "$SCRIPT_PATH/.." && pwd)"
 GROUP_DIR_PREFIX="tests_"
 
 EXE_PATH="$REPO_PATH/bin/elbencho"    # user-definable via "-e"
+case "$(uname -s)" in
+    CYGWIN*) EXE_PATH="$EXE_PATH.exe" ;; # (the Windows build via Cygwin)
+esac
 TMP_PATH="$SCRIPT_PATH/tmp"           # user-definable via "-T"
 NUM_JOBS=1                            # user-definable via "-j"
 KEEP_FAILED=0                         # user-definable via "-k"

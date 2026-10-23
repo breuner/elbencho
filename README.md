@@ -24,6 +24,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
   - [Nvidia GPUDirect Storage \(GDS\) Support](#nvidia-gpudirect-storage-gds-support)
   - [S3 Object Storage Support](#s3-object-storage-support)
   - [macOS Support](#macos-support)
+  - [Windows Support](#windows-support)
   - [NVMe-oF Support](#nvme-of-support)
   - [Network Benchmarking](#network-benchmarking)
   - [Contributed Plugins](#contributed-plugins)
@@ -196,6 +197,10 @@ That's it already.
 ```bash
 bin/elbencho --help
 ```
+
+#### Windows Support
+
+elbencho runs on Windows as a Cygwin build, with the benchmark data going through the native Win32 I/O API (buffered, unbuffered via `--direct`, asynchronous via `--iodepth`) for files and block devices. The pre-built Windows package is on the [Releases](https://github.com/breuner/elbencho/releases) page. See [docs/windows.md](docs/windows.md) for path and device naming, option differences and how to build it.
 
 #### NVMe-oF Support
 

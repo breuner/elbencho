@@ -16,6 +16,7 @@ RECV_SIZE=4096
 
 grep -q "^00000000000000000000000000000001" /proc/net/if_inet6 2>/dev/null || \
     tap_skip_all "this host has no IPv6 loopback address"
+is_cygwin && tap_skip_all "the elbencho service listens on IPv4 only on Windows"
 
 test_init
 tap_plan 7

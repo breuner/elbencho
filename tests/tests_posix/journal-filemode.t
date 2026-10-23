@@ -181,7 +181,7 @@ assert_eq "$(json_value "$ELB_JSON" READ last_done bytes)" "$FILE_SIZE" \
 
 ################## Asynchronous engine ##################
 
-if has_build_feature libaio; then
+if has_async_io; then
 
     OPSLOG="$TEST_DIR/asyncwrite.opslog"
 

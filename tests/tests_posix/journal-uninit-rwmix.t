@@ -194,7 +194,7 @@ assert_eq "$(json_value_rwmix "$ELB_JSON" "$THR_PHASE" last_done bytes)" "$THR_R
 
 # The decision whether to read or to initialize sits in a different code path
 # there, because the journal has to be consulted before the request is prepped.
-if has_build_feature libaio; then
+if has_async_io; then
 
     ASYNC_TARGET="$DATA_DIR/asyncmixfile"
     ASYNC_JOURNAL="$TEST_DIR/journal-asyncmix"

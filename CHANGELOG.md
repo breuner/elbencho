@@ -2,6 +2,9 @@
 
 ## v3.3.2 (work in progress)
 
+### New Features & Enhancements
+* Added native Windows I/O support for files and block devices, including support for async I/O.
+
 ## v3.3.1 (Oct 22, 2026)
 
 ### New Features & Enhancements

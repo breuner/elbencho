@@ -308,7 +308,9 @@ Rules to keep tests independent, fast and safe to run in parallel:
   it with `register_pid`. `prove` reads the test's stdout until EOF, so a
   background process that inherits it would make the whole run hang.
 * Skip instead of failing when a precondition is missing:
-  `require_build_feature s3`, `require_cmd aws`, `fs_supports_directio`.
+  `require_build_feature s3`, `require_async_io` (libaio, or the native async
+  I/O of the Windows build), `require_cmd aws`, `fs_supports_directio`,
+  `is_cygwin` for what Windows cannot do.
 * Keep the number in `tap_plan` in sync with the number of checks. `prove`
   reports a mismatch as a failure. Emit the plan only after everything that
   could still skip the whole file, because a `1..0 # SKIP` line after the plan

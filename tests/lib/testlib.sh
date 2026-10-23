@@ -949,13 +949,16 @@ file_size()
 }
 
 # Allocated disk space of a file in KiB, which is smaller than its apparent
-# size for a sparse file. Uses the 512 byte block count of stat, because the
-# block size of "du" depends on its environment.
+# size for a sparse file. Uses the block count of stat (with its block size,
+# which is 512 bytes on Linux but 1024 on Cygwin), because the block size of
+# "du" depends on its environment.
 # allocated_kb FILE -> allocated space in KiB, rounded up so that a single
-# 512-byte block (e.g. a tiny file on NFS) counts as allocated
+# block (e.g. a tiny file on NFS) counts as allocated
 allocated_kb()
 {
-    echo $(( ( $(stat -c %b "$1" 2>/dev/null) + 1 ) / 2 ))
+    local blocks block_size
+    read -r blocks block_size < <(stat -c '%b %B' "$1" 2>/dev/null)
+    echo $(( ( ${blocks:-0} * ${block_size:-512} + 1023 ) / 1024 ))
 }
 
 # Sorted "relative/path size" listing of all files below the given dir.
@@ -1040,6 +1043,33 @@ require_build_feature()
     fi
 
     tap_skip_all "elbencho was built without \"$1\" support"
+}
+
+# Whether this runs on Windows (a Cygwin build of elbencho).
+is_cygwin()
+{
+    case "$(uname -s)" in
+        CYGWIN*) return 0 ;;
+    esac
+
+    return 1
+}
+
+# Whether "--iodepth" greater than 1 works: through libaio on Linux, through the
+# native Windows I/O path on Cygwin.
+has_async_io()
+{
+    is_cygwin || has_build_feature libaio
+}
+
+# Skip the whole test file unless async I/O ("--iodepth") is available.
+require_async_io()
+{
+    if has_async_io; then
+        return 0
+    fi
+
+    tap_skip_all "elbencho was built without async I/O support (libaio)"
 }
 
 # The IPv4 address of the first active RDMA link that has one.

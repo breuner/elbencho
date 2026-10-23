@@ -138,7 +138,7 @@ assert_le "$(opslog_max_end "$OPSLOG")" "$END" \
 
 ################## The asynchronous engine, on its own target ##################
 
-if has_build_feature libaio; then
+if has_async_io; then
 
     ASYNC_TARGET="$DATA_DIR/asyncrangefile"
     ASYNC_JOURNAL="$TEST_DIR/journal-asyncrange"

@@ -28,6 +28,35 @@
 #endif
 
 /**
+ * unlinkat() for entries that several threads may try to delete at the same time, where the losers
+ * expect ENOENT. On Windows (cygwin), an entry that another thread is just deleting reports EACCES
+ * ("delete pending") until that thread's handle is closed, so this waits for the entry to be gone
+ * and returns ENOENT then. Plain unlinkat() elsewhere.
+ *
+ * @return 0 on success, -1 on error with errno set.
+ */
+int FileTk::unlinkatShared(int dirFD, const char* path, int flags)
+{
+    const int unlinkRes = unlinkat(dirFD, path, flags);
+
+#ifdef CYGWIN_SUPPORT
+    if( (unlinkRes == -1) && (errno == EACCES) )
+    {
+        for(unsigned i = 0; i < 1000; i++) // (one second at most)
+        {
+            if( (faccessat(dirFD, path, F_OK, 0) == -1) && (errno == ENOENT) )
+                return -1; // gone now, so the other thread's delete has finished
+            usleep(1000);
+        }
+
+        errno = EACCES; // (restore, faccessat() changed it)
+    }
+#endif // CYGWIN_SUPPORT
+
+    return unlinkRes;
+}
+
+/**
  * Check if file is empty or not existing.
  *
  * @return true if not exists or empty, false if not empty.

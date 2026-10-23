@@ -33,6 +33,7 @@
 #include "toolkits/TerminalTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
+#include "toolkits/winio/WinIOTk.h"
 #include "workers/LocalWorker.h"
 
 #ifdef CUDA_SUPPORT
@@ -490,8 +491,9 @@ void ProgArgs::defineAllowedArgs()
 			"Don't check direct IO alignment and minimum block size. Many platforms require "
 			"IOs to be aligned to certain minimum block sizes for direct IO.")
 /*nof*/	(ARG_NOFDSHARING_LONG, bpo::bool_switch(&this->useNoFDSharing),
-			"If benchmark path is a file or block device, let each worker thread open the given"
-			"file/bdev separately instead of sharing the same file descriptor among all threads.")
+			"If benchmark path is a file or block device, let each worker thread open the given "
+            "file/bdev separately instead of sharing the same file descriptor among all threads. "
+            "(On Windows, each thread always uses its own handle.)")
 /*nol*/	(ARG_NOLIVESTATS_LONG, bpo::bool_switch(&this->disableLiveStats),
 			"Disable live statistics on console.")
 /*nop*/	(ARG_NOPATHEXPANSION_LONG, bpo::bool_switch(&this->disablePathBracketsExpansion),
@@ -1323,6 +1325,29 @@ void ProgArgs::checkPathDependentArgs()
                 "Consider using \"--" ARG_FADVISE_LONG "=" ARG_FADVISE_FLAG_DONTNEED_NAME "\".");
     #endif // apple
 
+    #ifdef CYGWIN_SUPPORT
+        // (also here because this needs to run on service hosts.) the native windows I/O path has
+        // no cygwin file descriptor for the benchmark files, so these can't be offered on windows.
+        if(useMmap)
+            throw ProgException("Memory mapped IO (\"--" ARG_MMAP_LONG "\") is not supported on "
+                "Windows.");
+
+        if(flockType != ARG_FLOCK_NONE)
+            throw ProgException("File locking (\"--" ARG_FLOCK_LONG "\") is not supported on "
+                "Windows.");
+
+        if(fadviseFlags || madviseFlags)
+            throw ProgException("\"--" ARG_FADVISE_LONG "\" and \"--" ARG_MADVISE_LONG "\" are not "
+                "supported on Windows.");
+
+        if(runDropCachesPhase)
+            throw ProgException("Dropping the page cache (\"--" ARG_DROPCACHESPHASE_LONG "\") is "
+                "not supported on Windows.");
+
+        if(blockSize >= (1ULL << 32) )
+            throw ProgException("Block size must be smaller than 4 GiB on Windows.");
+    #endif // CYGWIN_SUPPORT
+
 	if( ( (benchPathType != BenchPathType_DIR) || !treeFilePath.empty() ) &&
 		(argsVariablesMap.count(ARG_NUMDIRS_LONG) || argsVariablesMap.count(ARG_NUMDIRS_SHORT) ) )
 		LOGGER(Log_NORMAL, "NOTE: \"--" ARG_NUMDIRS_LONG "\" is only effective when benchmark "
@@ -1805,9 +1830,18 @@ void ProgArgs::prepareBenchPathFDsVec()
 				openFlags |= O_CREAT;
 		}
 
-		fd = open(path.c_str(), openFlags, MKFILE_MODE);
+#ifdef CYGWIN_SUPPORT
+        /* the windows I/O path opens its own handles (also for the native device names, which
+            cygwin can't open), so block devices get no cygwin fd here. files keep theirs for the
+            size/truncate/preallocate handling in prepareFileSize(). */
+        const bool needCygwinFD = (pathType != BenchPathType_BLOCKDEV);
+#else
+        const bool needCygwinFD = true;
+#endif // CYGWIN_SUPPORT
 
-		if(fd == -1)
+        fd = needCygwinFD ? open(path.c_str(), openFlags, MKFILE_MODE) : -1;
+
+        if(needCygwinFD && (fd == -1) )
 			throw ProgException("Unable to open benchmark path: " + path + "; "
 				"SysErr: " + strerror(errno) );
 
@@ -2143,8 +2177,17 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 					"Path: " << path << "; "
 					"Size: " << currentFileSize << std::endl);
 
-                int truncRes = ftruncate(fd, getFileEndOffset() );
-				if(truncRes == -1)
+#ifdef CYGWIN_SUPPORT
+                /* cygwin's ftruncate marks an extended file sparse (a hole, like on linux, so NTFS
+                    doesn't zero-fill up to a later write offset), but a sparse file can't be
+                    preallocated, so that case sets the size natively. */
+                const bool truncRes = doPreallocFile ?
+                    WinIOTk::setFileSize(path, getFileEndOffset() ) :
+                    (ftruncate(fd, getFileEndOffset() ) != -1);
+#else
+                const bool truncRes = (ftruncate(fd, getFileEndOffset() ) != -1);
+#endif // CYGWIN_SUPPORT
+                if(!truncRes)
 					throw ProgException("Unable to set file size through ftruncate. "
 						"File: " + path + "; "
                         "Size: " + std::to_string(getFileEndOffset() ) + "; "
@@ -2158,6 +2201,12 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
                         throw ProgException("posix_fallocate is not supported on macOS. "
                             "Path: " + path + "; "
                             "Size: " + std::to_string(currentFileSize) );
+                #elif defined(CYGWIN_SUPPORT)
+                    if(!WinIOTk::preallocate(path, fileOffset, fileSize) )
+                        throw ProgException("Unable to preallocate file disk space. "
+                            "File: " + path + "; "
+                            "Size: " + std::to_string(fileSize) + "; "
+                            "SysErr: " + strerror(errno) );
                 #else // linux
                     LOGGER(Log_DEBUG,
                         "Preallocating file blocks. "
@@ -2200,11 +2249,19 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
 
 	if(benchPathType == BenchPathType_BLOCKDEV)
 	{
+#ifdef CYGWIN_SUPPORT
+        const off_t blockdevSize = WinIOTk::getBlockDevSize(path);
+
+        if(!blockdevSize)
+            throw ProgException("Unable to check size of blockdevice: " + path + "; "
+                "SysErr: " + strerror(errno) );
+#else
 		off_t blockdevSize = lseek(fd, 0, SEEK_END);
 
 		if(blockdevSize == -1)
 			throw ProgException("Unable to check size of blockdevice through lseek: " + path + "; "
 				"SysErr: " + strerror(errno) );
+#endif // CYGWIN_SUPPORT
 
 		if(!blockdevSize)
 			throw ProgException("Block device size seems to be 0: " + path);
@@ -2232,7 +2289,9 @@ void ProgArgs::prepareFileSize(int fd, std::string& path)
                 "Given offset: " + std::to_string(fileOffset) + "; "
 				"Given size: " + std::to_string(fileSize) );
 
+#ifndef CYGWIN_SUPPORT
 		lseek(fd, 0, SEEK_SET); // seek back to start
+#endif
 	}
 }
 
@@ -2816,6 +2875,11 @@ std::string ProgArgs::absolutePath(std::string pathStr)
 BenchPathType ProgArgs::findBenchPathType(std::string pathStr)
 {
 	struct stat statBuf;
+
+#ifdef CYGWIN_SUPPORT
+    if(WinIOTk::isWinDevicePath(pathStr) )
+        return BenchPathType_BLOCKDEV; // (e.g. "\\\\.\\PhysicalDrive2", which cygwin can't stat)
+#endif // CYGWIN_SUPPORT
 
 	int statRes = stat(pathStr.c_str(), &statBuf);
 	if(statRes == -1)

@@ -13,7 +13,7 @@
 
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
 
-require_build_feature libaio
+require_async_io
 
 NUM_THREADS=2
 IO_DEPTH=4
