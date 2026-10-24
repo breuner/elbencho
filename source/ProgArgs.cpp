@@ -523,7 +523,8 @@ void ProgArgs::defineAllowedArgs()
 /*pl*/  (ARG_PLUGINS_LONG, bpo::value(&this->pluginsStr),
             pluginsHelpStr.c_str() )
 /*po*/	(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
-			"TCP port of background service. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
+			"TCP port of background service. 0 lets the OS choose a free port, which the "
+            "service prints at start. (Default: " ARGDEFAULT_SERVICEPORT_STR ")")
 /*qr*/	(ARG_PREALLOCFILE_LONG, bpo::bool_switch(&this->doPreallocFile),
 			"Preallocate file disk space in a write phase via posix_fallocate().")
 /*qu*/	(ARG_QUIT_LONG, bpo::bool_switch(&this->quitServices),
@@ -3280,8 +3281,9 @@ void ProgArgs::printHelpDistributed()
 			"(Hint: See 'lscpu' for available NUMA zones.)")
 		(ARG_SERVICEPORT_LONG, bpo::value(&this->servicePort),
 			"TCP communication port of service. (Default: " ARGDEFAULT_SERVICEPORT_STR ") "
-			"Different ports can be  used to run multiple service instances on different NUMA "
-			"zones of a host.")
+			"Different ports can be used to run multiple service instances on different NUMA "
+            "zones of a host. 0 lets the OS choose a free port, which the service prints at "
+            "start.")
 	;
 
     std::cout << argsDistributedFrequentDescription << std::endl;

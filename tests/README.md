@@ -302,8 +302,13 @@ Rules to keep tests independent, fast and safe to run in parallel:
   `$ELB_CSV`, `$ELB_RES`, `$ELB_OUT` and enforces the per-command timeout.
 * Keep the runtime in the range of a few seconds. Datasets of a few dozen MiB
   are plenty to verify counters.
-* Never hardcode a TCP port. Use `find_free_port` plus `wait_for_port`, and
-  retry the start if the service did not come up.
+* Never hardcode a TCP port. Start elbencho services with `--port 0`, so the
+  OS picks a free port, and read it with `wait_for_service`, which waits for
+  the service's own "now listening ... Port: N" log line (a port chosen by
+  the test upfront can be taken by a parallel test between the check and the
+  bind; `services-shared-dir.t` has to do that for its port range syntax and
+  therefore verifies the ports through that line). Other servers get
+  `find_free_port` plus `wait_for_port`, and a retry if they did not come up.
 * Redirect stdout and stderr of every background process to a file and register
   it with `register_pid`. `prove` reads the test's stdout until EOF, so a
   background process that inherits it would make the whole run hang.
@@ -379,8 +384,8 @@ Rules to keep tests independent, fast and safe to run in parallel:
   size is `--sendsize` (the same option as `-b`), and `-s` defaults to a huge
   value, so a test has to give `-s` or the run only ends with the time limit.
 * The netbench data endpoints use ports chosen by the OS and announced through
-  the service HTTP API, so the tests only allocate service ports, with
-  `find_free_port` like the distributed tests. `--netport` on a server service
+  the service HTTP API, and the services themselves start with
+  `--port 0` like in the distributed tests. `--netport` on a server service
   fixes the base port instead, see `fixed-port.t`.
 * A netbench result counts the clients only (the servers see the same bytes
   from the other side): the clients send

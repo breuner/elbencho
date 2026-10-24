@@ -35,8 +35,10 @@ Frequently Used Options:
                         are bound round-robin to the zones. (Hint: See 'lscpu' 
                         for available NUMA zones.)
   --port arg            TCP communication port of service. (Default: 1611) 
-                        Different ports can be  used to run multiple service 
-                        instances on different NUMA zones of a host.
+                        Different ports can be used to run multiple service 
+                        instances on different NUMA zones of a host. 0 lets the
+                        OS choose a free port, which the service prints at 
+                        start.
 
 Miscellaneous Options:
   --nosvcshare          Benchmark paths are not shared between service hosts. 

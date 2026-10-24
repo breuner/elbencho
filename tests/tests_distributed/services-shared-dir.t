@@ -71,10 +71,12 @@ start_services()
         done
 
         allup=1
+        set -- $SERVICE_PIDS
         for port in "$PORT1" "$PORT2"; do
-            if ! wait_for_port 127.0.0.1 "$port" 10; then
+            if [ "$(wait_for_service "$1" "$TEST_DIR/service-$port.log" 10)" != "$port" ]; then
                 allup=0
             fi
+            shift
         done
 
         if [ $allup -eq 1 ]; then

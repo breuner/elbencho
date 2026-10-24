@@ -49,15 +49,17 @@ void HTTPServiceUWS::startServer()
 	uWSApp.listen(listenPort,
 		[&](auto *listenSocket)
 		{
-            #ifdef THREADNAME_SUPPORT
-                // set thread name (max 15 chars plus '\0')
-                std::string threadName = "elb-svc-p" + std::to_string(listenPort);
-                pthread_setname_np(pthread_self(), threadName.c_str() );
-            #endif
-
 			if(listenSocket)
 			{
 				globalListenSocket = listenSocket;
+                listenPort = us_socket_local_port(0, (struct us_socket_t*)listenSocket); // (OS-chosen for 0)
+
+                #ifdef THREADNAME_SUPPORT
+                    // set thread name (max 15 chars plus '\0')
+                    std::string threadName = "elb-svc-p" + std::to_string(listenPort);
+                    pthread_setname_np(pthread_self(), threadName.c_str() );
+                #endif
+
 				std::cout << "Elbencho alternative service now listening. " <<
 			        (progArgs.getSvcPasswordHash().empty() ? "" : "Protected by shared secret. ") <<
 				    "Port: " << listenPort

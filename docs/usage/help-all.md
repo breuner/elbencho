@@ -352,9 +352,10 @@ All options in alphabetical order:
                           size. Many platforms require IOs to be aligned to 
                           certain minimum block sizes for direct IO.
   --nofdsharing           If benchmark path is a file or block device, let each
-                          worker thread open the givenfile/bdev separately 
+                          worker thread open the given file/bdev separately 
                           instead of sharing the same file descriptor among all
-                          threads.
+                          threads. (On Windows, each thread always uses its own
+                          handle.)
   --nolive                Disable live statistics on console.
   --nopathexp             Disable expansion of number lists and ranges in 
                           square brackets for given paths.
@@ -384,7 +385,9 @@ All options in alphabetical order:
   --plugins arg           Comma-separated list of plugins to activate. Plugins 
                           compiled into this executable: - (See "--help-all" 
                           for their options.)
-  --port arg              TCP port of background service. (Default: 1611)
+  --port arg              TCP port of background service. 0 lets the OS choose 
+                          a free port, which the service prints at start. 
+                          (Default: 1611)
   --preallocfile          Preallocate file disk space in a write phase via 
                           posix_fallocate().
   --quit                  Quit services on given service mode hosts.

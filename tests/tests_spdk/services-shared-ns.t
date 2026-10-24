@@ -26,44 +26,33 @@ LENGTH=$((16 * 1024 * 1024))
 
 SERVICE_PORTS=()
 
-# Start an elbencho service instance on a random free port. Output has to go to
-# a file, because prove reads the test's stdout until end of file.
+# Start an elbencho service instance on an OS-chosen port ("--port 0"), which it
+# prints at start. Output has to go to a file, because prove reads the test's
+# stdout until end of file.
 start_service()
 {
     local idx="$1"
-    local tries=0
-    local port
     local pid
+    local port
 
-    while [ $tries -lt 5 ]; do
-        tries=$((tries+1))
+    "$ELBENCHO_TEST_BIN" --service --foreground --port 0 \
+        > "$TEST_DIR/service$idx.log" 2>&1 &
 
-        port=$(find_free_port)
-        if [ -z "$port" ]; then
-            return 1
-        fi
+    pid=$!
+    register_pid "$pid"
 
-        "$ELBENCHO_TEST_BIN" --service --foreground --port "$port" \
-            > "$TEST_DIR/service$idx.log" 2>&1 &
+    trace_cmd "service $idx start" "$ELBENCHO_TEST_BIN" --service --foreground --port 0
+    trace_add_log "$TEST_DIR/service$idx.log"
 
-        pid=$!
-        register_pid "$pid"
+    port=$(wait_for_service "$pid" "$TEST_DIR/service$idx.log" 10)
+    if [ -z "$port" ]; then
+        tap_diag "Service $idx did not come up."
+        tap_diag_file "$TEST_DIR/service$idx.log"
+        return 1
+    fi
 
-        trace_cmd "service $idx start on port $port (attempt $tries)" \
-            "$ELBENCHO_TEST_BIN" --service --foreground --port "$port"
-        trace_add_log "$TEST_DIR/service$idx.log"
-
-        if wait_for_port 127.0.0.1 "$port" 10; then
-            SERVICE_PORTS+=("$port")
-            return 0
-        fi
-
-        tap_diag "Service $idx did not come up on port $port, retrying..."
-        kill -KILL "$pid" > /dev/null 2>&1
-        wait "$pid" 2>/dev/null
-    done
-
-    return 1
+    SERVICE_PORTS+=("$port")
+    return 0
 }
 
 start_nvmf_tgt

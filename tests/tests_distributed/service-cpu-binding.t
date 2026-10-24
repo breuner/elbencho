@@ -32,36 +32,23 @@ SERVICE_PID=""
 # the test keeps a pid whose CPU affinity can be inspected.
 start_bound_service()
 {
-    local tries=0
+    "$ELBENCHO_TEST_BIN" --service --foreground --port 0 "$@" \
+        > "$TEST_DIR/service.log" 2>&1 &
 
-    while [ $tries -lt 5 ]; do
-        tries=$((tries+1))
+    SERVICE_PID=$!
+    register_pid "$SERVICE_PID"
 
-        SERVICE_PORT=$(find_free_port)
-        if [ -z "$SERVICE_PORT" ]; then
-            return 1
-        fi
+    trace_cmd "service start" "$ELBENCHO_TEST_BIN" --service --foreground --port 0 "$@"
+    trace_add_log "$TEST_DIR/service.log"
 
-        "$ELBENCHO_TEST_BIN" --service --foreground --port "$SERVICE_PORT" "$@" \
-            > "$TEST_DIR/service.log" 2>&1 &
+    SERVICE_PORT=$(wait_for_service "$SERVICE_PID" "$TEST_DIR/service.log" 10)
+    if [ -z "$SERVICE_PORT" ]; then
+        tap_diag "Service did not come up."
+        tap_diag_file "$TEST_DIR/service.log"
+        return 1
+    fi
 
-        SERVICE_PID=$!
-        register_pid "$SERVICE_PID"
-
-        trace_cmd "service start on port $SERVICE_PORT (attempt $tries)" \
-            "$ELBENCHO_TEST_BIN" --service --foreground --port "$SERVICE_PORT" "$@"
-        trace_add_log "$TEST_DIR/service.log"
-
-        if wait_for_port 127.0.0.1 "$SERVICE_PORT" 10; then
-            return 0
-        fi
-
-        tap_diag "Service did not come up on port $SERVICE_PORT, retrying..."
-        kill -KILL "$SERVICE_PID" >/dev/null 2>&1
-        wait "$SERVICE_PID" 2>/dev/null
-    done
-
-    return 1
+    return 0
 }
 
 stop_bound_service()

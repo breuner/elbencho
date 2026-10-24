@@ -680,6 +680,39 @@ wait_for_port()
     return 1
 }
 
+# wait_for_service PID LOGFILE SECONDS
+#
+# Wait until the elbencho service with the given pid reports in its log that it
+# listens, and echo the port from that line. Tests start their services with
+# "--port 0", so the OS picks a free port and this line is where to learn it. (A
+# port chosen by the test upfront could be taken by a process of a test running
+# in parallel between the check and the bind.) Fails as soon as the process has
+# exited, and after the timeout.
+wait_for_service()
+{
+    local pid="$1"
+    local log="$2"
+    local maxloops=$(( $3 * 10 ))
+    local waited=0
+    local port
+
+    while [ $waited -lt $maxloops ]; do
+        port=$(grep -o "now listening\..*Port: [0-9]*" "$log" 2>/dev/null | head -n1 | \
+            awk '{print $NF}')
+
+        if [ -n "$port" ]; then
+            echo "$port"
+            return 0
+        fi
+
+        kill -0 "$pid" 2>/dev/null || return 1
+        sleep 0.1
+        waited=$((waited+1))
+    done
+
+    return 1
+}
+
 # wait_for_port_gone HOST PORT SECONDS
 wait_for_port_gone()
 {

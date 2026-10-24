@@ -8,7 +8,8 @@
 # the coordinator is given a list of servers and a list of clients, and each
 # service gets its role from its position in that combined list. The data
 # endpoints of the servers use ports chosen by the OS, which the clients learn
-# through the service HTTP API, so only the service ports are allocated here.
+# through the service HTTP API, and the services themselves start with "--port 0"
+# and report the port the OS gave them.
 
 # Service ports and log files of the started services, in start order.
 NETBENCH_PORTS=()
@@ -20,8 +21,8 @@ NET_PHASE="NET/tcp"
 
 # netbench_start_service [SERVICE_ARGS...]
 #
-# Start one more elbencho service instance on a free port and append it to
-# NETBENCH_PORTS / NETBENCH_LOGS. Extra arguments go to the service, e.g.
+# Start one more elbencho service instance on an OS-chosen port and append it
+# to NETBENCH_PORTS / NETBENCH_LOGS. Extra arguments go to the service, e.g.
 # "--netdevs" or "--netport".
 #
 # The services run with verbose logging, because their log is the only place
@@ -29,43 +30,32 @@ NET_PHASE="NET/tcp"
 netbench_start_service()
 {
     local idx=${#NETBENCH_PORTS[@]}
-    local tries=0
-    local port
+    local log="$TEST_DIR/service$idx.log"
     local pid
-    local log
+    local port
 
-    while [ $tries -lt 5 ]; do
-        tries=$((tries+1))
+    # "--foreground" keeps the service from daemonizing, so that there is a pid
+    # to clean up. Output has to go to a file, because prove reads the test's
+    # stdout until end of file.
+    "$ELBENCHO_TEST_BIN" --service --foreground --port 0 --log 1 "$@" > "$log" 2>&1 &
 
-        port="$(find_free_port)" || return 1
-        log="$TEST_DIR/service$idx.log"
+    pid=$!
+    register_pid "$pid"
 
-        # "--foreground" keeps the service from daemonizing, so that there
-        # is a pid to clean up. Output has to go to a file, because prove
-        # reads the test's stdout until end of file.
-        "$ELBENCHO_TEST_BIN" --service --foreground --port "$port" --log 1 "$@" \
-            > "$log" 2>&1 &
+    trace_cmd "netbench service $idx start" \
+        "$ELBENCHO_TEST_BIN" --service --foreground --port 0 --log 1 "$@"
+    trace_add_log "$log"
 
-        pid=$!
-        register_pid "$pid"
+    port=$(wait_for_service "$pid" "$log" 10)
+    if [ -z "$port" ]; then
+        tap_diag "Service instance $idx did not come up."
+        tap_diag_file "$log"
+        return 1
+    fi
 
-        trace_cmd "netbench service $idx start (attempt $tries)" \
-            "$ELBENCHO_TEST_BIN" --service --foreground --port "$port" --log 1 "$@"
-        trace_add_log "$log"
-
-        if wait_for_port 127.0.0.1 "$port" 10; then
-            NETBENCH_PORTS+=("$port")
-            NETBENCH_LOGS+=("$log")
-            return 0
-        fi
-
-        tap_diag "Service $idx did not come up on port $port, retrying..."
-        kill -KILL "$pid" > /dev/null 2>&1
-        wait "$pid" 2>/dev/null
-    done
-
-    tap_diag "Unable to start service instance $idx."
-    return 1
+    NETBENCH_PORTS+=("$port")
+    NETBENCH_LOGS+=("$log")
+    return 0
 }
 
 # netbench_start_services NUM

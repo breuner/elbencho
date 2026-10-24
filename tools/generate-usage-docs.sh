@@ -6,6 +6,8 @@
 
 DOCS_DIR="docs/usage"
 EXE_PATH="bin/elbencho"
+EXE_BUILD_OPTS=("S3_SUPPORT=1" "BUILD_DEBUG=1" "CXX=g++" "-j$(nproc)" "S3_AWSCRT=0" "SPDK_SUPPORT=1")
+
 
 if [ ! -d "$DOCS_DIR" ]; then
     echo "ERROR: Docs dir not found. Are you not calling this from the repository root dir?" \
@@ -13,9 +15,12 @@ if [ ! -d "$DOCS_DIR" ]; then
     exit 1
 fi
 
-if [ ! -f "$EXE_PATH" ]; then
-    echo "ERROR: Executable not found. Are you not calling this from the repository root dir or" \
-        "did you not make the executable before calling this script? Path: $EXE_PATH" >&2
+# Prepare executable with the right build options for docs generation...
+echo "Preparing executable. Command: make ${EXE_BUILD_OPTS[@]}"
+make "${EXE_BUILD_OPTS[@]}"
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: Build failed. Command: make ${EXE_BUILD_OPTS[@]}" >&2
     exit 1
 fi
 
