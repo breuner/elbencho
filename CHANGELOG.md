@@ -5,6 +5,9 @@
 ### New Features & Enhancements
 * Added native Windows I/O support for files and block devices, including support for async I/O.
 
+### General Changes
+* Updated mimalloc lib for static builds to latest v3.6.0.
+
 ## v3.3.1 (Oct 22, 2026)
 
 ### New Features & Enhancements
