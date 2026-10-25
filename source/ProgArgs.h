@@ -28,8 +28,8 @@ namespace bpo = boost::program_options;
 namespace bpt = boost::property_tree;
 
 /* command line args and config file options (sorted alphabetically by "ARG_..." column).
-    note: keep length of "_LONG" argument names without parameters within a max length of 16 chars
-        and "_LONG" arguments with parameters to a max of 12 chars, as the description column
+    note: keep length of "_LONG" argument names without values within a max length of 16 chars
+        and "_LONG" argument names with values to a max of 12 chars, as the description column
         in the help output otherwise gets too small. */
 #define ARG_ALTHTTPSERVER_LONG           "althttpsvc"
 #define ARG_THROUGHPUTBASE10_LONG        "base10"
@@ -75,6 +75,8 @@ namespace bpt = boost::property_tree;
 #define ARG_GPUDIRECTSSTORAGE_LONG       "gds"
 #define ARG_GPUIDS_LONG                  "gpuids"
 #define ARG_GPUPERSERVICE_LONG           "gpuperservice"
+#define ARG_GRAPH_LONG                   "graph"
+#define ARG_GRAPHHEIGHT_LONG             "graphheight"
 #define ARG_HDFS_LONG                    "hdfs"
 #define ARG_HELP_LONG                    "help"
 #define ARG_HELP_SHORT                   "h"
@@ -416,6 +418,8 @@ class ProgArgs
         unsigned rwMixReadPercent; // % of blocks that should be read (the rest will be written)
         unsigned rwMixThreadsReadPercent; // % of blocks to be read (the rest will be written)
         unsigned short servicePort; // HTTP/TCP port for service
+        bool showGraph; // show graph of throughput (or entries/s) over time in phase results
+        unsigned graphHeight; // height of the phase results graph in lines
         bool showAllElapsed; // print elapsed time of each I/O worker thread
         bool showCPUUtilization; // show cpu utilization in phase stats results
         bool showDirStats; // show processed dirs stats in file write/read phase of dir mode
@@ -652,6 +656,8 @@ class ProgArgs
         bool getShowAllElapsed() const { return showAllElapsed; }
         bool getShowCPUUtilization() const { return showCPUUtilization; }
         bool getShowDirStats() const { return showDirStats; }
+        bool getShowGraph() const { return showGraph; }
+        unsigned getGraphHeight() const { return graphHeight; }
         bool getShowLatency() const { return showLatency; }
         bool getShowLatencyHistogram() const { return showLatencyHistogram; }
         bool getShowLatencyHistogramGrouped() const { return showLatencyHistogramGrouped; }

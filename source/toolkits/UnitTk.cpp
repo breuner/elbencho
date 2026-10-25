@@ -208,7 +208,7 @@ std::string UnitTk::elapsedMSToHumanStr(uint64_t elapsedMS)
  *
  * @number the number to be converted.
  * @maxLen maximum string length to be returned; must be at least 4 (for 999 with the unit suffix).
- * @maxNumDecimalPlaces maxumum decimal places; can be 0; only makes sense for maxLen >= 6.
+ * @maxNumDecimalPlaces maximum decimal places; can be 0; only makes sense for maxLen >= 6.
  * @return number with unit suffix if original number was longer than maxLen.
  */
 std::string UnitTk::numToHumanStrBaseAny(const UnitPair baseAnyUnits[],
@@ -280,7 +280,7 @@ std::string UnitTk::numToHumanStrBaseAny(const UnitPair baseAnyUnits[],
  *
  * @number the number to be converted.
  * @maxLen maximum string length to be returned; must be at least 4 (for 999 with the unit suffix).
- * @maxNumDecimalPlaces maxumum decimal places; can be 0; only makes sense for maxLen >= 6.
+ * @maxNumDecimalPlaces maximum decimal places; can be 0; only makes sense for maxLen >= 6.
  * @return number with unit suffix if original number was longer than maxLen.
  */
 std::string UnitTk::numToHumanStrBase10(uint64_t number, unsigned short maxLen,
@@ -306,7 +306,7 @@ std::string UnitTk::numToHumanStrBase10(uint64_t number, unsigned short maxLen,
  *
  * @number the number to be converted.
  * @maxLen maximum string length to be returned; must be at least 4 (for 999 with the unit suffix).
- * @maxNumDecimalPlaces maxumum decimal places; can be 0; only makes sense for maxLen >= 6.
+ * @maxNumDecimalPlaces maximum decimal places; can be 0; only makes sense for maxLen >= 6.
  * @return number with unit suffix if original number was longer than maxLen.
  */
 std::string UnitTk::numToHumanStrBase2(uint64_t number, unsigned short maxLen,

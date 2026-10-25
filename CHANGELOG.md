@@ -4,6 +4,7 @@
 
 ### New Features & Enhancements
 * Added native Windows I/O support for files and block devices, including support for async I/O.
+* New option to show a graph of the throughput over time in the phase results. (See `--graph`.)
 
 ### General Changes
 * Updated mimalloc lib for static builds to latest v3.6.0.

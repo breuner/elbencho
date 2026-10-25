@@ -40,6 +40,8 @@ Miscellaneous Options:
   --lathistogrpd        Show consolidated, decade-grouped latency histogram 
                         summary. More readable than "--lathisto" when latency 
                         values have a lot of variance.
+  --graph               Show a graph of the throughput over time in the phase 
+                        results.
   --allelapsed          Show elapsed time to completion of each I/O worker 
                         thread.
 

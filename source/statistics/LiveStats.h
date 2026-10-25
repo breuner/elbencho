@@ -103,6 +103,8 @@ class LiveStats
 		void printLiveCountdown();
 		void printLiveStats();
 
+        const LiveOpsSampleVec& getSamples() const { return samples; }
+
 	private:
 		const ProgArgs& progArgs;
 		WorkerManager& workerManager;
@@ -112,6 +114,7 @@ class LiveStats
 		CPUUtil& liveCpuUtil; // owned by Statistics, also updated through the http service
 		bool consoleBufferingDisabled{false};
 		int liveCSVFileFD = -1; // fd for live stats csv file
+        LiveOpsSampleVec samples; // the live stats intervals of the current phase ("--graph")
 
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();

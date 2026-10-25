@@ -1306,6 +1306,16 @@ void LiveStats::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedM
 
 	// calc latency average values
 	liveResults.liveLatency.divAllByNumValues();
+
+    if(progArgs.getShowGraph() )
+    {
+        std::chrono::milliseconds phaseElapsedMS =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
+
+        samples.push_back( { (uint64_t)phaseElapsedMS.count(),
+            liveResults.liveOpsPerSec, liveResults.liveOpsPerSecReadMix } );
+    }
 }
 
 /**
@@ -1318,6 +1328,8 @@ void LiveStats::printLiveStats()
 {
     bool showConsoleStats = !progArgs.getDisableLiveStats() &&
         (TerminalTk::isStdoutTTY() || progArgs.getUseBriefLiveStatsNewLine() );
+
+    samples.clear(); // new phase
 
     prepLiveCSVFile();
 

@@ -6,27 +6,39 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <ftxui/dom/canvas.hpp>
+#include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/screen.hpp>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <map>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "Common.h"
 #include "statistics/PhaseResultsPrinter.h"
 #include "ProgException.h"
 #include "statistics/ResultTerms.h"
 #include "toolkits/FileTk.h"
+#include "toolkits/TerminalTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
 #include "workers/RemoteWorker.h"
 #include "workers/Worker.h"
 
 #define PHASERESULTS_CONSOLE_SEPARATOR_LINE         "---"
+
+// the graph starts at the "FIRST DONE" column and ends at column 80
+#define GRAPH_WIDTH                 (80 - 31) // columns, incl. the axis labels
+#define GRAPH_AXISLABEL_WIDTH       4 // columns of the y axis labels left of the axis
+#define GRAPH_CANVAS_WIDTH          (GRAPH_WIDTH - GRAPH_AXISLABEL_WIDTH - 2) // minus " |"
 
 
 /**
@@ -194,8 +206,10 @@ void PhaseResultsPrinter::printPhaseResultsTableHeaderToStream(std::ostream& out
  * Print the results of the completed phase to console, results file, csv file and json file.
  *
  * @param genRes false if the results could not be generated, so only a note gets printed.
+ * @param graphSamples the live stats intervals of the phase for the console graph ("--graph").
  */
-void PhaseResultsPrinter::printPhaseResults(bool genRes, const PhaseResults& phaseResults)
+void PhaseResultsPrinter::printPhaseResults(bool genRes, const PhaseResults& phaseResults,
+    const LiveOpsSampleVec& graphSamples)
 {
     if(!genRes)
         std::cout << "Phase: " << TranslatorTk::benchPhaseToPhaseName(
@@ -203,7 +217,7 @@ void PhaseResultsPrinter::printPhaseResults(bool genRes, const PhaseResults& pha
             "Skipping stats print due to unavailable worker results." << std::endl <<
             PHASERESULTS_CONSOLE_SEPARATOR_LINE << std::endl;
     else
-        printPhaseResultsToStream(phaseResults, std::cout); // print to console
+        printPhaseResultsToStream(phaseResults, std::cout, &graphSamples); // print to console
 
 
     // print to results file (if specified by user)
@@ -224,7 +238,7 @@ void PhaseResultsPrinter::printPhaseResults(bool genRes, const PhaseResults& pha
 		if(!genRes)
 			fileStream << "Skipping stats print due to unavailable worker results." << std::endl;
 		else
-			printPhaseResultsToStream(phaseResults, fileStream);
+			printPhaseResultsToStream(phaseResults, fileStream, &graphSamples);
 
 		fileStream << std::endl;
 	}
@@ -265,9 +279,11 @@ void PhaseResultsPrinter::printPhaseResults(bool genRes, const PhaseResults& pha
  * Print phase result statistics to given stream.
  *
  * @outStream where to print results to.
+ * @graphSamples the live stats intervals for the graph ("--graph"), NULL for no graph (e.g. in
+ *      the results file).
  */
 void PhaseResultsPrinter::printPhaseResultsToStream(const PhaseResults& phaseResults,
-	std::ostream& outStream)
+	std::ostream& outStream, const LiveOpsSampleVec* graphSamples)
 {
 	std::string phaseName =
 		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs);
@@ -655,6 +671,14 @@ void PhaseResultsPrinter::printPhaseResultsToStream(const PhaseResults& phaseRes
 	printPhaseResultsLatencyToStream(phaseResults.iopsLatHistoReadMix,
 		"IO " + terms.secondaryShort, outStream);
 
+    // graph of the throughput over time (colored lines only on a console)
+    if(graphSamples && progArgs.getShowGraph() )
+    {
+        const bool useColors = (&outStream == &std::cout) && TerminalTk::isStdoutTTY();
+
+        printPhaseResultsGraphToStream(phaseResults, *graphSamples, useColors, outStream);
+    }
+
 	// warn in case of invalid results
 	if( (phaseResults.firstFinishUSec == 0) && !progArgs.getIgnore0USecErrors() )
 	{
@@ -669,6 +693,291 @@ void PhaseResultsPrinter::printPhaseResultsToStream(const PhaseResults& phaseRes
 
 	// print horizontal separator between phases
 	outStream << PHASERESULTS_CONSOLE_SEPARATOR_LINE << std::endl;
+}
+
+/**
+ * The maximum of a graph axis with its label.
+ */
+struct GraphAxisMax
+{
+    double value;
+    std::string label; // at most GRAPH_AXISLABEL_WIDTH chars, e.g. "1.1M", "11K" or "990"
+};
+
+/**
+ * Round the peak of a graph up to two significant digits in the unit of the axis label, so that
+ * the label is exact and short (e.g. 1050000 => "1.1M"). One significant digit if the label would
+ * still be too long (e.g. 0.98M => "1M").
+ *
+ * @param base10 unit steps of 1000 instead of 1024.
+ */
+static GraphAxisMax graphAxisMax(double peak, bool base10)
+{
+    const double base = base10 ? 1000 : 1024;
+    const char* const units[] = { "", "K", "M", "G", "T", "P", "E" };
+    const unsigned numUnits = sizeof(units) / sizeof(units[0] );
+
+    if(peak <= 0)
+        return { 1, "1" };
+
+    double scale = 1;
+    unsigned unitIdx = 0;
+
+    while( (peak / scale >= 1000) && (unitIdx + 1 < numUnits) )
+    {
+        scale *= base;
+        unitIdx++;
+    }
+
+    for(int sigDigits = 2; ; sigDigits--)
+    {
+        const double scaled = peak / scale;
+        const double magnitude =
+            std::pow(10, std::floor(std::log10(scaled) ) - (sigDigits - 1) );
+        const double rounded = std::ceil(scaled / magnitude) * magnitude;
+
+        if( (rounded >= 1000) && (unitIdx + 1 < numUnits) )
+        { // rounded up into the next unit, start over with two digits
+            scale *= base;
+            unitIdx++;
+            sigDigits = 3;
+            continue;
+        }
+
+        const int decimals = sigDigits - 1 - (int)std::floor(std::log10(rounded) );
+
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(std::max(decimals, 0) ) << rounded;
+
+        std::string label = stream.str();
+
+        if(label.find('.') != std::string::npos)
+        { // strip trailing zeros of the fraction (and a then trailing dot)
+            label.erase(label.find_last_not_of('0') + 1);
+
+            if(label.back() == '.')
+                label.pop_back();
+        }
+
+        label += units[unitIdx];
+
+        if( (label.size() <= GRAPH_AXISLABEL_WIDTH) || (sigDigits == 1) )
+            return { rounded * scale, label };
+    }
+}
+
+/**
+ * Elapsed time as a short graph axis label, e.g. "2.5s" or "120s".
+ */
+static std::string graphTimeStr(uint64_t elapsedMS)
+{
+    std::ostringstream stream;
+
+    if(elapsedMS < 10000)
+        stream << std::fixed << std::setprecision(1) << (elapsedMS / 1000.0);
+    else
+        stream << ( (elapsedMS + 500) / 1000);
+
+    stream << "s";
+
+    return stream.str();
+}
+
+/**
+ * Right-align a y axis label to GRAPH_AXISLABEL_WIDTH.
+ */
+static std::string graphAxisLabel(const std::string& label)
+{
+    return (label.size() < GRAPH_AXISLABEL_WIDTH) ?
+        std::string(GRAPH_AXISLABEL_WIDTH - label.size(), ' ') + label : label;
+}
+
+/**
+ * Print the graph of the throughput over the live stats intervals of the phase ("--graph"): a
+ * read or write phase with a block size shows the throughput, any other phase the entries per
+ * second. An rwmix (or netbench) phase gets a line per direction. The y axis starts at zero, so
+ * the lines show how stable the rate was. The lines are braille characters.
+ *
+ * @param samples the live stats intervals of the phase, fewer than GRAPH_MIN_SAMPLES mean no graph.
+ * @param useColors colored lines of a two-line graph (only for a console).
+ */
+void PhaseResultsPrinter::printPhaseResultsGraphToStream(const PhaseResults& phaseResults,
+    const LiveOpsSampleVec& samples, bool useColors, std::ostream& outStream)
+{
+    using namespace ftxui;
+
+    if(samples.size() < GRAPH_MIN_SAMPLES)
+        return;
+
+    const BenchPhase phase = workersSharedData.currentBenchPhase;
+    const bool useBytes = progArgs.getBlockSize() &&
+        ( (phase == BenchPhase_CREATEFILES) || (phase == BenchPhase_READFILES) );
+
+    if(!useBytes && !phaseResults.opsTotal.numEntriesDone)
+        return; // nothing to show (e.g. sync phase)
+
+    const ResultTerms terms = ResultTerms::forPhase(progArgs,
+        phaseResults.opsTotalReadMix.numBytesDone || phaseResults.opsTotalReadMix.numEntriesDone);
+
+    // (entries are only split into write and read by an rwmix with read threads)
+    const bool haveSecondary = useBytes ? terms.haveSecondary : !terms.entriesPrimary.empty();
+
+    const std::string unitStr = useBytes ?
+        (progArgs.getShowThroughputBase10() ? "MB/s" : "MiB/s") :
+        (TranslatorTk::benchPhaseToPhaseEntryType(phase, &progArgs, true) + "/s");
+    const double divisor = useBytes ?
+        (progArgs.getShowThroughputBase10() ? (1000*1000) : (1024*1024) ) : 1;
+
+    auto value = [&](const LiveOps& ops)
+        { return (useBytes ? ops.numBytesDone : ops.numEntriesDone) / divisor; };
+
+    const uint64_t firstMS = samples.front().elapsedMS;
+    const uint64_t lastMS = samples.back().elapsedMS;
+
+    if(lastMS <= firstMS)
+        return; // (cannot happen with multiple intervals, but no division by zero below)
+
+    // the lines are drawn in braille pixels: 2 per column, 4 per row
+
+    const int height = progArgs.getGraphHeight();
+    const int widthPx = GRAPH_CANVAS_WIDTH * 2;
+    const int heightPx = height * 4;
+
+    /* one point per x pixel: the average of the samples that fall on it (a long phase has more
+        intervals than pixels) */
+    typedef std::vector<std::pair<int, double> > GraphPointVec; // x pixel and value
+
+    auto averagePerPixel = [&](bool secondary)
+    {
+        std::vector<double> sums(widthPx, 0);
+        std::vector<unsigned> counts(widthPx, 0);
+
+        for(const LiveOpsSample& sample : samples)
+        {
+            const int x = (int)std::lround(
+                (double)(sample.elapsedMS - firstMS) * (widthPx - 1) / (lastMS - firstMS) );
+
+            sums[x] += value(secondary ? sample.perSecReadMix : sample.perSec);
+            counts[x]++;
+        }
+
+        GraphPointVec points;
+
+        for(int x = 0; x < widthPx; x++)
+            if(counts[x] )
+                points.push_back( { x, sums[x] / counts[x] } );
+
+        return points;
+    };
+
+    const GraphPointVec primaryPoints = averagePerPixel(false);
+    const GraphPointVec secondaryPoints = haveSecondary ? averagePerPixel(true) : GraphPointVec();
+
+    double maxValue = 0;
+
+    for(const auto& point : primaryPoints)
+        maxValue = std::max(maxValue, point.second);
+
+    for(const auto& point : secondaryPoints)
+        maxValue = std::max(maxValue, point.second);
+
+    // (entries are counts, so base10; throughput base2 unless "--base10")
+    const GraphAxisMax axisMax =
+        graphAxisMax(maxValue, !useBytes || progArgs.getShowThroughputBase10() );
+    const double yMax = axisMax.value;
+
+    useColors = useColors && haveSecondary;
+
+    const Color primaryColor = Color::Yellow;
+    const Color secondaryColor = Color::Cyan;
+
+    Canvas graphCanvas(widthPx, heightPx);
+
+    auto drawLine = [&](const GraphPointVec& points, const Color& lineColor)
+    {
+        int lastX = 0;
+        int lastY = 0;
+
+        for(size_t i = 0; i < points.size(); i++)
+        {
+            const int x = points[i].first;
+            const int y = (heightPx - 1) -
+                (int)std::lround( (points[i].second / yMax) * (heightPx - 1) );
+
+            if(i && useColors)
+                graphCanvas.DrawPointLine(lastX, lastY, x, y, lineColor);
+            else
+            if(i)
+                graphCanvas.DrawPointLine(lastX, lastY, x, y);
+
+            lastX = x;
+            lastY = y;
+        }
+    };
+
+    drawLine(primaryPoints, primaryColor);
+
+    if(haveSecondary)
+        drawLine(secondaryPoints, secondaryColor);
+
+    // y axis labels left of the canvas: the maximum at the top, zero on the base line
+
+    Elements axisRows;
+
+    for(int row = 0; row < height; row++)
+        axisRows.push_back(text(graphAxisLabel(row ? "" : axisMax.label) +
+            (row ? " │" : " ┤") ) );
+
+    std::string baseLine = graphAxisLabel("0") + " └";
+
+    for(int i = 0; i < GRAPH_CANVAS_WIDTH; i++)
+        baseLine += "─";
+
+    // below the base line: the times of the first and last interval and the legend
+
+    Elements legendRow = {
+        text(std::string(GRAPH_AXISLABEL_WIDTH + 2, ' ') + graphTimeStr(firstMS) ), filler() };
+
+    if(haveSecondary)
+    {
+        Element primaryMark = text("━━");
+        Element secondaryMark = text("━━");
+
+        if(useColors)
+        {
+            primaryMark = primaryMark | color(primaryColor);
+            secondaryMark = secondaryMark | color(secondaryColor);
+        }
+
+        legendRow.push_back(text(terms.primary + " ") );
+        legendRow.push_back(primaryMark);
+        legendRow.push_back(text("  " + terms.secondary + " ") );
+        legendRow.push_back(secondaryMark);
+        legendRow.push_back(filler() );
+    }
+
+    legendRow.push_back(text(graphTimeStr(lastMS) ) );
+
+    Element graphElement = vbox( {
+        hbox( { vbox(axisRows), canvas(graphCanvas) } ),
+        text(baseLine),
+        hbox(legendRow) } );
+
+    Screen screen = Screen::Create(Dimension::Fixed(GRAPH_WIDTH), Dimension::Fixed(height + 2) );
+    Render(screen, graphElement);
+
+    // print the rendered rows, the first with the row label in the result type column
+
+    std::istringstream rows(screen.ToString() );
+    std::string row;
+
+    for(size_t rowNum = 0; std::getline(rows, row); rowNum++)
+    {
+        row.erase(row.find_last_not_of(" \r") + 1); // (ftxui pads the rows with spaces)
+
+        outStream << boost::format(phaseResultsLeftFormatStr)
+            % "" % (rowNum ? "" : "Graph " + unitStr) % (rowNum ? "" : ":") << row << std::endl;
+    }
 }
 
 /**

@@ -96,6 +96,8 @@ typedef std::vector<uint32_t> UInt32Vec;
  */
 #define MKFILE_MODE				(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 
+#define GRAPH_MIN_SAMPLES       2 // live stats intervals a phase needs for a results graph
+
 /**
  * Call delete() on an object pointer if it's not NULL and afterwards set it to NULL.
  */

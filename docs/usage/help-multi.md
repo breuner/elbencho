@@ -45,6 +45,8 @@ Miscellaneous Options:
   --lathistogrpd        Show consolidated, decade-grouped latency histogram 
                         summary. More readable than "--lathisto" when latency 
                         values have a lot of variance.
+  --graph               Show a graph of the throughput (or entries per second) 
+                        over time in the phase results.
   --nodelerr            Ignore not existing files/dirs in deletion phase 
                         instead of treating this as error.
 

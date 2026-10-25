@@ -124,6 +124,15 @@ All options in alphabetical order:
                           one GPU per service) instead of default round robin 
                           to threads (i.e. multiple GPUs per service, if 
                           multiple given).
+  --graph                 Show a graph of the throughput over time in the phase
+                          results. Phases without a block size (e.g. rmfiles) 
+                          show the entries per second. The datapoints are based
+                          on the live statistics interval ("--liveint"), so a 
+                          phase needs at least 2 intervals to get a graph. If 
+                          no "--livecsv" is given, the live statistics are 
+                          written to a csv file in the same dir as the default 
+                          "--resfile".
+  --graphheight arg       Height of the "--graph" in lines. (Default: 8)
   --hosts arg             List of hosts in service mode (separated by comma, 
                           space, or newline) for coordinated benchmark. When 
                           this argument is used, this program instance runs in 

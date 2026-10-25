@@ -9,6 +9,7 @@
 
 #include "Common.h"
 #include "statistics/LatencyHistogram.h"
+#include "statistics/LiveOps.h"
 #include "ProgArgs.h"
 #include "workers/WorkerManager.h"
 #include "workers/WorkersSharedData.h"
@@ -72,7 +73,8 @@ class PhaseResultsPrinter
 			progArgs(progArgs), workersSharedData(workersSharedData), workerVec(workerVec) {}
 
 		void printPhaseResultsTableHeader();
-		void printPhaseResults(bool genRes, const PhaseResults& phaseResults);
+		void printPhaseResults(bool genRes, const PhaseResults& phaseResults,
+            const LiveOpsSampleVec& graphSamples);
 
 	private:
 		const ProgArgs& progArgs;
@@ -85,7 +87,10 @@ class PhaseResultsPrinter
 
 		void printPhaseStartISODateToStringVec(StringVec& outLabelsVec, StringVec& outResultsVec);
 		void printPhaseResultsTableHeaderToStream(std::ostream& outStream);
-		void printPhaseResultsToStream(const PhaseResults& phaseResults, std::ostream& outStream);
+		void printPhaseResultsToStream(const PhaseResults& phaseResults, std::ostream& outStream,
+            const LiveOpsSampleVec* graphSamples = NULL);
+        void printPhaseResultsGraphToStream(const PhaseResults& phaseResults,
+            const LiveOpsSampleVec& samples, bool useColors, std::ostream& outStream);
 		void printPhaseResultsToStringVec(const PhaseResults& phaseResults, StringVec& outLabelsVec,
 			StringVec& outResultsVec);
 		void printPhaseResultsLatencyToStream(const LatencyHistogram& latHisto,

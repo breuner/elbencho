@@ -71,6 +71,10 @@
                                     SystemTk::getCurrentDateYYYYMMDD() + ".csv")
 #define RESFILE_JSON_NAME_DEFAULT   (EXE_NAME "_" "results" "_" + \
                                     SystemTk::getCurrentDateYYYYMMDD() + ".json")
+#define RESFILE_LIVECSV_NAME_DEFAULT (EXE_NAME "_" "results" "_" "live" "_" + \
+                                    SystemTk::getCurrentDateYYYYMMDD() + ".csv")
+
+#define GRAPH_HEIGHT_DEFAULT        8 // lines of the phase results graph
 
 
 // Names of features for printVersionAndBuildInfo()
@@ -349,6 +353,16 @@ void ProgArgs::defineAllowedArgs()
 			"Assign GPUs round robin to service instances (i.e. one GPU per service) instead of "
 			"default round robin to threads (i.e. multiple GPUs per service, if multiple given).")
 #endif
+/*gr*/  (ARG_GRAPH_LONG, bpo::bool_switch(&this->showGraph),
+            "Show a graph of the throughput over time in the phase results. Phases without a block "
+            "size (e.g. rmfiles) show the entries per second. The datapoints are based on the live "
+            "statistics interval (\"--" ARG_LIVEINTERVAL_LONG "\"), so a phase needs at "
+            "least " STRINGIZE(GRAPH_MIN_SAMPLES) " intervals to get a graph. If no \"--"
+            ARG_CSVLIVEFILE_LONG "\" is given, the live statistics are written to a csv file in "
+            "the same dir as the default \"--" ARG_RESULTSFILE_LONG "\".")
+/*gr*/  (ARG_GRAPHHEIGHT_LONG, bpo::value(&this->graphHeight),
+            "Height of the \"--" ARG_GRAPH_LONG "\" in lines. "
+            "(Default: " STRINGIZE(GRAPH_HEIGHT_DEFAULT) ")")
 #ifdef HDFS_SUPPORT
 /*hd*/	(ARG_HDFS_LONG, bpo::bool_switch(&this->useHDFS),
 			"Use Hadoop HDFS through the official libhdfs. Make sure that CLASSPATH contains "
@@ -742,6 +756,7 @@ void ProgArgs::defineDefaults()
     this->fileSize = 0;
     this->fileSizeOrigStr = "0";
     this->flockType = 0;
+    this->graphHeight = GRAPH_HEIGHT_DEFAULT;
     this->ignore0USecErrors = false;
     this->ignoreDelErrors = false;
     this->integrityCheckSalt = 0;
@@ -796,6 +811,7 @@ void ProgArgs::defineDefaults()
     this->showAllElapsed = false;
     this->showCPUUtilization = false;
     this->showDirStats = false;
+    this->showGraph = false;
     this->showLatency = false;
     this->showLatencyHistogram = false;
     this->showLatencyHistogramGrouped = false;
@@ -997,6 +1013,10 @@ void ProgArgs::initImplicitValues()
 
         if(resFilePathJSON.empty() )
             resFilePathJSON = userResDir + "/" + RESFILE_JSON_NAME_DEFAULT;
+
+        // the graph needs the live stats intervals, which only run with a live csv file
+        if(showGraph && liveCSVFilePath.empty() )
+            liveCSVFilePath = userResDir + "/" + RESFILE_LIVECSV_NAME_DEFAULT;
     }
 
 	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
@@ -1112,6 +1132,11 @@ void ProgArgs::checkArgs()
 	parseCPUCores();
 	netBenchArgs.parseNetDevs(runAsService);
 	parsePlugins();
+
+    if(!graphHeight)
+    {
+        throw ProgException("\"--" ARG_GRAPHHEIGHT_LONG "\" must be at least 1.");
+    }
 
 	if(runAsService)
 	{
@@ -3091,6 +3116,8 @@ void ProgArgs::printHelpBlockDev()
         (ARG_LATENCYHISTOGRAMGROUPED_LONG, bpo::bool_switch(&this->showLatencyHistogramGrouped),
             "Show consolidated, decade-grouped latency histogram summary. More readable than \"--"
             ARG_LATENCYHISTOGRAM_LONG "\" when latency values have a lot of variance.")
+        (ARG_GRAPH_LONG, bpo::bool_switch(&this->showGraph),
+            "Show a graph of the throughput over time in the phase results.")
 		(ARG_SHOWALLELAPSED_LONG, bpo::bool_switch(&this->showAllElapsed),
 			"Show elapsed time to completion of each I/O worker thread.")
 	;
@@ -3199,6 +3226,9 @@ void ProgArgs::printHelpMultiFile()
         (ARG_LATENCYHISTOGRAMGROUPED_LONG, bpo::bool_switch(&this->showLatencyHistogramGrouped),
             "Show consolidated, decade-grouped latency histogram summary. More readable than \"--"
             ARG_LATENCYHISTOGRAM_LONG "\" when latency values have a lot of variance.")
+        (ARG_GRAPH_LONG, bpo::bool_switch(&this->showGraph),
+            "Show a graph of the throughput (or entries per second) over time in the phase "
+            "results.")
 		(ARG_IGNOREDELERR_LONG, bpo::bool_switch(&this->ignoreDelErrors),
 			"Ignore not existing files/dirs in deletion phase instead of treating this as error.")
 	;

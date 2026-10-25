@@ -5,6 +5,9 @@
 #define LIVEOPS_H_
 
 #include <atomic>
+#include <cstdint>
+#include <vector>
+
 #include "toolkits/UnitTk.h"
 
 /**
@@ -76,6 +79,18 @@ struct LiveOps
 	}
 
 };
+
+/**
+ * The per-second rates of one live stats interval, kept per phase for the results graph.
+ */
+struct LiveOpsSample
+{
+    uint64_t elapsedMS; // end of the interval, relative to the phase start
+    LiveOps perSec; // write (or all) ops per second in the interval
+    LiveOps perSecReadMix; // rwmix read (or netbench recv) ops per second in the interval
+};
+
+typedef std::vector<LiveOpsSample> LiveOpsSampleVec;
 
 /**
  * Struct for atomic live stats variables. (See struct LiveOps for meaning of members.)

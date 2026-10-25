@@ -500,5 +500,5 @@ void Statistics::printPhaseResults()
 
     const bool genRes = generatePhaseResults(phaseResults);
 
-    printer.printPhaseResults(genRes, phaseResults);
+    printer.printPhaseResults(genRes, phaseResults, liveStats.getSamples() );
 }

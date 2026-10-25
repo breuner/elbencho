@@ -56,6 +56,8 @@ _elbencho_opts()
         --gdsbufreg
         --gpuids
         --gpuperservice
+        --graph
+        --graphheight
         --help
         --help-all
         --help-bdev
@@ -247,6 +249,8 @@ _elbencho()
         --flock)
         ;&
         --gpuids)
+        ;&
+        --graphheight)
         ;&
         -i)
         ;&
