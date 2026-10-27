@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.3.2 (work in progress)
+## v3.3.3 (Oct 27, 2026)
 
 ### New Features & Enhancements
 * Added native Windows I/O support for files and block devices, including support for async I/O.
