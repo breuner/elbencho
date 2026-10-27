@@ -44,8 +44,11 @@ else
 endif
 LDFLAGS = $(LDFLAGS_COMMON) $(LDFLAGS_EXTRA)
 
+# (cleaning up and help still work on macOS)
 ifeq ($(shell uname -s),Darwin)
-  $(error The cuObject client shim needs libibverbs and is Linux-only)
+  ifneq ($(filter-out clean clean-all help,$(or $(MAKECMDGOALS),all)),)
+    $(error The cuObject client shim needs libibverbs and is Linux-only)
+  endif
 endif
 
 ifdef BUILD_VERBOSE

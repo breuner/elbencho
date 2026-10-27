@@ -29,7 +29,7 @@ client: client-objects cuobjclient-shim
 	$(MAKE) -C $@
 
 clean clean-all:
-	$(foreach dir,$(SUBDIRS),$(MAKE) -C $(dir) $@;)
+	$(foreach dir,$(SUBDIRS),$(MAKE) -C $(dir) $@ &&) true
 
 help:
 	@echo 'Targets:'
