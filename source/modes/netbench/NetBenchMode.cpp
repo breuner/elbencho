@@ -410,7 +410,7 @@ void NetBenchMode::connectToServer(const bpt::ptree& request)
                 break;
             }
 
-            idleWait(endpoints, pingStartT, "connection check to server");
+            idleWait(endpoints, pingStartT, "connection check to server", nullptr);
         }
     }
     catch(WorkerException& e)
@@ -446,9 +446,12 @@ void NetBenchMode::doTransfer()
  *
  * @param lastProgressT time of the last completion.
  * @param waitingFor for the timeout error message.
+ * @param detailFn builds the details for the timeout error message (endpoints, progress); only
+ *      called when the timeout is hit, may be empty.
  */
 void NetBenchMode::idleWait(const std::vector<NetBenchEndpoint*>& endpoints,
-    std::chrono::steady_clock::time_point lastProgressT, const char* waitingFor)
+    std::chrono::steady_clock::time_point lastProgressT, const char* waitingFor,
+    const std::function<std::string()>& detailFn)
 {
     const auto now = std::chrono::steady_clock::now();
 
@@ -456,9 +459,13 @@ void NetBenchMode::idleWait(const std::vector<NetBenchEndpoint*>& endpoints,
         return;
 
     if(now - lastProgressT > std::chrono::seconds(NETBENCH_RECEIVE_TIMEOUT_SEC) )
+    {
+        const std::string detail = detailFn ? detailFn() : "";
+
         throw WorkerException(std::string("Timed out waiting for ") + waitingFor + ". "
-            "Timeout: " + std::to_string(NETBENCH_RECEIVE_TIMEOUT_SEC) + "s; "
-            "WorkerRank: " + std::to_string(workerRank) );
+            "Timeout: " + std::to_string(NETBENCH_RECEIVE_TIMEOUT_SEC) + "s; " +
+            (detail.empty() ? "" : detail + "; ") + "WorkerRank: " + std::to_string(workerRank) );
+    }
 
     worker.checkInterruptionRequest();
 
@@ -555,6 +562,40 @@ void NetBenchMode::doTransferServer()
     auto lastProgressT = std::chrono::steady_clock::now();
     NetBenchCompletion entries[NETBENCH_CQ_BATCH_SIZE];
 
+    // for the timeout message: this worker's endpoints and the streams that are not done yet
+    const std::function<std::string()> timeoutDetail = [&]()
+    {
+        const size_t maxListed = 8;
+        std::string result = "endpoints: ";
+        std::string streamsStr;
+        size_t numOpen = 0;
+
+        for(NetBenchServerEndpoint* endpoint : endpoints)
+        {
+            result += (endpoint == endpoints.front() ? "" : ", ") + endpoint->ep->getDescription();
+
+            for(const auto& streamPair : endpoint->streams)
+            {
+                const NetBenchStream& stream = streamPair.second;
+
+                if(stream.isDone)
+                    continue;
+
+                if(++numOpen <= maxListed)
+                    streamsStr += (numOpen > 1 ? ", " : "") + std::to_string(stream.rank) +
+                        " from " + stream.conn->peerAddr.toStr() + " (received " +
+                        std::to_string(stream.numRecvDone) + ", sent " +
+                        std::to_string(stream.numSendDone) + " of " + std::to_string(numRounds) +
+                        " rounds)";
+            }
+        }
+
+        if(numOpen > maxListed)
+            streamsStr += " and " + std::to_string(numOpen - maxListed) + " more";
+
+        return result + "; streams not done: " + (streamsStr.empty() ? "none" : streamsStr);
+    };
+
     while(numStreamsDone < numStreams)
     {
         worker.checkInterruptionRequest();
@@ -640,7 +681,7 @@ void NetBenchMode::doTransferServer()
         if(gotCompletions)
             lastProgressT = std::chrono::steady_clock::now();
         else
-            idleWait(eps, lastProgressT, "data from clients");
+            idleWait(eps, lastProgressT, "data from clients", timeoutDetail);
     }
 }
 
@@ -676,6 +717,15 @@ void NetBenchMode::doTransferClient()
     auto lastProgressT = streamStartT;
     NetBenchCompletion entries[NETBENCH_CQ_BATCH_SIZE];
 
+    // for the timeout message: progress and the path of this stream
+    const std::function<std::string()> timeoutDetail = [&]()
+    {
+        return "rounds done: " + std::to_string(numRoundsDone) + " of " +
+            std::to_string(numRounds) + "; server: " + serverHostPort + "; server endpoint: " +
+            serverEPDescription + "; own endpoint: " + clientEP->getDescription() +
+            (clientNetDev.empty() ? "" : " (own interface " + clientNetDev + ")");
+    };
+
     while(numRoundsDone < numRounds)
     {
         worker.checkInterruptionRequest();
@@ -708,7 +758,7 @@ void NetBenchMode::doTransferClient()
 
         if(!numEntries)
         {
-            idleWait(endpoints, lastProgressT, "response from server");
+            idleWait(endpoints, lastProgressT, "response from server", timeoutDetail);
             continue;
         }
 

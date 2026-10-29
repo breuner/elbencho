@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -62,7 +63,8 @@ class NetBenchMode
         void doTransferServer();
         void doTransferClient();
         void idleWait(const std::vector<NetBenchEndpoint*>& endpoints,
-            std::chrono::steady_clock::time_point lastProgressT, const char* waitingFor);
+            std::chrono::steady_clock::time_point lastProgressT, const char* waitingFor,
+            const std::function<std::string()>& detailFn);
         void logStreamDone(uint32_t rank, uint64_t numBytes,
             std::chrono::steady_clock::time_point startT, const std::string& pathStr);
         bool tryServerDefaultEndpoint(NetBenchSelector selector, unsigned short fixedPort,

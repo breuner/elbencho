@@ -2,8 +2,14 @@
 
 ## v3.3.4 (work in progress)
 
+### General Changes
+* Improved netbench error messages to show associated source/destination interface in case of a failed transfer.
+
 ### Fixes
 * Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)
+
+### Contributors
+Thanks to Jonathan Coles for helpful comments and suggestions.
 
 ## v3.3.3 (Oct 27, 2026)
 
