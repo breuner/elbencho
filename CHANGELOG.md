@@ -2,6 +2,9 @@
 
 ## v3.3.4 (work in progress)
 
+### Fixes
+* Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)
+
 ## v3.3.3 (Oct 27, 2026)
 
 ### New Features & Enhancements

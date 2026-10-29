@@ -526,12 +526,6 @@ void S3ProgArgs::checkPathDependentArgs(const ProgArgs& progArgs)
         (progArgs.doReverseSeqOffsets || progArgs.useRandomOffsets) && progArgs.runCreateFilesPhase)
         throw ProgException("S3 MPU size variance can only be used with sequential upload.");
 
-    if( (progArgs.hasUserSetRWMixPercent() || progArgs.hasUserSetRWMixReadThreads() ) &&
-        (progArgs.benchMode == BenchMode_S3) &&
-        !progArgs.treeFilePath.empty() )
-        throw ProgException("Options \"--" ARG_RWMIXPERCENT_LONG "\" & "
-            "\"--" ARG_RWMIXTHREADS_LONG "\" cannot be used with S3 custom tree.");
-
     if(runS3ListObjNum && !progArgs.treeFilePath.empty() )
         LOGGER(Log_NORMAL, "NOTE: Ignoring custom tree file for object listing." << std::endl);
 }

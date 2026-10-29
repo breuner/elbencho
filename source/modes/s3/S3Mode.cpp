@@ -574,7 +574,8 @@ void S3Mode::iterateCustomObjects()
             }
 
             if(worker.benchPhase == BenchPhase_READFILES)
-                downloadObject(bucketName, objectPrefix + currentPathElem.path, false);
+                downloadObject(bucketName, objectPrefix + currentPathElem.path,
+                    isRWMixedReader);
         }
 
         if(worker.benchPhase == BenchPhase_STATFILES)
