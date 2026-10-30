@@ -20,6 +20,9 @@ Thanks to Jonathan Coles for helpful comments and suggestions.
 ### General Changes
 * Updated mimalloc lib for static builds to latest v3.6.0.
 
+### Contributors
+Thanks to Karl Vietmeier for helpful comments and suggestions.
+
 ## v3.3.1 (Oct 22, 2026)
 
 ### New Features & Enhancements
