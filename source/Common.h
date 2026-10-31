@@ -89,7 +89,7 @@ typedef std::vector<uint32_t> UInt32Vec;
  * (Only exact matches are assumed to be compatible, that's why this can differ from the program
  * version.)
  */
-#define HTTP_PROTOCOLVERSION	"3.3.1"
+#define HTTP_PROTOCOLVERSION	"3.3.2"
 
 /**
  * Default access mode bits for new files.
@@ -289,6 +289,10 @@ typedef std::vector<BenchPathInfo> BenchPathInfoVec;
 #define XFER_STATS_LAT_SUM_ENTRIES				"SumEntLatUSec"
 #define XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD	"NumEntLatUSecRWMixRead"
 #define XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD	"SumEntLatUSecRWMixRead"
+#define XFER_STATS_LAT_MAX_IOPS                 "MaxIOLatUSec"
+#define XFER_STATS_LAT_MAX_IOPS_RWMIXREAD       "MaxIOLatUSecRWMixRead"
+#define XFER_STATS_LAT_MAX_ENTRIES              "MaxEntLatUSec"
+#define XFER_STATS_LAT_MAX_ENTRIES_RWMIXREAD    "MaxEntLatUSecRWMixRead"
 #define XFER_STATS_LAT_PREFIX_IOPS				"IOPS_"
 #define XFER_STATS_LAT_PREFIX_ENTRIES			"Entries_"
 #define XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD	"IOPSRWMixRead_"

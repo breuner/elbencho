@@ -122,13 +122,13 @@ Instead of giving benchmark parameters on the command line, you can also use a c
 
 ### Results & Charts
 
-Elbencho presents two [result columns](docs/result-columns-explanation.md): One showing the aggregate result from the beginning until the point in time when the fastest I/O thread finished its work ("First Done"). This result exludes the so-called tail phase where fewer threads are active and is sometimes referred to as stonewalling. The other one is the aggregate result from the beginning until the point in time when the slowest thread finally finished its fair share of the work ("Last Done").
+Elbencho presents two [result columns](docs/result-table-explanation.md): One showing the aggregate result from the beginning until the point in time when the fastest I/O thread finished its work ("First Done"). This result exludes the so-called tail phase where fewer threads are active and is sometimes referred to as stonewalling. The other one is the aggregate result from the beginning until the point in time when the slowest thread finally finished its fair share of the work ("Last Done").
 
 If you are generating a result series, e.g. based on multiple iterations of the same test case or based on varying block sizes or thread counts, then consider using elbencho's json file option (`--jsonfile`) and the `elbencho-summarize-json` tool to get a summary of your results.
 
 To generate charts from your result series, consider using elbencho's csv file option (`--csvfile`) and the `elbencho-chart` tool to easily generate a chart from your csv file. Alternatively, spreadsheet apps like Microsoft Excel or Google Sheets can be used for this.
 
-See the [CSV documentation](docs/csv-docs.md) for detailed descriptions of fields.
+See the [CSV and JSON result file documentation](docs/csv-and-json-result-files.md) for detailed descriptions of the fields.
 
 ### Questions & Comments
 

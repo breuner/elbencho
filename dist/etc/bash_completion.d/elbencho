@@ -195,6 +195,7 @@ _elbencho_opts()
         --svcminmax
         --svcping
         --svcpwfile
+        --svcstats
         --svcupint
         --svcwait
         --sync
@@ -359,6 +360,8 @@ _elbencho()
         --spdkconf)
         ;&
         --start)
+        ;&
+        --svcstats)
         ;&
         --svcupint)
         ;&

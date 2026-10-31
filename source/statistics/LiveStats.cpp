@@ -932,24 +932,24 @@ void LiveStats::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResult
 	if(!terms.haveSecondary)
 	{
 		if(progArgs.getBenchPathType() != BenchPathType_DIR)
-			latStream << UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum);
+			latStream << UnitTk::latencyUsToHumanStr(liveResults.liveLatency.getAvgIOLatMicroSecs());
 		else
 		{ // BenchPathType_DIR
 			latStream <<
 				"IO=" <<
-				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
+				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.getAvgIOLatMicroSecs()) <<
 				" " <<
 				liveResults.entryTypeUpperCase << "=" <<
-				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgEntriesLatMicroSecsSum);
+				UnitTk::latencyUsToHumanStr(liveResults.liveLatency.getAvgEntriesLatMicroSecs());
 		}
 	}
 	else
 	{ // rwmix or netbench
 		latStream <<
 			"IO [" << terms.primaryShort << "=" <<
-			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatMicroSecsSum) <<
+			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.getAvgIOLatMicroSecs()) <<
 			" " << terms.secondaryShort << "=" <<
-			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.avgIOLatReadMixMicroSecsSum) <<
+			UnitTk::latencyUsToHumanStr(liveResults.liveLatency.getAvgIOLatReadMixMicroSecs()) <<
 			"]";
 
 		if(progArgs.getBenchPathType() == BenchPathType_DIR)
@@ -961,7 +961,7 @@ void LiveStats::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResult
 				latStream <<
 					liveResults.entryTypeUpperCase << "=" <<
 					UnitTk::latencyUsToHumanStr(
-						liveResults.liveLatency.avgEntriesLatMicroSecsSum);
+						liveResults.liveLatency.getAvgEntriesLatMicroSecs());
 			}
 			else
 			{
@@ -969,10 +969,10 @@ void LiveStats::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResult
 					liveResults.entryTypeUpperCase <<
 					" [" << terms.primaryShort << "=" <<
 					UnitTk::latencyUsToHumanStr(
-						liveResults.liveLatency.avgEntriesLatMicroSecsSum) <<
+						liveResults.liveLatency.getAvgEntriesLatMicroSecs()) <<
 					" " << terms.secondaryShort << "=" <<
 					UnitTk::latencyUsToHumanStr(
-						liveResults.liveLatency.avgEntriesLatReadMixMicrosSecsSum) <<
+						liveResults.liveLatency.getAvgEntriesLatReadMixMicroSecs()) <<
 					"]";
 			}
 		}
@@ -1129,15 +1129,12 @@ void LiveStats::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResul
 
 	for(size_t i=0; i < workerVec.size(); i++)
 	{
-		LiveOps workerDone, workerDoneReadMix; // total numbers
-		LiveOps workerDonePerSec, workerDonePerSecReadMix; // difference to last round
+        const LiveWorkerStats& workerStats = workerVec[i]->getLiveStats();
+        LiveOps workerDone = workerStats.done; // total numbers
+        LiveOps workerDonePerSec = workerStats.perSec;
 
-		workerVec[i]->getLiveOps(workerDone, workerDoneReadMix);
-		workerVec[i]->getAndResetDiffStats(workerDonePerSec, workerDonePerSecReadMix);
-        terms.combine(workerDone, workerDoneReadMix);
-        terms.combine(workerDonePerSec, workerDonePerSecReadMix);
-
-		(workerDonePerSec *= 1000) /= progArgs.getLiveStatsSleepMS();
+        terms.combine(workerDone, workerStats.doneReadMix);
+        terms.combine(workerDonePerSec, workerStats.perSecReadMix);
 
 		size_t workerPercentDoneNum = 0;
 		std::string workerPercentDoneStr = "-";
@@ -1247,7 +1244,8 @@ void LiveStats::updateLiveStatsRemoteInfo(LiveResults& liveResults)
 }
 
 /**
- * Update liveOps and percentDone of liveResults for current round of live stats.
+ * Update the live stats of all workers and the liveOps, latency and percentDone of liveResults for
+ * the current round of live stats.
  *
  * @param elapsedMS elapsed time since last update, usually this is
  *      progArgs.getLiveStatsSleepMS() plus some potential small thread wake up delay.
@@ -1263,18 +1261,15 @@ void LiveStats::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedM
             "Backtrace: \n" + backtraceStr);
     }
 
-	statistics.getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
+    LiveWorkerStats total;
 
-	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
-	(liveResults.liveOpsPerSec *= 1000) /= elapsedMS;
+    statistics.updateLiveStats(elapsedMS, total);
 
-	liveResults.lastLiveOps = liveResults.newLiveOps;
-
-	liveResults.liveOpsPerSecReadMix =
-		liveResults.newLiveOpsReadMix - liveResults.lastLiveOpsReadMix;
-	(liveResults.liveOpsPerSecReadMix *= 1000) /= elapsedMS;
-
-	liveResults.lastLiveOpsReadMix = liveResults.newLiveOpsReadMix;
+    liveResults.newLiveOps = total.done;
+    liveResults.newLiveOpsReadMix = total.doneReadMix;
+    liveResults.liveOpsPerSec = total.perSec;
+    liveResults.liveOpsPerSecReadMix = total.perSecReadMix;
+    liveResults.liveLatency = total.latency;
 
     const size_t numWorkers = statistics.countAggregatedWorkers();
 
@@ -1303,9 +1298,6 @@ void LiveStats::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedM
 		liveResults.percentDone = 0; // no % available in phases like "sync" or "dropcaches"
 		liveResults.percentDoneReadMix = 0; // no % available in phases like "sync" or "dropcaches"
 	}
-
-	// calc latency average values
-	liveResults.liveLatency.divAllByNumValues();
 
     if(progArgs.getShowGraph() )
     {
@@ -1426,12 +1418,15 @@ void LiveStats::prepLiveCSVFile()
 			"MixType,"
 			"Done%,"
 			"DoneBytes,"
+            "DoneIOs,"
 			"MiB/s,"
 			"IOPS,"
 			"Entries,"
 			"Entries/s,"
 			"Lat Ent us,"
+            "Lat Ent max us,"
 			"Lat IO us,"
+            "Lat IO max us,"
 			"Active,"
 			"CPU,"
 			"Service," << std::endl;
@@ -1499,12 +1494,15 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
 		(isRWMixPhase ? "Write" : "") << "," <<
 		std::min(liveResults.percentDone, (size_t)100) << "," <<
 		liveResults.newLiveOps.numBytesDone << "," <<
+        liveResults.newLiveOps.numIOPSDone << "," <<
 		(liveResults.liveOpsPerSec.numBytesDone / (1024*1024) ) << "," <<
 		liveResults.liveOpsPerSec.numIOPSDone << "," <<
 		(isDirBenchPath ? liveResults.newLiveOps.numEntriesDone : 0) << "," <<
 		(isDirBenchPath ? liveResults.liveOpsPerSec.numEntriesDone : 0) << "," <<
-		liveResults.liveLatency.avgEntriesLatMicroSecsSum << "," <<
-		liveResults.liveLatency.avgIOLatMicroSecsSum << "," <<
+		liveResults.liveLatency.getAvgEntriesLatMicroSecs() << "," <<
+        liveResults.liveLatency.maxEntriesLatMicroSecs << "," <<
+		liveResults.liveLatency.getAvgIOLatMicroSecs() << "," <<
+        liveResults.liveLatency.maxIOLatMicroSecs << "," <<
 		numActiveWorkers << "," <<
 		cpuUtil << ","
 		"" << ","; // service
@@ -1530,12 +1528,15 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
 			"Read" << "," <<
 			std::min(liveResults.percentDoneReadMix, (size_t)100) << "," <<
 			(liveResults.newLiveOpsReadMix.numBytesDone) << "," <<
+            liveResults.newLiveOpsReadMix.numIOPSDone << "," <<
 			(liveResults.liveOpsPerSecReadMix.numBytesDone / (1024*1024) ) << "," <<
 			liveResults.liveOpsPerSecReadMix.numIOPSDone << "," <<
 			(isDirBenchPath ? numEntriesDone : 0) << "," <<
 			(isDirBenchPath ? numEntriesDonePerSec : 0) << "," <<
-			liveResults.liveLatency.avgEntriesLatReadMixMicrosSecsSum << "," <<
-			liveResults.liveLatency.avgIOLatReadMixMicroSecsSum << "," <<
+			liveResults.liveLatency.getAvgEntriesLatReadMixMicroSecs() << "," <<
+            liveResults.liveLatency.maxEntriesLatReadMixMicroSecs << "," <<
+			liveResults.liveLatency.getAvgIOLatReadMixMicroSecs() << "," <<
+            liveResults.liveLatency.maxIOLatReadMixMicroSecs << "," <<
 			numActiveWorkers << "," <<
 			cpuUtil << ","
 			"" << ","; // service
@@ -1556,15 +1557,12 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
 
 	// print individual worker result lines...
 
-	/* note: we can't print per-sec stats for workers, because worker::getAndResetDiffStats does a
-		reset which would interfere with the same reset for on-screen live stats. */
-
 	for(size_t i=0; i < workerVec.size(); i++)
 	{
-		LiveOps workerDone; // total (rwmix write) numbers
-		LiveOps workerDoneReadMix; // rwmix read numbers
-
-		workerVec[i]->getLiveOps(workerDone, workerDoneReadMix);
+        const LiveWorkerStats& workerStats = workerVec[i]->getLiveStats();
+        const LiveOps& workerDone = workerStats.done; // total (rwmix write) numbers
+        const LiveOps& workerDoneReadMix = workerStats.doneReadMix; // rwmix read numbers
+        const LiveLatency& workerLat = workerStats.latency;
 
 		size_t workerPercentDone = 0;
 
@@ -1585,12 +1583,15 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
 			(isRWMixPhase ? "Write" : "") << "," <<
 			std::min(workerPercentDone, (size_t)100) << "," <<
 			(workerDone.numBytesDone) << "," <<
-			"" << "," << // bytes/s
-			"" << "," << // iops
+            workerDone.numIOPSDone << "," <<
+            (workerStats.perSec.numBytesDone / (1024*1024) ) << "," <<
+            workerStats.perSec.numIOPSDone << "," <<
 			(isDirBenchPath ? workerDone.numEntriesDone : 0) << "," <<
-			"" << "," // entries/s
-			"" << "," // entries lat
-			"" << ","; // io lat
+            (isDirBenchPath ? workerStats.perSec.numEntriesDone : 0) << "," <<
+            workerLat.getAvgEntriesLatMicroSecs() << "," <<
+            workerLat.maxEntriesLatMicroSecs << "," <<
+            workerLat.getAvgIOLatMicroSecs() << "," <<
+            workerLat.maxIOLatMicroSecs << ",";
 
 		// add columns for remote mode
 		if(progArgs.getHostsVec().empty() )
@@ -1613,6 +1614,8 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
 		{
 			uint64_t numEntriesDone = isRWMixThreadsPhase ?
 				workerDoneReadMix.numEntriesDone : workerDone.numEntriesDone;
+            uint64_t numEntriesDonePerSec = isRWMixThreadsPhase ?
+                workerStats.perSecReadMix.numEntriesDone : workerStats.perSec.numEntriesDone;
 
 			size_t workerPercentDone = 0;
 
@@ -1635,12 +1638,15 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
 				(isRWMixPhase ? "Read" : "") << "," <<
 				std::min(workerPercentDone, (size_t)100) << "," <<
 				(workerDoneReadMix.numBytesDone) << "," <<
-				"" << "," << // bytes/s
-				"" << "," << // iops
+                workerDoneReadMix.numIOPSDone << "," <<
+                (workerStats.perSecReadMix.numBytesDone / (1024*1024) ) << "," <<
+                workerStats.perSecReadMix.numIOPSDone << "," <<
 				(isDirBenchPath ? numEntriesDone : 0) << "," <<
-				"" << "," // entries/s
-				"" << "," // entries lat
-				"" << ","; // io lat
+                (isDirBenchPath ? numEntriesDonePerSec : 0) << "," <<
+                workerLat.getAvgEntriesLatReadMixMicroSecs() << "," <<
+                workerLat.maxEntriesLatReadMixMicroSecs << "," <<
+                workerLat.getAvgIOLatReadMixMicroSecs() << "," <<
+                workerLat.maxIOLatReadMixMicroSecs << ",";
 
 			// add columns for remote mode
 			if(progArgs.getHostsVec().empty() )

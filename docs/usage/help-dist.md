@@ -44,12 +44,22 @@ Miscellaneous Options:
   --nosvcshare          Benchmark paths are not shared between service hosts. 
                         Thus, each service host willwork on the full given 
                         dataset instead of its own fraction of the data set.
-  --svcelapsed          Show elapsed time to completion of each service 
-                        instance ordered by slowest thread.
-  --svcminmax           Show the service instances with the lowest and the 
-                        highest IOPS and throughput (rate and host name, plus 
-                        the average) to make outliers visible. Also adds these 
-                        values to the json result file.
+  --svcstats arg        Per-service statistics of a distributed run in the 
+                        result table on the console and in the json result 
+                        file. This value is a comma-separated list of the 
+                        following: "elapsed" for the completion time of each 
+                        service instance ordered by slowest thread; "lat" for 
+                        the min/avg/max latency of each service instance; 
+                        "percent" for the latency percentiles of each service 
+                        instance (see "--latpercent9s"); "lathisto" for the 
+                        latency histogram of each service instance (json result
+                        file only); "minmax" for the service instances with the
+                        lowest and the highest IOPS and throughput (rate and 
+                        host name, plus the average over the services) based on
+                        each service's own completion time, in netbench mode 
+                        separately for servers and clients; "ping" for the 
+                        response time of each service instance in the 
+                        fullscreen live stats; "all" for all of these.
   --interrupt           Interrupt current benchmark phase on given service mode
                         hosts.
   --foreground          When running as service, stay in foreground and 

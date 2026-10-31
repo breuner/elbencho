@@ -1,4 +1,4 @@
-# Elbencho result columns: First done, last done, tail phase
+# Elbencho result table: First done, last done, tail phase
 
 ## tl;dr
 The "first done" column represents the aggregate result from the beginning of the test phase until the first/fastest thread finished its fair share of the work. It could be called the "hero number". The "last done" column shows the aggregate result from the beginning until the last/slowest thread finished its fair share of the work. It is more representative for typical real-world applications that assign a fair share of a dataset to each thread or client and won't continue until the last/slowest thread finished writing or reading its fair share.
@@ -40,7 +40,7 @@ This might require deeper knowledge about the storage system, such as the size o
 These details might not always be available and long test phases might not always be feasible.
 
 ### Limited accuracy of "first done" for distributed tests
-When using the distributed mode (`elbencho --hosts ...`) then the "first done" result has a precision of 500ms by default. (This is configurable via the `--svcupint` option.) That means for very short tests (e.g. less than 5sec runtime) it has reduced accuracy and should be taken with a grain of salt.
+When using the distributed mode (`elbencho --hosts ...`) then the "first done" result has a limited precision, because the coordinator only polls the progress of the service instances in intervals. The interval grows with the runtime of the phase (1% of the elapsed time, at least 25ms) up to the value of the `--svcupint` option (default 500ms, and never more than half of the `--liveint` interval). So the "first done" result of a phase that ran for a minute can be off by up to half a second, and the result of a very short test should be taken with a grain of salt.
 
 The reason for the limited precision is that the "first done" result requires knowing the result from each client at the exact point in time when the first/fastest one finished its fair share. This is technically not possible in a distributed system without a small inaccuracy.
 
@@ -48,15 +48,25 @@ This is only something to consider for distributed tests and only for the "first
 
 ### Finding slow service instances in distributed tests
 
-Besides looking at the live statistics during a run, two options help to spot a service instance that performs worse than the others, e.g. because of a broken cable or a misconfigured interface: `--svcelapsed` adds a row with the completion time of every service instance, sorted from fastest to slowest. `--svcminmax` adds a row for IOPS and a row for throughput with the minimum, average and maximum over the service instances and the host names of the two extremes:
+Besides looking at the live statistics during a run, the `--svcstats` option helps to spot a service instance that performs worse than the others, e.g. because of a broken cable or a misconfigured interface. It takes a comma-separated list of the per-service statistics to add to the result table on the console and to the json result file (`--jsonfile`), in any order:
+
+* `elapsed`: a row with the completion time of every service instance, sorted from fastest to slowest.
+* `lat`: a row per latency type with the min/avg/max latency of every service instance, sorted by average latency.
+* `percent`: a row per latency type with the latency percentiles of every service instance (see `--latpercent` and `--latpercent9s`), sorted by average latency.
+* `lathisto`: the latency histogram of every service instance. This goes only into the json result file, because it would be too much for the console.
+* `minmax`: a row for IOPS and a row for throughput with the minimum, average and maximum over the service instances and the host names of the two extremes. Each service's rate is its own total (read and write together) over the completion time of its own slowest thread.
+* `ping`: the response time of every service instance in the fullscreen live statistics.
+* `all`: all of the above.
 
 ```
+            Svc compl. time  : [ node1:1611=9.8s node7:1611=10.1s ]
             Svc IOPS         : [ min=2135 (node7:1611) avg=2171 max=2208 (node1:1611) ]
             Svc MiB/s        : [ min=2135 (node7:1611) avg=2171 max=2208 (node1:1611) ]
+            IO lat svc       : [ node1:1611=12us/45us/1.20ms node7:1611=12us/49us/2.10ms ]
+            IO lat % svc     : [ node1:1611=(1%<=12 50%<=40 75%<=55 99%<=120) node7:1611=(1%<=13 50%<=42 75%<=60 99%<=190) ]
 ```
 
-Each service's rate is its own total (read and write together) over the completion time of its
-own slowest thread, so these values are exact and belong to the "last done" column; they also
-go into the json result file (`--jsonfile`) as a `services` subtree of `last_done`. In netbench
-mode, servers and clients are shown as separate groups ("Clients" and "Servers" rows, `clients`
-and `servers` subtrees).
+In the json result file, the `minmax` values are the `iops` and `bytes/s` children of a `services` subtree of `last_done`. The other values are an `instances` array of the same subtree, with one element per service instance in the order of the completion time row, e.g. `{"host": "node1:1611", "elapsed_time_ms": 9800, "latency": {"IO": {"min_us": 12, "avg_us": 45, "max_us": 1200, "percentiles_us": {"1": 12, "50": 40, "75": 55, "99": 120}, "histogram": {"buckets": [...]}}}}` (plus an `entries` latency in directory mode and a `rwmix_read` child in a read/write mix). The percentiles of the total result (`--latpercent`) are a `percentiles_us` child of `last_done.latency.IO` and `last_done.latency.entries` in the same way. In netbench mode, servers and clients are shown as separate groups ("Clients" and "Servers" rows, `clients` and `servers` subtrees).
+
+The options `--svcelapsed`, `--svcminmax` and `--svcping` are the legacy way to set `--svcstats elapsed`, `--svcstats minmax` and `--svcstats ping`.
+

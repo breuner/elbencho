@@ -6,8 +6,8 @@
 
 #include <iostream>
 #include "statistics/LatencyHistogram.h"
-#include "statistics/LiveLatency.h"
 #include "statistics/LiveOps.h"
+#include "statistics/LiveWorkerStats.h"
 #include "ProgArgs.h"
 #include "WorkersSharedData.h"
 
@@ -58,6 +58,7 @@ class Worker
 		LatencyHistogram iopsLatHistoReadMix; // ops latency histogram (valid only at phase end)
 		LatencyHistogram entriesLatHisto; // entry latency histogram (valid only at phase end)
 		LatencyHistogram entriesLatHistoReadMix; // entry lat histogram (valid only at phase end)
+        LiveWorkerStats liveStats; // for the latest live stats interval, see updateLiveStats()
 
 		virtual void run() = 0;
 		virtual void cleanup() {}; // cleanup immediately after run() (other workers still running)
@@ -85,6 +86,8 @@ class Worker
 			{ return entriesLatHisto; }
 		const LatencyHistogram& getEntriesLatencyHistogramReadMix() const
 			{ return entriesLatHistoReadMix; }
+        const LiveWorkerStats& getLiveStats() const
+            { return liveStats; }
 
 		virtual void resetStats()
 		{
@@ -103,6 +106,7 @@ class Worker
 			iopsLatHistoReadMix.reset();
 			entriesLatHisto.reset();
 			entriesLatHistoReadMix.reset();
+            liveStats.setToZero();
 		}
 
 		/**
@@ -124,22 +128,46 @@ class Worker
 		}
 
 		/**
-		 * Add current live latency values of this worker to given outSumLiveOps and reset them.
+		 * Add live latency values of this worker since the last call to given outLiveLatency and
+		 * reset them.
 		 */
-		virtual void getAndAddLiveLatency(LiveLatency& outLiveLatency)
+		void getAndAddLiveLatency(LiveLatency& outLiveLatency)
 		{
-			iopsLatHisto.addAndResetAverageLiveMicroSec(
-				outLiveLatency.numAvgIOLatValues, outLiveLatency.avgIOLatMicroSecsSum);
+            iopsLatHisto.getAndResetLive(outLiveLatency.numAvgIOLatValues,
+                outLiveLatency.avgIOLatMicroSecsSum, outLiveLatency.maxIOLatMicroSecs);
 
-			iopsLatHistoReadMix.addAndResetAverageLiveMicroSec(
-				outLiveLatency.numAvgIOLatReadMixValues, outLiveLatency.avgIOLatReadMixMicroSecsSum);
+            iopsLatHistoReadMix.getAndResetLive(outLiveLatency.numAvgIOLatReadMixValues,
+                outLiveLatency.avgIOLatReadMixMicroSecsSum,
+                outLiveLatency.maxIOLatReadMixMicroSecs);
 
-			entriesLatHisto.addAndResetAverageLiveMicroSec(
-				outLiveLatency.numAvgEntriesLatValues, outLiveLatency.avgEntriesLatMicroSecsSum);
+            entriesLatHisto.getAndResetLive(outLiveLatency.numAvgEntriesLatValues,
+                outLiveLatency.avgEntriesLatMicroSecsSum, outLiveLatency.maxEntriesLatMicroSecs);
 
-			entriesLatHistoReadMix.addAndResetAverageLiveMicroSec(
-				outLiveLatency.numAvgEntriesLatReadMixValues, outLiveLatency.avgEntriesLatReadMixMicrosSecsSum);
+            entriesLatHistoReadMix.getAndResetLive(outLiveLatency.numAvgEntriesLatReadMixValues,
+                outLiveLatency.avgEntriesLatReadMixMicrosSecsSum,
+                outLiveLatency.maxEntriesLatReadMixMicroSecs);
 		}
+
+        /**
+         * Update the live stats of this worker for the interval that just ended. Called once per
+         * live stats interval by the live stats thread, so the rates and the interval latency are
+         * calculated once and all printers show the same values.
+         *
+         * @param elapsedMS length of the interval.
+         */
+        void updateLiveStats(size_t elapsedMS)
+        {
+            getLiveOps(liveStats.done, liveStats.doneReadMix);
+            getAndResetDiffStats(liveStats.intervalOps, liveStats.intervalOpsReadMix);
+
+            liveStats.perSec = liveStats.intervalOps;
+            (liveStats.perSec *= 1000) /= elapsedMS;
+            liveStats.perSecReadMix = liveStats.intervalOpsReadMix;
+            (liveStats.perSecReadMix *= 1000) /= elapsedMS;
+
+            liveStats.latency.setToZero();
+            getAndAddLiveLatency(liveStats.latency);
+        }
 
 		/**
 		 * Add stonewall ops values of this worker to given outSumStoneWallOps.

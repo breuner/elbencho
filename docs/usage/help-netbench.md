@@ -90,10 +90,10 @@ Miscellaneous Options:
   --netrnr arg          Receiver-not-ready retry timer of the ibverbs and 
                         rdmacm engines, as InfiniBand timer code 0-31 (1 = 10 
                         us, 12 = 0.64 ms, 0 = 655 ms). (Default: 1)
-  --svcminmax           Show the clients and the servers with the lowest and 
-                        highest IOPS and throughput (rate and host name, plus 
-                        the average), to make outliers visible. Also adds these
-                        values to the json result file.
+  --svcstats arg        Per-service statistics, e.g. "minmax" for the clients 
+                        and the servers with the lowest and highest IOPS and 
+                        throughput (rate and host name, plus the average), to 
+                        make outliers visible. See "--help-all" for all values.
   --serversfile arg     Path to file with line-separated server hosts.
   --clientsfile arg     Path to file with line-separated client hosts.
 

@@ -4,6 +4,7 @@
 #ifndef LATENCYHISTOGRAM_H_
 #define LATENCYHISTOGRAM_H_
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <vector>
@@ -54,14 +55,18 @@ class LatencyHistogram
         std::vector<uint64_t> buckets; // buckets represent counters for latency categories
         std::atomic_uint64_t numStoredValuesLive{0}; // for live stats
         std::atomic_uint64_t numMicroSecsTotalLive{0}; // for live stats
+        std::atomic_uint64_t maxMicroSecLatLive{0}; // for live stats
 
     public: // inliners
 
         void addLatency(uint64_t latencyMicroSec)
         {
-            // note: live stats update is not atomic across the two vals, but that's negligible
+            // note: live stats update is not atomic across the vals, but that's negligible
             numStoredValuesLive++;
             numMicroSecsTotalLive += latencyMicroSec;
+
+            IF_UNLIKELY(latencyMicroSec > maxMicroSecLatLive.load(std::memory_order_relaxed) )
+                maxMicroSecLatLive.store(latencyMicroSec, std::memory_order_relaxed);
 
             numStoredValues++;
             numMicroSecTotal += latencyMicroSec;
@@ -79,14 +84,27 @@ class LatencyHistogram
         size_t getMinMicroSecLat() const { return minMicroSecLat; }
         size_t getMaxMicroSecLat() const { return maxMicroSecLat; }
 
-        void addAndResetAverageLiveMicroSec(
-            uint64_t& outNumStoredValues, uint64_t& outNumMicroSecsTotal)
+        /**
+         * Add the live stats values since the last call to the given sums and max, and reset them.
+         */
+        void getAndResetLive(uint64_t& outNumValues, uint64_t& outMicroSecsTotal,
+            uint64_t& outMaxMicroSec)
         {
-            outNumStoredValues += numStoredValuesLive;
-            outNumMicroSecsTotal += numMicroSecsTotalLive;
+            outNumValues += numStoredValuesLive.exchange(0);
+            outMicroSecsTotal += numMicroSecsTotalLive.exchange(0);
+            outMaxMicroSec = std::max<uint64_t>(outMaxMicroSec, maxMicroSecLatLive.exchange(0) );
+        }
 
-            numStoredValuesLive = 0;
-            numMicroSecsTotalLive = 0;
+        /**
+         * Add live stats values received from a service instance (see getAndResetLive() ).
+         */
+        void addLive(uint64_t numValues, uint64_t microSecsTotal, uint64_t maxMicroSec)
+        {
+            numStoredValuesLive += numValues;
+            numMicroSecsTotalLive += microSecsTotal;
+
+            if(maxMicroSec > maxMicroSecLatLive.load(std::memory_order_relaxed) )
+                maxMicroSecLatLive.store(maxMicroSec, std::memory_order_relaxed);
         }
 
         size_t getAverageMicroSec() const
@@ -103,6 +121,10 @@ class LatencyHistogram
             numMicroSecTotal = 0;
             minMicroSecLat = ~0; // ~0 so that any 1st measured value is smaller
             maxMicroSecLat = 0;
+
+            numStoredValuesLive = 0;
+            numMicroSecsTotalLive = 0;
+            maxMicroSecLatLive = 0;
         }
 
         std::string getHistogramStr() const

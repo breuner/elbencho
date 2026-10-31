@@ -4,15 +4,26 @@
 #ifndef PHASERESULTSPRINTER_H_
 #define PHASERESULTSPRINTER_H_
 
+#include <functional>
 #include <ostream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "Common.h"
 #include "statistics/LatencyHistogram.h"
 #include "statistics/LiveOps.h"
 #include "ProgArgs.h"
+#include "workers/RemoteWorker.h"
 #include "workers/WorkerManager.h"
 #include "workers/WorkersSharedData.h"
+
+// a worker's latency histogram getter, e.g. &Worker::getIOPSLatencyHistogram
+typedef const LatencyHistogram& (Worker::*LatHistoGetter)() const;
+// the services with the elapsed usec of their slowest thread
+typedef std::vector<std::pair<uint64_t, RemoteWorker*> > ServicesByElapsedVec;
+// the latency percentiles to show as label and percentage, e.g. ("99.9", 99.9)
+typedef std::vector<std::pair<std::string, double> > LatPercentilesVec;
 
 /**
  * Per-service rate extremes of a phase (for "--svcminmax"). Empty hosts mean "not set".
@@ -94,7 +105,13 @@ class PhaseResultsPrinter
 		void printPhaseResultsToStringVec(const PhaseResults& phaseResults, StringVec& outLabelsVec,
 			StringVec& outResultsVec);
 		void printPhaseResultsLatencyToStream(const LatencyHistogram& latHisto,
-			std::string latTypeStr, std::ostream& outStream);
+			std::string latTypeStr, LatHistoGetter svcLatHisto, std::ostream& outStream);
+        ServicesByElapsedVec getServicesByElapsed() const;
+        LatPercentilesVec getLatencyPercentiles() const;
+        std::string latencyPercentilesStr(const LatencyHistogram& latHisto) const;
+        void printServicesLatencyRow(LatHistoGetter svcLatHisto, std::string label,
+            std::function<std::string(const LatencyHistogram&)> svcValueFunc,
+            std::ostream& outStream);
 		void printPhaseResultsLatencyToStringVec(const LatencyHistogram& latHisto,
 			std::string latTypeStr, StringVec& outLabelsVec, StringVec& outResultsVec);
 		void printPhaseResultsAsJSON(const PhaseResults& phaseResults);

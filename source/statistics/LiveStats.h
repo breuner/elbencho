@@ -18,6 +18,7 @@
 #include "CPUUtil.h"
 #include "Common.h"
 #include "statistics/LiveLatency.h"
+#include "statistics/LiveWorkerStats.h"
 #include "ProgArgs.h"
 #include "toolkits/TranslatorTk.h"
 #include "workers/WorkerManager.h"
@@ -58,16 +59,14 @@ class LiveResults
 		int winHeight; // current height of terminal window (set in fullscreen mode only)
 		int winWidth; // current width of terminal window (set in fullscreen mode only)
 
-		LiveOps lastLiveOps = {}; // live ops from last round for per-sec diff
-		LiveOps lastLiveOpsReadMix = {}; // live ops from last round for per-sec diff
 		LiveOps newLiveOps; // live ops from current round
 		LiveOps newLiveOpsReadMix; // live ops from current round
-		LiveOps liveOpsPerSec; // live ops per sec from diff of new and last live ops
-		LiveOps liveOpsPerSecReadMix; // live ops per sec from diff of new and last live ops
+		LiveOps liveOpsPerSec; // live ops per sec in the current round
+		LiveOps liveOpsPerSecReadMix; // live ops per sec in the current round
 		size_t percentDone; // total percent done based on bytes (if any) or num entries in phase
 		size_t percentDoneReadMix; // total percent done based on bytes (if any) or entries in phase
 
-		LiveLatency liveLatency; // avg latency across all workers for current live stats interval
+		LiveLatency liveLatency; // latency of all workers in the current live stats interval
 };
 
 /**

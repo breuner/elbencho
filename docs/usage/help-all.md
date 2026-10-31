@@ -623,17 +623,26 @@ All options in alphabetical order:
   --strided               Use strided read/write access pattern. Only available
                           if given benchmark paths are files or block devices. 
                           Cannot be used with a block size mix.
-  --svcelapsed            Show elapsed time to completion of each service 
-                          instance ordered by slowest thread.
-  --svcminmax             Show the service instances with the lowest and the 
-                          highest IOPS and throughput of each phase (rate and 
-                          host name, plus the average over the services) to 
-                          make outliers visible. Rates are based on each 
-                          service's own completion time. In netbench mode, 
-                          servers and clients are shown separately. Also adds 
-                          these values to the json result file.
-  --svcping               Show response time of service instances in fullscreen
-                          live stats.
+  --svcelapsed            Legacy way to set "--svcstats elapsed".
+  --svcminmax             Legacy way to set "--svcstats minmax".
+  --svcping               Legacy way to set "--svcstats ping".
+  --svcstats arg          Per-service statistics of a distributed run in the 
+                          result table on the console and in the json result 
+                          file. This value is a comma-separated list of the 
+                          following: "elapsed" for the completion time of each 
+                          service instance ordered by slowest thread; "lat" for
+                          the min/avg/max latency of each service instance; 
+                          "percent" for the latency percentiles of each service
+                          instance (see "--latpercent9s"); "lathisto" for the 
+                          latency histogram of each service instance (json 
+                          result file only); "minmax" for the service instances
+                          with the lowest and the highest IOPS and throughput 
+                          (rate and host name, plus the average over the 
+                          services) based on each service's own completion 
+                          time, in netbench mode separately for servers and 
+                          clients; "ping" for the response time of each service
+                          instance in the fullscreen live stats; "all" for all 
+                          of these.
   --svcpwfile arg         Path to a text file containing a single line of text 
                           as shared secret between service instances and 
                           master. This is to prevent unauthorized requests to 

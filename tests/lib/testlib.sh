@@ -36,7 +36,7 @@ export CUFILE_LOGFILE_PATH="${CUFILE_LOGFILE_PATH:-$ELBENCHO_TEST_TMP/cufile.log
 
 # Exact header line written by Statistics::prepLiveCSVFile(). Note the trailing
 # comma after the last column, which the C++ code really does emit.
-LIVECSV_HEADER='ISO Date,Label,Phase,RuntimeMS,Rank,MixType,Done%,DoneBytes,MiB/s,IOPS,Entries,Entries/s,Lat Ent us,Lat IO us,Active,CPU,Service,'
+LIVECSV_HEADER='ISO Date,Label,Phase,RuntimeMS,Rank,MixType,Done%,DoneBytes,DoneIOs,MiB/s,IOPS,Entries,Entries/s,Lat Ent us,Lat Ent max us,Lat IO us,Lat IO max us,Active,CPU,Service,'
 
 TAP_COUNT=0
 TAP_FAILED=0

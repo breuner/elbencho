@@ -164,6 +164,7 @@ namespace bpt = boost::property_tree;
 #define ARG_STRIDEDACCESS_LONG           "strided"
 #define ARG_SVCPASSWORDFILE_LONG         "svcpwfile"
 #define ARG_SVCSHOWPING_LONG             "svcping"
+#define ARG_SVCSTATS_LONG                "svcstats"
 #define ARG_SVCUPDATEINTERVAL_LONG       "svcupint"
 #define ARG_SVCREADYWAITSECS_LONG        "svcwait"
 #define ARG_SYNCPHASE_LONG               "sync"
@@ -198,6 +199,16 @@ namespace bpt = boost::property_tree;
                                                 SystemTk::getUsername() + "_" + \
                                                 "mpufile_implicit.txt")
 
+
+// values for "--svcstats" (per-service statistics)
+#define SVCSTATSLIST_DELIMITERS             ", \n\r" // delimiters for svcstats args string
+#define ARG_SVCSTATS_ALL_NAME               "all"
+#define ARG_SVCSTATS_ELAPSED_NAME           "elapsed"
+#define ARG_SVCSTATS_LAT_NAME               "lat"
+#define ARG_SVCSTATS_LATHISTO_NAME          "lathisto"
+#define ARG_SVCSTATS_MINMAX_NAME            "minmax"
+#define ARG_SVCSTATS_PERCENT_NAME           "percent"
+#define ARG_SVCSTATS_PING_NAME              "ping"
 
 // flags for fadvise
 #define FADVISELIST_DELIMITERS              ", \n\r" // delimiters for fadvise args string
@@ -428,6 +439,9 @@ class ProgArgs
         bool showLatencyHistogramGrouped; // show consolidated, decade-grouped latency histogram
         bool showLatencyPercentiles; // show latency percentiles
         bool showServicesElapsed; // print elapsed time of each service by slowest thread
+        bool showServicesLatency; // print min/avg/max latency of each service
+        bool showServicesLatHisto; // add latency histogram of each service to json file
+        bool showServicesLatPercentiles; // print latency percentiles of each service
         bool showServicesMinMax; // print services with lowest/highest IOPS and throughput
         bool showThroughputBase10; // show throughput in base10 instead base2 (MB/s instead MiB/s)
         std::string spdkConfFile; // path to spdk json config file (sets spdkConfJSON)
@@ -438,6 +452,7 @@ class ProgArgs
         std::string svcPasswordHash; // implicitly set if svcPasswordFile is given, empty otherwise
         size_t svcReadyWaitSec; // startup wait time for services to be ready in seconds
         bool svcShowPing; // show service response time in fullscreen live stats
+        std::string svcStatsOrigStr; // per-service stats to show (ARG_SVCSTATS_x_NAME list)
         size_t svcUpdateIntervalMS; // update retrieval interval for service hosts in milliseconds
         std::string treeFilePath; // path to file containing custom tree (list of dirs and files)
         uint64_t treeRoundUpSize; /* in treefile, round up file sizes to multiple of given size.
@@ -476,6 +491,7 @@ class ProgArgs
         void initBenchMode();
         void initImplicitValues();
         void convertUnitStrings();
+        void applySvcStatsStr();
         void checkArgs();
         void checkPathDependentArgs();
         void parseAndCheckPaths();
@@ -663,6 +679,9 @@ class ProgArgs
         bool getShowLatencyHistogramGrouped() const { return showLatencyHistogramGrouped; }
         bool getShowLatencyPercentiles() const { return showLatencyPercentiles; }
         bool getShowServicesElapsed() const { return showServicesElapsed; }
+        bool getShowServicesLatency() const { return showServicesLatency; }
+        bool getShowServicesLatHisto() const { return showServicesLatHisto; }
+        bool getShowServicesLatPercentiles() const { return showServicesLatPercentiles; }
         bool getShowServicesMinMax() const { return showServicesMinMax; }
         bool getShowThroughputBase10() const { return showThroughputBase10; }
         std::string getSpdkConfJSON() const { return spdkConfJSON; }

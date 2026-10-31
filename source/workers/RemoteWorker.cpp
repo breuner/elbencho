@@ -241,8 +241,6 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 		iopsLatHisto.setFromPropertyTreeForService(resultTree, XFER_STATS_LAT_PREFIX_IOPS);
 		entriesLatHisto.setFromPropertyTreeForService(resultTree, XFER_STATS_LAT_PREFIX_ENTRIES);
 
-		liveLatency.setToZero(); // this service is done, so no more latency
-
 		if(progArgs->hasRWMixReadCounters(workersSharedData->currentBenchPhase) )
 		{
 			atomicLiveOpsReadMix.numEntriesDone =
@@ -256,8 +254,6 @@ void RemoteWorker::finishPhase(bool allowExceptionThrow)
 				resultTree, XFER_STATS_LAT_PREFIX_IOPS_RWMIXREAD);
 			entriesLatHistoReadMix.setFromPropertyTreeForService(
 				resultTree, XFER_STATS_LAT_PREFIX_ENTRIES_RWMIXREAD);
-
-			// (note: liveLatency is nulled via .setToZero() above)
 		}
 
 		phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
@@ -494,23 +490,16 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 			atomicLiveOps.numIOPSDone = statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE);
 			cpuUtil.live = statusTree.get<unsigned>(XFER_STATS_CPUUTIL);
 
-            uint64_t numAvgIOLatValues = statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS);
-            if(numAvgIOLatValues)
-            { /* this is for rate limiter, where some updates might not have new values, but we
-                don't want to show 0 lat in live stats, so we keep previous value */
-                    liveLatency.avgIOLatMicroSecsSum =
-                    statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS);
-                liveLatency.numAvgIOLatValues = numAvgIOLatValues;
-            }
+            /* the live latency accumulates over the polls of a live stats interval, so a poll
+                without new values (e.g. rate limiter) can't hide the values of an earlier poll */
 
-            uint64_t numAvgEntriesLatValues = statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES);
-            if(numAvgEntriesLatValues)
-            { /* this is for rate limiter, where some updates might not have new values, but we
-                don't want to show 0 lat in live stats, so we keep previous value */
-                    liveLatency.avgEntriesLatMicroSecsSum =
-                    statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES);
-                liveLatency.numAvgEntriesLatValues = numAvgEntriesLatValues;
-            }
+            iopsLatHisto.addLive(statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS),
+                statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS),
+                statusTree.get<uint64_t>(XFER_STATS_LAT_MAX_IOPS) );
+
+            entriesLatHisto.addLive(statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES),
+                statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES),
+                statusTree.get<uint64_t>(XFER_STATS_LAT_MAX_ENTRIES) );
 
 			if(progArgs->hasRWMixReadCounters(workersSharedData->currentBenchPhase) )
 			{
@@ -521,25 +510,15 @@ void RemoteWorker::waitForBenchPhaseCompletion(bool checkInterruption)
 				atomicLiveOpsReadMix.numIOPSDone =
 					statusTree.get<size_t>(XFER_STATS_NUMIOPSDONE_RWMIXREAD);
 
-                uint64_t numAvgIOLatReadMixValues =
-                    statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD);
-                if(numAvgIOLatReadMixValues)
-                { /* this is for rate limiter, where some updates might not have new values, but we
-                    don't want to show 0 lat in live stats, so we keep previous value */
-                    liveLatency.avgIOLatReadMixMicroSecsSum =
-                        statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD);
-                    liveLatency.numAvgIOLatReadMixValues = numAvgIOLatReadMixValues;
-                }
+                iopsLatHistoReadMix.addLive(
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_IOPS_RWMIXREAD),
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_IOPS_RWMIXREAD),
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_MAX_IOPS_RWMIXREAD) );
 
-                uint64_t numAvgEntriesLatReadMixValues =
-                    statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD);
-                if(numAvgEntriesLatReadMixValues)
-                { /* this is for rate limiter, where some updates might not have new values, but we
-                    don't want to show 0 lat in live stats, so we keep previous value */
-                    liveLatency.avgEntriesLatReadMixMicrosSecsSum =
-                        statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD);
-                    liveLatency.numAvgEntriesLatReadMixValues = numAvgEntriesLatReadMixValues;
-                }
+                entriesLatHistoReadMix.addLive(
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_NUM_ENTRIES_RWMIXREAD),
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD),
+                    statusTree.get<uint64_t>(XFER_STATS_LAT_MAX_ENTRIES_RWMIXREAD) );
             }
 
 			IF_UNLIKELY(numWorkersDoneWithError)

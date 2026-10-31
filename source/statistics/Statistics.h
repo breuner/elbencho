@@ -10,6 +10,7 @@
 #include "Common.h"
 #include "statistics/LiveLatency.h"
 #include "statistics/LiveStats.h"
+#include "statistics/LiveWorkerStats.h"
 #include "statistics/PhaseResultsPrinter.h"
 #include "ProgArgs.h"
 #include "workers/WorkerManager.h"
@@ -34,6 +35,7 @@ class Statistics
 
 		void getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
 			LiveLatency& outLiveLatency);
+        void updateLiveStats(size_t elapsedMS, LiveWorkerStats& outTotal);
         bool isAggregated(size_t workerIdx) const;
         size_t countAggregatedWorkers() const;
 		void getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree);

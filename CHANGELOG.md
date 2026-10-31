@@ -2,6 +2,14 @@
 
 ## v3.3.4 (work in progress)
 
+### New Features & Enhancements
+* Added per-thread and per-service performance info to `--livecsvex` rows.
+* Added new columns to `--livecsv` file to show:
+  * cumulative IO count (`DoneIOs`)
+  * max entry latency (`Lat Ent max us`)
+  * max IO latency (`Lat IO max us`)
+* Added new `--svcstats` parameter to individually enable various per-service results in console result table and json result file.
+
 ### General Changes
 * Improved netbench error messages to show associated source/destination interface in case of a failed transfer.
 
@@ -9,7 +17,7 @@
 * Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)
 
 ### Contributors
-Thanks to Jonathan Coles for helpful comments and suggestions.
+Thanks to Jonathan Coles, Lee Sanders, Darrell Bishop for helpful comments and suggestions.
 
 ## v3.3.3 (Oct 27, 2026)
 

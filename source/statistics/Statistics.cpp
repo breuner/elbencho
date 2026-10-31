@@ -17,13 +17,14 @@
 
 
 /**
- * Get current processed entries sum and bytes written/read of all workers.
+ * Get current processed entries sum and bytes written/read of all workers. This is for the service
+ * side, where the coordinator's polls define the interval; the coordinator's live stats thread
+ * uses updateLiveStats().
  *
  * @param outLiveOps entries/ops/bytes done for all workers (does not need to be initialized to 0).
  * @param outLiveRWMixReadOps rwmix mode read entries/ops/bytes done for all workers (does not need
  * 		to be initialized to 0).
- * @param outLiveLatency this method will call divAllByNumValues(), so struct values are avg across
- * 		all workers.
+ * @param outLiveLatency latency counters of all workers since the last call.
  */
 void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
 	LiveLatency& outLiveLatency)
@@ -40,6 +41,39 @@ void Statistics::getLiveOps(LiveOps& outLiveOps, LiveOps& outLiveRWMixReadOps,
 		workerVec[i]->getAndAddLiveOps(outLiveOps, outLiveRWMixReadOps);
 		workerVec[i]->getAndAddLiveLatency(outLiveLatency);
 	}
+}
+
+/**
+ * Update the live stats of all workers for the interval that just ended and sum the aggregated
+ * workers into outTotal. The per-second rates of the total come from the summed interval ops, so
+ * they don't lose the rounding of per-worker rates.
+ *
+ * @param elapsedMS length of the interval.
+ */
+void Statistics::updateLiveStats(size_t elapsedMS, LiveWorkerStats& outTotal)
+{
+    outTotal.setToZero();
+
+    for(size_t i=0; i < workerVec.size(); i++)
+    {
+        workerVec[i]->updateLiveStats(elapsedMS);
+
+        if(!isAggregated(i) )
+            continue;
+
+        const LiveWorkerStats& workerStats = workerVec[i]->getLiveStats();
+
+        workerStats.done.getAndAddOps(outTotal.done);
+        workerStats.doneReadMix.getAndAddOps(outTotal.doneReadMix);
+        workerStats.intervalOps.getAndAddOps(outTotal.intervalOps);
+        workerStats.intervalOpsReadMix.getAndAddOps(outTotal.intervalOpsReadMix);
+        workerStats.latency.getAndAddOps(outTotal.latency);
+    }
+
+    outTotal.perSec = outTotal.intervalOps;
+    (outTotal.perSec *= 1000) /= elapsedMS;
+    outTotal.perSecReadMix = outTotal.intervalOpsReadMix;
+    (outTotal.perSecReadMix *= 1000) /= elapsedMS;
 }
 
 /**
@@ -100,6 +134,8 @@ void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 	outTree.put(XFER_STATS_LAT_SUM_IOPS, liveLatency.avgIOLatMicroSecsSum);
 	outTree.put(XFER_STATS_LAT_NUM_ENTRIES, liveLatency.numAvgEntriesLatValues);
 	outTree.put(XFER_STATS_LAT_SUM_ENTRIES, liveLatency.avgEntriesLatMicroSecsSum);
+    outTree.put(XFER_STATS_LAT_MAX_IOPS, liveLatency.maxIOLatMicroSecs);
+    outTree.put(XFER_STATS_LAT_MAX_ENTRIES, liveLatency.maxEntriesLatMicroSecs);
 
 	if(progArgs.hasRWMixReadCounters(workersSharedData.currentBenchPhase) )
 	{
@@ -115,6 +151,9 @@ void Statistics::getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree)
 			liveLatency.numAvgEntriesLatReadMixValues);
 		outTree.put(XFER_STATS_LAT_SUM_ENTRIES_RWMIXREAD,
 			liveLatency.avgEntriesLatReadMixMicrosSecsSum);
+        outTree.put(XFER_STATS_LAT_MAX_IOPS_RWMIXREAD, liveLatency.maxIOLatReadMixMicroSecs);
+        outTree.put(XFER_STATS_LAT_MAX_ENTRIES_RWMIXREAD,
+            liveLatency.maxEntriesLatReadMixMicroSecs);
 	}
 
 	outTree.put(XFER_STATS_ERRORHISTORY, LoggerBase::getErrHistory() );

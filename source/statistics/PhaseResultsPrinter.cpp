@@ -593,32 +593,9 @@ void PhaseResultsPrinter::printPhaseResultsToStream(const PhaseResults& phaseRes
 
 		outStream << "[ ";
 
-		typedef std::multimap<uint64_t, std::string> CompletionTimeMultiMap;
-		typedef CompletionTimeMultiMap::value_type CompletionTimeMultiMapVal;
-		CompletionTimeMultiMap completionTimeMap; // key is time ms, val is svc name
-
-		// build map by slowest finisher of each service instance
-		for(Worker* worker : workerVec)
-		{
-			RemoteWorker* remoteWorker = static_cast<RemoteWorker*>(worker);
-			uint64_t slowestThreadUSec = 0;
-
-			// find slowest thread of this service instance
-			for(uint64_t elapsedUSec : worker->getElapsedUSecVec() )
-			{
-				if(elapsedUSec > slowestThreadUSec)
-					slowestThreadUSec = elapsedUSec;
-			}
-
-			completionTimeMap.insert(
-				CompletionTimeMultiMapVal(slowestThreadUSec/1000, remoteWorker->getHost() ) );
-		}
-
-		// services are now ordered by completion time of their slowest thread through the map
-
-		// print ordered list of services ascending by slowest thread completion time
-		for(const CompletionTimeMultiMapVal& mapVal : completionTimeMap)
-			outStream << mapVal.second << "=" << UnitTk::elapsedMSToHumanStr(mapVal.first) << " ";
+        for(const auto& [slowestUSec, remoteWorker] : getServicesByElapsed() )
+            outStream << remoteWorker->getHost() << "=" <<
+                UnitTk::elapsedMSToHumanStr(slowestUSec / 1000) << " ";
 
 		outStream << "]" << std::endl;
 	}
@@ -662,14 +639,15 @@ void PhaseResultsPrinter::printPhaseResultsToStream(const PhaseResults& phaseRes
 	// entries & iops latency results
 	printPhaseResultsLatencyToStream(phaseResults.entriesLatHisto,
 		entryTypeUpperCase + (terms.entriesPrimary.empty() ? "" : " " + terms.primaryShort),
-        outStream);
+        &Worker::getEntriesLatencyHistogram, outStream);
 	printPhaseResultsLatencyToStream(phaseResults.entriesLatHistoReadMix,
-		entryTypeUpperCase + " " + terms.secondaryShort, outStream);
+		entryTypeUpperCase + " " + terms.secondaryShort,
+        &Worker::getEntriesLatencyHistogramReadMix, outStream);
 
 	printPhaseResultsLatencyToStream(phaseResults.iopsLatHisto,
-		"IO" + terms.suffix(terms.primaryShort), outStream);
+		"IO" + terms.suffix(terms.primaryShort), &Worker::getIOPSLatencyHistogram, outStream);
 	printPhaseResultsLatencyToStream(phaseResults.iopsLatHistoReadMix,
-		"IO " + terms.secondaryShort, outStream);
+		"IO " + terms.secondaryShort, &Worker::getIOPSLatencyHistogramReadMix, outStream);
 
     // graph of the throughput over time (colored lines only on a console)
     if(graphSamples && progArgs.getShowGraph() )
@@ -1160,7 +1138,7 @@ void PhaseResultsPrinter::printPhaseResultsToStringVec(const PhaseResults& phase
  * @outstream where to print results to.
  */
 void PhaseResultsPrinter::printPhaseResultsLatencyToStream(const LatencyHistogram& latHisto,
-	std::string latTypeStr, std::ostream& outStream)
+	std::string latTypeStr, LatHistoGetter svcLatHisto, std::ostream& outStream)
 {
 	std::string phaseName =
 		TranslatorTk::benchPhaseToPhaseName(workersSharedData.currentBenchPhase, &progArgs);
@@ -1182,6 +1160,18 @@ void PhaseResultsPrinter::printPhaseResultsLatencyToStream(const LatencyHistogra
 			" ]" << std::endl;
 	}
 
+    // print min/avg/max of each service (if this was a distributed run)
+    if(progArgs.getShowServicesLatency() && !progArgs.getHostsVec().empty() )
+    {
+        printServicesLatencyRow(svcLatHisto, latTypeStr + " lat svc",
+            [](const LatencyHistogram& svcHisto)
+            {
+                return UnitTk::latencyUsToHumanStr(svcHisto.getMinMicroSecLat() ) + "/" +
+                    UnitTk::latencyUsToHumanStr(svcHisto.getAverageMicroSec() ) + "/" +
+                    UnitTk::latencyUsToHumanStr(svcHisto.getMaxMicroSecLat() );
+            }, outStream);
+    }
+
 	// print IO latency percentiles
 	if(progArgs.getShowLatencyPercentiles() && latHisto.getNumStoredValues() )
 	{
@@ -1191,29 +1181,17 @@ void PhaseResultsPrinter::printPhaseResultsLatencyToStream(const LatencyHistogra
 			% (latTypeStr + " lat % us")
 			% ":";
 
-		outStream << "[ ";
-
-		outStream <<
-			"1%<=" << latHisto.getPercentileStr(1) << " "
-			"50%<=" << latHisto.getPercentileStr(50) << " "
-			"75%<=" << latHisto.getPercentileStr(75) << " "
-			"99%<=" << latHisto.getPercentileStr(99);
-
-		// print configurable amount of percentile nines (99.9%, 99.99%, ...)
-		std::string ninesStr = "99.";
-		for(unsigned short numDecimals=1;
-			numDecimals <= progArgs.getNumLatencyPercentile9s();
-			numDecimals++)
-		{
-			ninesStr += "9"; // append next decimal 9
-			double percentage = std::stod(ninesStr);
-
-			outStream << " " << std::setprecision(numDecimals+3) << // +3 for "99."
-				percentage << "%<=" << latHisto.getPercentileStr(percentage);
-		}
-
-		outStream << " ]" << std::endl;
+        outStream << "[ " << latencyPercentilesStr(latHisto) << " ]" << std::endl;
 	}
+
+    // print latency percentiles of each service (if this was a distributed run)
+    if(progArgs.getShowServicesLatPercentiles() && !progArgs.getHostsVec().empty() )
+    {
+        printServicesLatencyRow(svcLatHisto, latTypeStr + " lat % svc",
+            [this](const LatencyHistogram& svcHisto)
+                { return "(" + latencyPercentilesStr(svcHisto) + ")"; },
+            outStream);
+    }
 
 	// print IO latency histogram
 	if(progArgs.getShowLatencyHistogram() && latHisto.getNumStoredValues() )
@@ -1251,6 +1229,100 @@ void PhaseResultsPrinter::printPhaseResultsLatencyToStream(const LatencyHistogra
 
         outStream << " ]" << std::endl;
     }
+}
+
+/**
+ * The services of a distributed run ordered by the completion time of their slowest thread
+ * (fastest first). Services without phase work count as 0.
+ */
+ServicesByElapsedVec PhaseResultsPrinter::getServicesByElapsed() const
+{
+    ServicesByElapsedVec servicesVec;
+
+    for(Worker* worker : workerVec)
+    {
+        const UInt64Vec& elapsedVec = worker->getElapsedUSecVec();
+        const uint64_t slowestUSec = elapsedVec.empty() ?
+            0 : *std::max_element(elapsedVec.begin(), elapsedVec.end() );
+
+        servicesVec.emplace_back(slowestUSec, static_cast<RemoteWorker*>(worker) );
+    }
+
+    std::stable_sort(servicesVec.begin(), servicesVec.end(),
+        [](const auto& a, const auto& b) { return a.first < b.first; } );
+
+    return servicesVec;
+}
+
+/**
+ * The latency percentiles to show: 1, 50, 75, 99 and the configured number of nines (99.9, ...).
+ */
+LatPercentilesVec PhaseResultsPrinter::getLatencyPercentiles() const
+{
+    LatPercentilesVec percentiles = { {"1", 1}, {"50", 50}, {"75", 75}, {"99", 99} };
+    std::string ninesStr = "99.";
+
+    for(unsigned short numDecimals=1; numDecimals <= progArgs.getNumLatencyPercentile9s();
+        numDecimals++)
+    {
+        ninesStr += "9"; // append next decimal 9
+        percentiles.emplace_back(ninesStr, std::stod(ninesStr) );
+    }
+
+    return percentiles;
+}
+
+/**
+ * The percentiles of a histogram as "1%<=12 50%<=40 ...".
+ */
+std::string PhaseResultsPrinter::latencyPercentilesStr(const LatencyHistogram& latHisto) const
+{
+    std::string str;
+
+    for(const auto& [label, percentage] : getLatencyPercentiles() )
+        str += (str.empty() ? "" : " ") + label + "%<=" + latHisto.getPercentileStr(percentage);
+
+    return str;
+}
+
+/**
+ * Print a row with one "host=value" per service, ordered by the average latency of the services
+ * (lowest first). Services without latency values (e.g. netbench servers) are skipped, no row is
+ * printed if there is none with values.
+ *
+ * @param svcLatHisto the histogram of a service to take the values from.
+ * @param svcValueFunc the value string of a service histogram.
+ */
+void PhaseResultsPrinter::printServicesLatencyRow(LatHistoGetter svcLatHisto, std::string label,
+    std::function<std::string(const LatencyHistogram&)> svcValueFunc, std::ostream& outStream)
+{
+    std::multimap<uint64_t, std::string> svcByAvgMap; // key: avg us, val: "host=value"
+
+    for(Worker* worker : workerVec)
+    {
+        const LatencyHistogram& svcHisto = (worker->*svcLatHisto)();
+
+        if(!svcHisto.getNumStoredValues() )
+            continue;
+
+        svcByAvgMap.emplace(svcHisto.getAverageMicroSec(),
+            static_cast<RemoteWorker*>(worker)->getHost() + "=" + svcValueFunc(svcHisto) );
+    }
+
+    if(svcByAvgMap.empty() )
+        return;
+
+    outStream << boost::format(PhaseResultsPrinter::phaseResultsLeftFormatStr)
+        % ""
+        % label
+        % ":";
+
+    outStream << "[ ";
+
+    for(const auto& mapVal : svcByAvgMap)
+        outStream << mapVal.second << " ";
+
+    outStream << "]" << std::endl;
 }
 
 /**
@@ -1532,17 +1604,130 @@ void PhaseResultsPrinter::printPhaseResultsAsJSON(const PhaseResults& phaseResul
 
     // entries & iops latency results
 
-    // lambda to fill latency
-    std::function addLatencyResultsToSubtree = [&progArgs = progArgs](
-        const LatencyHistogram& latHisto, bpt::ptree& outTree)
+    // lambda to put min/avg/max of a histogram with values
+    auto putLatencyMinAvgMax = [](const LatencyHistogram& latHisto, bpt::ptree& outTree)
     {
-        if(!progArgs.getShowLatency() || !latHisto.getNumStoredValues() )
+        if(!latHisto.getNumStoredValues() )
             return;
 
         outTree.put("min_us", latHisto.getMinMicroSecLat() );
         outTree.put("avg_us", latHisto.getAverageMicroSec() );
         outTree.put("max_us", latHisto.getMaxMicroSecLat() );
+    };
+
+    // lambda to put the percentiles of a histogram with values
+    auto putLatencyPercentiles = [this](const LatencyHistogram& latHisto, bpt::ptree& outTree)
+    {
+        if(!latHisto.getNumStoredValues() )
+            return;
+
+        bpt::ptree percentilesTree;
+
+        for(const auto& [label, percentage] : getLatencyPercentiles() )
+        { // (push_back instead of put, because put takes the "." of "99.9" as path separator)
+            bpt::ptree valueTree;
+            valueTree.put_value(latHisto.getPercentile(percentage) );
+            percentilesTree.push_back(std::make_pair(label, valueTree) );
+        }
+
+        outTree.put_child("percentiles_us", percentilesTree);
+    };
+
+    // lambda to fill latency
+    std::function addLatencyResultsToSubtree = [&progArgs = progArgs, &putLatencyMinAvgMax,
+        &putLatencyPercentiles](const LatencyHistogram& latHisto, bpt::ptree& outTree)
+    {
+        if(progArgs.getShowLatency() )
+            putLatencyMinAvgMax(latHisto, outTree);
+
+        if(progArgs.getShowLatencyPercentiles() )
+            putLatencyPercentiles(latHisto, outTree);
     }; // end of addLatencyResultsToSubtree lambda
+
+    // per-service completion time and latency (if this was a distributed run)
+
+    const bool showServicesLat = progArgs.getShowServicesLatency() ||
+        progArgs.getShowServicesLatPercentiles() || progArgs.getShowServicesLatHisto();
+
+    if( (progArgs.getShowServicesElapsed() || showServicesLat) && !progArgs.getHostsVec().empty() )
+    {
+        const ResultTerms terms = ResultTerms::forPhase(progArgs, true);
+        bpt::ptree instancesTrees[2]; // [1] is for netbench servers
+
+        // lambda to put the selected latency values of a service histogram with values
+        auto putSvcLatency = [&](const LatencyHistogram& latHisto, bpt::ptree& outTree)
+        {
+            if(!latHisto.getNumStoredValues() )
+                return;
+
+            if(progArgs.getShowServicesLatency() )
+                putLatencyMinAvgMax(latHisto, outTree);
+
+            if(progArgs.getShowServicesLatPercentiles() )
+                putLatencyPercentiles(latHisto, outTree);
+
+            if(progArgs.getShowServicesLatHisto() )
+                latHisto.getAsPropertyTreeForJSONFile(outTree, "histogram");
+        };
+
+        // lambda to put the latency of a histogram and its rwmix read counterpart
+        auto putLatency = [&putSvcLatency](const LatencyHistogram& latHisto,
+            const LatencyHistogram& latHistoReadMix, const char* name, bpt::ptree& outTree)
+        {
+            bpt::ptree latTree, latTreeReadMix;
+
+            putSvcLatency(latHisto, latTree);
+            putSvcLatency(latHistoReadMix, latTreeReadMix);
+
+            if(latTreeReadMix.size() )
+                latTree.put_child("rwmix_read", latTreeReadMix);
+
+            if(latTree.size() )
+                outTree.put_child(name, latTree);
+        };
+
+        for(const auto& [slowestUSec, remoteWorker] : getServicesByElapsed() )
+        {
+            bpt::ptree svcTree, latencyTree;
+
+            svcTree.put("host", remoteWorker->getHost() );
+
+            if(progArgs.getShowServicesElapsed() )
+                svcTree.put("elapsed_time_ms", slowestUSec / 1000);
+
+            if(showServicesLat)
+            {
+                putLatency(remoteWorker->getEntriesLatencyHistogram(),
+                    remoteWorker->getEntriesLatencyHistogramReadMix(), "entries", latencyTree);
+                putLatency(remoteWorker->getIOPSLatencyHistogram(),
+                    remoteWorker->getIOPSLatencyHistogramReadMix(), "IO", latencyTree);
+            }
+
+            if(latencyTree.size() )
+                svcTree.put_child("latency", latencyTree);
+
+            const bool isServer =
+                progArgs.getNetBenchArgs().isServerService(remoteWorker->getRank() );
+
+            instancesTrees[isServer].push_back(std::make_pair("", svcTree) );
+        }
+
+        // lambda to add the instances to the (possibly existing "--svcminmax") group subtree
+        auto addInstances = [&lastDoneSubtree](const std::string& key,
+            const bpt::ptree& instancesTree)
+        {
+            if(instancesTree.empty() )
+                return;
+
+            if(!lastDoneSubtree.get_child_optional(key) )
+                lastDoneSubtree.put_child(key, bpt::ptree() );
+
+            lastDoneSubtree.get_child(key).put_child("instances", instancesTree);
+        };
+
+        addInstances(terms.servicesKey, instancesTrees[0]);
+        addInstances("servers", instancesTrees[1]);
+    }
 
     addLatencyResultsToSubtree(phaseResults.entriesLatHisto, entriesLatencySubtree);
     addLatencyResultsToSubtree(phaseResults.entriesLatHistoReadMix, entriesLatencySubtreeReadMix);

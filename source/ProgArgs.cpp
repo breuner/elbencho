@@ -619,15 +619,25 @@ void ProgArgs::defineAllowedArgs()
             "Use strided read/write access pattern. Only available if given benchmark paths are "
             "files or block devices. Cannot be used with a block size mix.")
 /*sv*/	(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
-			"Show elapsed time to completion of each service instance ordered by slowest thread.")
+            "Legacy way to set \"--" ARG_SVCSTATS_LONG " " ARG_SVCSTATS_ELAPSED_NAME "\".")
 /*sv*/  (ARG_SHOWSVCMINMAX_LONG, bpo::bool_switch(&this->showServicesMinMax),
-            "Show the service instances with the lowest and the highest IOPS and throughput of "
-            "each phase (rate and host name, plus the average over the services) to make "
-            "outliers visible. Rates are based on each service's own completion time. In "
-            "netbench mode, servers and clients are shown separately. Also adds these values to "
-            "the json result file.")
+            "Legacy way to set \"--" ARG_SVCSTATS_LONG " " ARG_SVCSTATS_MINMAX_NAME "\".")
 /*sv*/	(ARG_SVCSHOWPING_LONG, bpo::bool_switch(&this->svcShowPing),
-            "Show response time of service instances in fullscreen live stats.")
+            "Legacy way to set \"--" ARG_SVCSTATS_LONG " " ARG_SVCSTATS_PING_NAME "\".")
+/*sv*/  (ARG_SVCSTATS_LONG, bpo::value(&this->svcStatsOrigStr),
+            "Per-service statistics of a distributed run in the result table on the console and in "
+            "the json result file. This value is a comma-separated list of the following: "
+            "\"" ARG_SVCSTATS_ELAPSED_NAME "\" for the completion time of each service instance "
+            "ordered by slowest thread; \"" ARG_SVCSTATS_LAT_NAME "\" for the min/avg/max latency "
+            "of each service instance; \"" ARG_SVCSTATS_PERCENT_NAME "\" for the latency "
+            "percentiles of each service instance (see \"--" ARG_LATENCYPERCENT9S_LONG "\"); "
+            "\"" ARG_SVCSTATS_LATHISTO_NAME "\" for the latency histogram of each service instance "
+            "(json result file only); \"" ARG_SVCSTATS_MINMAX_NAME "\" for the service instances "
+            "with the lowest and the highest IOPS and throughput (rate and host name, plus the "
+            "average over the services) based on each service's own completion time, in netbench "
+            "mode separately for servers and clients; \"" ARG_SVCSTATS_PING_NAME "\" for the "
+            "response time of each service instance in the fullscreen live stats; "
+            "\"" ARG_SVCSTATS_ALL_NAME "\" for all of these.")
 /*sv*/  (ARG_SVCPASSWORDFILE_LONG, bpo::value(&this->svcPasswordFile),
             "Path to a text file containing a single line of text as shared secret between service "
             "instances and master. This is to prevent unauthorized requests to service instances.")
@@ -817,6 +827,9 @@ void ProgArgs::defineDefaults()
     this->showLatencyHistogramGrouped = false;
     this->showLatencyPercentiles = false;
     this->showServicesElapsed = false;
+    this->showServicesLatency = false;
+    this->showServicesLatHisto = false;
+    this->showServicesLatPercentiles = false;
     this->showServicesMinMax = false;
     this->showThroughputBase10 = false;
     this->svcReadyWaitSec = 5;
@@ -1118,6 +1131,53 @@ void ProgArgs::convertUnitStrings()
     fadviseFlags = TranslatorTk::fadviseArgsStrToFlags(fadviseFlagsOrigStr);
     madviseFlags = TranslatorTk::madviseArgsStrToFlags(madviseFlagsOrigStr);
     flockType = TranslatorTk::flockArgsStrToType(flockTypeOrigStr);
+
+    applySvcStatsStr();
+}
+
+/**
+ * Set the per-service stats flags from the "--svcstats" list. The legacy options set the same
+ * flags, so this only adds.
+ *
+ * @throw ProgException on invalid list element.
+ */
+void ProgArgs::applySvcStatsStr()
+{
+    StringVec svcStatsVec;
+
+    boost::split(svcStatsVec, svcStatsOrigStr, boost::is_any_of(SVCSTATSLIST_DELIMITERS),
+        boost::token_compress_on);
+
+    for(const std::string& svcStat : svcStatsVec)
+    {
+        const bool all = (svcStat == ARG_SVCSTATS_ALL_NAME);
+
+        if(svcStat.empty() )
+            continue;
+        else
+        if(all || (svcStat == ARG_SVCSTATS_ELAPSED_NAME) )
+            showServicesElapsed = true;
+
+        if(all || (svcStat == ARG_SVCSTATS_LAT_NAME) )
+            showServicesLatency = true;
+
+        if(all || (svcStat == ARG_SVCSTATS_LATHISTO_NAME) )
+            showServicesLatHisto = true;
+
+        if(all || (svcStat == ARG_SVCSTATS_MINMAX_NAME) )
+            showServicesMinMax = true;
+
+        if(all || (svcStat == ARG_SVCSTATS_PERCENT_NAME) )
+            showServicesLatPercentiles = true;
+
+        if(all || (svcStat == ARG_SVCSTATS_PING_NAME) )
+            svcShowPing = true;
+
+        if(!all && (svcStat != ARG_SVCSTATS_ELAPSED_NAME) && (svcStat != ARG_SVCSTATS_LAT_NAME) &&
+            (svcStat != ARG_SVCSTATS_LATHISTO_NAME) && (svcStat != ARG_SVCSTATS_MINMAX_NAME) &&
+            (svcStat != ARG_SVCSTATS_PERCENT_NAME) && (svcStat != ARG_SVCSTATS_PING_NAME) )
+            throw ProgException("Invalid \"--" ARG_SVCSTATS_LONG "\" value: " + svcStat);
+    }
 }
 
 /**
@@ -3325,12 +3385,20 @@ void ProgArgs::printHelpDistributed()
 		(ARG_NOSVCPATHSHARE_LONG, bpo::bool_switch(&this->noSharedServicePath),
 			"Benchmark paths are not shared between service hosts. Thus, each service host will"
 			"work on the full given dataset instead of its own fraction of the data set.")
-		(ARG_SHOWSVCELAPSED_LONG, bpo::bool_switch(&this->showServicesElapsed),
-			"Show elapsed time to completion of each service instance ordered by slowest thread.")
-        (ARG_SHOWSVCMINMAX_LONG, bpo::bool_switch(&this->showServicesMinMax),
-            "Show the service instances with the lowest and the highest IOPS and throughput "
-            "(rate and host name, plus the average) to make outliers visible. Also adds these "
-            "values to the json result file.")
+        (ARG_SVCSTATS_LONG, bpo::value(&this->svcStatsOrigStr),
+            "Per-service statistics of a distributed run in the result table on the console and in "
+            "the json result file. This value is a comma-separated list of the following: "
+            "\"" ARG_SVCSTATS_ELAPSED_NAME "\" for the completion time of each service instance "
+            "ordered by slowest thread; \"" ARG_SVCSTATS_LAT_NAME "\" for the min/avg/max latency "
+            "of each service instance; \"" ARG_SVCSTATS_PERCENT_NAME "\" for the latency "
+            "percentiles of each service instance (see \"--" ARG_LATENCYPERCENT9S_LONG "\"); "
+            "\"" ARG_SVCSTATS_LATHISTO_NAME "\" for the latency histogram of each service instance "
+            "(json result file only); \"" ARG_SVCSTATS_MINMAX_NAME "\" for the service instances "
+            "with the lowest and the highest IOPS and throughput (rate and host name, plus the "
+            "average over the services) based on each service's own completion time, in netbench "
+            "mode separately for servers and clients; \"" ARG_SVCSTATS_PING_NAME "\" for the "
+            "response time of each service instance in the fullscreen live stats; "
+            "\"" ARG_SVCSTATS_ALL_NAME "\" for all of these.")
 		(ARG_INTERRUPT_LONG, bpo::bool_switch(&this->interruptServices),
 			"Interrupt current benchmark phase on given service mode hosts.")
 		(ARG_FOREGROUNDSERVICE_LONG, bpo::bool_switch(&this->runServiceInForeground),

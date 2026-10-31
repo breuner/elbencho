@@ -687,10 +687,11 @@ void NetBenchProgArgs::printHelp()
             "Receiver-not-ready retry timer of the ibverbs and rdmacm engines, as InfiniBand "
             "timer code 0-" STRINGIZE(NETRNR_MAX) " (1 = 10 us, 12 = 0.64 ms, 0 = 655 ms). "
             "(Default: " STRINGIZE(NETRNR_DEFAULT) ")")
-        (ARG_SHOWSVCMINMAX_LONG, bpo::bool_switch(),
-            "Show the clients and the servers with the lowest and highest IOPS and throughput "
-            "(rate and host name, plus the average), to make outliers visible. Also adds these "
-            "values to the json result file.")
+        (ARG_SVCSTATS_LONG, bpo::value<std::string>(),
+            "Per-service statistics, e.g. \"" ARG_SVCSTATS_MINMAX_NAME "\" for the clients and the "
+            "servers with the lowest and highest IOPS and throughput (rate and host name, plus the "
+            "average), to make outliers visible. See \"--" ARG_HELPALLOPTIONS_LONG "\" for all "
+            "values.")
         (ARG_SERVERSFILE_LONG, bpo::value<std::string>(),
             "Path to file with line-separated server hosts.")
         (ARG_CLIENTSFILE_LONG, bpo::value<std::string>(),

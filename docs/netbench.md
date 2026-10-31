@@ -260,12 +260,12 @@ the blocks and bytes the clients sent (`clients * threads * rounds * sendsize` b
 complete run), the "recv" rows the responses and bytes they received
 (`clients * threads * rounds * recvsize`). The servers see the same traffic from the other side
 and are therefore not added to these totals (they are shown in the live statistics and in the
-`--svcminmax` rows). The latency is measured on the clients from sending a block to receiving
+`--svcstats minmax` rows). The latency is measured on the clients from sending a block to receiving
 its response (or to the completion of the send for a send-only stream). In the json and csv
 result files the send values are the main values and the recv values are the `rwmix_read` or
 "rwmix read" values, as for a read/write mix.
 
-`--svcminmax` adds the slowest and the fastest service to the result, which makes a broken cable
+`--svcstats minmax` adds the slowest and the fastest service to the result, which makes a broken cable
 or a misconfigured interface stand out: one row for IOPS and one for throughput, each with the
 minimum, average and maximum over the services and the host names of the two extremes, based on
 each service's own completion time, on the bytes in both directions and on the rounds. Servers and
