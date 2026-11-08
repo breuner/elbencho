@@ -24,6 +24,7 @@ class HTTPServiceUWS : public HTTPService
 		virtual void startServer();
 
 	private:
+	    std::string listenErrorStr; // error from the listen callback, thrown after the event loop
 	    struct us_listen_socket_t* globalListenSocket{NULL}; /* init in .listen, later used to
 	    														quit server */
 

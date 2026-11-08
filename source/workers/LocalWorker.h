@@ -13,6 +13,7 @@
 
 #include "Common.h"
 #include "CuFileHandleData.h"
+#include "modes/mpiio/MpiIoMode.h"
 #include "modes/netbench/NetBenchMode.h"
 #include "modes/s3/S3Mode.h"
 #include "toolkits/Journal.h"
@@ -86,6 +87,7 @@ typedef bool (LocalWorker::*RW_RATE_LIMITER)(size_t rwSize,
  */
 class LocalWorker : public Worker
 {
+    friend class MpiIoMode;
     friend class NetBenchMode;
     friend class S3Mode;
     friend class WinIO;
@@ -256,6 +258,7 @@ class LocalWorker : public Worker
 
         S3Mode s3Mode; // s3 benchmark mode (works on this worker's buffers & stats)
         NetBenchMode netBench; // network benchmark mode (works on this worker's stats)
+        MpiIoMode mpiIo; // MPI-IO benchmark mode (works on this worker's buffers & stats)
         WinIO winIO; // native windows I/O path for files & bdevs (cygwin builds only)
 
 
@@ -344,6 +347,13 @@ class LocalWorker : public Worker
         ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t mmapWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t mpiioWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+            off_t offset);
+        // forwarders to the MPI-IO mode (as the function pointers need members)
+        ssize_t mpiioReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+            { return mpiIo.readAt(fileHandleIdx, buf, nbytes, offset); }
+        ssize_t mpiioWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+            { return mpiIo.writeAt(fileHandleIdx, buf, nbytes, offset); }
         ssize_t spdkReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t spdkWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t spdkWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,

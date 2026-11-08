@@ -141,7 +141,13 @@ All options in alphabetical order:
                           per-service then. (Format: hostname[:port])
   --hostsfile arg         Path to file containing line-separated service hosts 
                           to use for benchmark. Lines starting with "#" will be
-                          ignored. (Format: hostname[:port])
+                          ignored. (Format: hostname[:port]) In service mode, 
+                          the service appends its own host and port to this 
+                          file when it starts listening (under a whole-file 
+                          lock, so services on a shared file system can 
+                          register in the same file, e.g. with "--port 0"), and
+                          the coordinator can then use the file as its hosts 
+                          file.
   -i [ --iterations ] arg Number of iterations to run the benchmark. (Default: 
                           1)
   --infloop               Let I/O threads run in an infinite repeat loop, i.e. 
@@ -352,6 +358,24 @@ All options in alphabetical order:
   --tservers arg          Number of netbench threads per server service, if 
                           fewer than "-t" should serve streams. The remaining 
                           threads of a server stay idle. (Default: "-t")
+  --mpicoll               Use collective MPI-IO calls 
+                          (MPI_File_write_at_all/read_at_all) in MPI-IO mode. 
+                          Requires a single shared file as benchmark path. All 
+                          threads with the same index across the service ranks 
+                          form one collective group and do the same number of 
+                          I/Os, so the file size gets reduced to a multiple of 
+                          block size times total thread count if necessary. See
+                          "--help-mpiio" for details.
+  --mpihints arg          Comma-separated MPI-IO hints as key=value pairs for 
+                          MPI_File_open in MPI-IO mode, e.g. 
+                          "romio_cb_write=enable,striping_unit=1048576". Which 
+                          hints have an effect depends on the MPI library and 
+                          the file system.
+  --mpiio                 Read and write file contents through the MPI-IO API 
+                          (MPI_File_*). Launch via mpirun: rank 0 is the 
+                          coordinator, all other ranks are the service 
+                          instances that do the I/O; without mpirun this is a 
+                          standalone run. See "--help-mpiio" for details.
   --no0usecerr            Do not warn if worker thread completion time is less 
                           than 1 microsecond.
   --nocsvlabels           Do not print headline with labels to csv file.

@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 
 #include "ProgArgs.h"
+#include "modes/mpiio/MpiIoLauncher.h"
 #include "Common.h"
 #include "Logger.h"
 #include "PathStore.h"
@@ -219,6 +220,7 @@ void ProgArgs::defineAllowedArgs()
         (ARG_HELPBLOCKDEV_LONG, "Print block device & large shared file help message.")
         (ARG_HELPLARGE_LONG, "Print block device & large shared file help message.")
         (ARG_HELPMULTIFILE_LONG, "Print multi-file / multi-directory help message.")
+        (ARG_HELPMPIIO_LONG, "Print MPI-IO benchmark help message.")
         (ARG_HELPNETBENCH_LONG, "Print network benchmark help message.")
         (ARG_HELPS3_LONG, "Print S3 object storage help message.")
         (ARG_HELPDISTRIBUTED_LONG, "Print distributed benchmark help message.")
@@ -380,7 +382,11 @@ void ProgArgs::defineAllowedArgs()
 			"is per-service then. (Format: hostname[:port])")
 /*ho*/	(ARG_HOSTSFILE_LONG, bpo::value(&this->hostsFilePath),
 			"Path to file containing line-separated service hosts to use for benchmark. Lines "
-			"starting with \"#\" will be ignored. (Format: hostname[:port])")
+			"starting with \"#\" will be ignored. (Format: hostname[:port]) In service mode, the "
+            "service appends its own host and port to this file when it starts listening (under a "
+            "whole-file lock, so services on a shared file system can register in the same file, "
+            "e.g. with \"--" ARG_SERVICEPORT_LONG " 0\"), and the coordinator can then use the file "
+            "as its hosts file.")
 /*i*/	(ARG_ITERATIONS_LONG "," ARG_ITERATIONS_SHORT, bpo::value(&this->iterations),
 			"Number of iterations to run the benchmark. (Default: 1)")
 /*in*/  (ARG_INFINITEIOLOOP_LONG, bpo::bool_switch(&this->doInfiniteIOLoop),
@@ -493,6 +499,7 @@ void ProgArgs::defineAllowedArgs()
     ;
 
     netBenchArgs.defineArgs(argsGenericDescription, argsHiddenDescription);
+    mpiIoArgs.defineArgs(argsGenericDescription, argsHiddenDescription);
 
     argsGenericDescription.add_options()
 /*no0*/	(ARG_IGNORE0USECERR_LONG, bpo::bool_switch(&this->ignore0USecErrors),
@@ -735,6 +742,7 @@ void ProgArgs::defineDefaults()
 
     s3Args.defineDefaults();
     netBenchArgs.defineDefaults();
+    mpiIoArgs.defineDefaults();
 
     for(Plugin* plugin : PluginRegistry::getAll() )
         plugin->defineDefaults();
@@ -972,6 +980,9 @@ void ProgArgs::initBenchMode()
     else
     if(!spdkConfFile.empty() || !spdkConfJSON.empty() )
         benchMode = BenchMode_SPDK;
+    else
+    if(mpiIoArgs.getUseMpiIo() )
+        benchMode = BenchMode_MPIIO;
 
     // default to posix mode if no other mode is set explicitly and not running as service
     if( (benchMode == BenchMode_UNDEFINED) && !runAsService)
@@ -1211,6 +1222,16 @@ void ProgArgs::checkArgs()
             throw ProgException("Journaled data verification (\"--" ARG_JOURNALDIR_LONG "\") is "
                 "not supported in service mode.");
 
+        /* a service rank under mpirun got the coordinator's command line, so it must not write
+            the coordinator's result files (the ops log stays, as the I/O happens here) */
+        if(MpiIoLauncher::isAutoService() )
+        {
+            resFilePathTXT.clear();
+            resFilePathCSV.clear();
+            resFilePathJSON.clear();
+            liveCSVFilePath.clear();
+        }
+
 		// check/apply override of benchmark paths
 		if(argsVariablesMap.count(ARG_BENCHPATHS_LONG) )
 			benchPathsVec = argsVariablesMap[ARG_BENCHPATHS_LONG].as<StringVec>();
@@ -1288,6 +1309,7 @@ void ProgArgs::checkArgs()
 	}
 
     netBenchArgs.checkArgs(*this);
+    mpiIoArgs.checkArgs(*this);
 
 	if( (useRandomOffsets + useStridedAccess + doReverseSeqOffsets) > 1)
 	    throw ProgException("Random, strided and reverse sequence offsets cannot be used "
@@ -1378,7 +1400,7 @@ void ProgArgs::checkArgs()
     if( (flockType == ARG_FLOCK_FULL) && (ioDepth > 1) && runCreateFilesPhase)
         throw ProgException("Full file write locks cannot be used together with async IO");
 
-    if( (ioDepth > 1) && (limitReadBps || limitWriteBps) && (benchMode == BenchMode_POSIX) )
+    if( (ioDepth > 1) && (limitReadBps || limitWriteBps) && getIsPosixFsMode() )
     { /* note: we don't check for "showLatency" & friends here because latency is always shown
         in csv/json */
         LOGGER(Log_NORMAL, "NOTE: Using rate limiter with \"iodepth > 1\" can result in some "
@@ -1523,6 +1545,8 @@ void ProgArgs::checkPathDependentArgs()
 
 		fileSize = newFileSize;
 	}
+
+    mpiIoArgs.checkPathDependentArgs(*this);
 
     /* offset only makes sense in combination with a non-zero file size (irrelevant for custom
         tree mode, where per-file size comes from the tree file, not from "--size") */
@@ -1740,7 +1764,7 @@ void ProgArgs::parseAndCheckPaths()
 			for(std::string path : benchPathsVec)
 			{
 				// resolve absolute path if path is not an s3 bucket
-				benchPathStr += (benchMode == BenchMode_POSIX) ? absolutePath(path) : path;
+				benchPathStr += getIsPosixFsMode() ? absolutePath(path) : path;
 				benchPathStr += std::string(BENCHPATH_DELIMITER)[0];
 			}
 		}
@@ -1776,7 +1800,7 @@ void ProgArgs::parseAndCheckPaths()
 		for(std::string path : benchPathsVec)
 		{
 			// resolve absolute path if path is not an s3 bucket
-			benchPathStr += (benchMode == BenchMode_POSIX) ? absolutePath(path) : path;
+			benchPathStr += getIsPosixFsMode() ? absolutePath(path) : path;
 			benchPathStr += std::string(BENCHPATH_DELIMITER)[0];
 		}
 	}
@@ -1797,10 +1821,10 @@ void ProgArgs::parseAndCheckPaths()
     s3Args.prepareClientSingleton(*this);
 
     // skip open of local paths for anything other than posix (i.e. S3/HDFS/NetBench/SPDK)
-    if(benchMode != BenchMode_POSIX)
+    if(!getIsPosixFsMode() )
         return;
 
-    // if we get here then we have a posix file system as bench path (BenchMode_POSIX)
+    // if we get here then we have a posix file system as bench path (posix or mpiio mode)
 
     prepareBenchPathFDsVec();
     prepareCuFileHandleDataVec();
@@ -3023,6 +3047,7 @@ bool ProgArgs::hasUserRequestedHelp()
 		argsVariablesMap.count(ARG_HELPBLOCKDEV_LONG) ||
 		argsVariablesMap.count(ARG_HELPLARGE_LONG) ||
 		argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) ||
+		argsVariablesMap.count(ARG_HELPMPIIO_LONG) ||
 		argsVariablesMap.count(ARG_HELPNETBENCH_LONG) ||
 		argsVariablesMap.count(ARG_HELPS3_LONG) ||
 		argsVariablesMap.count(ARG_HELPDISTRIBUTED_LONG) ||
@@ -3047,6 +3072,9 @@ void ProgArgs::printHelp()
 	else
 	if(argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) )
 		printHelpMultiFile();
+	else
+	if(argsVariablesMap.count(ARG_HELPMPIIO_LONG) )
+		mpiIoArgs.printHelp();
 	else
 	if(argsVariablesMap.count(ARG_HELPNETBENCH_LONG) )
 		netBenchArgs.printHelp();
@@ -3091,6 +3119,9 @@ void ProgArgs::printHelpOverview()
 		std::endl <<
 		"Network benchmarking between hosts:" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPNETBENCH_LONG ENDL
+		std::endl <<
+		"MPI-IO (independent and collective, launched via mpirun):" ENDL
+		"  $ " EXE_NAME " --" ARG_HELPMPIIO_LONG ENDL
 		std::endl <<
 		"See all available options (e.g. csv file output):" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPALLOPTIONS_LONG ENDL
@@ -3514,6 +3545,8 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "libnuma ";
 #endif
 
+    mpiIoArgs.printBuildInfo(includedStream, notIncludedStream);
+
 #ifdef USE_MIMALLOC
 	includedStream << "mimalloc ";
 #else
@@ -3636,6 +3669,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 
     s3Args.setFromPropertyTree(tree);
     netBenchArgs.setFromPropertyTree(tree);
+    mpiIoArgs.setFromPropertyTree(tree);
 
     // plugins: only transferred if the master activated any (see getAsPropertyTreeForService() )
     pluginsStr = tree.get(ARG_PLUGINS_LONG, std::string() );
@@ -3770,6 +3804,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 
     s3Args.getAsPropertyTree(outTree);
     netBenchArgs.getAsPropertyTree(*this, outTree, serviceRank);
+    mpiIoArgs.getAsPropertyTree(outTree);
 
     if(!pluginsVec.empty() )
     {

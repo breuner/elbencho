@@ -22,9 +22,11 @@ requests always need a target buffer.
 Either let elbencho's externals step clone and build the fork (instead of the stock AWS SDK):
 
 ```bash
-make clean-all # the externals step keeps an existing AWS SDK build, so clean when switching
 make -j $(nproc) S3_SUPPORT=1 ELB_PLUGIN_S3RDMA_CLOUDIAN=1
 ```
+
+(An existing stock AWS SDK build in `external/` gets replaced by the fork automatically, and vice
+versa when building without the plugin again.)
 
 Or build and install the fork as static libraries yourself and point elbencho at it:
 

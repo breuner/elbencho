@@ -6,7 +6,7 @@
 
 DOCS_DIR="docs/usage"
 EXE_PATH="bin/elbencho"
-EXE_BUILD_OPTS=("S3_SUPPORT=1" "BUILD_DEBUG=1" "CXX=g++" "-j$(nproc)" "S3_AWSCRT=0" "SPDK_SUPPORT=1")
+EXE_BUILD_OPTS=("S3_SUPPORT=1" "BUILD_DEBUG=1" "-j$(nproc)" "S3_AWSCRT=0" "SPDK_SUPPORT=1" "MPI_SUPPORT=1")
 
 
 if [ ! -d "$DOCS_DIR" ]; then

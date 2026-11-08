@@ -3,15 +3,18 @@
 ## v3.3.4 (work in progress)
 
 ### New Features & Enhancements
+* Added support for MPI-IO, including collective IO. See [`docs/mpiio.md`](docs/mpiio.md).
 * Added per-thread and per-service performance info to `--livecsvex` rows.
 * Added new columns to `--livecsv` file to show:
   * cumulative IO count (`DoneIOs`)
   * max entry latency (`Lat Ent max us`)
   * max IO latency (`Lat IO max us`)
 * Added new `--svcstats` parameter to individually enable various per-service results in console result table and json result file.
+* Added support for services to pick a random free TCP port to listen for coordinator instructions and write it into a hosts file on a shared file system. This file can be used by the coordinator afterwards. (`elbencho --service --hostsfile /mnt/shared/hosts.txt`)
 
 ### General Changes
 * Improved netbench error messages to show associated source/destination interface in case of a failed transfer.
+* Added documentation for `--jsonfile` and `--livecsv`. See [`docs/csv-and-json-result-files.md`](docs/csv-and-json-result-files.md).
 
 ### Fixes
 * Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)

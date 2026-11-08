@@ -30,6 +30,7 @@ std::string TranslatorTk::benchModeToModeName(BenchMode benchMode)
         case BenchMode_HDFS: return "HDFS";
         case BenchMode_NETBENCH: return "NETBENCH";
 		case BenchMode_SPDK: return "SPDK";
+        case BenchMode_MPIIO: return "MPIIO";
 
         default: return "UNKNOWN";
     }

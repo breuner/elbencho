@@ -32,7 +32,7 @@
 
 LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank) :
 	Worker(workersSharedData, workerRank), opsLog(workersSharedData->progArgs, workerRank),
-    s3Mode(*this), netBench(*this), winIO(*this)
+    s3Mode(*this), netBench(*this), mpiIo(*this), winIO(*this)
 {
 	nullifyPhaseFunctionPointers();
 
@@ -252,6 +252,12 @@ void LocalWorker::run()
 
 				checkInterruptionRequest(); // for infinite loop workers with no work
 
+                /* collective MPI-IO: the group decides together (no-op otherwise). after the
+                    interruption check, so that a thread which throws there still casts its vote
+                    in finishCollectivePhase() instead of leaving the group after a "continue" */
+                if(doInfiniteIOLoop)
+                    doInfiniteIOLoop = mpiIo.continueRepeat(false);
+
 			} while(doInfiniteIOLoop && workerGotPhaseWork); // end of infinite loop
 
 			// let coordinator know that we are done
@@ -281,6 +287,7 @@ void LocalWorker::run()
 		ErrLogger(Log_NORMAL, progArgs->getRunAsService() ) << e.what() << std::endl;
 
 		s3Mode.abortUnfinishedSharedUploads(); // abort unfinished S3 uploads
+        mpiIo.finishCollectivePhase(); // let the collective MPI-IO group finish without us
 	}
 
 	incNumWorkersDoneWithError();
@@ -311,6 +318,7 @@ void LocalWorker::preparePhase()
     s3Mode.init();
     initHDFS();
     netBench.init();
+    mpiIo.init();
     initSpdk();
 }
 
@@ -336,6 +344,10 @@ void LocalWorker::finishPhase()
 		elapsedUSecVec.resize(1);
 		elapsedUSecVec[0] = finishElapsedUSec;
 	}
+
+    /* after the elapsed time, so that the empty calls which let the collective MPI-IO group finish
+        don't count as I/O time. (no-op unless this was a collective MPI-IO phase) */
+    mpiIo.finishCollectivePhase();
 
 	phaseFinished = true; // before incNumWorkersDone() because Coordinator can reset after inc
 
@@ -865,6 +877,7 @@ void LocalWorker::initPhaseFunctionPointers()
     const size_t ioDepth = progArgs->getIODepth();
     const bool useHDFS = (progArgs->getBenchMode() == BenchMode_HDFS);
     const bool useSPDK = (progArgs->getBenchMode() == BenchMode_SPDK);
+    const bool useMpiIo = (progArgs->getBenchMode() == BenchMode_MPIIO);
     const bool useMmap = progArgs->getUseMmap();
     const bool useCuFileAPI = progArgs->getUseCuFile();
     const bool useGpuDirectIO = useCuFileAPI || s3Mode.isGpuDirect(); // data lands in gpu bufs
@@ -895,6 +908,9 @@ void LocalWorker::initPhaseFunctionPointers()
     if(useSPDK)
         funcPositionalWrite = &LocalWorker::spdkWriteWrapper;
     else
+    if(useMpiIo)
+        funcPositionalWrite = &LocalWorker::mpiioWriteWrapper;
+    else
     if(useMmap)
         funcPositionalWrite = &LocalWorker::mmapWriteWrapper;
     else
@@ -912,6 +928,9 @@ void LocalWorker::initPhaseFunctionPointers()
     else
     if(useSPDK)
         funcPositionalRead = &LocalWorker::spdkReadWrapper;
+    else
+    if(useMpiIo)
+        funcPositionalRead = &LocalWorker::mpiioReadWrapper;
     else
     if(useMmap)
         funcPositionalRead = &LocalWorker::mmapReadWrapper;
@@ -973,6 +992,9 @@ void LocalWorker::initPhaseFunctionPointers()
         {
             if(useSPDK)
                 funcPositionalWrite = &LocalWorker::spdkWriteAndReadWrapper;
+            else
+            if(useMpiIo)
+                funcPositionalWrite = &LocalWorker::mpiioWriteAndReadWrapper;
             else
             if(!useCuFileAPI)
 #ifdef CYGWIN_SUPPORT
@@ -1089,6 +1111,8 @@ void LocalWorker::initPhaseFunctionPointers()
         if(ioDepth > 1)
             funcAioRwPrepper = &LocalWorker::aioJournalPrepper;
     }
+
+    mpiIo.initPhase(); // (independent or collective calls behind the mpiio wrappers above)
 }
 
 /**
@@ -1379,6 +1403,7 @@ void LocalWorker::cleanup()
 
     uninitSpdk();
     netBench.uninit();
+    mpiIo.uninit();
 	uninitHDFS();
 	s3Mode.uninit();
     winIO.uninit();
@@ -3006,6 +3031,20 @@ ssize_t LocalWorker::pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_
 }
 
 /**
+ * MPI-IO write followed by an immediate read of the same block (independent I/O only).
+ */
+ssize_t LocalWorker::mpiioWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+    off_t offset)
+{
+    ssize_t writeRes = mpiIo.writeAt(fileHandleIdx, buf, nbytes, offset);
+
+    IF_UNLIKELY(writeRes <= 0)
+        return writeRes;
+
+    return mpiIo.readAt(fileHandleIdx, buf, writeRes, offset);
+}
+
+/**
  * Within a write phase, send user-defined pecentage of block reads for mixed r/w.
  *
  * Parameters and return value are similar to p{write,read}.
@@ -4007,6 +4046,18 @@ void LocalWorker::fileModeIterateFilesRand()
     const uint64_t rangeLen = blockSize * (numBlocksTotal / numDataSetThreads);
     const uint64_t rangeOffset = workerRank * blockSize * (numBlocksTotal / numDataSetThreads);
 
+    if(progArgs->getUseStridedAccess() && progArgs->getMpiIoArgs().getUseCollective() )
+    { /* collective group (thread t of all I/O ranks) owns a contiguous region and its members
+         interleave only within it, so each round is one adjacent run and rounds follow gapless */
+        const size_t numRanks = numDataSetThreads / progArgs->getNumThreads();
+        const size_t rankIdx = progArgs->getRankOffset() / progArgs->getNumThreads();
+        const size_t groupIdx = workerRank - progArgs->getRankOffset();
+        const uint64_t groupStartBlock = groupIdx * numRanks * (numBlocksTotal / numDataSetThreads);
+
+        rwOffsetGen = std::make_unique<OffsetGenStrided>(rangeLen,
+            blockSize * (groupStartBlock + rankIdx), blockSize, numRanks);
+    }
+    else
     if(progArgs->getUseStridedAccess() )
         rwOffsetGen = std::make_unique<OffsetGenStrided>(rangeLen, blockSize * workerRank,
             blockSize, numDataSetThreads);
@@ -4145,6 +4196,7 @@ void LocalWorker::fileModeIterateFilesSeq()
         // find the file index and inner file block index for current global block index
         const uint64_t currentFileIndex = currentBlockIdx / numBlocksPerFile;
         fileHandles.fdVec[0] = pathFDs[currentFileIndex];
+        mpiIo.setCurrentFileIdx(currentFileIndex);
         winIO.setCurrentFile(currentFileIndex);
         fileHandles.cuFileHandleDataPtrVec[0] = !useCuFile ? nullptr :
             &(cuFileHandleDataVec[currentFileIndex]);
@@ -4357,19 +4409,28 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
         uint64_t preallocOffset)
 {
     const bool useMmap = progArgs->getUseMmap();
+    const bool useMpiIo = (progArgs->getBenchMode() == BenchMode_MPIIO);
     const std::string currentPath = progArgs->getBenchPaths()[pathFDsIndex] + "/" + relativePath;
 
 #ifdef CYGWIN_SUPPORT
     const int fd = -1; // (the windows I/O path works with its own handle instead of a cygwin fd)
     const bool openRes = winIO.openDirModeFile(currentPath, openFlags);
 #else
-    OPLOG_PRE_OP("openat", currentPath, 0, 0);
+    int fd = -1; // (the MPI-IO path works with its own handle instead of an fd)
+    bool openRes = true;
 
-    int fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
+    if(useMpiIo)
+        mpiIo.openDirModeFile(currentPath, openFlags); // (throws on error)
+    else
+    {
+        OPLOG_PRE_OP("openat", currentPath, 0, 0);
 
-    OPLOG_POST_OP("openat", currentPath, 0, 0, fd == -1);
+        fd = openat(pathFDs[pathFDsIndex], relativePath, openFlags, MKFILE_MODE);
 
-    const bool openRes = (fd != -1);
+        OPLOG_POST_OP("openat", currentPath, 0, 0, fd == -1);
+
+        openRes = (fd != -1);
+    }
 #endif // CYGWIN_SUPPORT
 
     IF_UNLIKELY(!openRes)
@@ -4395,39 +4456,46 @@ int LocalWorker::dirModeOpenAndPrepFile(BenchPhase benchPhase, const IntVec& pat
 #ifdef CYGWIN_SUPPORT
             winIO.prepDirModeFile(currentPath, fileLen, preallocOffset);
 #else
-            if(progArgs->getDoTruncToSize() )
+            if(useMpiIo)
+                mpiIo.prepDirModeFile(currentPath, fileLen);
+            else
             {
-                int truncRes = ftruncate(fd, fileLen);
-                if(truncRes == -1)
-                    throw WorkerException("Unable to set file size through ftruncate. "
-                        "Path: " + currentPath + "; "
-                        "Size: " + std::to_string(fileLen) + "; "
-                        "SysErr: " + strerror(errno) );
-            }
+                if(progArgs->getDoTruncToSize() )
+                {
+                    int truncRes = ftruncate(fd, fileLen);
+                    if(truncRes == -1)
+                        throw WorkerException("Unable to set file size through ftruncate. "
+                            "Path: " + currentPath + "; "
+                            "Size: " + std::to_string(fileLen) + "; "
+                            "SysErr: " + strerror(errno) );
+                }
 
-            if(progArgs->getDoPreallocFile() )
-            {
-                #if defined(__APPLE__)
-                    throw WorkerException("posix_fallocate is not supported on macOS. "
-                        "Path: " + currentPath + "; "
-                        "Size: " + std::to_string(fileLen) );
-                #else // linux
-                    // (note: posix_fallocate does not set errno.)
-                    int preallocRes = posix_fallocate(fd, preallocOffset,
-                        fileLen - preallocOffset);
-                    if(preallocRes != 0)
-                        throw WorkerException(
-                            "Unable to preallocate file size through posix_fallocate. "
-                            "File: " + currentPath + "; "
-                            "Offset: " + std::to_string(preallocOffset) + "; "
-                            "Size: " + std::to_string(fileLen - preallocOffset) + "; "
-                            "SysErr: " + strerror(preallocRes) );
-                #endif // linux
+                if(progArgs->getDoPreallocFile() )
+                {
+                    #if defined(__APPLE__)
+                        throw WorkerException("posix_fallocate is not supported on macOS. "
+                            "Path: " + currentPath + "; "
+                            "Size: " + std::to_string(fileLen) );
+                    #else // linux
+                        // (note: posix_fallocate does not set errno.)
+                        int preallocRes = posix_fallocate(fd, preallocOffset,
+                            fileLen - preallocOffset);
+                        if(preallocRes != 0)
+                            throw WorkerException(
+                                "Unable to preallocate file size through posix_fallocate. "
+                                "File: " + currentPath + "; "
+                                "Offset: " + std::to_string(preallocOffset) + "; "
+                                "Size: " + std::to_string(fileLen - preallocOffset) + "; "
+                                "SysErr: " + strerror(preallocRes) );
+                    #endif // linux
+                }
             }
 #endif // CYGWIN_SUPPORT
         }
 
-        FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(), currentPath.c_str() );
+        if(!useMpiIo)
+            FileTk::fadvise<WorkerException>(fd, progArgs->getFadviseFlags(),
+                currentPath.c_str() );
 
         // create memory mapping
         if(useMmap)
@@ -4467,6 +4535,12 @@ void LocalWorker::dirModeStatInline(const std::string& path)
 #ifdef CYGWIN_SUPPORT
     winIO.statCurrentFile(path);
 #else
+    if(progArgs->getBenchMode() == BenchMode_MPIIO)
+    {
+        mpiIo.statCurrentFile(path);
+        return;
+    }
+
     struct stat statBuf;
 
     OPLOG_PRE_OP("fstat", path, 0, 0);
@@ -4492,6 +4566,12 @@ void LocalWorker::dirModeCloseFile(const std::string& path, bool throwOnError)
 #ifdef CYGWIN_SUPPORT
     winIO.closeCurrentFile(path, throwOnError);
 #else
+    if(progArgs->getBenchMode() == BenchMode_MPIIO)
+    {
+        mpiIo.closeCurrentFile(path, throwOnError);
+        return;
+    }
+
     int& fd = fileHandles.fdVec[0];
 
     OPLOG_PRE_OP("close", std::to_string(fd), 0, 0);

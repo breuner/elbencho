@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "HTTPServiceSWS.h"
+#include "modes/mpiio/MpiIoLauncher.h"
 #include "ProgException.h"
 #include "modes/netbench/NetBenchProtocol.h"
 #include "modes/netbench/NetBenchServer.h"
@@ -120,11 +121,29 @@ void HTTPServiceSWS::startServer()
 			"Port: " + std::to_string(progArgs.getServicePort() ) );
 	}
 
+    progArgs.setServicePort(serverPortFutureValue); // (the actual port for "--port 0")
+
 	std::cout << "Elbencho service now listening. " <<
 	    (progArgs.getSvcPasswordHash().empty() ? "" : "Protected by shared secret. ") <<
 	    "Port: " << serverPortFutureValue << std::endl;
 
+    try
+    {
+        registerInHostsFile(serverPortFutureValue); // (no-op without "--hostsfile")
+    }
+    catch(ProgException& e)
+    {
+        server.stop();
+        serverThread.join();
+        throw;
+    }
+
+    // under mpirun: announce the address to the coordinator rank, stop when it is done
+    MpiIoLauncher::serviceListening(serverPortFutureValue, [&server]() { server.stop(); } );
+
 	serverThread.join();
+
+    MpiIoLauncher::joinServiceWaiter();
 
 	std::cout << "Service stopped listening. Port: " << serverPortFutureValue << std::endl;
 }

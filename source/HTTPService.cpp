@@ -45,7 +45,9 @@ void HTTPService::daemonize()
 
 	logfile += std::string("/") + SERVICE_LOG_FILEPREFIX + "_" +
 		SystemTk::getUsername() + "_" +
-		"p" + std::to_string(progArgs.getServicePort() ) + "." // port
+		(progArgs.getServicePort() ? // port, or pid for an OS-chosen port ("--port 0")
+		    ("p" + std::to_string(progArgs.getServicePort() ) ) :
+		    ("pid" + std::to_string(getpid() ) ) ) + "."
 		"log";
 
     // keep old log file (if any)
@@ -273,6 +275,106 @@ static bool checkWildcardPortAvailable(int addressFamily, unsigned short port)
     close(sockFD);
 
     return true;
+}
+
+/**
+ * Service mode with "--hostsfile": append this service's "host:port" line to the given file, so
+ * that a coordinator can use the file as its hosts file. The host is the name the job launcher
+ * started this service with (hydra, Slurm), otherwise the host name. The whole file is locked for
+ * the append, because concurrent appends are not atomic on network file systems.
+ *
+ * @port the actual listening port.
+ * @throw ProgException on error.
+ */
+void HTTPService::registerInHostsFile(unsigned short port)
+{
+    const std::string path = progArgs.getHostsFilePath();
+
+    if(path.empty() )
+        return;
+
+    // the host as spelled on the launcher's command line is what the coordinator can reach best
+    std::string host;
+
+    for(const char* envName : {"PMI_HOSTNAME", "MPIR_CVAR_CH3_INTERFACE_HOSTNAME",
+        "SLURMD_NODENAME", "PMIX_HOSTNAME"} )
+    {
+        const char* envVal = getenv(envName);
+
+        if(envVal && *envVal)
+        {
+            host = envVal;
+            break;
+        }
+    }
+
+    if(host.empty() )
+    {
+        char hostname[256] = {};
+        gethostname(hostname, sizeof(hostname) - 1);
+        host = hostname;
+    }
+
+    const std::string line = host + ":" + std::to_string(port) + "\n";
+
+    int fd = open(path.c_str(), O_WRONLY | O_CREAT, 0644);
+    if(fd == -1)
+        throw ProgException("Unable to open hosts file for registration. Path: " + path + "; "
+            "SysErr: " + strerror(errno) );
+
+    struct flock lock = {};
+    lock.l_type = F_WRLCK;
+    lock.l_whence = SEEK_SET; // (start 0, len 0: the whole file)
+
+    int lockRes;
+    do
+    {
+        lockRes = fcntl(fd, F_SETLKW, &lock);
+    } while( (lockRes == -1) && (errno == EINTR) );
+
+    if(lockRes == -1)
+    {
+        const int lockErrno = errno;
+        close(fd);
+        throw ProgException("Unable to lock hosts file for registration. Path: " + path + "; "
+            "SysErr: " + strerror(lockErrno) );
+    }
+
+    // append (a missing newline after a user-written last line gets added)
+    const off_t fileSize = lseek(fd, 0, SEEK_END);
+    char lastChar = '\n';
+    std::string data = line;
+
+    if( (fileSize > 0) && (pread(fd, &lastChar, 1, fileSize - 1) == 1) && (lastChar != '\n') )
+        data = "\n" + line;
+
+    const char* buf = data.c_str();
+    size_t remaining = data.size();
+
+    while(remaining)
+    {
+        ssize_t writeRes = write(fd, buf, remaining);
+
+        if( (writeRes == -1) && (errno == EINTR) )
+            continue;
+
+        if(writeRes <= 0)
+        {
+            const int writeErrno = errno;
+            close(fd);
+            throw ProgException("Unable to write to hosts file for registration. Path: " + path +
+                "; SysErr: " + strerror(writeErrno) );
+        }
+
+        buf += writeRes;
+        remaining -= writeRes;
+    }
+
+    fsync(fd);
+    close(fd); // (releases the lock)
+
+    std::cout << "Registered in hosts file. Host: " << host << ":" << port << "; "
+        "Path: " << path << std::endl;
 }
 
 /**

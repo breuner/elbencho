@@ -64,6 +64,7 @@ _elbencho_opts()
         --help-dist
         --help-large
         --help-multi
+        --help-mpiio
         --help-netbench
         --help-s3
         --hosts
@@ -94,6 +95,9 @@ _elbencho_opts()
         --madv
         --mkdirs
         --mmap
+        --mpicoll
+        --mpihints
+        --mpiio
         --netbench
         --netcrosssubnet
         --netdevs
@@ -276,6 +280,8 @@ _elbencho()
         -N)
         ;&
         -n)
+        ;&
+        --mpihints)
         ;&
         --netdevs|--netengine)
         ;&

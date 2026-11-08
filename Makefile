@@ -53,6 +53,7 @@ RDMACM_SUPPORT     ?=
 LIBAIO_SUPPORT     ?= 1
 LIBFABRIC_SUPPORT  ?= 0
 LIBNUMA_SUPPORT    ?= 1
+MPI_SUPPORT        ?= 0
 SYNCFS_SUPPORT     ?= 1
 S3_AWSCRT          ?= 0
 S3_SUPPORT         ?= 0
@@ -136,6 +137,17 @@ ifeq ($(S3_SUPPORT), 1)
     CXXFLAGS += -I $(AWS_INCLUDE_DIR)
   endif
 
+endif
+
+# Support for the MPI-IO benchmark mode. Compiles and links through the MPI compiler wrapper
+# (MPICXX, default "mpicxx"), unless CXX was given explicitly.
+ifeq ($(MPI_SUPPORT), 1)
+  CXXFLAGS += -DMPI_SUPPORT
+  MPICXX   ?= mpicxx
+
+  ifeq ($(origin CXX), default)
+    CXX := $(MPICXX)
+  endif
 endif
 
 # Use Microsoft mimalloc for memory allocations.
@@ -362,6 +374,7 @@ FEATURES_STR     := ALTHTTPSVC_SUPPORT=$(ALTHTTPSVC_SUPPORT) BACKTRACE_SUPPORT=$
 	CUFILE_SUPPORT=$(CUFILE_SUPPORT) CYGWIN_SUPPORT=$(CYGWIN_SUPPORT) HDFS_SUPPORT=$(HDFS_SUPPORT) \
 	IBVERBS_SUPPORT=$(IBVERBS_SUPPORT) LIBAIO_SUPPORT=$(LIBAIO_SUPPORT) \
 	LIBFABRIC_SUPPORT=$(LIBFABRIC_SUPPORT) LIBNUMA_SUPPORT=$(LIBNUMA_SUPPORT) \
+	MPI_SUPPORT=$(MPI_SUPPORT) \
 	PLUGINS_ENABLED=$(PLUGINS_ENABLED) \
 	RDMACM_SUPPORT=$(RDMACM_SUPPORT) S3_AWSCRT=$(S3_AWSCRT) S3_SUPPORT=$(S3_SUPPORT) \
 	SPDK_SUPPORT=$(SPDK_SUPPORT) SYNCFS_SUPPORT=$(SYNCFS_SUPPORT) \
@@ -521,6 +534,10 @@ endif
 
 ifeq ($(SPDK_SUPPORT),1)
 	$(info [OPT] SPDK support enabled)
+endif
+
+ifeq ($(MPI_SUPPORT),1)
+	$(info [OPT] MPI-IO support enabled (compiler: $(CXX)))
 endif
 
 	$(info [OPT] Netbench engines enabled: tcp$(if $(filter 1,$(IBVERBS_SUPPORT)),$(COMMA) ibverbs)$(if $(filter 1,$(RDMACM_SUPPORT)),$(COMMA) rdmacm)$(if $(filter 1,$(LIBFABRIC_SUPPORT)),$(COMMA) $(LIBFABRIC_INFO)))
@@ -708,6 +725,9 @@ help:
 	@echo '                             found.'
 	@echo '   LIBFABRIC_SUPPORT=0|1   - Build the netbench libfabric engine (see'
 	@echo '                             BUILD_LIBFABRIC). (Default: 0)'
+	@echo '   MPI_SUPPORT=0|1         - Build with support for the MPI-IO benchmark mode.'
+	@echo '                             Compiles and links through MPICXX (Default: mpicxx)'
+	@echo '                             unless CXX is given. (Default: 0)'
 	@echo '   S3_AWSCRT=0|1           - Build S3 support based on AWS Common Runtime (CRT)'
 	@echo '                             instead of external libraries like libcurl. Only'
 	@echo '                             effective together with S3_SUPPORT=1. Not'

@@ -27,6 +27,7 @@ class HTTPService
 
 		void daemonize();
 		void checkPortAvailable();
+		void registerInHostsFile(unsigned short port);
 };
 
 #endif /* HTTPSERVICE_H_ */

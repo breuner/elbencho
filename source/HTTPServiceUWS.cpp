@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "HTTPServiceUWS.h"
+#include "modes/mpiio/MpiIoLauncher.h"
 #include "ProgException.h"
 #include "modes/netbench/NetBenchProtocol.h"
 #include "modes/netbench/NetBenchServer.h"
@@ -60,10 +61,29 @@ void HTTPServiceUWS::startServer()
                     pthread_setname_np(pthread_self(), threadName.c_str() );
                 #endif
 
+                progArgs.setServicePort(listenPort); // (the actual port for "--port 0")
+
 				std::cout << "Elbencho alternative service now listening. " <<
 			        (progArgs.getSvcPasswordHash().empty() ? "" : "Protected by shared secret. ") <<
 				    "Port: " << listenPort
 					<< std::endl;
+
+                try
+                {
+                    registerInHostsFile(listenPort); // (no-op without "--hostsfile")
+                }
+                catch(ProgException& e)
+                { // (thrown after the event loop ended, this is a callback inside the loop)
+                    listenErrorStr = e.what();
+                    us_listen_socket_close(0 /*ssl*/, globalListenSocket);
+                    return;
+                }
+
+                // under mpirun: announce the address to the coordinator rank, stop when it is done
+                MpiIoLauncher::serviceListening(listenPort, [loop = uWS::Loop::get(), this]()
+                {
+                    loop->defer([this]() { us_listen_socket_close(0 /*ssl*/, globalListenSocket); } );
+                } );
 			}
 			else
 				std::cout << "Failed to start listening. Port: " << listenPort << std::endl;
@@ -71,6 +91,11 @@ void HTTPServiceUWS::startServer()
 
 
 	uWSApp.run();
+
+    MpiIoLauncher::joinServiceWaiter();
+
+    if(!listenErrorStr.empty() )
+        throw ProgException(listenErrorStr);
 
     std::cout << "Service stopped listening. Port: " << listenPort << std::endl;
 }

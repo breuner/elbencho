@@ -5,6 +5,7 @@
 #include <exception>
 #include "Coordinator.h"
 #include "Logger.h"
+#include "modes/mpiio/MpiIoLauncher.h"
 #include "ProgArgs.h"
 
 /**
@@ -13,8 +14,12 @@
  */
 int main(int argc, char** argv)
 {
+    MpiIoLauncher::Guard mpiGuard; // finalizes MPI on every exit path
+
 	try
 	{
+        MpiIoLauncher::init(argc, argv); // (no-op unless "--mpiio" is given)
+
 		ProgArgs progArgs(argc, argv);
 
 		if(progArgs.hasUserRequestedHelp() )

@@ -191,6 +191,8 @@ Dirs holding test cases are prefixed with `tests_`; everything else holds suppor
 | `tests_distributed/` | Benchmarks through a local elbencho service instance. Always run. |
 | `tests_netbench/` | Network benchmarks (`--netbench`) between local elbencho service instances, over the tcp engine (the default), the libfabric engine and, where an RDMA interface exists, the ibverbs and rdmacm engines and the libfabric verbs provider. Run when the binary was built with netbench support. |
 | `lib/netbench.sh` | Starts the service instances for the netbench tests, inspects their logs and computes the expected transfer sizes. |
+| `tests_mpiio/` | MPI-IO mode (`--mpiio`), standalone and under a local `mpirun` with rank 0 as coordinator and two I/O ranks: independent and collective (`--mpicoll`) I/O, sequential, strided and random access, directory mode, the time limit with collective calls (also in the infinite loop) and the error paths. Run when the binary was built with `MPI_SUPPORT=1` and an `mpirun` is in the PATH. |
+| `lib/mpiio.sh` | Runs elbencho through `mpirun` with the result files of `run_elbencho`, skips without MPI support or mpirun, and checks for leftover ranks. |
 | `tests_s3/` | S3 object benchmarks against minio. Enabled via `-s`. |
 | `tests_spdk/` | SPDK NVMe-oF benchmarks. Each script starts its own private target. Enabled via `-p`. See [tests_spdk/README.md](tests_spdk/README.md). |
 | `lib/spdk.sh` | Starts and provisions a private `nvmf_tgt`, plus target side and SPDK specific result helpers. |
@@ -375,6 +377,25 @@ Rules to keep tests independent, fast and safe to run in parallel:
 * Live statistics rows (`--livecsv`) are only written on `--liveint` ticks, so a
   test that runs for milliseconds may legitimately produce a header line only.
   Only the header and the shape of existing rows are verified.
+* MPI-IO mode under `mpirun` (`run_mpi_elbencho` in `lib/mpiio.sh`) gives every
+  rank the same command line: rank 0 is the coordinator and writes the result
+  files, the service ranks drop the result file options but keep `--opslog`, so
+  on one host all I/O ranks append to the same ops log. Its entry name for reads
+  and writes is the file handle index (`0` for the single shared file), like the
+  file descriptor in POSIX mode, so `opslog_max_distinct_ranks` shows how many
+  threads of all ranks worked on it. The call names are the MPI function names
+  (`MPI_File_write_at`, `MPI_File_write_at_all`, ...), which is how a test tells
+  independent from collective I/O. With `--mpicoll` the file size is reduced to
+  a multiple of block size times the total thread count, reported by the
+  coordinator as "Service instance adapted file size" and in standalone mode as
+  "Reducing file size". Collective runs are the one place where a hang is a
+  plausible failure, so those tests rely on the command timeout of
+  `run_mpi_elbencho` and check `mpiio_procs_left` afterwards. The collective
+  `mpirun` cases use one thread per rank, because an MPI-IO layer that
+  serializes the calls of a process (MPICH's ROMIO) deadlocks on collective
+  calls from several threads of one rank; a single-rank run with several
+  threads (groups of one) cannot deadlock and covers the threaded path. `--statinline`
+  reports the write phase as `WRITE+s`.
 * Netbench mode is different from every other mode in several ways worth knowing
   before touching `tests_netbench/`: it needs **no benchmark path**, it always
   runs the write phase (so no `-w` and no other phase option), it reports its

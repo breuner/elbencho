@@ -223,9 +223,10 @@ prepare_awssdk_prebuilt_libs()
 }
 
 # If user did not provide pre-built AWS SDK libs, then prepare git clone and required tag. If clone
-# didn't exist yet or if tag changed then configure build, install libs and build a single static
-# lib containing all static AWS SDK libs. If clone exitsted and tag changed, then clean/uninstall
-# previous build before switching tag.
+# didn't exist yet then configure build, install libs and build a single static lib containing all
+# static AWS SDK libs. A marker file records tag and build flavor of the installed lib; if they
+# differ from what is required now (e.g. a plugin's SDK fork), clone and install dir get removed
+# and rebuilt.
 prepare_awssdk()
 {
 	# check if user provides pre-built libs
@@ -237,18 +238,26 @@ prepare_awssdk()
 	local REQUIRED_TAG="${AWS_REQUIRED_TAG:-"1.11.895"}"
 	local GIT_REPO="${AWS_GIT_REPO:-"https://github.com/aws/aws-sdk-cpp.git"}"
 
-	local CURRENT_TAG
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp"
 	local INSTALL_DIR="${EXTERNAL_BASE_DIR}/aws-sdk-cpp_install"
 	local LIB_FILE_NAME="libaws-sdk-all.a"
+	local SOURCE_FILE="${INSTALL_DIR}/.source" # what the installed lib was built from
+	local REQUIRED_SOURCE="tag=${REQUIRED_TAG} awscrt=${S3_AWSCRT:-0}"
 
-	# fast path: check if lib file exists, in which case previous build completed
-	if [ -e "$INSTALL_DIR"/lib*/"$LIB_FILE_NAME" ]; then
-	  return 0
+	# fast path: previous build completed and was built from the same source
+	if [ -e "$INSTALL_DIR"/lib*/"$LIB_FILE_NAME" ] && \
+		[ "$(cat "$SOURCE_FILE" 2>/dev/null)" = "$REQUIRED_SOURCE" ]; then
+		return 0
 	fi
 
 	# change to external subdir if we were called from somewhere else
 	cd "$EXTERNAL_BASE_DIR" || exit 1
+
+	# a clone from another source cannot be switched (shallow, patched), so start over
+	if [ -d "$CLONE_DIR" ] && [ -e "$SOURCE_FILE" ]; then
+		echo "AWS SDK source changed ($(cat "$SOURCE_FILE") -> $REQUIRED_SOURCE). Rebuilding..."
+		rm -rf "$CLONE_DIR" "$INSTALL_DIR"
+	fi
 
 	# clone if directory does not exist yet
 	if [ ! -d "$CLONE_DIR" ]; then
@@ -349,6 +358,8 @@ prepare_awssdk()
 
 	[ $? -ne 0 ] && exit 1
 
+	echo "$REQUIRED_SOURCE" > "$SOURCE_FILE"
+
 	echo "Created $(basename "${LIB_FILE}")" && \
 	echo "DONE: AWS SDK prepared." && \
 
@@ -424,6 +435,8 @@ prepare_mimalloc()
 }
 
 # Prepare git clone and required tag of libbacktrace.
+# (Static libtool libs get "--with-pic", because the executable may be linked as PIE, e.g. through
+# a distro's MPI compiler wrapper with hardening flags, which rejects non-PIC objects.)
 prepare_libbacktrace()
 {
 	local CLONE_DIR="${EXTERNAL_BASE_DIR}/libbacktrace"
@@ -455,7 +468,7 @@ prepare_libbacktrace()
 	echo "Configure, build and install... (parallel jobs: $NUM_PARALLEL_JOBS)"
 	mkdir -p "$INSTALL_DIR" && \
 		cd "$CLONE_DIR" && \
-		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared && \
+		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared --with-pic && \
 		$MAKE_CMD install  && \
 		cd "$EXTERNAL_BASE_DIR" && \
 		return 0
@@ -636,7 +649,7 @@ prepare_libfabric()
 	mkdir -p "$INSTALL_DIR" && \
 		cd "$CLONE_DIR" && \
 		./autogen.sh && \
-		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared \
+		./configure --prefix="$INSTALL_DIR" --enable-static --disable-shared --with-pic \
 			$PROVIDER_FLAGS \
 			--with-default-monitor=disabled --disable-memhooks-monitor --disable-uffd-monitor \
 			--without-cuda --without-rocr --without-ze --without-neuron --without-synapseai \

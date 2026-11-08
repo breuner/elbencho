@@ -12,6 +12,7 @@
 #include "Common.h"
 #include "CuFileHandleData.h"
 #include "Logger.h"
+#include "modes/mpiio/MpiIoProgArgs.h"
 #include "modes/netbench/NetBenchProgArgs.h"
 #include "modes/s3/S3ProgArgs.h"
 #include "PathStore.h"
@@ -84,6 +85,7 @@ namespace bpt = boost::property_tree;
 #define ARG_HELPBLOCKDEV_LONG            "help-bdev" // for backwards compat (new: help-large)
 #define ARG_HELPDISTRIBUTED_LONG         "help-dist"
 #define ARG_HELPLARGE_LONG               "help-large"
+#define ARG_HELPMPIIO_LONG               "help-mpiio"
 #define ARG_HELPMULTIFILE_LONG           "help-multi"
 #define ARG_HELPNETBENCH_LONG            "help-netbench"
 #define ARG_HELPS3_LONG                  "help-s3"
@@ -265,6 +267,7 @@ typedef std::vector<CuFileHandleData*> CuFileHandleDataPtrVec;
  */
 class ProgArgs
 {
+    friend class MpiIoProgArgs;
     friend class NetBenchProgArgs;
     friend class S3ProgArgs;
 
@@ -320,6 +323,7 @@ class ProgArgs
 
         S3ProgArgs s3Args; // s3 mode options (defined, checked & transferred by that class)
         NetBenchProgArgs netBenchArgs; // netbench options (see modes/netbench/)
+        MpiIoProgArgs mpiIoArgs; // MPI-IO mode options (see modes/mpiio/)
 
         // config options in alphabetic order...
 
@@ -541,8 +545,11 @@ class ProgArgs
         const IntVec& getBenchPathFDs() const { return benchPathFDsVec; }
         const IntVec& getBenchPathSpdkNsIds() const { return benchPathSpdkNsIdsVec; }
         BenchPathType getBenchPathType() const { return benchPathType; }
+        bool getIsPosixFsMode() const // local file system paths (posix & mpiio mode)
+            { return (benchMode == BenchMode_POSIX) || (benchMode == BenchMode_MPIIO); }
         const S3ProgArgs& getS3Args() const { return s3Args; }
         const NetBenchProgArgs& getNetBenchArgs() const { return netBenchArgs; }
+        const MpiIoProgArgs& getMpiIoArgs() const { return mpiIoArgs; }
         void prepareNetBenchRun() { netBenchArgs.prepareRun(*this); }
         void setS3InterruptionRequested() { s3Args.setS3InterruptionRequested(); }
 
@@ -722,6 +729,7 @@ class ProgArgs
 
         void setIgnoreDelErrors(bool ignoreDelErrors) { this->ignoreDelErrors = ignoreDelErrors; }
         void setTimeLimitSecs(size_t timeLimitSecs) { this->timeLimitSecs = timeLimitSecs; }
+        void setServicePort(unsigned short port) { servicePort = port; } // actual for "--port 0"
 };
 
 
