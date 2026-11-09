@@ -8,6 +8,11 @@
 # log file into $TMP, so this test points $TMP at its temporary dir to keep the
 # log file there and to get hold of the pid of the daemonized process.
 #
+# The service gets "--port 0", so the OS picks a free port, and "--hostsfile",
+# so it registers its "host:port" in that file once it listens. The port is
+# taken from there, as a coordinator would, and the delete phase is run with
+# the hosts file itself.
+#
 # Also covers that a second service cannot take an already used port, and that
 # "--quit" reports success even when nothing is listening anymore, which is why
 # the pid and not the exit code is what proves that the service really ended.
@@ -26,53 +31,29 @@ SERVICE_PORT=""
 SERVICE_LOG=""
 SERVICE_PID=""
 
-# Start a daemonizing service on a random free port. The port could have been
-# taken between the free port check and the actual bind, so this retries a few
-# times. The service log file lands in $TMP, which is pointed at the temporary
-# dir of this test, so that it gets cleaned up with everything else.
-start_daemonized_service()
-{
-    local tries=0
-
-    while [ $tries -lt 5 ]; do
-        tries=$((tries+1))
-
-        SERVICE_PORT=$(find_free_port)
-        if [ -z "$SERVICE_PORT" ]; then
-            return 1
-        fi
-
-        trace_cmd "daemonized service start (attempt $tries)" \
-            env TMP="$TEST_DIR" "$ELBENCHO_TEST_BIN" --service --port "$SERVICE_PORT"
-
-        TMP="$TEST_DIR" "$ELBENCHO_TEST_BIN" --service --port "$SERVICE_PORT" \
-            > "$TEST_DIR/start.out" 2>&1
-        local rc=$?
-
-        # The exit code has to be saved before trace_result, which replaces it.
-        trace_result "daemonized service start" "$rc" "" "$TEST_DIR/start.out"
-
-        if [ $rc -eq 0 ]; then
-            return 0
-        fi
-
-        tap_diag "Service did not start on port $SERVICE_PORT, retrying..."
-    done
-
-    return 1
-}
-
 test_init
-tap_plan 17
+tap_plan 18
 
 DATA_DIR="$TEST_DIR/data"
+HOSTS_FILE="$TEST_DIR/hosts"
 
 mkdir -p "$DATA_DIR"
 
 ################## Start the daemonized service ##################
 
-start_daemonized_service
-if [ $? -ne 0 ]; then
+# The service log file lands in $TMP, which is pointed at the temporary dir of
+# this test, so that it gets cleaned up with everything else.
+trace_cmd "daemonized service start" \
+    env TMP="$TEST_DIR" "$ELBENCHO_TEST_BIN" --service --port 0 --hostsfile "$HOSTS_FILE"
+
+TMP="$TEST_DIR" "$ELBENCHO_TEST_BIN" --service --port 0 --hostsfile "$HOSTS_FILE" \
+    > "$TEST_DIR/start.out" 2>&1
+START_RC=$?
+
+# Saved before trace_result, which replaces $?.
+trace_result "daemonized service start" "$START_RC" "" "$TEST_DIR/start.out"
+
+if [ $START_RC -ne 0 ]; then
     tap_diag "Output of the failed service start:"
     tap_diag_file "$TEST_DIR/start.out"
     tap_bail "Unable to start a daemonized elbencho service instance."
@@ -81,7 +62,7 @@ fi
 tap_ok "starting a service without --foreground returns immediately"
 
 # The starting process prints the path of the log file before it forks, so the
-# path is taken from there instead of being reconstructed from user and port.
+# path is taken from there instead of being reconstructed from user and pid.
 assert_match "$(cat "$TEST_DIR/start.out")" "Daemonizing into background.*Logfile: $TEST_DIR/" \
     "the service log file was created below the temporary dir given as \$TMP"
 
@@ -108,8 +89,25 @@ fi
 kill -0 "$SERVICE_PID" >/dev/null 2>&1
 assert_ok $? "the background process with pid $SERVICE_PID is running"
 
+################## The service registers in the hosts file ##################
+
+# The hosts file is written once the service listens, so this is also the
+# point where the OS-chosen port becomes known.
+wait_for_file_line "$HOSTS_FILE" '^[^:]+:[0-9]+$' 10
+if [ $? -eq 0 ]; then
+    tap_ok "the service registered a \"host:port\" line in the hosts file"
+else
+    tap_fail "the service registered a \"host:port\" line in the hosts file"
+    tap_diag_file "$SERVICE_LOG"
+fi
+
+SERVICE_PORT=$(sed -ne 's/^[^:]*://p' "$HOSTS_FILE" 2>/dev/null | head -1)
+if [ -z "$SERVICE_PORT" ]; then
+    tap_bail "Unable to learn the service port from the hosts file."
+fi
+
 wait_for_port 127.0.0.1 "$SERVICE_PORT" 10
-assert_ok $? "the daemonized service is listening on port $SERVICE_PORT"
+assert_ok $? "the daemonized service is listening on port $SERVICE_PORT from the hosts file"
 
 ################## A second service cannot take the same port ##################
 
@@ -148,12 +146,13 @@ assert_eq "$(json_value "$ELB_JSON" WRITE last_done bytes)" "$EXPECTED_BYTES" \
 assert_eq "$(count_files "$DATA_DIR")" "$EXPECTED_FILES" \
     "$EXPECTED_FILES files exist on the file system"
 
+# The hosts file written by the service, used as the coordinator's hosts file.
 run_elbencho delete \
-    --hosts "localhost:$SERVICE_PORT" \
+    --hostsfile "$HOSTS_FILE" \
     -F -D --nodelerr \
     -t $NUM_THREADS -n $NUM_DIRS -N $NUM_FILES \
     "$DATA_DIR"
-assert_ok $? "the delete phase through the daemonized service succeeds"
+assert_ok $? "the delete phase through the hosts file written by the service succeeds"
 
 ################## Terminate the service ##################
 

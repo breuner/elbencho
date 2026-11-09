@@ -309,8 +309,11 @@ Rules to keep tests independent, fast and safe to run in parallel:
   the service's own "now listening ... Port: N" log line (a port chosen by
   the test upfront can be taken by a parallel test between the check and the
   bind; `services-shared-dir.t` has to do that for its port range syntax and
-  therefore verifies the ports through that line). Other servers get
-  `find_free_port` plus `wait_for_port`, and a retry if they did not come up.
+  therefore verifies the ports through that line). A daemonized service has
+  no log to read before it forks, so it additionally gets `--hostsfile` and
+  registers its "host:port" line there, see `service-daemonized.t`. Other
+  servers get `find_free_port` plus `wait_for_port`, and a retry if they did
+  not come up.
 * Redirect stdout and stderr of every background process to a file and register
   it with `register_pid`. `prove` reads the test's stdout until EOF, so a
   background process that inherits it would make the whole run hang.
