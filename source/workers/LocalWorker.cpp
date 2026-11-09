@@ -13,6 +13,7 @@
 #include "LocalWorker.h"
 #include "Logger.h"
 #include "PathStore.h"
+#include "toolkits/BlockRangeTk.h"
 #include "toolkits/FileTk.h"
 #include "toolkits/spdk/SpdkNvmeClient.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
@@ -4155,24 +4156,18 @@ void LocalWorker::fileModeIterateFilesSeq()
 		( (fileSize % blockSize) ? 1 : 0);
 
 	const uint64_t numBlocksTotal = numBlocksPerFile * numFiles; // total for all files
-	const uint64_t standardWorkerNumBlocks = numBlocksTotal / numThreads;
 
-	// note: last worker might need to write up to "numThreads-1" more blocks than the others
-	uint64_t thisWorkerNumBlocks = standardWorkerNumBlocks;
-	if( (workerRank == (numThreads-1) ) && (numBlocksTotal % numThreads) )
-		thisWorkerNumBlocks = numBlocksTotal - (standardWorkerNumBlocks * (numThreads-1) );
+    // indices of start and end block for this worker. (end block is not inclusive.)
+    uint64_t startBlock;
+    uint64_t endBlock;
 
-	// indices of start and end block. (end block is not inclusive.)
-	uint64_t startBlock = workerRank * standardWorkerNumBlocks;
-	uint64_t endBlock = startBlock + thisWorkerNumBlocks;
+    BlockRangeTk::getWorkerBlockRange(numBlocksTotal, numThreads, workerRank, startBlock, endBlock);
 
 	LOGGER(Log_DEBUG, "workerRank: " << workerRank << "; "
 		"numFiles: " << numFiles << "; "
 		"dataSetThreads: " << numThreads << "; "
 		"blocksTotal: " << numBlocksTotal << "; "
 		"blocksPerFile: " << numBlocksPerFile << "; "
-		"standardWorkerNumBlocks: " << standardWorkerNumBlocks << "; "
-		"thisWorkerNumBlocks: " << thisWorkerNumBlocks << "; "
 		"startBlock: " << startBlock << "; "
 		"endBlock: " << endBlock << "; " << std::endl);
 

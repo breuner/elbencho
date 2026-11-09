@@ -1681,7 +1681,7 @@ void ProgArgs::checkPathDependentArgs()
 		if(!useRandomOffsets && (numBlocksTotal % numDataSetThreads) )
 			LOGGER(Log_VERBOSE, "NOTE: Number of blocks with given aggregate file size is not a "
 				"multiple of given I/O threads, so the number of written blocks slightly differs "
-				"among I/O threads." << std::endl);
+				"(by at most one block) among I/O threads." << std::endl);
 
 		// recheck randomAmount after alignment auto-decrease above
 		if(useRandomOffsets && !randomAmount && fileSize && (runCreateFilesPhase || runReadPhase) )

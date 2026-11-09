@@ -940,6 +940,27 @@ opslog_bytes_sum()
            | select($op == "" or .op_name == $op) | .length ] | add // 0' "$1" 2>/dev/null
 }
 
+# opslog_num_ranks OPSLOGFILE [OP_NAME] - number of worker threads that logged
+# at least one operation
+opslog_num_ranks()
+{
+    jq -s --arg op "${2:-}" \
+        '[ .[] | select(.is_finished == false)
+           | select($op == "" or .op_name == $op) | .worker_rank ] | unique | length' \
+        "$1" 2>/dev/null
+}
+
+# opslog_rank_bytes_spread OPSLOGFILE [OP_NAME] - difference between the largest
+# and the smallest per-thread sum of the logged lengths. 0 means every worker
+# thread that appears in the log transferred the same amount.
+opslog_rank_bytes_spread()
+{
+    jq -s --arg op "${2:-}" \
+        '[ .[] | select(.is_finished == false)
+           | select($op == "" or .op_name == $op) ] | group_by(.worker_rank)
+         | map([ .[].length ] | add) | (max - min) // 0' "$1" 2>/dev/null
+}
+
 # livecsv_header LIVECSVFILE
 livecsv_header()
 {

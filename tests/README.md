@@ -557,7 +557,11 @@ Rules to keep tests independent, fast and safe to run in parallel:
   ignores the remainder, so the transferred amount is
   `(totalblocks / threads) * threads * blocksize`, which is less than the full
   dataset when the block count is not a multiple of the thread count.
-  Sequential IO transfers everything.
+  Sequential IO transfers everything: every thread gets a contiguous range of
+  `totalblocks / threads` blocks and the first `totalblocks % threads` threads
+  one block more, which is also how shared files in custom tree mode are split.
+  `opslog_rank_bytes_spread` (largest minus smallest per-thread byte sum) and
+  `opslog_num_ranks` check that split through the operations log.
 * A service that is started without `--foreground` forks into the background, so
   the starting process returns immediately and its exit code says nothing about
   the service. The service writes its own log file to `$TMP`, so pointing `$TMP`

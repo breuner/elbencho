@@ -13,6 +13,7 @@
 #include "PathStore.h"
 #include "ProgException.h"
 #include "toolkits/Base64Encoder.h"
+#include "toolkits/BlockRangeTk.h"
 
 
 #ifndef ARG_TREEROUNDUP_LONG // because we can't include ProgArgs.h here
@@ -339,21 +340,18 @@ void PathStore::getWorkerSublistShared(unsigned workerRank, unsigned numDataSetT
 		return;
 
 	const unsigned numThreads = numDataSetThreads; // just a shorthand
-	const uint64_t standardWorkerNumBlocks = numBlocksTotal / numThreads;
-
-	// note: last worker might need to write up to "numThreads-1" more blocks than the others
-	uint64_t thisWorkerNumBlocks = standardWorkerNumBlocks;
-	if( (workerRank == (numThreads-1) ) && (numBlocksTotal % numThreads) )
-		thisWorkerNumBlocks = numBlocksTotal - (standardWorkerNumBlocks * (numThreads-1) );
 
 	// indices of start and end block for this worker. (end block is not inclusive.)
-	uint64_t startBlock = workerRank * standardWorkerNumBlocks;
-	uint64_t endBlock = startBlock + thisWorkerNumBlocks;
+    uint64_t startBlock;
+    uint64_t endBlock;
+
+    BlockRangeTk::getWorkerBlockRange(numBlocksTotal, numThreads, workerRank, startBlock, endBlock);
+
+    const uint64_t thisWorkerNumBlocks = endBlock - startBlock;
 
 	LOGGER(Log_DEBUG, "get sublist shared - workerRank: " << workerRank << "; "
 		"dataSetThreads: " << numThreads << "; "
 		"blocksTotal: " << numBlocksTotal << "; "
-		"standardWorkerNumBlocks: " << standardWorkerNumBlocks << "; "
 		"thisWorkerNumBlocks: " << thisWorkerNumBlocks << "; "
 		"startBlock: " << startBlock << "; "
 		"endBlock: " << endBlock << "; " << std::endl);
