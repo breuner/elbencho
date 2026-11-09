@@ -8,6 +8,7 @@ it.
 | Plugin | Description | Build option |
 |---|---|---|
 | [s3rdma_cloudian](s3rdma_cloudian/README.md) | S3-over-RDMA via Cloudian's aws-sdk-cpp fork | `ELB_PLUGIN_S3RDMA_CLOUDIAN=1` |
+| [s3rdma_ddn](s3rdma_ddn/README.md) | S3-over-RDMA via NVIDIA cuObject with a libcurl control plane | `ELB_PLUGIN_S3RDMA_DDN=1` |
 | [s3rdma_minio](s3rdma_minio/README.md) | S3-over-RDMA via built-in customization capabilities of official aws-sdk-cpp | `ELB_PLUGIN_S3RDMA_MINIO=1` |
 
 ## Building & using a plugin
