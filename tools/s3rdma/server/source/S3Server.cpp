@@ -32,6 +32,11 @@ namespace
     const char* CONTENT_TYPE_XML = "application/xml";
     const char* CONTENT_TYPE_BINARY = "application/octet-stream";
 
+    // An idle keep-alive connection pins its HTTP worker thread, so the pool has to hold all
+    // client connections (elbencho's s3rdma plugins keep up to two per thread), not just the
+    // concurrent requests; a request on a new connection waits for a free thread otherwise.
+    const unsigned MIN_HTTP_THREADS = 64;
+
     // "/<bucket>" or "/<bucket>/<key>" (bucket names cannot start with a dot, so the control
     // endpoints below "/.hipobj-rc/" never match)
     const char* PATH_PATTERN = R"(^/([^/.][^/]*)(?:/(.*))?$)";
@@ -44,7 +49,7 @@ S3Server::S3Server(const Config& config, ObjectStore& store, RdmaTransport* cuOb
     config(config), store(store), cuObj(cuObj), rcToken(rcToken), hipObj(hipObj),
     svr(std::make_unique<httplib::Server>() )
 {
-    svr->new_task_queue = [numThreads = config.numThreads]()
+    svr->new_task_queue = [numThreads = std::max(config.numThreads, MIN_HTTP_THREADS)]()
         { return new httplib::ThreadPool(numThreads); };
     svr->set_keep_alive_max_count(1000000);
     svr->set_keep_alive_timeout(60);

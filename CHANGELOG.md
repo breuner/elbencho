@@ -11,6 +11,7 @@
   * max IO latency (`Lat IO max us`)
 * Added new `--svcstats` parameter to individually enable various per-service results in console result table and json result file.
 * Added support for services to pick a random free TCP port to listen for coordinator instructions and write it into a hosts file on a shared file system. This file can be used by the coordinator afterwards. (`elbencho --service --hostsfile /mnt/shared/hosts.txt`)
+* New contributed plugin for S3-over-RDMA support by DDN. See [`contrib/plugins/s3rdma_ddn/README.md`](contrib/plugins/s3rdma_ddn/README.md).
 
 ### General Changes
 * Improved netbench error messages to show associated source/destination interface in case of a failed transfer.

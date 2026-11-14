@@ -17,7 +17,7 @@ require_build_feature s3
 PLUGIN="${ELBENCHO_TEST_S3RDMA_PLUGIN:-$(s3rdma_detect_plugin)}"
 
 if [ -z "$PLUGIN" ]; then
-    tap_skip_all "elbencho was built without an S3-over-RDMA plugin (ELB_PLUGIN_S3RDMA_MINIO=1 or ELB_PLUGIN_S3RDMA_CLOUDIAN=1)"
+    tap_skip_all "elbencho was built without an S3-over-RDMA plugin (an s3rdma_* plugin from contrib/plugins, e.g. ELB_PLUGIN_S3RDMA_MINIO=1)"
 fi
 
 require_plugin "$PLUGIN"
@@ -25,6 +25,7 @@ require_plugin "$PLUGIN"
 case "$PLUGIN" in
     s3rdma_minio) PLUGIN_CHECKS=8 ;;
     s3rdma_cloudian) PLUGIN_CHECKS=6 ;;
+    s3rdma_ddn) PLUGIN_CHECKS=6 ;;
     *) tap_skip_all "no argument checks known for plugin \"$PLUGIN\"" ;;
 esac
 
@@ -114,5 +115,13 @@ case "$PLUGIN" in
         assert_nok $? "\"--s3fastget\" is rejected also while the plugin is inactive"
         assert_match "$(cat "$ELB_OUT")" "not available in a build with plugin $PLUGIN" \
             "the error names the plugin as the reason"
+        ;;
+    s3rdma_ddn)
+        argcheck_fails timeout '"--s3rdmatimeout" must not be 0' \
+            "a request timeout of 0 is rejected" -s 4m -b 4m --s3rdmatimeout 0
+        argcheck_fails conntimeout '"--s3rdmaconntimeout" must not be 0' \
+            "a connect timeout of 0 is rejected" -s 4m -b 4m --s3rdmaconntimeout 0
+        argcheck_fails checksum 'does not support inline ACLs, server-side encryption or checksum' \
+            "a checksum algorithm is rejected" -s 4m -b 4m --s3chksumalgo CRC32
         ;;
 esac

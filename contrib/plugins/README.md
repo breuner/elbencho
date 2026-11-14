@@ -8,7 +8,7 @@ it.
 | Plugin | Description | Build option |
 |---|---|---|
 | [s3rdma_cloudian](s3rdma_cloudian/README.md) | S3-over-RDMA via Cloudian's aws-sdk-cpp fork | `ELB_PLUGIN_S3RDMA_CLOUDIAN=1` |
-| [s3rdma_ddn](s3rdma_ddn/README.md) | S3-over-RDMA via NVIDIA cuObject with a libcurl control plane | `ELB_PLUGIN_S3RDMA_DDN=1` |
+| [s3rdma_ddn](s3rdma_ddn/README.md) | S3-over-RDMA via official aws-sdk-cpp and a libcurl control plane for cuObject | `ELB_PLUGIN_S3RDMA_DDN=1` |
 | [s3rdma_minio](s3rdma_minio/README.md) | S3-over-RDMA via built-in customization capabilities of official aws-sdk-cpp | `ELB_PLUGIN_S3RDMA_MINIO=1` |
 
 ## Building & using a plugin
@@ -27,7 +27,10 @@ run, so the same service instances can be used for runs with and without a plugi
 
 The S3-over-RDMA plugins are tested by `tests/run-tests.sh -r` against the test server in
 [tools/s3rdma](../../tools/s3rdma/README.md), which also has a drop-in replacement for NVIDIA's
-cuObject client library for hosts without the hardware that cuObject needs.
+cuObject client library for hosts without the hardware that cuObject needs. The tests find
+these plugins by their name prefix `s3rdma_`, so a new S3-over-RDMA plugin has to keep that
+prefix; the tests of plugin-specific behavior (argument checks, GPU memory modes) get a
+branch for the new plugin in `tests/tests_plugin_s3rdma/`.
 
 ## Layout of a plugin
 

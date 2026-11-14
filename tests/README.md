@@ -118,8 +118,10 @@ pins one of the two. Both need an active RDMA link with an IPv4 address
 least 64 MiB (`ulimit -l`; systemd services get 8 MiB by default, so a test
 runner started as a service skips these tests unless its unit raises
 `LimitMEMLOCK`), and elbencho built with an `s3rdma_*` plugin
-(`ELB_PLUGIN_S3RDMA_MINIO=1` or `ELB_PLUGIN_S3RDMA_CLOUDIAN=1`); the first one
-found is used, or the one named in `ELBENCHO_TEST_S3RDMA_PLUGIN`.
+(e.g. `ELB_PLUGIN_S3RDMA_MINIO=1`); the first plugin with that name prefix in
+`--version` is used, or the one named in `ELBENCHO_TEST_S3RDMA_PLUGIN`.
+`plugin-argchecks.t` and `gpu-rdma.t` test plugin-specific behavior and skip for
+a plugin they have no branch for; the other scripts work for any `s3rdma_*` plugin.
 
 That the data really moved over RDMA is checked independently of the plugin and
 the library: the server only stores what it received via RDMA (the control

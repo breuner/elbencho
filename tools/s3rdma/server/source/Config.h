@@ -19,7 +19,7 @@ struct Config
     unsigned short rdmaPort = 18515; // cuObject server port (DC transport, nothing listens here)
     int rdmaGidIndex = -1; // GID table index for the RC transport, -1 = RoCE v2 GID of rdmaAddr
     size_t bufSize = 16 * 1024 * 1024; // size of each registered cuObject RDMA buffer
-    unsigned numThreads = 8; // HTTP worker threads and cuObject RDMA channels
+    unsigned numThreads = 8; // RDMA staging buffers/channels; HTTP worker threads are at least 64
     bool cuObjEnabled = true; // cuObject (DC) transport for the x-amz-rdma-token protocol
     bool rcEnabled = true; // RC transport for the hipobj-rc-v2 protocol
     bool rdmaCheckOnly = false; // only try to open the RDMA transports, then exit

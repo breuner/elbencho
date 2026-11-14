@@ -97,9 +97,10 @@ assert_eq "$(grep -c "RDMA GET .* (range $RANGE_OFFSET-$((RANGE_OFFSET + RANGE_S
 
 ################## Connections are cleaned up ##################
 
-assert_eq "$(grep -c '^RC connect:' "$S3RDMA_LOG")" "$((3 * NUM_OBJECTS))" \
-    "the server log shows one RC connection per transfer"
-assert_eq "$(grep -c '^RC disconnect:' "$S3RDMA_LOG")" "$((3 * NUM_OBJECTS))" \
+# (the shim connects once per registered buffer: three client runs with one buffer each)
+assert_eq "$(grep -c '^RC connect:' "$S3RDMA_LOG")" "3" \
+    "the server log shows one RC connection per client run"
+assert_eq "$(grep -c '^RC disconnect:' "$S3RDMA_LOG")" "3" \
     "the server log shows that every connection was released again"
 
 ################## Delete the objects and the bucket ##################

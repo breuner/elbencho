@@ -15,7 +15,8 @@ or `tools/s3rdma/client`, unchanged against `tools/s3rdma/server`.
 cuObject's protocol is one object request per transfer: the client mints a token for its buffer
 (`cuMemObjGetRDMAToken`), sends it in the `x-amz-rdma-token` header, and the server RDMA-reads or
 -writes the buffer while it handles the request. An RC queue pair can only do that when it is
-connected to the peer's queue pair already, so the shim connects when the token is minted:
+connected to the peer's queue pair already, so the shim keeps one connection per registered
+buffer and connects it when the first token for the buffer is minted:
 
 1. `cuMemObjGetRDMAToken()` creates an RC queue pair and sends its number, GID and packet
    sequence number to the S3 server's `POST /.s3rdma-rc/connect` endpoint, in the token format
@@ -23,9 +24,15 @@ connected to the peer's queue pair already, so the shim connects when the token 
    connection id, its token and sequence number; the shim connects its queue pair to it.
 2. The minted token names that connection: `rc:<connection id>:<address>:<size>:<rkey>`. The
    application sends it with the object request exactly like a cuObject token, and the server's
-   RC transport does the RDMA transfer through the connected queue pair.
-3. `cuMemObjPutRDMAToken()` tells the server to drop the connection (`POST /.s3rdma-rc/disconnect`)
-   and destroys the queue pair.
+   RC transport does the RDMA transfer through the connected queue pair. Later tokens for the
+   same buffer name the same connection.
+3. `cuMemObjPutRDMAToken(token)` only frees the token string, so like with NVIDIA's library the
+   token may be released before the transfer is done. The error overload
+   `cuMemObjPutRDMAToken(token, err_code)` drops the connection after a failed transfer (the
+   server drops its side as well), and the next token for the buffer connects again.
+4. `cuMemObjPutDescriptor()` tells the server to drop the connection
+   (`POST /.s3rdma-rc/disconnect`) and destroys the queue pair. A connection without a token
+   for two minutes is also dropped and set up again, because the server reaps idle connections.
 
 This connect step is an extension of `tools/s3rdma/server`; the shim does not work with other S3
 servers. Buffers registered via `cuMemObjGetDescriptor()` are pinned with `ibv_reg_mr()`. The
@@ -72,5 +79,9 @@ library with `dlopen()`, like the Cloudian SDK fork behind elbencho's `s3rdma_cl
   `cuMemObjPutRDMAToken` (both overloads), `cuObjGet`/`cuObjPut` (through the callbacks),
   `getCtx`, `getMemoryType`; the telemetry functions are no-ops. External RC connections and
   `getRDMAPDList` are not part of the header.
-* One connect round trip per token. That costs a few hundred microseconds per transfer, fine for
-  functional tests, not representative for performance.
+* One connection per registered buffer, so concurrent transfers on the same buffer are not
+  possible (the server refuses a transfer on a busy connection). The elbencho plugins use a
+  separate buffer for every request in flight.
+* A client that does not report a failed transfer through the error overload of
+  `cuMemObjPutRDMAToken()` keeps using the dropped connection; its following transfers on that
+  buffer fail until the buffer is registered again.

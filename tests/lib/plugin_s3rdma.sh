@@ -37,7 +37,7 @@
 # against the RC shim for the cuObject client API (tools/s3rdma/cuobjclient-shim).
 : ${ELBENCHO_TEST_S3RDMA_CLIENT:="$ELBENCHO_TEST_TMP/s3rdma/client/bin/s3rdma-client"}
 
-# The plugin to activate. Empty means "the first of the known plugins that the
+# The plugin to activate. Empty means "the first s3rdma_* plugin that the
 # elbencho binary was built with".
 : ${ELBENCHO_TEST_S3RDMA_PLUGIN:=""}
 
@@ -77,8 +77,6 @@
 # run with the plain RDMA configuration where possible.
 : ${ELBENCHO_TEST_CUFILE_COMPAT_MODE:="0"}
 
-S3RDMA_KNOWN_PLUGINS="s3rdma_minio s3rdma_cloudian"
-
 : ${S3RDMA_LISTEN_ADDR:="127.0.0.1"}
 
 S3RDMA_TRANSPORT=""        # "cuobj", "rc" or "" for plain HTTP; set by the require_* functions
@@ -97,19 +95,20 @@ S3RDMA_LOG=""              # set by start_s3rdma_server: the server log
 
 ############################ Capability checks ##############################
 
-# The first known plugin that the binary was built with.
+# The first S3-over-RDMA plugin that the binary was built with. These plugins
+# are recognized by their name prefix "s3rdma_" (see contrib/plugins/README.md).
 s3rdma_detect_plugin()
 {
     local plugin
 
-    for plugin in $S3RDMA_KNOWN_PLUGINS; do
-        if has_plugin "$plugin"; then
-            echo "$plugin"
-            return 0
-        fi
-    done
+    trace_cmd "plugin detection" "$ELBENCHO_TEST_BIN" --version
 
-    return 1
+    plugin=$("$ELBENCHO_TEST_BIN" --version 2>/dev/null | grep 'Included plugins:' |
+        grep -o '\bs3rdma_[A-Za-z0-9_]*' | head -n 1)
+
+    [ -n "$plugin" ] || return 1
+
+    echo "$plugin"
 }
 
 # rdma_device_for_ipv4 ADDR
@@ -180,7 +179,7 @@ require_s3rdma_server()
     require_aws_cli
 
     if ! s3rdma_detect_plugin > /dev/null; then
-        tap_skip_all "elbencho was built without an S3-over-RDMA plugin (ELB_PLUGIN_S3RDMA_MINIO=1 or ELB_PLUGIN_S3RDMA_CLOUDIAN=1)"
+        tap_skip_all "elbencho was built without an S3-over-RDMA plugin (an s3rdma_* plugin from contrib/plugins, e.g. ELB_PLUGIN_S3RDMA_MINIO=1)"
     fi
 
     [ -n "$ELBENCHO_TEST_S3_ENDPOINT" ] && return 0
@@ -227,6 +226,9 @@ s3rdma_server_transport_usable()
         # the server's first ERROR line, or whatever else it printed (e.g. a loader error)
         reason="$(echo "$check_output" | grep -m1 '^ERROR' | sed -e 's/^ERROR: //')"
         [ -n "$reason" ] || reason="$(echo "$check_output" | grep -v '^INFO' | tail -n1)"
+
+        # cuObject's library reports a NIC without DC support as a plain "Couldn't create QP"
+        [ "$1" = "cuobj" ] && reason="$(echo "$reason" | sed "s/^Couldn't create QP:/Couldn't create RDMA DC QP:/")"
 
         S3RDMA_TRANSPORT_ERR="RDMA transport \"$1\" not usable on $S3RDMA_ADDR: $reason"
         return 1
@@ -316,7 +318,7 @@ require_s3rdma()
     S3RDMA_PLUGIN="${ELBENCHO_TEST_S3RDMA_PLUGIN:-$(s3rdma_detect_plugin)}"
 
     if [ -z "$S3RDMA_PLUGIN" ]; then
-        tap_skip_all "elbencho was built without an S3-over-RDMA plugin (ELB_PLUGIN_S3RDMA_MINIO=1 or ELB_PLUGIN_S3RDMA_CLOUDIAN=1)"
+        tap_skip_all "elbencho was built without an S3-over-RDMA plugin (an s3rdma_* plugin from contrib/plugins, e.g. ELB_PLUGIN_S3RDMA_MINIO=1)"
     fi
 
     require_plugin "$S3RDMA_PLUGIN"

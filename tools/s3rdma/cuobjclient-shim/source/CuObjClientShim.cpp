@@ -3,6 +3,8 @@
 
 #include "cuobjclient.h"
 
+#include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -21,9 +23,13 @@
  * The shim behind the cuObject client API. cuObject's protocol is one object request with a
  * token that the server uses to RDMA-read or -write the client buffer right away. With Reliable
  * Connections that needs a queue pair that is already connected to the server's, so minting a
- * token connects first: POST /.s3rdma-rc/connect at the S3 endpoint exchanges queue pair numbers,
- * GIDs and sequence numbers (in hipObject's token format), and the minted token names that
- * connection: "rc:<connection id>:<address>:<size>:<rkey>". Releasing the token disconnects.
+ * token for a buffer connects first: POST /.s3rdma-rc/connect at the S3 endpoint exchanges queue
+ * pair numbers, GIDs and sequence numbers (in hipObject's token format), and the minted token
+ * names that connection: "rc:<connection id>:<address>:<size>:<rkey>". The connection belongs to
+ * the registered buffer and serves all later tokens for it, so a token is just a string like
+ * with NVIDIA's library and may be released before the transfer. The connection goes with the
+ * registration, or earlier when a transfer failed (error overload of cuMemObjPutRDMAToken, the
+ * server drops its side then too) or when it was idle for long (the server reaps those).
  *
  * The RDMA device and the buffer registrations are shared by all instances of a process, like
  * NVIDIA's library shares them (see SharedDevice). Configuration comes from the environment, since
@@ -41,17 +47,20 @@ namespace
     const char* CONNECT_PATH = "/.s3rdma-rc/connect";
     const char* DISCONNECT_PATH = "/.s3rdma-rc/disconnect";
     const int HTTP_TIMEOUT_SECS = 10;
+    const std::chrono::seconds RECONNECT_AFTER(120); // (the server drops idle connections at 300s)
+
+    struct Connection
+    {
+        RcDevice::Queue queue;
+        std::string id; // the server's connection id, empty while not connected
+    };
 
     struct Registration
     {
         ibv_mr* mr = nullptr;
         size_t size = 0;
-    };
-
-    struct Connection
-    {
-        RcDevice::Queue queue;
-        std::string id; // the server's connection id
+        Connection conn; // connected on the first token for this buffer
+        std::chrono::steady_clock::time_point lastToken;
     };
 
     /**
@@ -72,6 +81,9 @@ namespace
 
         static std::shared_ptr<SharedDevice> get();
         Registration* findRegistration(char* ptr, size_t size);
+        Registration* findRegistrationByConnection(const std::string& connId);
+        bool connect(Connection& conn);
+        void disconnect(Connection& conn);
     };
 }
 
@@ -80,10 +92,6 @@ struct cuObjClient::Impl
     CUObjOps_t ops;
     std::shared_ptr<SharedDevice> shared;
     bool connected = false;
-    std::map<std::string, Connection> connections; // by token string
-
-    bool connect(Connection& conn, uint32_t ourPsn);
-    void disconnect(Connection& conn);
 };
 
 SharedDevice::~SharedDevice()
@@ -92,7 +100,10 @@ SharedDevice::~SharedDevice()
         return;
 
     for(auto& ptrAndReg : registrations)
+    {
+        disconnect(ptrAndReg.second.conn);
         device->deregisterBuffer(ptrAndReg.second.mr);
+    }
 }
 
 /**
@@ -151,17 +162,39 @@ Registration* SharedDevice::findRegistration(char* ptr, size_t size)
     return (ptr + size <= iter->first + iter->second.size) ? &iter->second : nullptr;
 }
 
-/**
- * Exchange queue pair details with the server and connect our queue pair to its.
- */
-bool cuObjClient::Impl::connect(Connection& conn, uint32_t ourPsn)
+Registration* SharedDevice::findRegistrationByConnection(const std::string& connId)
 {
+    for(auto& ptrAndReg : registrations)
+        if(ptrAndReg.second.conn.id == connId)
+            return &ptrAndReg.second;
+
+    return nullptr;
+}
+
+/**
+ * Create a queue pair, exchange its details with the server and connect it to the server's.
+ * Leaves the connection disconnected on failure.
+ */
+bool SharedDevice::connect(Connection& conn)
+{
+    try
+    {
+        conn.queue = device->createQueue();
+    }
+    catch(const std::exception& e)
+    {
+        Log::error(std::string("cuObject RC shim: ") + e.what() );
+        return false;
+    }
+
+    const uint32_t ourPsn = HexTk::randomPsn();
+
     HipObjToken ourToken;
     ourToken.qpNum = conn.queue.qp->qp_num;
-    memcpy(ourToken.gid, shared->device->getLocalGid().raw, sizeof(ourToken.gid) );
-    ourToken.portNum = shared->device->getPortNum();
+    memcpy(ourToken.gid, device->getLocalGid().raw, sizeof(ourToken.gid) );
+    ourToken.portNum = device->getPortNum();
 
-    httplib::Client http(shared->endpoint);
+    httplib::Client http(endpoint);
     http.set_connection_timeout(HTTP_TIMEOUT_SECS);
     http.set_read_timeout(HTTP_TIMEOUT_SECS);
 
@@ -171,9 +204,10 @@ bool cuObjClient::Impl::connect(Connection& conn, uint32_t ourPsn)
 
     if(!res || res->status != 200)
     {
-        Log::error("cuObject RC shim: connect request to " + shared->endpoint + CONNECT_PATH +
+        Log::error("cuObject RC shim: connect request to " + endpoint + CONNECT_PATH +
             " failed: " + (res ? "HTTP " + std::to_string(res->status) :
                 httplib::to_string(res.error() ) ) );
+        disconnect(conn);
         return false;
     }
 
@@ -185,6 +219,7 @@ bool cuObjClient::Impl::connect(Connection& conn, uint32_t ourPsn)
         !HexTk::parseHex(res->get_header_value("x-amz-rdma-psn"), 6, serverPsn) )
     {
         Log::error("cuObject RC shim: malformed connect reply from server");
+        disconnect(conn);
         return false;
     }
 
@@ -193,21 +228,36 @@ bool cuObjClient::Impl::connect(Connection& conn, uint32_t ourPsn)
     ibv_gid serverGid;
     memcpy(serverGid.raw, serverToken.gid, sizeof(serverGid.raw) );
 
-    return shared->device->connectQueue(conn.queue, serverToken.qpNum, serverGid,
-        shared->device->getDefaultGidIndex(), serverPsn, ourPsn);
+    if(!device->connectQueue(conn.queue, serverToken.qpNum, serverGid,
+        device->getDefaultGidIndex(), serverPsn, ourPsn) )
+    {
+        disconnect(conn);
+        return false;
+    }
+
+    return true;
 }
 
-void cuObjClient::Impl::disconnect(Connection& conn)
+/**
+ * Drop the connection on both sides. No-op for a connection that is not connected.
+ */
+void SharedDevice::disconnect(Connection& conn)
 {
     if(!conn.id.empty() )
     {
-        httplib::Client http(shared->endpoint);
+        httplib::Client http(endpoint);
         http.set_connection_timeout(HTTP_TIMEOUT_SECS);
+        http.set_read_timeout(HTTP_TIMEOUT_SECS);
         http.Post(DISCONNECT_PATH, httplib::Headers{ {"x-amz-rdma-session", conn.id} }, "",
             "application/octet-stream"); // (best effort, the server also expires connections)
+        conn.id.clear();
     }
 
-    shared->device->destroyQueue(conn.queue);
+    if(conn.queue.qp)
+    {
+        device->destroyQueue(conn.queue);
+        conn.queue = RcDevice::Queue();
+    }
 }
 
 ////////////////////////////////// cuObject API //////////////////////////////////
@@ -221,9 +271,6 @@ cuObjClient::cuObjClient(CUObjOps_t& ops, cuObjProto_t proto) : _impl(new Impl()
 
 cuObjClient::~cuObjClient()
 {
-    for(auto& tokenAndConn : _impl->connections)
-        _impl->disconnect(tokenAndConn.second);
-
     delete _impl; // (releases the shared device; registrations go with its last user)
 }
 
@@ -247,7 +294,9 @@ cuObjErr_t cuObjClient::cuMemObjGetDescriptor(void* ptr, size_t size)
         return CU_OBJ_FAIL;
     }
 
-    _impl->shared->registrations[static_cast<char*>(ptr)] = Registration{mr, size};
+    Registration& reg = _impl->shared->registrations[static_cast<char*>(ptr)];
+    reg.mr = mr;
+    reg.size = size;
 
     return CU_OBJ_SUCCESS;
 }
@@ -263,6 +312,7 @@ cuObjErr_t cuObjClient::cuMemObjPutDescriptor(void* ptr)
     if(iter == _impl->shared->registrations.end() )
         return CU_OBJ_INVALID_VALUE;
 
+    _impl->shared->disconnect(iter->second.conn);
     _impl->shared->device->deregisterBuffer(iter->second.mr);
     _impl->shared->registrations.erase(iter);
 
@@ -282,8 +332,9 @@ ssize_t cuObjClient::cuMemObjGetMaxRequestCallbackSize(void* ptr)
 }
 
 /**
- * Mint a token for a transfer of size bytes at ptr + buffer_offset: connects a new queue pair to
- * the server and names that connection in the token.
+ * Mint a token for a transfer of size bytes at ptr + buffer_offset. The token names the
+ * registered buffer's connection, which is set up here on the first token for the buffer (or
+ * again when the last token is so old that the server may have dropped the connection).
  */
 cuObjErr_t cuObjClient::cuMemObjGetRDMAToken(void* ptr, size_t size, size_t buffer_offset,
     cuObjOpType_t operation, char** desc_str_out)
@@ -301,29 +352,20 @@ cuObjErr_t cuObjClient::cuMemObjGetRDMAToken(void* ptr, size_t size, size_t buff
         return CU_OBJ_INVALID_VALUE;
     }
 
-    Connection conn;
+    const auto now = std::chrono::steady_clock::now();
 
-    try
-    {
-        conn.queue = _impl->shared->device->createQueue();
-    }
-    catch(const std::exception& e)
-    {
-        Log::error(std::string("cuObject RC shim: ") + e.what() );
+    if(!reg->conn.id.empty() && (now - reg->lastToken) > RECONNECT_AFTER)
+        _impl->shared->disconnect(reg->conn);
+
+    if(reg->conn.id.empty() && !_impl->shared->connect(reg->conn) )
         return CU_OBJ_FAIL;
-    }
 
-    if(!_impl->connect(conn, HexTk::randomPsn() ) )
-    {
-        _impl->disconnect(conn);
-        return CU_OBJ_FAIL;
-    }
+    reg->lastToken = now;
 
-    const std::string token = "rc:" + conn.id + ":" + HexTk::toHex( (uintptr_t)start, 16) + ":" +
-        HexTk::toHex(size, 8) + ":" + HexTk::toHex(reg->mr->rkey, 8);
+    const std::string token = "rc:" + reg->conn.id + ":" + HexTk::toHex( (uintptr_t)start, 16) +
+        ":" + HexTk::toHex(size, 8) + ":" + HexTk::toHex(reg->mr->rkey, 8);
 
     *desc_str_out = strdup(token.c_str() );
-    _impl->connections[token] = conn;
 
     return CU_OBJ_SUCCESS;
 }
@@ -333,22 +375,38 @@ cuObjErr_t cuObjClient::cuMemObjPutRDMAToken(char* desc_str)
     if(!_impl->connected || !desc_str)
         return CU_OBJ_INVALID_VALUE;
 
-    std::lock_guard<std::mutex> lock(_impl->shared->mutex);
-
-    auto iter = _impl->connections.find(desc_str);
-    if(iter == _impl->connections.end() )
-        return CU_OBJ_INVALID_VALUE;
-
-    _impl->disconnect(iter->second);
-    _impl->connections.erase(iter);
-    free(desc_str);
+    free(desc_str); // (the connection stays with the buffer)
 
     return CU_OBJ_SUCCESS;
 }
 
+/**
+ * Release a token after a failed transfer: a failed work request leaves the queue pairs in error
+ * state and the server drops its side, so drop the buffer's connection; the next token for the
+ * buffer connects again.
+ */
 cuObjErr_t cuObjClient::cuMemObjPutRDMAToken(char* desc_str, int err_code)
 {
-    return cuMemObjPutRDMAToken(desc_str); // (no queue pair reset needed, connections are per token)
+    if(!_impl->connected || !desc_str)
+        return CU_OBJ_INVALID_VALUE;
+
+    if(err_code)
+    {
+        std::lock_guard<std::mutex> lock(_impl->shared->mutex);
+
+        const std::string token(desc_str);
+        const size_t idEnd = token.find(':', 3); // "rc:<connection id>:..."
+
+        Registration* reg = (token.compare(0, 3, "rc:") || idEnd == std::string::npos) ?
+            nullptr : _impl->shared->findRegistrationByConnection(token.substr(3, idEnd - 3) );
+
+        if(reg)
+            _impl->shared->disconnect(reg->conn);
+    }
+
+    free(desc_str);
+
+    return CU_OBJ_SUCCESS;
 }
 
 void* cuObjClient::getCtx(const void* handle)
@@ -369,7 +427,7 @@ ssize_t cuObjClient::cuObjGet(void* ctx, void* ptr, size_t size, loff_t offset, 
     const ssize_t res = _impl->ops.get ?
         _impl->ops.get(ctx, static_cast<char*>(ptr) + buf_offset, size, offset, &info) : -1;
 
-    cuMemObjPutRDMAToken(token);
+    cuMemObjPutRDMAToken(token, (res < 0) ? EIO : 0);
 
     return res;
 }
@@ -384,7 +442,7 @@ ssize_t cuObjClient::cuObjPut(void* ctx, void* ptr, size_t size, loff_t offset, 
     const ssize_t res = _impl->ops.put ?
         _impl->ops.put(ctx, static_cast<char*>(ptr) + buf_offset, size, offset, &info) : -1;
 
-    cuMemObjPutRDMAToken(token);
+    cuMemObjPutRDMAToken(token, (res < 0) ? EIO : 0);
 
     return res;
 }
