@@ -730,6 +730,23 @@ bool ifaceSubnetMatch(const NetBenchIface& a, const NetBenchIface& b)
 }
 
 /**
+ * A service address for messages: with the service's hostname appended when the address is a
+ * numeric IP (and the name adds information), as given otherwise.
+ */
+std::string hostLabel(const std::string& hostPort, const std::string& hostName)
+{
+    std::string host, port;
+    splitHostPort(hostPort, host, port);
+
+    sockaddr_storage addr;
+
+    if(hostName.empty() || (hostName == host) || !parseIP(host, addr) )
+        return hostPort;
+
+    return hostPort + " (" + hostName + ")";
+}
+
+/**
  * Split "host:port" or "[v6addr]:port" into its parts.
  */
 void splitHostPort(const std::string& hostPort, std::string& outHost, std::string& outPort)

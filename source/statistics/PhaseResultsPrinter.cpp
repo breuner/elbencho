@@ -594,7 +594,7 @@ void PhaseResultsPrinter::printPhaseResultsToStream(const PhaseResults& phaseRes
 		outStream << "[ ";
 
         for(const auto& [slowestUSec, remoteWorker] : getServicesByElapsed() )
-            outStream << remoteWorker->getHost() << "=" <<
+            outStream << progArgs.getNetBenchArgs().getHostLabel(remoteWorker->getHost() ) << "=" <<
                 UnitTk::elapsedMSToHumanStr(slowestUSec / 1000) << " ";
 
 		outStream << "]" << std::endl;
@@ -614,11 +614,14 @@ void PhaseResultsPrinter::printPhaseResultsToStream(const PhaseResults& phaseRes
                 % label
                 % ":";
 
+            const NetBenchProgArgs& netBenchArgs = progArgs.getNetBenchArgs();
+
             outStream << "[ "
-                "min=" << (minMax.minPerSec / divisor) << " (" << minMax.minHost << ") "
+                "min=" << (minMax.minPerSec / divisor) << " (" <<
+                netBenchArgs.getHostLabel(minMax.minHost) << ") "
                 "avg=" << (minMax.avgPerSec / divisor) << " "
-                "max=" << (minMax.maxPerSec / divisor) << " (" << minMax.maxHost << ") ]" <<
-                std::endl;
+                "max=" << (minMax.maxPerSec / divisor) << " (" <<
+                netBenchArgs.getHostLabel(minMax.maxHost) << ") ]" << std::endl;
         };
 
         if(phaseResults.opsTotal.numIOPSDone || phaseResults.opsTotalReadMix.numIOPSDone)
@@ -1306,7 +1309,8 @@ void PhaseResultsPrinter::printServicesLatencyRow(LatHistoGetter svcLatHisto, st
             continue;
 
         svcByAvgMap.emplace(svcHisto.getAverageMicroSec(),
-            static_cast<RemoteWorker*>(worker)->getHost() + "=" + svcValueFunc(svcHisto) );
+            progArgs.getNetBenchArgs().getHostLabel(static_cast<RemoteWorker*>(worker)->getHost() ) +
+            "=" + svcValueFunc(svcHisto) );
     }
 
     if(svcByAvgMap.empty() )

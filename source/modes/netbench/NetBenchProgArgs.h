@@ -7,6 +7,7 @@
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <sstream>
+#include <map>
 #include <string>
 
 #include "Common.h"
@@ -23,6 +24,7 @@ class ProgArgs;
 #define ARG_NETBENCH_LONG                "netbench"
 #define ARG_NETBENCHIFACES_LONG          "netbenchifaces" // internal (not set by user)
 #define ARG_NETBENCHRUNID_LONG           "netbenchrunid" // internal (not set by user)
+#define ARG_NETBENCHSERVERNAMES_LONG     "netbenchservernames" // internal (not set by user)
 #define ARG_NETBENCHSERVERSSTR_LONG      "netbenchservers" // internal (not set by user)
 #define ARG_NETBENCHSVCIDX_LONG          "netbenchsvcidx" // internal (not set by user)
 #define ARG_NETBENCHSTREAMS_LONG         "netbenchstreams" // internal (not set by user)
@@ -74,7 +76,7 @@ class NetBenchProgArgs
         void parseHosts(ProgArgs& progArgs);
         void parseNetDevs(bool runAsService);
         void checkArgs(ProgArgs& progArgs);
-        void prepareRun(const ProgArgs& progArgs);
+        void prepareRun(ProgArgs& progArgs);
         void getIfacesAsPropertyTree(const std::string& ownHost, bool devSubnets, bpt::ptree& outTree) const;
         void printHelp();
         void printBuildInfo(std::ostringstream& includedStream,
@@ -118,6 +120,8 @@ class NetBenchProgArgs
         std::string serversFilePath; // path to file with service hosts to use as servers
         std::string serversStr; // service hosts to use as servers
         StringVec serversVec; // services only: resolved "host:port" of all servers
+        StringVec serverNamesVec; // services only: hostnames of the servers (may be empty)
+        std::map<std::string, std::string> hostNameMap; // coordinator: hostname by service address
         size_t serviceIndex; // services only: own position in the coordinator's hosts list
         size_t threadsPerClient; // active netbench threads per client service (at most "-t")
         size_t threadsPerServer; // active netbench threads per server service (at most "-t")
@@ -155,6 +159,8 @@ class NetBenchProgArgs
         const StringVec& getRunIfaces() const { return runIfaces; }
         const NetBenchStreamPlaceVec& getRunStreams() const { return runStreams; }
         const StringVec& getServersVec() const { return serversVec; }
+        std::string getServerLabel(size_t serverIdx) const; // address with hostname for messages
+        std::string getHostLabel(const std::string& hostPort) const; // coordinator: same by address
         size_t getServiceIndex() const { return serviceIndex; }
         size_t getThreadsPerClient() const { return threadsPerClient; }
         size_t getThreadsPerServer() const { return threadsPerServer; }

@@ -70,5 +70,7 @@ inline uint32_t netBenchTagRank(uint64_t tag)
 #define NETBENCH_JSON_IFACES            "ifaces" // interfaces for the client role
 #define NETBENCH_JSON_SERVERIFACES      "serverifaces" // interfaces for the server role
 #define NETBENCH_JSON_SUBNET            "subnet" // "network/prefix" of an interface address
+#define NETBENCH_JSON_SERVICEID         "serviceid" // ID of the service process (alias detection)
+#define NETBENCH_JSON_HOSTNAME          "hostname" // name of the service host
 
 #endif /* MODES_NETBENCH_NETBENCHPROTOCOL_H_ */

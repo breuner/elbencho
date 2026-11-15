@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <chrono>
+#include <cstdlib>
 #include <iomanip>
 #include <pwd.h>
 #include <sstream>
@@ -72,3 +73,24 @@ std::string SystemTk::getUsername()
 
 
 
+
+/**
+ * The name of this host as the launcher spelled it (job scheduler variables), falling back to the
+ * kernel's hostname. Empty if neither is available.
+ */
+std::string SystemTk::getHostName()
+{
+    for(const char* envName : {"PMI_HOSTNAME", "MPIR_CVAR_CH3_INTERFACE_HOSTNAME",
+        "SLURMD_NODENAME", "PMIX_HOSTNAME"} )
+    {
+        const char* envVal = getenv(envName);
+
+        if(envVal && *envVal)
+            return envVal;
+    }
+
+    char hostname[256] = {};
+    gethostname(hostname, sizeof(hostname) - 1);
+
+    return hostname;
+}

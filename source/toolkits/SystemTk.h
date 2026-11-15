@@ -4,6 +4,8 @@
 #ifndef TOOLKITS_SYSTEMTK_H_
 #define TOOLKITS_SYSTEMTK_H_
 
+#include <string>
+
 /**
  * Toolkit for system functions.
  */
@@ -11,6 +13,7 @@ class SystemTk
 {
 	public:
         static std::string getCurrentDateYYYYMMDD();
+        static std::string getHostName();
 		static std::string getUsername();
 
 	private:

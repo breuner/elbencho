@@ -28,6 +28,11 @@ sends `--sendsize` bytes (the netbench name of `-b`, default 1 MiB) and the serv
 total; it defaults to the largest value whose total over all streams still fits the 64 bit
 counters (petabytes per stream), so runs are normally ended by `--timelimit`.
 
+A service may appear in the lists under several addresses, e.g. when hosts carry floating IPs
+and the list is a pool of such addresses. The coordinator treats further addresses of a
+service it already has as aliases and leaves them out with a note. Literal duplicates (the same
+`host:port` twice) are rejected.
+
 `-t` is the number of threads of every service. Servers and clients can use fewer of them with
 `--tservers` and `--tclients`, e.g. `--tservers 8 --tclients 1` for one server with 8 threads
 and many clients with a single stream each; the remaining threads of a service stay idle. If

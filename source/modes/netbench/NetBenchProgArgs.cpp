@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <algorithm>
+#include <sstream>
 #include <cstdint>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -15,6 +16,7 @@
 #include "ProgArgs.h"
 #include "ProgException.h"
 #include "toolkits/TerminalTk.h"
+#include "toolkits/SystemTk.h"
 #include "toolkits/TranslatorTk.h"
 #include "toolkits/UnitTk.h"
 
@@ -362,6 +364,32 @@ void NetBenchProgArgs::getIfacesAsPropertyTree(const std::string& ownHost, bool 
 
     putIfaces(NETBENCH_JSON_IFACES, clientIfaces);
     putIfaces(NETBENCH_JSON_SERVERIFACES, serverIfaces);
+
+    // (the ID lets the coordinator recognize several addresses of this process as one service)
+    static const std::string serviceID = boost::uuids::to_string(boost::uuids::random_generator()() );
+
+    outTree.put(NETBENCH_JSON_SERVICEID, serviceID);
+    outTree.put(NETBENCH_JSON_HOSTNAME, SystemTk::getHostName() );
+}
+
+/**
+ * @return a server's service address with its hostname for messages (services only).
+ */
+std::string NetBenchProgArgs::getServerLabel(size_t serverIdx) const
+{
+    return NetBenchIP::hostLabel(serversVec[serverIdx],
+        (serverIdx < serverNamesVec.size() ) ? serverNamesVec[serverIdx] : "");
+}
+
+/**
+ * @return a service address with its hostname for messages, as learned before the run
+ *      (coordinator only); the address itself if the service is unknown.
+ */
+std::string NetBenchProgArgs::getHostLabel(const std::string& hostPort) const
+{
+    const auto iter = hostNameMap.find(hostPort);
+
+    return NetBenchIP::hostLabel(hostPort, (iter != hostNameMap.end() ) ? iter->second : "");
 }
 
 /**
@@ -370,12 +398,51 @@ void NetBenchProgArgs::getIfacesAsPropertyTree(const std::string& ownHost, bool 
  *
  * @throw ProgException if a service cannot be queried or the streams cannot be placed.
  */
-void NetBenchProgArgs::prepareRun(const ProgArgs& progArgs)
+void NetBenchProgArgs::prepareRun(ProgArgs& progArgs)
 {
     if(!useNetBench || progArgs.getInterruptServices() || progArgs.getQuitServices() )
         return;
 
     placement.query(progArgs);
+
+    // several addresses of the same service process (e.g. floating IPs) count as one service
+    std::vector<std::pair<size_t, size_t>> aliases;
+    placement.dropAliases(aliases);
+
+    if(!aliases.empty() )
+    {
+        StringVec& hosts = progArgs.hostsVec;
+        unsigned numServerAliases = 0;
+
+        for(const auto& [aliasIdx, hostIdx] : aliases)
+        {
+            LOGGER(Log_VERBOSE, "Netbench hosts list alias: " << hosts[aliasIdx] <<
+                getServiceRoleSuffix(aliasIdx) << " is the same service as " << hosts[hostIdx] <<
+                getServiceRoleSuffix(hostIdx) << std::endl);
+
+            if(aliasIdx < numServers)
+                numServerAliases++;
+        }
+
+        for(auto iter = aliases.rbegin(); iter != aliases.rend(); iter++)
+            hosts.erase(hosts.begin() + iter->first);
+
+        numServers -= numServerAliases;
+        numClients = hosts.size() - numServers;
+
+        LOGGER(Log_NORMAL, "NOTE: " << aliases.size() << " of the given netbench hosts are aliases "
+            "(further addresses of the same service) and are left out. Servers: " << numServers <<
+            "; clients: " << numClients << ". (\"--log 1\" shows the aliases.)" << std::endl);
+
+        if(!numServers || !numClients)
+            throw ProgException("Netbench needs at least one server and one client after leaving "
+                "out the aliases.");
+    }
+
+    hostNameMap.clear();
+    for(size_t hostIdx = 0; hostIdx < progArgs.getHostsVec().size(); hostIdx++)
+        hostNameMap[progArgs.getHostsVec()[hostIdx] ] = placement.getHostName(hostIdx);
+
     placement.compute(progArgs.getHostsVec(), numServers, threadsPerClient, threadsPerServer,
         allowCrossSubnet);
 
@@ -796,6 +863,12 @@ void NetBenchProgArgs::setFromPropertyTree(const bpt::ptree& tree)
         HOSTLIST_DELIMITERS, serversVec);
     TranslatorTk::eraseEmptyStringsFromVec(serversVec);
 
+    // (one name per server, possibly empty, so split without dropping empty items)
+    serverNamesVec.clear();
+    std::stringstream namesStream(tree.get<std::string>(ARG_NETBENCHSERVERNAMES_LONG, "") );
+    for(std::string name; std::getline(namesStream, name, ','); )
+        serverNamesVec.push_back(name);
+
     runIfaces.clear();
     TranslatorTk::splitAndExpandStr(tree.get<std::string>(ARG_NETBENCHIFACES_LONG, ""),
         NETDEV_DELIMITERS, runIfaces);
@@ -822,6 +895,15 @@ void NetBenchProgArgs::getAsPropertyTree(const ProgArgs& progArgs, bpt::ptree& o
     outTree.put(ARG_NETBENCH_LONG, useNetBench);
     outTree.put(ARG_NETBENCHRUNID_LONG, runID);
     outTree.put(ARG_NETBENCHSERVERSSTR_LONG, TranslatorTk::stringVecToString(serversVecTmp, ",") );
+
+    StringVec serverNamesTmp;
+    for(const std::string& server : serversVecTmp)
+    {
+        const auto iter = hostNameMap.find(server);
+        serverNamesTmp.push_back( (iter != hostNameMap.end() ) ? iter->second : "");
+    }
+
+    outTree.put(ARG_NETBENCHSERVERNAMES_LONG, TranslatorTk::stringVecToString(serverNamesTmp, ",") );
     outTree.put(ARG_NETBENCHSVCIDX_LONG, serviceRank);
     outTree.put(ARG_NETENGINE_LONG, netBenchEngineName(netEngine) );
     outTree.put(ARG_NETPROV_LONG, netProv);
@@ -844,6 +926,7 @@ void NetBenchProgArgs::reset()
 {
     runID.clear();
     serversVec.clear();
+    serverNamesVec.clear();
     serviceIndex = 0;
 
     runIfaces.clear();

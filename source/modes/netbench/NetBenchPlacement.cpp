@@ -56,6 +56,8 @@ void NetBenchPlacement::query(const ProgArgs& progArgs)
     const NetBenchProgArgs& netBenchArgs = progArgs.getNetBenchArgs();
 
     hostIfaces.assign(hosts.size(), NetBenchIfaceVec() );
+    serviceIDs.assign(hosts.size(), "");
+    hostNames.assign(hosts.size(), "");
 
     for(size_t hostIdx = 0; hostIdx < hosts.size(); hostIdx++)
     {
@@ -89,6 +91,9 @@ void NetBenchPlacement::query(const ProgArgs& progArgs)
 
             readIfaces(tree, netBenchArgs.isServerService(hostIdx) ?
                 NETBENCH_JSON_SERVERIFACES : NETBENCH_JSON_IFACES, hostIfaces[hostIdx] );
+
+            serviceIDs[hostIdx] = tree.get<std::string>(NETBENCH_JSON_SERVICEID, "");
+            hostNames[hostIdx] = tree.get<std::string>(NETBENCH_JSON_HOSTNAME, "");
         }
         catch(std::exception& e)
         {
@@ -96,10 +101,51 @@ void NetBenchPlacement::query(const ProgArgs& progArgs)
                 "; Error: " + e.what() );
         }
 
-        LOGGER(Log_VERBOSE, "Netbench interfaces of " << hosts[hostIdx] <<
+        LOGGER(Log_VERBOSE, "Netbench interfaces of " << hostLabel(hosts, hostIdx) <<
             netBenchArgs.getServiceRoleSuffix(hostIdx) << ": " <<
             subnetsStr(hostIfaces[hostIdx] ) << std::endl);
     }
+}
+
+/**
+ * Remove the hosts that are aliases of an earlier host (the same service process reached through
+ * another address, e.g. a second floating IP) from the queried data. Call after query().
+ *
+ * @param outAliases (index of the removed host, index of the host it is an alias of), both in the
+ *      indexing before the removal, ascending.
+ */
+void NetBenchPlacement::dropAliases(std::vector<std::pair<size_t, size_t>>& outAliases)
+{
+    outAliases.clear();
+
+    for(size_t hostIdx = 0; hostIdx < serviceIDs.size(); hostIdx++)
+    {
+        if(serviceIDs[hostIdx].empty() )
+            continue; // (old service without ID)
+
+        for(size_t earlierIdx = 0; earlierIdx < hostIdx; earlierIdx++)
+            if(serviceIDs[earlierIdx] == serviceIDs[hostIdx] )
+            {
+                outAliases.push_back( { hostIdx, earlierIdx } );
+                break;
+            }
+    }
+
+    for(auto iter = outAliases.rbegin(); iter != outAliases.rend(); iter++)
+    {
+        hostIfaces.erase(hostIfaces.begin() + iter->first);
+        serviceIDs.erase(serviceIDs.begin() + iter->first);
+        hostNames.erase(hostNames.begin() + iter->first);
+    }
+}
+
+/**
+ * @return the host's service address, with its hostname for messages (see NetBenchIP::hostLabel).
+ */
+std::string NetBenchPlacement::hostLabel(const StringVec& hosts, size_t hostIdx) const
+{
+    return NetBenchIP::hostLabel(hosts[hostIdx],
+        (hostIdx < hostNames.size() ) ? hostNames[hostIdx] : "");
 }
 
 /**
@@ -179,7 +225,7 @@ void NetBenchPlacement::compute(const StringVec& hosts, unsigned numServers,
         }
 
         if(candidates[c].empty() && threadsPerClient)
-            throw ProgException("Client " + hosts[numServers + c] + " has no interface in a "
+            throw ProgException("Client " + hostLabel(hosts, numServers + c) + " has no interface in a "
                 "subnet of any server. Client interfaces: " + subnetsStr(clientIfaces) + "; "
                 "server interfaces: " + subnetsStr(allServerIfaces) + ". Use \"--"
                 ARG_NETCROSSSUBNET_LONG "\" to allow streams across subnets (an address family "
@@ -188,7 +234,7 @@ void NetBenchPlacement::compute(const StringVec& hosts, unsigned numServers,
 
     for(size_t s = 0; s < numServers; s++)
         if(!serverReachable[s] && numClients && threadsPerClient)
-            throw ProgException("Server " + hosts[s] + " shares no subnet with any client. Server "
+            throw ProgException("Server " + hostLabel(hosts, s) + " shares no subnet with any client. Server "
                 "interfaces: " + subnetsStr(hostIfaces[s] ) + ". Use \"--" ARG_NETCROSSSUBNET_LONG
                 "\" to allow streams across subnets.");
 
@@ -225,8 +271,8 @@ void NetBenchPlacement::compute(const StringVec& hosts, unsigned numServers,
             streamsPerClientIface[c][best->ci]++;
 
             LOGGER(Log_DEBUG, "Netbench stream placement: rank " << place.clientRank << ": " <<
-                hosts[numServers + c] << " via " << place.clientAddr << " -> " <<
-                hosts[best->s] << " via " << place.serverIfaceAddr << " worker " <<
+                hostLabel(hosts, numServers + c) << " via " << place.clientAddr << " -> " <<
+                hostLabel(hosts, best->s) << " via " << place.serverIfaceAddr << " worker " <<
                 place.serverWorkerIdx << std::endl);
         }
 
@@ -261,8 +307,11 @@ void NetBenchPlacement::logUneven(const StringVec& hosts,
             "Streams per " << what << ": " << countsStr << std::endl);
     };
 
-    noteIfUneven("server", StringVec(hosts.begin(), hosts.begin() + numServers),
-        streamsPerServer);
+    StringVec serverLabels;
+    for(size_t s = 0; s < numServers; s++)
+        serverLabels.push_back(hostLabel(hosts, s) );
+
+    noteIfUneven("server", serverLabels, streamsPerServer);
 
     for(size_t hostIdx = 0; hostIdx < hosts.size(); hostIdx++)
     {
@@ -278,7 +327,7 @@ void NetBenchPlacement::logUneven(const StringVec& hosts,
                 counts.push_back(allCounts[i] );
             }
 
-        noteIfUneven("interface of " + hosts[hostIdx], addrs, counts);
+        noteIfUneven("interface of " + hostLabel(hosts, hostIdx), addrs, counts);
     }
 }
 

@@ -294,26 +294,7 @@ void HTTPService::registerInHostsFile(unsigned short port)
         return;
 
     // the host as spelled on the launcher's command line is what the coordinator can reach best
-    std::string host;
-
-    for(const char* envName : {"PMI_HOSTNAME", "MPIR_CVAR_CH3_INTERFACE_HOSTNAME",
-        "SLURMD_NODENAME", "PMIX_HOSTNAME"} )
-    {
-        const char* envVal = getenv(envName);
-
-        if(envVal && *envVal)
-        {
-            host = envVal;
-            break;
-        }
-    }
-
-    if(host.empty() )
-    {
-        char hostname[256] = {};
-        gethostname(hostname, sizeof(hostname) - 1);
-        host = hostname;
-    }
+    const std::string host = SystemTk::getHostName();
 
     const std::string line = host + ":" + std::to_string(port) + "\n";
 

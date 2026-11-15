@@ -255,6 +255,7 @@ void NetBenchMode::initClient()
     clientRank = (netBenchArgs.getServiceIndex() - numServers) *
         netBenchArgs.getThreadsPerClient() + localRank;
     serverHostPort = serversVec[place.serverIdx];
+    serverLabel = netBenchArgs.getServerLabel(place.serverIdx);
     clientNetDev = place.clientAddr;
 
     std::string serverHost, serverPort;
@@ -354,7 +355,7 @@ void NetBenchMode::connectToServer(const bpt::ptree& request)
             }
 
             if(statusCode.rfind("503", 0) )
-                throw WorkerException("Netbench connect rejected by server " + serverHostPort +
+                throw WorkerException("Netbench connect rejected by server " + serverLabel +
                     ": " + response->content.string() );
 
             retryReason = "server not prepared for this run yet";
@@ -370,10 +371,10 @@ void NetBenchMode::connectToServer(const bpt::ptree& request)
 
         if(std::chrono::steady_clock::now() - connectStartT >
             std::chrono::seconds(NETBENCH_CONNECT_TIMEOUT_SEC) )
-            throw WorkerException("Timed out connecting to netbench server " + serverHostPort +
+            throw WorkerException("Timed out connecting to netbench server " + serverLabel +
                 ". Last error: " + retryReason);
 
-        LOGGER(Log_DEBUG, "Netbench connect to " << serverHostPort << " not possible yet, "
+        LOGGER(Log_DEBUG, "Netbench connect to " << serverLabel << " not possible yet, "
             "retrying. Reason: " << retryReason << std::endl);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(NETBENCH_CONNECT_RETRY_MS) );
@@ -383,7 +384,7 @@ void NetBenchMode::connectToServer(const bpt::ptree& request)
 
     const std::string serverEngine = reply.get<std::string>(NETBENCH_JSON_ENGINE, "");
     if(serverEngine != netBenchEngineName(netBenchArgs.getNetEngine() ) )
-        throw WorkerException("Netbench server " + serverHostPort + " uses engine \"" +
+        throw WorkerException("Netbench server " + serverLabel + " uses engine \"" +
             serverEngine + "\" instead of \"" + netBenchEngineName(netBenchArgs.getNetEngine() ) +
             "\".");
 
@@ -416,14 +417,14 @@ void NetBenchMode::connectToServer(const bpt::ptree& request)
     catch(WorkerException& e)
     {
         throw WorkerException(std::string("Connection check to netbench server failed: ") +
-            e.what() + ". Server: " + serverHostPort + "; server endpoint: " +
+            e.what() + ". Server: " + serverLabel + "; server endpoint: " +
             serverEPDescription + "; own endpoint: " + clientEP->getDescription() +
             (clientNetDev.empty() ? "" : " (own interface " + clientNetDev + ")") +
             ". For RDMA, the route from the own address to the server endpoint address has to "
             "go through the own interface (see \"ip route get <server> from <own address>\").");
     }
 
-    LOGGER(Log_VERBOSE, "Established connection to: " << serverHostPort << "; "
+    LOGGER(Log_VERBOSE, "Established connection to: " << serverLabel << "; "
         "endpoint: " << serverEPDescription << "; "
         "via: " << clientEP->getDescription() << "; "
         "WorkerRank: " << workerRank << std::endl);
@@ -721,7 +722,7 @@ void NetBenchMode::doTransferClient()
     const std::function<std::string()> timeoutDetail = [&]()
     {
         return "rounds done: " + std::to_string(numRoundsDone) + " of " +
-            std::to_string(numRounds) + "; server: " + serverHostPort + "; server endpoint: " +
+            std::to_string(numRounds) + "; server: " + serverLabel + "; server endpoint: " +
             serverEPDescription + "; own endpoint: " + clientEP->getDescription() +
             (clientNetDev.empty() ? "" : " (own interface " + clientNetDev + ")");
     };
@@ -802,7 +803,7 @@ void NetBenchMode::doTransferClient()
             { // ping-pong: this is the response to the oldest pending round
                 if(pendingSlots.empty() )
                     throw WorkerException("Received a response without a pending round. "
-                        "Server: " + serverHostPort);
+                        "Server: " + serverLabel);
 
                 const size_t slot = pendingSlots.front();
                 pendingSlots.pop_front();

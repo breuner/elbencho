@@ -148,7 +148,7 @@ netbench_log_conn_targets_since()
 {
     tail -n +$(( $2 + 1 )) "$1" 2>/dev/null | \
         grep -ao 'Established connection to: [^;]*' | \
-        sed -e 's/.*to: //' | sort -u | tr '\n' ' ' | sed -e 's/ $//'
+        sed -e 's/.*to: //' -e 's/ (.*//' | sort -u | tr '\n' ' ' | sed -e 's/ $//'
 }
 
 # netbench_log_endpoints_since LOGFILE MARK

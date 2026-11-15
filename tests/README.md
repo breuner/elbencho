@@ -442,6 +442,14 @@ Rules to keep tests independent, fast and safe to run in parallel:
   because loopback cannot show a `/32` address without root. The service start
   checks of `--netdevs` (error when no entry exists, warning when some do not)
   are in `netdevs-subnet.t`.
+* The same interface query brings a per-process service ID and the hostname of
+  every service, so a host entry that reaches an already listed service under
+  another address is an alias and is left out (NOTE at the normal log level,
+  the pairs with `--log 1`), and services given as IP address are labeled
+  `address:port (hostname)` in the per-service console output and in the client
+  logs. `host-aliases.t` covers both with one service reached as `localhost:P`
+  and as `127.0.0.1:P`; it unsets the scheduler hostname variables
+  (`SLURMD_NODENAME` etc.) that a service prefers over the kernel hostname.
 * Netbench mode is always built, but the engines are separate build features
   (`libfabric`, which needs a `LIBFABRIC_SUPPORT=1` build, `ibverbs`, `rdmacm`)
   for `require_build_feature`. `rdma-verbs.t`, `engine-ibverbs.t` and

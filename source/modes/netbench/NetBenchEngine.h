@@ -198,6 +198,7 @@ namespace NetBenchIP
     bool ifaceFamilyMatch(const NetBenchIface& a, const NetBenchIface& b); // or unknown
     bool ifaceSubnetMatch(const NetBenchIface& a, const NetBenchIface& b); // mutual, or unknown
     void splitHostPort(const std::string& hostPort, std::string& outHost, std::string& outPort);
+    std::string hostLabel(const std::string& hostPort, const std::string& hostName); // for messages
     std::vector<NetBenchAddr> resolveHost(const std::string& host); // empty if unresolvable
     socklen_t sockAddrLen(const struct sockaddr* addr);
     std::string sockAddrToStr(const struct sockaddr* addr); // "ip:port" or "[ip]:port"

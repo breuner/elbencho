@@ -47,6 +47,7 @@ class NetBenchMode
         std::unique_ptr<NetBenchEndpoint> clientEP; // client: own endpoint
         NetBenchConn* serverConn{NULL}; // client: the connection to the server (owned by clientEP)
         std::string serverHostPort; // client: service address of the server
+        std::string serverLabel; // client: the server's address with its hostname for messages
         std::string serverEPDescription; // client: for log messages
         std::string clientNetDev; // client: own interface address from the placement
         uint32_t clientRank{0}; // client: global client thread rank

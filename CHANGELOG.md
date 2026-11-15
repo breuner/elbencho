@@ -18,6 +18,8 @@
 * Added documentation for `--jsonfile` and `--livecsv`. See [`docs/csv-and-json-result-files.md`](docs/csv-and-json-result-files.md).
 * Improved balance across threads when dataset blocks count is not an even multiple of threads count.
 * Updated mimalloc lib for static builds to latest v3.6.1.
+* In netbench mode fullscreen live stats, hostnames are now being shown for servers/clients that were given by IP address.
+* In netbench mode, server/client lists can now contain aliases (different IPs that refer to the same service instance) and automatically get reduced to lists of unique service instances.
 
 ### Fixes
 * Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)

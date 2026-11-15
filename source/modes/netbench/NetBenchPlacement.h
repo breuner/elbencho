@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Common.h"
@@ -41,22 +42,27 @@ class NetBenchPlacement
 {
     public:
         void query(const ProgArgs& progArgs);
+        void dropAliases(std::vector<std::pair<size_t, size_t>>& outAliases);
         void compute(const StringVec& hosts, unsigned numServers, size_t threadsPerClient,
             size_t threadsPerServer, bool allowCrossSubnet);
         std::string getIfacesStr(size_t hostIdx) const;
         std::string getStreamsStr(size_t hostIdx) const;
         size_t getMaxStreamsPerServer() const;
         size_t getMaxServerIfaces() const;
+        const std::string& getHostName(size_t hostIdx) const { return hostNames[hostIdx]; }
 
         static void parseStreams(const std::string& str, NetBenchStreamPlaceVec& out);
 
     private:
         std::vector<NetBenchIfaceVec> hostIfaces; // per host (server or client role)
+        StringVec serviceIDs; // per host: ID of the service process (empty for old services)
+        StringVec hostNames; // per host: name of the service host (may be empty)
         NetBenchStreamPlaceVec streams; // by client rank
         std::vector<size_t> streamsPerServer;
         unsigned numServers{0};
         size_t threadsPerClient{0};
 
+        std::string hostLabel(const StringVec& hosts, size_t hostIdx) const;
         void logUneven(const StringVec& hosts, const std::vector<std::vector<bool>>& ifaceUsable,
             const std::vector<std::vector<size_t>>& streamsPerServerIface,
             const std::vector<std::vector<size_t>>& streamsPerClientIface) const;

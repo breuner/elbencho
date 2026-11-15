@@ -1191,7 +1191,8 @@ void LiveStats::printFullScreenLiveStatsWorkerTable(const LiveResults& liveResul
             VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
 				std::to_string(remoteWorker->getCPUUtilLive() ) );
             VEC2D_SET_AUTOGROW(statsTableData, rowIdx, colIdx++,
-                (progArgs.getHostsVec()[i] + netBenchArgs.getServiceRoleSuffix(i) + pingStr) );
+                (netBenchArgs.getHostLabel(progArgs.getHostsVec()[i]) +
+                    netBenchArgs.getServiceRoleSuffix(i) + pingStr) );
         }
 
         // new row, reset column
