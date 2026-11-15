@@ -16,6 +16,7 @@
 ### General Changes
 * Improved netbench error messages to show associated source/destination interface in case of a failed transfer.
 * Added documentation for `--jsonfile` and `--livecsv`. See [`docs/csv-and-json-result-files.md`](docs/csv-and-json-result-files.md).
+* Improved balance across threads when dataset blocks count is not an even multiple of threads count.
 
 ### Fixes
 * Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)
