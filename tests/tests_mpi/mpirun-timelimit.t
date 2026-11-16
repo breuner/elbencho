@@ -14,7 +14,7 @@
 # run has to end with more bytes than one pass over the file.
 
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
-source "$(dirname "$(readlink -f "$0")")/../lib/mpiio.sh" || exit 1
+source "$(dirname "$(readlink -f "$0")")/../lib/mpi.sh" || exit 1
 
 require_mpirun
 
@@ -44,7 +44,7 @@ assert_ok $? "collective write phase ends with the time limit instead of deadloc
 BYTES=$(json_value "$ELB_JSON" WRITE last_done bytes)
 assert_gt "$BYTES" 0 "some data was written before the time limit"
 assert_lt "$BYTES" "$FILE_SIZE" "less than the full file was written"
-assert_eq "$(mpiio_procs_left)" 0 "no elbencho process is left after the collective run"
+assert_eq "$(mpi_procs_left)" 0 "no elbencho process is left after the collective run"
 
 ################## Independent write cut by the time limit ##################
 
@@ -56,7 +56,7 @@ assert_ok $? "independent write phase ends with the time limit"
 
 BYTES=$(json_value "$ELB_JSON" WRITE last_done bytes)
 assert_lt "$BYTES" "$FILE_SIZE" "less than the full file was written independently"
-assert_eq "$(mpiio_procs_left)" 0 "no elbencho process is left after the independent run"
+assert_eq "$(mpi_procs_left)" 0 "no elbencho process is left after the independent run"
 
 ################## Collective infinite loop cut by the time limit ##################
 
@@ -68,4 +68,4 @@ assert_ok $? "collective infinite loop ends with the time limit instead of deadl
 
 BYTES=$(json_value "$ELB_JSON" WRITE last_done bytes)
 assert_gt "$BYTES" "$LOOP_FILE_SIZE" "the file was written more than once"
-assert_eq "$(mpiio_procs_left)" 0 "no elbencho process is left after the infinite loop run"
+assert_eq "$(mpi_procs_left)" 0 "no elbencho process is left after the infinite loop run"

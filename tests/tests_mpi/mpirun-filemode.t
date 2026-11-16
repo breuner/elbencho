@@ -6,14 +6,14 @@
 # the I/O: two ranks with two threads each for independent I/O, four ranks with
 # one thread each for collective I/O, because MPI libraries whose MPI-IO layer
 # serializes the calls of a process (MPICH's ROMIO) deadlock on collective calls
-# from several threads of one rank (see docs/mpiio.md; the threaded collective
+# from several threads of one rank (see docs/mpi.md; the threaded collective
 # case with groups of one participant is in standalone-filemode.t). Covers
 # independent and collective I/O with sequential, strided and random access,
 # the file size reduction for equal block counts, an MPI-IO hint, and that no
 # rank is left behind when mpirun returns.
 
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
-source "$(dirname "$(readlink -f "$0")")/../lib/mpiio.sh" || exit 1
+source "$(dirname "$(readlink -f "$0")")/../lib/mpi.sh" || exit 1
 
 require_mpirun
 
@@ -52,7 +52,7 @@ assert_eq "$(opslog_count "$TEST_DIR/seq.opslog" MPI_File_write_at)" "$NUM_BLOCK
     "the I/O ranks logged one MPI_File_write_at call per block"
 assert_eq "$(opslog_max_distinct_ranks "$TEST_DIR/seq.opslog" MPI_File_write_at)" \
     "$DATASET_THREADS" "all threads of both I/O ranks wrote to the shared file"
-assert_eq "$(mpiio_procs_left)" 0 "no elbencho process is left after mpirun returned"
+assert_eq "$(mpi_procs_left)" 0 "no elbencho process is left after mpirun returned"
 
 ################## Collective sequential I/O with file size reduction ##################
 
@@ -105,4 +105,4 @@ run_mpi_elbencho hints $NUM_RANKS \
     "$FILE"
 assert_ok $? "a run with MPI-IO hints succeeds"
 
-assert_eq "$(mpiio_procs_left)" 0 "no elbencho process is left at the end"
+assert_eq "$(mpi_procs_left)" 0 "no elbencho process is left at the end"

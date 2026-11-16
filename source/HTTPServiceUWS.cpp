@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 #include "HTTPServiceUWS.h"
-#include "modes/mpiio/MpiIoLauncher.h"
+#include "toolkits/mpi/MpiLauncher.h"
 #include "ProgException.h"
 #include "modes/netbench/NetBenchProtocol.h"
 #include "modes/netbench/NetBenchServer.h"
@@ -80,7 +80,7 @@ void HTTPServiceUWS::startServer()
                 }
 
                 // under mpirun: announce the address to the coordinator rank, stop when it is done
-                MpiIoLauncher::serviceListening(listenPort, [loop = uWS::Loop::get(), this]()
+                MpiLauncher::serviceListening(listenPort, [loop = uWS::Loop::get(), this]()
                 {
                     loop->defer([this]() { us_listen_socket_close(0 /*ssl*/, globalListenSocket); } );
                 } );
@@ -92,7 +92,7 @@ void HTTPServiceUWS::startServer()
 
 	uWSApp.run();
 
-    MpiIoLauncher::joinServiceWaiter();
+    MpiLauncher::joinServiceWaiter();
 
     if(!listenErrorStr.empty() )
         throw ProgException(listenErrorStr);

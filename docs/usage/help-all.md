@@ -365,17 +365,24 @@ All options in alphabetical order:
                           form one collective group and do the same number of 
                           I/Os, so the file size gets reduced to a multiple of 
                           block size times total thread count if necessary. See
-                          "--help-mpiio" for details.
+                          "--help-mpi" for details.
   --mpihints arg          Comma-separated MPI-IO hints as key=value pairs for 
                           MPI_File_open in MPI-IO mode, e.g. 
                           "romio_cb_write=enable,striping_unit=1048576". Which 
                           hints have an effect depends on the MPI library and 
                           the file system.
   --mpiio                 Read and write file contents through the MPI-IO API 
-                          (MPI_File_*). Launch via mpirun: rank 0 is the 
-                          coordinator, all other ranks are the service 
-                          instances that do the I/O; without mpirun this is a 
-                          standalone run. See "--help-mpiio" for details.
+                          (MPI_File_*). Under an MPI launcher with more than 
+                          one rank this implies "--mpilaunch"; without a 
+                          launcher it is a standalone run. Has to be on the 
+                          command line, not in a config file. See "--help-mpi" 
+                          for details.
+  --mpilaunch             Started by an MPI launcher (mpirun, srun): rank 0 is 
+                          the coordinator, all other ranks are the service 
+                          instances that do the I/O, in any benchmark mode 
+                          (e.g. POSIX, S3, MPI-IO). Has to be on the command 
+                          line, not in a config file. See "--help-mpi" for 
+                          details.
   --no0usecerr            Do not warn if worker thread completion time is less 
                           than 1 microsecond.
   --nocsvlabels           Do not print headline with labels to csv file.

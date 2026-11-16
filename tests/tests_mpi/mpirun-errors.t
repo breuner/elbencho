@@ -8,7 +8,7 @@
 # under mpirun, where the ranks are assigned automatically.
 
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
-source "$(dirname "$(readlink -f "$0")")/../lib/mpiio.sh" || exit 1
+source "$(dirname "$(readlink -f "$0")")/../lib/mpi.sh" || exit 1
 
 require_mpirun
 
@@ -27,7 +27,7 @@ run_mpi_elbencho badpath $NUM_RANKS \
 assert_nok $? "a path that the service ranks cannot open fails the run"
 assert_match "$(cat "$ELB_OUT")" "Unable to open benchmark path" \
     "the services' open error is reported by the coordinator"
-assert_eq "$(mpiio_procs_left)" 0 "no elbencho process is left after the failed run"
+assert_eq "$(mpi_procs_left)" 0 "no elbencho process is left after the failed run"
 
 ################## Argument rejected by the coordinator rank ##################
 
@@ -36,7 +36,7 @@ run_mpi_elbencho collmix $NUM_RANKS \
     "$FILE"
 assert_nok $? "an invalid option combination fails the run"
 assert_match "$(cat "$ELB_OUT")" "read/write mix" "the rejection message is shown"
-assert_eq "$(mpiio_procs_left)" 0 "the service ranks ended with the coordinator rank"
+assert_eq "$(mpi_procs_left)" 0 "the service ranks ended with the coordinator rank"
 
 ################## "--hosts" under mpirun ##################
 
@@ -44,6 +44,6 @@ run_mpi_elbencho hosts $NUM_RANKS \
     --mpiio --hosts localhost -w -t 1 -b 1m -s 4m \
     "$FILE"
 assert_nok $? "\"--hosts\" is rejected under mpirun"
-assert_match "$(cat "$ELB_OUT")" "cannot be given under mpirun" \
+assert_match "$(cat "$ELB_OUT")" "service ranks are assigned automatically" \
     "the rejection explains that the ranks are assigned automatically"
-assert_eq "$(mpiio_procs_left)" 0 "no elbencho process is left after the rejection"
+assert_eq "$(mpi_procs_left)" 0 "no elbencho process is left after the rejection"

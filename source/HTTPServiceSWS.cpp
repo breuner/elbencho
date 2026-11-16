@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 #include "HTTPServiceSWS.h"
-#include "modes/mpiio/MpiIoLauncher.h"
+#include "toolkits/mpi/MpiLauncher.h"
 #include "ProgException.h"
 #include "modes/netbench/NetBenchProtocol.h"
 #include "modes/netbench/NetBenchServer.h"
@@ -139,11 +139,11 @@ void HTTPServiceSWS::startServer()
     }
 
     // under mpirun: announce the address to the coordinator rank, stop when it is done
-    MpiIoLauncher::serviceListening(serverPortFutureValue, [&server]() { server.stop(); } );
+    MpiLauncher::serviceListening(serverPortFutureValue, [&server]() { server.stop(); } );
 
 	serverThread.join();
 
-    MpiIoLauncher::joinServiceWaiter();
+    MpiLauncher::joinServiceWaiter();
 
 	std::cout << "Service stopped listening. Port: " << serverPortFutureValue << std::endl;
 }

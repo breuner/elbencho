@@ -27,8 +27,8 @@ Multiple clients (e.g. shared file systems):
 Network benchmarking between hosts:
   $ elbencho <a href="help-netbench.md">--help-netbench</a>
 
-MPI-IO (independent and collective, launched via mpirun):
-  $ elbencho <a href="help-mpiio.md">--help-mpiio</a>
+Launch via mpirun/srun (any mode) and MPI-IO:
+  $ elbencho <a href="help-mpi.md">--help-mpi</a>
 
 See all available options (e.g. csv file output):
   $ elbencho <a href="help-all.md">--help-all</a>

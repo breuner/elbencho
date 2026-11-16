@@ -219,9 +219,9 @@ The network benchmark mode supports mulitple engines:
   * Libfabric is the chosen interface of the Ultra Ethernet Consortium and supports various providers, such as tcp, verbs, AWS EFA, HPE Slingshot.
   * Libfabric support can be enabled via `make LIBFABRIC_SUPPORT=1`, which uses a system-installed libfabric (development package, version 1.11 or newer) when `pkg-config` finds one, and otherwise downloads and builds its own copy into `external/` (needs autoconf, automake and libtool); `BUILD_LIBFABRIC=1` forces the own copy.
 
-#### MPI-IO Benchmarking
+#### MPI Launch and MPI-IO Benchmarking
 
-Elbencho can read and write files through the MPI-IO API (`--mpiio`), with independent or collective (`--mpicoll`) calls, when built with `make MPI_SUPPORT=1` (compiles through `mpicxx`). Launched via `mpirun`, rank 0 coordinates and all other ranks run elbencho services that do the I/O with `-t` threads each, so the usual shared file and directory modes, access patterns and result files apply. See `elbencho --help-mpiio` and [docs/mpiio.md](docs/mpiio.md).
+When built with `make MPI_SUPPORT=1` (compiles through `mpicxx`), elbencho can run as an MPI job: with `--mpilaunch`, rank 0 coordinates and all other ranks run elbencho services that do the I/O with `-t` threads each, in any benchmark mode (POSIX, S3, ...), so the usual shared file and directory modes, access patterns and result files apply. Independently of that, `--mpiio` reads and writes files through the MPI-IO API, with independent or collective (`--mpicoll`) calls, and implies `--mpilaunch` under `mpirun`. See `elbencho --help-mpi` and [docs/mpi.md](docs/mpi.md).
 
 #### Contributed Plugins
 

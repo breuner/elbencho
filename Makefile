@@ -139,8 +139,8 @@ ifeq ($(S3_SUPPORT), 1)
 
 endif
 
-# Support for the MPI-IO benchmark mode. Compiles and links through the MPI compiler wrapper
-# (MPICXX, default "mpicxx"), unless CXX was given explicitly.
+# Support for MPI (and the MPI-IO benchmark mode). Compiles and links through the MPI compiler
+# wrapper (MPICXX, default "mpicxx"), unless CXX was given explicitly.
 ifeq ($(MPI_SUPPORT), 1)
   CXXFLAGS += -DMPI_SUPPORT
   MPICXX   ?= mpicxx
@@ -537,7 +537,7 @@ ifeq ($(SPDK_SUPPORT),1)
 endif
 
 ifeq ($(MPI_SUPPORT),1)
-	$(info [OPT] MPI-IO support enabled (compiler: $(CXX)))
+	$(info [OPT] MPI support enabled (compiler: $(CXX)))
 endif
 
 	$(info [OPT] Netbench engines enabled: tcp$(if $(filter 1,$(IBVERBS_SUPPORT)),$(COMMA) ibverbs)$(if $(filter 1,$(RDMACM_SUPPORT)),$(COMMA) rdmacm)$(if $(filter 1,$(LIBFABRIC_SUPPORT)),$(COMMA) $(LIBFABRIC_INFO)))
@@ -725,7 +725,7 @@ help:
 	@echo '                             found.'
 	@echo '   LIBFABRIC_SUPPORT=0|1   - Build the netbench libfabric engine (see'
 	@echo '                             BUILD_LIBFABRIC). (Default: 0)'
-	@echo '   MPI_SUPPORT=0|1         - Build with support for the MPI-IO benchmark mode.'
+	@echo '   MPI_SUPPORT=0|1         - Build with support for MPI (and MPI-IO).'
 	@echo '                             Compiles and links through MPICXX (Default: mpicxx)'
 	@echo '                             unless CXX is given. (Default: 0)'
 	@echo '   S3_AWSCRT=0|1           - Build S3 support based on AWS Common Runtime (CRT)'

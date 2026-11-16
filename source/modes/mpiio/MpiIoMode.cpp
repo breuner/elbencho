@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 
 #include "Logger.h"
-#include "modes/mpiio/MpiIoLauncher.h"
+#include "toolkits/mpi/MpiLauncher.h"
 #include "modes/mpiio/MpiIoMode.h"
 #include "modes/mpiio/MpiIoProgArgs.h"
 #include "ProgArgs.h"
@@ -76,7 +76,7 @@ MPI_Comm MpiIoMode::getThreadComm(size_t threadIdx)
     {
         MPI_Comm newComm;
 
-        int dupRes = MPI_Comm_dup(MpiIoLauncher::getIoComm(), &newComm);
+        int dupRes = MPI_Comm_dup(MpiLauncher::getIoComm(), &newComm);
         if(dupRes != MPI_SUCCESS)
             throw WorkerException("Duplicating the MPI communicator for a worker thread failed. "
                 "Thread index: " + std::to_string(threadComms.size() ) + "; "
@@ -110,10 +110,17 @@ void MpiIoMode::init()
     if(progArgs->getBenchMode() != BenchMode_MPIIO)
         return;
 
-    if(!MpiIoLauncher::isActive() )
-        throw WorkerException("MPI-IO mode requires \"--" ARG_MPIIO_LONG "\" on the command line "
-            "of this process (also for a service instance), so that MPI gets initialized at "
-            "startup.");
+    if(!MpiLauncher::isActive() )
+        throw WorkerException("MPI-IO mode requires \"--" ARG_MPIIO_LONG "\" or \"--"
+            ARG_MPILAUNCH_LONG "\" on the command line of this process (also for a service "
+            "instance), so that MPI gets initialized at startup.");
+
+    // a service started with "--mpilaunch" alone accepted a lower thread level at startup
+    int threadLevel;
+    MPI_Query_thread(&threadLevel);
+    if(threadLevel < MPI_THREAD_MULTIPLE)
+        throw WorkerException("MPI-IO mode needs MPI_THREAD_MULTIPLE for its worker threads, but "
+            "the MPI library of this process provides a lower thread level.");
 
     /* only collective I/O needs the thread's group communicator (and the collective open and
         close that come with it); independent I/O opens every file for this thread alone, so that

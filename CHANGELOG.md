@@ -3,7 +3,7 @@
 ## v3.3.4 (work in progress)
 
 ### New Features & Enhancements
-* Added support for MPI-IO, including collective IO. See [`docs/mpiio.md`](docs/mpiio.md).
+* Added support for launching coordinated runs via MPI and for MPI-IO as file access API, including collective IO. See [`docs/mpi.md`](docs/mpi.md).
 * Added per-thread and per-service performance info to `--livecsvex` rows.
 * Added new columns to `--livecsv` file to show:
   * cumulative IO count (`DoneIOs`)

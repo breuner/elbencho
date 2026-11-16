@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Helper library for the MPI-IO mode tests.
+# Helper library for the MPI tests (MPI launch and MPI-IO mode).
 #
 # Source this after tests/lib/testlib.sh. require_mpirun() has to be called
 # before test_init(), because it may skip the whole test file.
@@ -19,7 +19,7 @@ MPIRUN_FLAGS=""
 # without "--oversubscribe", which MPICH's hydra does not know.
 require_mpirun()
 {
-    require_build_feature mpiio
+    require_build_feature mpi
 
     if command -v mpirun >/dev/null 2>&1; then
         MPIRUN="mpirun"
@@ -82,9 +82,9 @@ run_mpi_elbencho()
     return $rc
 }
 
-# mpiio_procs_left -> number of elbencho processes that still have this test's
+# mpi_procs_left -> number of elbencho processes that still have this test's
 # dir on their command line. All ranks of a finished mpirun have to be gone.
-mpiio_procs_left()
+mpi_procs_left()
 {
     ps -eo comm,args | awk '$1 ~ /^elbencho/' | grep -cF "$TEST_DIR"
 }

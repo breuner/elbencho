@@ -11,15 +11,16 @@
 #include <vector>
 
 #include "Common.h"
-#include "modes/mpiio/MpiIoLauncher.h"
 #include "modes/mpiio/MpiIoProgArgs.h"
 #include "modes/netbench/NetBenchEngine.h" // (the NetBenchIP address helpers)
+#include "modes/netbench/NetBenchProgArgs.h"
+#include "toolkits/mpi/MpiLauncher.h"
 #include "ProgArgs.h"
 
 #ifdef MPI_SUPPORT
 
-#define MPIIO_ADDR_MAXLEN       256 // fixed length of a "host:port" in the address gather
-#define MPIIO_COORDADDRS_MAXLEN 4096 // fixed length of the coordinator's address list
+#define MPI_ADDR_MAXLEN       256 // fixed length of a "host:port" in the address gather
+#define MPI_COORDADDRS_MAXLEN 4096 // fixed length of the coordinator's address list
 
 namespace
 {
@@ -98,7 +99,7 @@ namespace
             }
         }
 
-        char hostname[MPIIO_ADDR_MAXLEN] = {};
+        char hostname[MPI_ADDR_MAXLEN] = {};
         gethostname(hostname, sizeof(hostname) - 1);
 
         return hostname;
@@ -110,15 +111,15 @@ namespace
      */
     void gatherAddrs(const std::string& ownAddr, std::vector<std::string>* outAddrs)
     {
-        char sendBuf[MPIIO_ADDR_MAXLEN] = {};
-        strncpy(sendBuf, ownAddr.c_str(), MPIIO_ADDR_MAXLEN - 1);
+        char sendBuf[MPI_ADDR_MAXLEN] = {};
+        strncpy(sendBuf, ownAddr.c_str(), MPI_ADDR_MAXLEN - 1);
 
         int worldSize;
         MPI_Comm_size(MPI_COMM_WORLD, &worldSize);
 
-        std::vector<char> recvBuf(outAddrs ? (worldSize * MPIIO_ADDR_MAXLEN) : 0);
+        std::vector<char> recvBuf(outAddrs ? (worldSize * MPI_ADDR_MAXLEN) : 0);
 
-        MPI_Gather(sendBuf, MPIIO_ADDR_MAXLEN, MPI_CHAR, recvBuf.data(), MPIIO_ADDR_MAXLEN,
+        MPI_Gather(sendBuf, MPI_ADDR_MAXLEN, MPI_CHAR, recvBuf.data(), MPI_ADDR_MAXLEN,
             MPI_CHAR, 0, MPI_COMM_WORLD);
 
         addrsGathered = true;
@@ -127,7 +128,7 @@ namespace
             return;
 
         for(int i=0; i < worldSize; i++)
-            outAddrs->push_back(std::string(&recvBuf[i * MPIIO_ADDR_MAXLEN] ) );
+            outAddrs->push_back(std::string(&recvBuf[i * MPI_ADDR_MAXLEN] ) );
     }
 
     bool hasArg(int argc, char** argv, const std::string& longName)
@@ -145,18 +146,20 @@ namespace
 #endif // MPI_SUPPORT
 
 /**
- * Initialize MPI if "--mpiio" is on the command line and set the role of this rank. Rank 0 of a
- * multi-rank run gets the services' addresses appended as "--hosts", the other ranks get the
- * service options appended.
+ * Initialize MPI if "--mpilaunch" or "--mpiio" is on the command line and set the role of this
+ * rank. Rank 0 of a multi-rank run gets the services' addresses appended as "--hosts", the other
+ * ranks get the service options appended.
  *
  * @argc/argv replaced by the modified command line where applicable.
- * @throw ProgException on MPI errors, a missing MPI_THREAD_MULTIPLE or a failed service rank.
+ * @throw ProgException on MPI errors, an insufficient thread level or a failed service rank.
  */
-void MpiIoLauncher::init(int& argc, char**& argv)
+void MpiLauncher::init(int& argc, char**& argv)
 {
 #ifdef MPI_SUPPORT
 
-    if(!hasArg(argc, argv, ARG_MPIIO_LONG) )
+    const bool useMpiIo = hasArg(argc, argv, ARG_MPIIO_LONG);
+
+    if(!useMpiIo && !hasArg(argc, argv, ARG_MPILAUNCH_LONG) )
         return;
 
     int provided;
@@ -166,9 +169,15 @@ void MpiIoLauncher::init(int& argc, char**& argv)
 
     active = true;
 
-    if(provided < MPI_THREAD_MULTIPLE)
+    /* MPI-IO worker threads call MPI concurrently; the launch alone only needs the service
+        waiter thread to test the final barrier while the main thread makes no MPI calls */
+    if(useMpiIo && (provided < MPI_THREAD_MULTIPLE) )
         throw ProgException("The MPI library does not provide MPI_THREAD_MULTIPLE, which MPI-IO "
             "mode needs for its worker threads.");
+
+    if(provided < MPI_THREAD_SERIALIZED)
+        throw ProgException("The MPI library does not provide MPI_THREAD_SERIALIZED, which the "
+            "MPI launch needs.");
 
     int worldSize, worldRank;
     MPI_Comm_size(MPI_COMM_WORLD, &worldSize);
@@ -186,12 +195,12 @@ void MpiIoLauncher::init(int& argc, char**& argv)
     MPI_Comm_split(MPI_COMM_WORLD, worldRank ? 1 : MPI_UNDEFINED, worldRank, &ioComm);
 
     // the coordinator's addresses let the services pick the interface to announce
-    char coordAddrsBuf[MPIIO_COORDADDRS_MAXLEN] = {};
+    char coordAddrsBuf[MPI_COORDADDRS_MAXLEN] = {};
 
     if(worldRank == 0)
         strncpy(coordAddrsBuf, ownIPv4Addrs().c_str(), sizeof(coordAddrsBuf) - 1);
 
-    MPI_Bcast(coordAddrsBuf, MPIIO_COORDADDRS_MAXLEN, MPI_CHAR, 0, MPI_COMM_WORLD);
+    MPI_Bcast(coordAddrsBuf, MPI_COORDADDRS_MAXLEN, MPI_CHAR, 0, MPI_COMM_WORLD);
 
     for(char* tok = strtok(coordAddrsBuf, ","); tok; tok = strtok(NULL, ",") )
         coordAddrs.push_back(tok);
@@ -203,10 +212,16 @@ void MpiIoLauncher::init(int& argc, char**& argv)
         coordinator = true;
 
         if(hasArg(argc, argv, ARG_HOSTS_LONG) || hasArg(argc, argv, ARG_HOSTSFILE_LONG) )
-            throw ProgException("\"--" ARG_HOSTS_LONG "\" cannot be given under mpirun in MPI-IO "
-                "mode, because the service ranks are assigned automatically. For persistent "
-                "services, start them with \"--" ARG_RUNASSERVICE_LONG " --" ARG_MPIIO_LONG
-                "\" via mpirun and run the coordinator without mpirun.");
+            throw ProgException("\"--" ARG_HOSTS_LONG "\" cannot be given to a coordinator rank "
+                "under an MPI launcher, because the service ranks are assigned automatically. "
+                "For persistent services, start them with \"--" ARG_RUNASSERVICE_LONG "\" via "
+                "mpirun and run the coordinator without mpirun.");
+
+        if(hasArg(argc, argv, ARG_NETBENCH_LONG) )
+            throw ProgException("\"--" ARG_NETBENCH_LONG "\" is not supported under an MPI "
+                "launcher, because the service ranks would have to be split into servers and "
+                "clients. Start persistent services via mpirun instead and give them as \"--"
+                ARG_SERVERS_LONG "\" and \"--" ARG_CLIENTS_LONG "\".");
 
         std::vector<std::string> addrs;
         gatherAddrs("", &addrs);
@@ -226,10 +241,10 @@ void MpiIoLauncher::init(int& argc, char**& argv)
         argStrs.push_back(hosts);
 
         // (host and pid, so that the user can interrupt this rank for a result table, see docs)
-        char hostname[MPIIO_ADDR_MAXLEN] = {};
+        char hostname[MPI_ADDR_MAXLEN] = {};
         gethostname(hostname, sizeof(hostname) - 1);
 
-        std::cout << "MPI-IO: coordinator rank + " << (worldSize - 1) << " service rank" <<
+        std::cout << "MPI launch: coordinator rank + " << (worldSize - 1) << " service rank" <<
             ( (worldSize > 2) ? "s" : "") << " (coordinator: " << hostname << ", pid " <<
             getpid() << ")" << std::endl;
     }
@@ -266,7 +281,7 @@ void MpiIoLauncher::init(int& argc, char**& argv)
  *
  * @stopServer stops the HTTP server; called from another thread.
  */
-void MpiIoLauncher::serviceListening(unsigned short port, std::function<void()> stopServer)
+void MpiLauncher::serviceListening(unsigned short port, std::function<void()> stopServer)
 {
 #ifdef MPI_SUPPORT
 
@@ -309,7 +324,7 @@ void MpiIoLauncher::serviceListening(unsigned short port, std::function<void()> 
  * Called by the HTTP service after its server stopped, so that the stop callback has completed
  * before the server object goes away.
  */
-void MpiIoLauncher::joinServiceWaiter()
+void MpiLauncher::joinServiceWaiter()
 {
 #ifdef MPI_SUPPORT
     if(waiterThread.joinable() )
@@ -321,7 +336,7 @@ void MpiIoLauncher::joinServiceWaiter()
  * Release the other ranks and finalize MPI. Also on error paths: whatever collective this rank
  * still owes gets done here, so that no other rank waits forever.
  */
-void MpiIoLauncher::finish()
+void MpiLauncher::finish()
 {
 #ifdef MPI_SUPPORT
 
@@ -351,7 +366,7 @@ void MpiIoLauncher::finish()
 #endif // MPI_SUPPORT
 }
 
-bool MpiIoLauncher::isActive()
+bool MpiLauncher::isActive()
 {
 #ifdef MPI_SUPPORT
     return active;
@@ -363,7 +378,7 @@ bool MpiIoLauncher::isActive()
 /**
  * @return true if init() turned this rank into a service under mpirun.
  */
-bool MpiIoLauncher::isAutoService()
+bool MpiLauncher::isAutoService()
 {
 #ifdef MPI_SUPPORT
     return autoService;
@@ -376,7 +391,7 @@ bool MpiIoLauncher::isAutoService()
 /**
  * @return the communicator of the I/O ranks (all ranks that run worker threads).
  */
-MPI_Comm MpiIoLauncher::getIoComm()
+MPI_Comm MpiLauncher::getIoComm()
 {
     return ioComm;
 }

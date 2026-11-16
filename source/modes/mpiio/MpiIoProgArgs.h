@@ -17,17 +17,19 @@ class ProgArgs;
 #define ARG_MPIIO_LONG                  "mpiio"
 #define ARG_MPICOLL_LONG                "mpicoll"
 #define ARG_MPIHINTS_LONG               "mpihints"
+#define ARG_MPILAUNCH_LONG              "mpilaunch"
 
-#define FEATURE_NAME_MPIIO              "mpiio"
+#define FEATURE_NAME_MPI                "mpi"
 
 /**
- * The MPI-IO benchmark mode options: definition, defaults, checks, help and the transfer to
- * services. Owned by ProgArgs as mpiIoArgs, like the other mode option classes.
+ * The MPI options: the MPI-IO benchmark mode (definition, defaults, checks, help and the transfer
+ * to services) and "--mpilaunch", which only concerns the process start (see MpiLauncher). Owned
+ * by ProgArgs as mpiIoArgs, like the other mode option classes.
  *
  * In MPI-IO mode only the file data path goes through MPI (MPI_File_open/read_at/write_at/close,
  * or the collective "_all" variants with "--mpicoll"); directory phases, stat, delete and the
  * preparation of shared files stay POSIX. Each worker thread is one MPI-IO participant with its
- * own communicator (see MpiIoMode); the ranks are launched by mpirun (see MpiIoLauncher).
+ * own communicator (see MpiIoMode).
  */
 class MpiIoProgArgs
 {
@@ -48,12 +50,14 @@ class MpiIoProgArgs
         std::string hintsStr; // "key=value,..." for the MPI_Info of MPI_File_open
         bool useCollective; // collective MPI_File_*_at_all calls instead of independent ones
         bool useMpiIo; // run the MPI-IO benchmark mode
+        bool useMpiLaunch; // rank 0 coordinator, other ranks services (not sent to services)
 
     // inliners
     public:
         const std::string& getHintsStr() const { return hintsStr; }
         bool getUseCollective() const { return useCollective; }
         bool getUseMpiIo() const { return useMpiIo; }
+        bool getUseMpiLaunch() const { return useMpiLaunch; }
 };
 
 #endif /* MODES_MPIIO_MPIIOPROGARGS_H_ */

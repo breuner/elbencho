@@ -17,7 +17,7 @@
 #include <sys/stat.h>
 
 #include "ProgArgs.h"
-#include "modes/mpiio/MpiIoLauncher.h"
+#include "toolkits/mpi/MpiLauncher.h"
 #include "Common.h"
 #include "Logger.h"
 #include "PathStore.h"
@@ -220,7 +220,7 @@ void ProgArgs::defineAllowedArgs()
         (ARG_HELPBLOCKDEV_LONG, "Print block device & large shared file help message.")
         (ARG_HELPLARGE_LONG, "Print block device & large shared file help message.")
         (ARG_HELPMULTIFILE_LONG, "Print multi-file / multi-directory help message.")
-        (ARG_HELPMPIIO_LONG, "Print MPI-IO benchmark help message.")
+        (ARG_HELPMPI_LONG, "Print MPI launch and MPI-IO benchmark help message.")
         (ARG_HELPNETBENCH_LONG, "Print network benchmark help message.")
         (ARG_HELPS3_LONG, "Print S3 object storage help message.")
         (ARG_HELPDISTRIBUTED_LONG, "Print distributed benchmark help message.")
@@ -1224,7 +1224,7 @@ void ProgArgs::checkArgs()
 
         /* a service rank under mpirun got the coordinator's command line, so it must not write
             the coordinator's result files (the ops log stays, as the I/O happens here) */
-        if(MpiIoLauncher::isAutoService() )
+        if(MpiLauncher::isAutoService() )
         {
             resFilePathTXT.clear();
             resFilePathCSV.clear();
@@ -3047,7 +3047,7 @@ bool ProgArgs::hasUserRequestedHelp()
 		argsVariablesMap.count(ARG_HELPBLOCKDEV_LONG) ||
 		argsVariablesMap.count(ARG_HELPLARGE_LONG) ||
 		argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) ||
-		argsVariablesMap.count(ARG_HELPMPIIO_LONG) ||
+		argsVariablesMap.count(ARG_HELPMPI_LONG) ||
 		argsVariablesMap.count(ARG_HELPNETBENCH_LONG) ||
 		argsVariablesMap.count(ARG_HELPS3_LONG) ||
 		argsVariablesMap.count(ARG_HELPDISTRIBUTED_LONG) ||
@@ -3073,7 +3073,7 @@ void ProgArgs::printHelp()
 	if(argsVariablesMap.count(ARG_HELPMULTIFILE_LONG) )
 		printHelpMultiFile();
 	else
-	if(argsVariablesMap.count(ARG_HELPMPIIO_LONG) )
+	if(argsVariablesMap.count(ARG_HELPMPI_LONG) )
 		mpiIoArgs.printHelp();
 	else
 	if(argsVariablesMap.count(ARG_HELPNETBENCH_LONG) )
@@ -3120,8 +3120,8 @@ void ProgArgs::printHelpOverview()
 		"Network benchmarking between hosts:" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPNETBENCH_LONG ENDL
 		std::endl <<
-		"MPI-IO (independent and collective, launched via mpirun):" ENDL
-		"  $ " EXE_NAME " --" ARG_HELPMPIIO_LONG ENDL
+		"Launch via mpirun/srun (any mode) and MPI-IO:" ENDL
+		"  $ " EXE_NAME " --" ARG_HELPMPI_LONG ENDL
 		std::endl <<
 		"See all available options (e.g. csv file output):" ENDL
 		"  $ " EXE_NAME " --" ARG_HELPALLOPTIONS_LONG ENDL

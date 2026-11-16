@@ -295,7 +295,7 @@ select_default_targets()
     add_group posix
     add_group distributed
     add_group netbench
-    add_group mpiio
+    add_group mpi
 
     if [ $RUN_S3_TESTS -ne 0 ]; then
         add_group s3

@@ -1,12 +1,17 @@
-# MPI-IO Benchmarking
+# MPI Launch and MPI-IO Benchmarking
 
-elbencho's MPI-IO mode (`--mpiio`) reads and writes file contents through the MPI-IO API
-(`MPI_File_open`, `MPI_File_write_at`/`MPI_File_read_at`, or `MPI_File_write_at_all`/`MPI_File_read_at_all` with `--mpicoll` for collective IO). Everything else works as in the other file modes: the shared file
-and directory modes, the sequential, `--strided` and `--rand` access patterns, `--timelimit`,
-`--verify`, the live statistics and the result files. Directory creation, stat and delete phases
-stay POSIX, only the file data path goes through MPI.
+elbencho has two separate MPI features, both built with `MPI_SUPPORT=1`:
 
-`elbencho --help-mpiio` shows the options with examples.
+* **Launch via MPI** (`--mpilaunch`): elbencho runs as an MPI job, rank 0 becomes the coordinator
+  and all other ranks become the service instances that do the I/O, in any benchmark mode (POSIX,
+  S3, MPI-IO, ...). This replaces starting services by hand and giving them as `--hosts`.
+* **The MPI-IO API** (`--mpiio`): file contents are read and written through `MPI_File_read_at`/
+  `MPI_File_write_at`, or the collective `_at_all` variants with `--mpicoll`. Everything else works
+  as in the other file modes: the shared file and directory modes, the sequential, `--strided` and
+  `--rand` access patterns, `--timelimit`, `--verify`, the live statistics and the result files.
+  Directory creation, stat and delete phases stay POSIX, only the file data path goes through MPI.
+
+`elbencho --help-mpi` shows the options of both with examples.
 
 ## Build
 
@@ -16,30 +21,42 @@ make -j $(nproc) MPI_SUPPORT=1
 
 The build compiles and links through the MPI compiler wrapper (`mpicxx`; `MPICXX=<path>` picks
 another one, and a `CXX=...` given by the user is kept as it is). The MPI library has to provide
-`MPI_THREAD_MULTIPLE`, which Open MPI, MPICH and their derivatives do. `elbencho --version` lists
-`mpiio` under the included features of such a build.
+`MPI_THREAD_MULTIPLE` for MPI-IO (`MPI_THREAD_SERIALIZED` is enough for the launch alone), which
+Open MPI, MPICH and their derivatives do. `elbencho --version` lists `mpi` under the included
+features of such a build.
 
-## Quick Start
+## Launching via MPI
 
 ```bash
-mpirun -np 5 elbencho --mpiio -w -r -t 8 -b 1m -s 32g /mnt/shared/file
+mpirun -np 5 elbencho --mpilaunch -w -r -t 8 -b 1m -s 32g /mnt/shared/file         # POSIX
+
+mpirun -np 5 elbencho --mpilaunch --mpiio -w -r -t 8 -b 1m -s 32g /mnt/shared/file # MPI-IO
 ```
 
 Rank 0 is the coordinator, every other rank runs an elbencho service instance that does the I/O
 with `-t` threads. So `-np 5` means 4 I/O ranks, and the command behaves like a distributed run
 with 4 hosts: each service rank starts on an OS-chosen port, sends its address to rank 0, which
 runs the benchmark against them as `--hosts`, and all ranks end together. The result files are
-written by rank 0, an `--opslog` by the service ranks (where the I/O happens).
+written by rank 0, an `--opslog` by the service ranks (where the I/O happens). The first output
+line names the coordinator's host and pid (see the notes below for why that matters).
 
-How the ranks are placed on the hosts is up to mpirun (`--map-by node`, `-ppn 1`, hostfiles, ...).
-One service rank per host with many threads is elbencho's usual service model, but several I/O ranks
-per host work as well. For a Slurm batch job, see [docs/slurm-examples.md](slurm-examples.md).
+Other options are the usual ones of the benchmark mode in use, e.g. `--s3endpoints` for an S3 run.
+`--netbench` is the one mode that cannot run this way, because its services have to be split into
+servers and clients; start persistent services via mpirun for it (see below) and give them as
+`--servers` and `--clients`.
 
-Without mpirun, `elbencho --mpiio ...` is a standalone run with a single I/O rank. `--mpiio` has to
-be on the command line (not only in a config file), because MPI gets initialized before the
-options are parsed.
+How the ranks are placed on the hosts is up to the launcher (`--map-by node`, `-ppn 1`,
+hostfiles, ...). One service rank per host with many threads is elbencho's usual service model,
+but several I/O ranks per host work as well. For a Slurm batch job, see
+[docs/slurm-examples.md](slurm-examples.md).
 
-## Threads and Collective I/O
+Without a launcher, a single rank is a standalone run: `elbencho --mpiio ...` does MPI-IO on this
+host alone, `--mpilaunch` makes no difference then. Both options have to be on the command line
+(not only in a config file), because MPI gets initialized before the options are parsed.
+
+## MPI-IO
+
+### Threads and Collective I/O
 
 Each worker thread is a separate MPI-IO participant. With independent I/O every thread opens its
 files on `MPI_COMM_SELF`, so no call ever waits for another thread or rank. With `--mpicoll` the
@@ -59,7 +76,7 @@ MPICH's fine-grained threading in CH4 (per-VCI critical sections, `MPIR_CVAR_CH4
 progress) does not change this: ROMIO holds its own single mutex for the whole duration of each
 MPI-IO call, independent of the CH4 locking (verified with MPICH 5.0.2).
 
-### How threads map to file blocks
+#### How threads map to file blocks
 
 The worker threads of all I/O ranks are numbered consecutively (thread index
 `i = rank * threads_per_rank + thread`, rank 0 being the first I/O rank), and the shared file is a
@@ -135,7 +152,7 @@ when every participant of the group has made its call, which has three consequen
   and nothing is exchanged between the participants besides what the MPI library does for the
   collective call.
 
-## Hints
+### Hints
 
 `--mpihints key=value[,key=value...]` sets an `MPI_Info` for every `MPI_File_open`, e.g.
 `--mpihints romio_cb_write=enable,striping_unit=1048576`. Which hints have an effect depends on the
@@ -149,22 +166,28 @@ Service instances can also run persistently, like in the normal distributed mode
 runs benchmarks against them without mpirun:
 
 ```bash
-mpirun -np 4 -ppn 1 elbencho --service --mpiio --foreground --port 1611   # one rank per host
+mpirun -np 4 -ppn 1 elbencho --service --mpilaunch --foreground --port 1611   # one rank per host
+
 elbencho --mpiio --mpicoll --hosts host1,host2,host3,host4 -w -r -t 8 -b 1m -s 32g /mnt/shared/file
+
 elbencho --hosts host1,host2,host3,host4 --quit
 ```
 
 With `--service` on the command line, all ranks are I/O ranks (no coordinator rank), and the
-services pick up the MPI-IO options of each run from the coordinator. The ranks share one command
-line, so with a fixed `--port` this needs one rank per host. For several ranks per host, let the
-services pick their ports and register themselves in a hosts file on a shared file system, which
-the coordinator then uses:
+services pick up the mode and options of each run from the coordinator, so the same services
+serve POSIX, S3 and MPI-IO runs. `--mpilaunch` on the service command line initializes MPI in the
+services, which MPI-IO runs need. The ranks share one command line, so with a fixed `--port` this
+needs one rank per host. For several ranks per host, let the services pick their ports and register
+themselves in a hosts file on a shared file system, which the coordinator then uses:
 
 ```bash
 rm -f /mnt/shared/elbencho-hosts   # the services append to the file, so start empty
-mpirun -np 16 -ppn 4 elbencho --service --mpiio --foreground --port 0 --hostsfile /mnt/shared/elbencho-hosts
+
+mpirun -np 16 -ppn 4 elbencho --service --mpilaunch --foreground --port 0 --hostsfile /mnt/shared/elbencho-hosts
+
 # wait until the file has one line per service, then run from any host that reaches them:
 elbencho --mpiio --mpicoll --hostsfile /mnt/shared/elbencho-hosts -w -r -t 1 -b 1m -s 32g /mnt/shared/file
+
 elbencho --hostsfile /mnt/shared/elbencho-hosts --quit
 ```
 
@@ -172,7 +195,7 @@ Each service appends `host:port` under a whole-file lock after it started listen
 the one the launcher started the service with (hydra's `PMI_HOSTNAME` or
 `MPIR_CVAR_CH3_INTERFACE_HOSTNAME`, Slurm's `SLURMD_NODENAME`, Open MPI's `PMIX_HOSTNAME`), so an
 IP address given to mpirun stays an IP address; without such a variable it is the host name. This
-works for services in any mode, `--mpiio` is only needed for MPI-IO runs.
+works for services started in any way, also without MPI.
 
 ## Notes
 

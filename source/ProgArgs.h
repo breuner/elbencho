@@ -85,7 +85,7 @@ namespace bpt = boost::property_tree;
 #define ARG_HELPBLOCKDEV_LONG            "help-bdev" // for backwards compat (new: help-large)
 #define ARG_HELPDISTRIBUTED_LONG         "help-dist"
 #define ARG_HELPLARGE_LONG               "help-large"
-#define ARG_HELPMPIIO_LONG               "help-mpiio"
+#define ARG_HELPMPI_LONG                 "help-mpi"
 #define ARG_HELPMULTIFILE_LONG           "help-multi"
 #define ARG_HELPNETBENCH_LONG            "help-netbench"
 #define ARG_HELPS3_LONG                  "help-s3"

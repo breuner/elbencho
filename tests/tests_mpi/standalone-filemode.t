@@ -10,7 +10,7 @@
 
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
 
-require_build_feature mpiio
+require_build_feature mpi
 
 NUM_THREADS=4
 BLOCK_SIZE=1048576

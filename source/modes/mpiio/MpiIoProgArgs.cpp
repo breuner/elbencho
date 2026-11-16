@@ -7,6 +7,7 @@
 #include "Logger.h"
 #include "modes/mpiio/MpiIoProgArgs.h"
 #include "ProgArgs.h"
+#include "toolkits/mpi/MpiLauncher.h"
 #include "toolkits/TerminalTk.h"
 
 #define ENDL                        << std::endl << // just to make help text print lines shorter
@@ -21,16 +22,21 @@ void MpiIoProgArgs::defineArgs(bpo::options_description& generic,
             "Requires a single shared file as benchmark path. All threads with the same index "
             "across the service ranks form one collective group and do the same number of I/Os, "
             "so the file size gets reduced to a multiple of block size times total thread count "
-            "if necessary. See \"--" ARG_HELPMPIIO_LONG "\" for details.")
+            "if necessary. See \"--" ARG_HELPMPI_LONG "\" for details.")
         (ARG_MPIHINTS_LONG, bpo::value(&this->hintsStr),
             "Comma-separated MPI-IO hints as key=value pairs for MPI_File_open in MPI-IO mode, "
             "e.g. \"romio_cb_write=enable,striping_unit=1048576\". Which hints have an effect "
             "depends on the MPI library and the file system.")
         (ARG_MPIIO_LONG, bpo::bool_switch(&this->useMpiIo),
-            "Read and write file contents through the MPI-IO API (MPI_File_*). Launch via "
-            "mpirun: rank 0 is the coordinator, all other ranks are the service instances that "
-            "do the I/O; without mpirun this is a standalone run. See \"--" ARG_HELPMPIIO_LONG
-            "\" for details.")
+            "Read and write file contents through the MPI-IO API (MPI_File_*). Under an MPI "
+            "launcher with more than one rank this implies \"--" ARG_MPILAUNCH_LONG "\"; "
+            "without a launcher it is a standalone run. Has to be on the command line, not in a "
+            "config file. See \"--" ARG_HELPMPI_LONG "\" for details.")
+        (ARG_MPILAUNCH_LONG, bpo::bool_switch(&this->useMpiLaunch),
+            "Started by an MPI launcher (mpirun, srun): rank 0 is the coordinator, all other "
+            "ranks are the service instances that do the I/O, in any benchmark mode (e.g. POSIX, "
+            "S3, MPI-IO). Has to be on the command line, not in a config file. See \"--"
+            ARG_HELPMPI_LONG "\" for details.")
     ;
 }
 
@@ -39,6 +45,7 @@ void MpiIoProgArgs::defineDefaults()
     this->hintsStr = "";
     this->useCollective = false;
     this->useMpiIo = false;
+    this->useMpiLaunch = false;
 }
 
 /**
@@ -55,13 +62,19 @@ void MpiIoProgArgs::checkArgs(const ProgArgs& progArgs)
     if(!hintsStr.empty() && !useMpiIo)
         throw ProgException("\"--" ARG_MPIHINTS_LONG "\" requires \"--" ARG_MPIIO_LONG "\".");
 
+#ifndef MPI_SUPPORT
+    if(useMpiIo || useMpiLaunch)
+        throw ProgException("MPI option given, but this executable was built without MPI "
+            "support. (Build with MPI_SUPPORT=1.)");
+#endif
+
+    // (the launcher reads the command line itself, so a config file entry would not reach it)
+    if(useMpiLaunch && !MpiLauncher::isActive() )
+        throw ProgException("\"--" ARG_MPILAUNCH_LONG "\" has to be given on the command line, "
+            "not in a config file.");
+
     if(!useMpiIo)
         return;
-
-#ifndef MPI_SUPPORT
-    throw ProgException("MPI-IO mode selected, but this executable was built without MPI "
-        "support. (Build with MPI_SUPPORT=1.)");
-#endif
 
     if(progArgs.benchMode != BenchMode_MPIIO)
         throw ProgException("\"--" ARG_MPIIO_LONG "\" cannot be combined with another benchmark "
@@ -181,97 +194,78 @@ void MpiIoProgArgs::checkPathDependentArgs(ProgArgs& progArgs)
 void MpiIoProgArgs::printHelp()
 {
     std::cout <<
-        "I/O through the MPI-IO API, independent or collective." ENDL
+        "Launch via an MPI launcher (any benchmark mode) and I/O through the MPI-IO API." ENDL
         std::endl <<
         "Usage:" ENDL
-        "  Launch via mpirun with one rank more than the number of I/O ranks. Rank 0 is the" ENDL
-        "  coordinator, all other ranks run an elbencho service and do the actual I/O, each" ENDL
-        "  with \"-" ARG_NUMTHREADS_SHORT "\" threads:" ENDL
-        "    $ mpirun -np <N+1> " EXE_NAME " --" ARG_MPIIO_LONG " [OPTIONS] PATH" ENDL
-        "  Without mpirun, this is a standalone run with a single I/O rank." ENDL
-        std::endl <<
-        "Each worker thread is a separate MPI-IO participant: the threads with the same index" ENDL
-        "on all I/O ranks form one group with its own communicator and open the file" ENDL
-        "collectively, so a run with 4 I/O ranks and \"-t 8\" has 8 groups of 4 participants." ENDL
-        "Only the file data path uses MPI-IO; directory, stat and delete phases stay POSIX." ENDL
+        "  Launch via mpirun/srun with one rank more than the number of I/O ranks:" ENDL
+        "    $ mpirun -np <N+1> " EXE_NAME " --" ARG_MPILAUNCH_LONG " [OPTIONS] PATH" ENDL
+        "  Rank 0 is the coordinator, all other ranks run an elbencho service and do the" ENDL
+        "  I/O with \"-" ARG_NUMTHREADS_SHORT "\" threads each, like the hosts of a distributed "
+            "run. This works in" ENDL
+        "  any benchmark mode (POSIX, S3, ...). \"--" ARG_MPIIO_LONG "\" selects the MPI-IO API "
+            "for the" ENDL
+        "  file data and implies \"--" ARG_MPILAUNCH_LONG "\" under a launcher; without a "
+            "launcher it" ENDL
+        "  is a standalone run. Both options have to be on the command line, not in a" ENDL
+        "  config file." ENDL
         std::endl;
 
     bpo::options_description basicDescription(
         "Basic Options", TerminalTk::getTerminalLineLength(80) );
 
     basicDescription.add_options()
+        (ARG_MPILAUNCH_LONG, bpo::bool_switch(),
+            "Rank 0 coordinates, all other ranks are service instances.")
         (ARG_MPIIO_LONG, bpo::bool_switch(),
-            "Read and write file contents through MPI_File_write_at/read_at.")
+            "Read and write file contents through MPI_File_write_at/read_at. Each worker thread "
+            "is a separate MPI-IO participant; directory, stat and delete phases stay POSIX.")
         (ARG_MPICOLL_LONG, bpo::bool_switch(),
-            "Collective I/O through MPI_File_write_at_all/read_at_all. Requires a single shared "
-            "file as benchmark path. Every thread of a collective group makes the same number of "
-            "calls, so the file size is reduced to a multiple of block size times total thread "
-            "count if necessary. A \"--" ARG_TIMELIMITSECS_LONG "\" ends the phase after the "
-            "limit with empty collective calls for the remaining blocks, so that no thread waits "
-            "forever for its group.")
+            "Collective I/O through MPI_File_write_at_all/read_at_all. The threads with the same "
+            "index on all I/O ranks form one collective group on its own communicator. Requires "
+            "a single shared file; the file size is reduced to a multiple of block size times "
+            "total thread count if necessary, so that every thread makes the same number of "
+            "calls. A \"--" ARG_TIMELIMITSECS_LONG "\" ends the phase with empty collective "
+            "calls for the remaining blocks.")
         (ARG_MPIHINTS_LONG, bpo::value<std::string>(),
             "Comma-separated key=value hints for MPI_File_open, e.g. "
             "\"romio_cb_write=enable,striping_unit=1048576\".")
-        (ARG_CREATEFILES_LONG "," ARG_CREATEFILES_SHORT, bpo::bool_switch(),
-            "Write phase. In file mode the shared file is created if it does not exist.")
-        (ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(),
-            "Read phase.")
-        (ARG_FILESIZE_LONG "," ARG_FILESIZE_SHORT, bpo::value<std::string>(),
-            "Shared file size, or size per file in directory mode. (Default: 0)")
-        (ARG_BLOCK_LONG "," ARG_BLOCK_SHORT, bpo::value<std::string>(),
-            "Bytes per MPI-IO call. (Default: 1M)")
-        (ARG_NUMTHREADS_LONG "," ARG_NUMTHREADS_SHORT, bpo::value<size_t>(),
-            "Number of threads per I/O rank. (Default: 1)")
         (ARG_STRIDEDACCESS_LONG, bpo::bool_switch(),
-            "Interleave the blocks of the threads instead of giving each thread a contiguous "
-            "range of the shared file, i.e. thread N writes blocks N, N+T, N+2T, ... for T "
-            "total threads. With --" ARG_MPICOLL_LONG " each collective group owns a contiguous "
-            "region of the file and only its members interleave within that region, so each "
-            "collective call covers one adjacent run of blocks and a group's calls follow each "
-            "other without gaps (see docs/mpiio.md).")
-        (ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(),
-            "Random offsets within each thread's range of the shared file.")
+            "Interleave the blocks of the threads instead of contiguous ranges. With --"
+            ARG_MPICOLL_LONG " each collective group owns a contiguous region of the file and "
+            "only its members interleave within that region, so each collective call covers one "
+            "adjacent run of blocks (see docs/mpi.md).")
     ;
 
     std::cout << basicDescription << std::endl;
 
     std::cout <<
         "Examples:" ENDL
-        "  Shared file, 4 I/O ranks with 8 threads each, independent writes and reads:" ENDL
-        "    $ mpirun -np 5 " EXE_NAME " --" ARG_MPIIO_LONG " -" ARG_CREATEFILES_SHORT
+        "  POSIX shared file, 4 I/O ranks with 8 threads each:" ENDL
+        "    $ mpirun -np 5 " EXE_NAME " --" ARG_MPILAUNCH_LONG " -" ARG_CREATEFILES_SHORT
             " -" ARG_READ_SHORT " -" ARG_NUMTHREADS_SHORT " 8 -" ARG_BLOCK_SHORT " 1m "
             "-" ARG_FILESIZE_SHORT " 32g /mnt/shared/file" ENDL
         std::endl <<
-        "  The same with collective I/O and interleaved blocks:" ENDL
+        "  The same through MPI-IO with collective calls and interleaved blocks:" ENDL
         "    $ mpirun -np 5 " EXE_NAME " --" ARG_MPIIO_LONG " --" ARG_MPICOLL_LONG
             " --" ARG_STRIDEDACCESS_LONG " -" ARG_CREATEFILES_SHORT " -" ARG_READ_SHORT
             " -" ARG_NUMTHREADS_SHORT " 8 \\" ENDL
         "        -" ARG_BLOCK_SHORT " 1m -" ARG_FILESIZE_SHORT " 32g /mnt/shared/file" ENDL
         std::endl <<
-        "  One file per thread (file-per-process pattern), 100 files of 1 MiB per thread:" ENDL
-        "    $ mpirun -np 5 " EXE_NAME " --" ARG_MPIIO_LONG " -" ARG_CREATEDIRS_SHORT
-            " -" ARG_CREATEFILES_SHORT " -" ARG_READ_SHORT " -" ARG_DELETEFILES_SHORT
-            " -" ARG_DELETEDIRS_SHORT " -" ARG_NUMTHREADS_SHORT " 8 -" ARG_NUMDIRS_SHORT " 1 "
-            "-" ARG_NUMFILES_SHORT " 100 \\" ENDL
-        "        -" ARG_FILESIZE_SHORT " 1m -" ARG_BLOCK_SHORT " 1m /mnt/shared/dir" ENDL
+        "  Persistent services: start \"--" ARG_RUNASSERVICE_LONG " --" ARG_MPILAUNCH_LONG " --"
+            ARG_SERVICEPORT_LONG " 0 --" ARG_HOSTSFILE_LONG " FILE\"" ENDL
+        "  ranks via mpirun, then run benchmarks against them from any host with" ENDL
+        "  \"--" ARG_HOSTSFILE_LONG " FILE\"." ENDL
         std::endl <<
-        "  Persistent services: start one \"--" ARG_RUNASSERVICE_LONG " --" ARG_MPIIO_LONG
-            "\" rank per host via mpirun, then run" ENDL
-        "  benchmarks against them from any host with \"--" ARG_MPIIO_LONG " --" ARG_HOSTS_LONG
-            " ...\" like in distributed mode." ENDL
-        std::endl <<
-        "See \"--" ARG_HELPLARGE_LONG "\" for the shared file options and \"--"
-            ARG_HELPMULTIFILE_LONG "\" for the" ENDL
-        "directory mode options, which all apply here as well." << std::endl;
+        "See docs/mpi.md for details." << std::endl;
 }
 
 void MpiIoProgArgs::printBuildInfo(std::ostringstream& includedStream,
     std::ostringstream& notIncludedStream)
 {
 #ifdef MPI_SUPPORT
-    includedStream << FEATURE_NAME_MPIIO << " ";
+    includedStream << FEATURE_NAME_MPI << " ";
 #else
-    notIncludedStream << FEATURE_NAME_MPIIO << " ";
+    notIncludedStream << FEATURE_NAME_MPI << " ";
 #endif
 }
 
