@@ -7,7 +7,9 @@
 # A partial random write leaves a sparse file behind, which is what makes the
 # effect of "--preallocfile" visible: same apparent size, different amount of
 # allocated disk space. elbencho itself notices a sparse file when it reads one,
-# which is used here as a second, independent check.
+# which is used here as a second, independent check. NTFS does not leave that
+# hole, so under Cygwin the same write is fully allocated and must not be
+# reported as sparse.
 
 source "$(dirname "$(readlink -f "$0")")/../lib/testlib.sh" || exit 1
 
@@ -21,6 +23,13 @@ FILE_SIZE_KB=$((FILE_SIZE / 1024))
 LARGE_SIZE=$((2 * FILE_SIZE))
 
 SPARSE_NOTE='File seems sparse or compressed'
+
+# NTFS allocates the unread range of a partial random write, so the file is
+# not sparse there. Other filesystems leave a hole.
+case "$(uname -s)" in
+    CYGWIN*) PARTIAL_WRITE_IS_SPARSE=0 ;;
+    *) PARTIAL_WRITE_IS_SPARSE=1 ;;
+esac
 
 test_init
 tap_plan 21
@@ -41,8 +50,13 @@ assert_eq "$(file_size "$DATA_DIR/sparse")" "$FILE_SIZE" \
     "the file has an apparent size of $FILE_SIZE bytes"
 # Deliberately relational instead of an exact value, because the exact amount of
 # allocated space depends on the file system.
-assert_lt "$(allocated_kb "$DATA_DIR/sparse")" "$FILE_SIZE_KB" \
-    "less than $FILE_SIZE_KB KiB of disk space are allocated, i.e. the file is sparse"
+if [ "$PARTIAL_WRITE_IS_SPARSE" -eq 1 ]; then
+    assert_lt "$(allocated_kb "$DATA_DIR/sparse")" "$FILE_SIZE_KB" \
+        "less than $FILE_SIZE_KB KiB of disk space are allocated, i.e. the file is sparse"
+else
+    assert_ge "$(allocated_kb "$DATA_DIR/sparse")" "$FILE_SIZE_KB" \
+        "at least $FILE_SIZE_KB KiB are allocated, i.e. the file is not sparse"
+fi
 assert_eq "$(json_value "$ELB_JSON" WRITE last_done bytes)" "$WRITE_AMOUNT" \
     "write phase reports the $WRITE_AMOUNT bytes of the given random amount"
 
@@ -52,8 +66,13 @@ run_elbencho sparseread \
     "$DATA_DIR/sparse"
 assert_ok $? "reading the sparse file succeeds"
 
-assert_match "$(cat "$ELB_OUT")" "$SPARSE_NOTE" \
-    "elbencho notices that the file is sparse when it reads it"
+if [ "$PARTIAL_WRITE_IS_SPARSE" -eq 1 ]; then
+    assert_match "$(cat "$ELB_OUT")" "$SPARSE_NOTE" \
+        "elbencho notices that the file is sparse when it reads it"
+else
+    assert_eq "$(grep -c "$SPARSE_NOTE" "$ELB_OUT")" "0" \
+        "elbencho does not report the file as sparse"
+fi
 
 ################## The same write with --preallocfile ##################
 
