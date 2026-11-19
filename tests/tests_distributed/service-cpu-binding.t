@@ -32,6 +32,12 @@ SERVICE_PID=""
 # the test keeps a pid whose CPU affinity can be inspected.
 start_bound_service()
 {
+    # Truncate the log here, not only through the redirection below: in
+    # "cmd > file &" the background child truncates after the fork, so the
+    # port grep in wait_for_service could still read the previous service's
+    # "now listening" line and its port.
+    : > "$TEST_DIR/service.log"
+
     "$ELBENCHO_TEST_BIN" --service --foreground --port 0 "$@" \
         > "$TEST_DIR/service.log" 2>&1 &
 
