@@ -20,6 +20,7 @@
 * Updated mimalloc lib for static builds to latest v3.7.0.
 * In netbench mode fullscreen live stats, hostnames are now being shown for servers/clients that were given by IP address.
 * In netbench mode, server/client lists can now contain aliases (different IPs that refer to the same service instance) and automatically get reduced to lists of unique service instances.
+* Updated S3 to latest AWS SDK CPP v1.11.933.
 
 ### Fixes
 * Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)
