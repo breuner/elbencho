@@ -401,6 +401,18 @@ All options in alphabetical order:
                           posix_fallocate().
   --quit                  Quit services on given service mode hosts.
   -r [ --read ]           Read files.
+  --ramp arg              Warm-up (ramp-up) time in seconds at the start of 
+                          each benchmark phase. All counters and latency 
+                          histograms get reset when the warm-up time has 
+                          elapsed, so that only the steady-state remainder of 
+                          the phase is measured and reported. This applies to 
+                          the read and write phases only. The workload has to 
+                          outlast the warm-up time, otherwise the phase fails. 
+                          If "--timelimit" is given then the warm-up time is 
+                          part of (not added to) the time limit and thus has to
+                          be smaller than it. Live statistics are not written 
+                          to "--livecsv" during warm-up. (Alias: "--warmup") 
+                          (Default: 0 for disabled)
   --rand                  Read/write at random offsets.
   --randalgo arg          Random number algorithm for "--rand". Values: "fast" 
                           for high speed but weaker randomness; 

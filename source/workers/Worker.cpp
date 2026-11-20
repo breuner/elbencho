@@ -67,30 +67,70 @@ void Worker::incNumWorkersDoneWithError()
 }
 
 /**
- * Check if this worker has been friendly asked to interrupt itself.
+ * Check if this worker has been friendly asked to interrupt itself. Also applies a pending ramp
+ * stats reset, because this is the common safe point of all worker I/O loops.
  *
  * @throw WorkerInterruptedException if friendly ask to interrupt has been received.
  */
 void Worker::checkInterruptionRequest()
 {
+	checkRampStatsReset();
+
 	IF_UNLIKELY(isInterruptionRequested)
 		throw WorkerInterruptedException("Received friendly request to interrupt execution.");
 }
 
 /**
  * Check if this worker has been friendly asked to interrupt itself. If it was, then call func
- * before throwing exception.
+ * before throwing exception. Also applies a pending ramp stats reset, because this is the common
+ * safe point of all worker I/O loops.
  *
  * @func function to call before throwing exception if request to interrupt was detected.
  * @throw WorkerInterruptedException if friendly ask to interrupt has been received.
  */
 void Worker::checkInterruptionRequest(std::function<void()> func)
 {
+	checkRampStatsReset();
+
 	IF_UNLIKELY(isInterruptionRequested)
 	{
 		func();
 		throw WorkerInterruptedException("Received friendly request to interrupt execution.");
 	}
+}
+
+/**
+ * Drop everything that this worker measured during the "--ramp" warm-up period, so that only the
+ * steady-state remainder of the phase gets reported. Called by the worker thread itself at one of
+ * its safe points, so no lock is needed: all touched values belong to this worker and are either
+ * atomic or only ever read by others after the phase has ended.
+ *
+ * The instant of the reset is kept as the start of this worker's measured window, so that its
+ * elapsed time in the phase results matches exactly the counters that survive here.
+ *
+ * Note: the live latency accumulators are deliberately not reset, because they are concurrently
+ * drained by the live stats thread and only affect the display of the current live interval.
+ */
+void Worker::applyRampStatsReset()
+{
+	rampResetPending = false;
+
+	IF_UNLIKELY(phaseFinished)
+		return; /* this worker is already through with the phase, so its numbers are final and
+			the coordinator might be collecting them right now */
+
+	atomicLiveOps.setToZero();
+	atomicLiveOpsReadMix.setToZero();
+	oldAtomicLiveOps.setToZero();
+	oldAtomicLiveOpsReadMix.setToZero();
+
+	iopsLatHisto.reset();
+	iopsLatHistoReadMix.reset();
+	entriesLatHisto.reset();
+	entriesLatHistoReadMix.reset();
+
+	rampEndT = std::chrono::steady_clock::now();
+	isRampDone = true; // (after rampEndT, so that readers of rampEndT can rely on this flag)
 }
 
 /**

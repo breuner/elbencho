@@ -4,6 +4,7 @@
 #ifndef WORKERS_WORKER_H_
 #define WORKERS_WORKER_H_
 
+#include <chrono>
 #include <iostream>
 #include "statistics/LatencyHistogram.h"
 #include "statistics/LiveLatency.h"
@@ -45,6 +46,12 @@ class Worker
 		UInt64Vec elapsedUSecVec; /* Microsecs. Only valid when phase completed successfully. For
 			LocalWorker: finish of only thread; for RemoteWorker: finish of each worker on host */
 		std::atomic_bool isInterruptionRequested{false}; // set true to request self-termination
+		std::atomic_bool rampResetPending{false}; /* set by the ramp timer of WorkerManager; the
+			worker clears it by applying the reset at its next safe point (see
+			checkInterruptionRequest() ), so the stats of the "--ramp" warm-up period are dropped */
+		std::atomic_bool isRampDone{false}; // true after this worker applied the ramp stats reset
+		std::chrono::steady_clock::time_point rampEndT; /* only valid if isRampDone; the instant at
+			which this worker dropped its warm-up stats, i.e. the start of its measured window */
 		AtomicLiveOps atomicLiveOps; // done in current phase
 		AtomicLiveOps atomicLiveOpsReadMix; // done in current phase
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
@@ -67,7 +74,33 @@ class Worker
 		void waitForNextPhase(const buuids::uuid& oldBenchID);
 		void checkInterruptionRequest();
 		void checkInterruptionRequest(std::function<void()> func);
+		void applyRampStatsReset();
 		void applyNumaAndCoreBinding();
+
+		/**
+		 * Drop the statistics of the "--ramp" warm-up period if the ramp timer asked for it. This
+		 * is inlined into the worker safe points, so the common "nothing to do" case is a single
+		 * predictable branch.
+		 */
+		void checkRampStatsReset()
+		{
+			IF_UNLIKELY(rampResetPending)
+				applyRampStatsReset();
+		}
+
+		/**
+		 * Difference between a counter and its value at the previous call, also updating the
+		 * latter. Saturates at 0, because a ramp stats reset ("--ramp") can make the current
+		 * value smaller than the previous one.
+		 */
+		static uint64_t getAndResetDiffCounter(const std::atomic_uint_fast64_t& current,
+			std::atomic_uint_fast64_t& old)
+		{
+			const uint64_t currentVal = current;
+			const uint64_t oldVal = old.exchange(currentVal);
+
+			return (currentVal > oldVal) ? (currentVal - oldVal) : 0;
+		}
 
 	// inliners
 	public:
@@ -86,10 +119,27 @@ class Worker
 		const LatencyHistogram& getEntriesLatencyHistogramReadMix() const
 			{ return entriesLatHistoReadMix; }
 
+		/**
+		 * Ask this worker to drop the statistics that it gathered during the "--ramp" warm-up
+		 * period. Called by the ramp timer of WorkerManager; the worker applies this itself at
+		 * its next safe point, so no worker thread needs to be paused or locked out here.
+		 */
+		void requestRampStatsReset()
+		{
+			rampResetPending = true;
+		}
+
+		bool getIsRampDone() const
+			{ return isRampDone; }
+		bool getPhaseFinished() const
+			{ return phaseFinished; }
+
 		virtual void resetStats()
 		{
 			phaseFinished = false;
 			workerGotPhaseWork = true;
+			rampResetPending = false;
+			isRampDone = false;
 
 			elapsedUSecVec.resize(0);
 			atomicLiveOps.setToZero();
@@ -157,22 +207,19 @@ class Worker
 		 */
 		void getAndResetDiffStats(LiveOps& outLiveOpsDiff, LiveOps& outLiveOpsReadMixDiff)
 		{
-			outLiveOpsDiff.numEntriesDone = atomicLiveOps.numEntriesDone -
-				oldAtomicLiveOps.numEntriesDone.exchange(atomicLiveOps.numEntriesDone);
-			outLiveOpsDiff.numBytesDone = atomicLiveOps.numBytesDone -
-				oldAtomicLiveOps.numBytesDone.exchange(atomicLiveOps.numBytesDone);
-			outLiveOpsDiff.numIOPSDone = atomicLiveOps.numIOPSDone -
-				oldAtomicLiveOps.numIOPSDone.exchange(atomicLiveOps.numIOPSDone);
+			outLiveOpsDiff.numEntriesDone = getAndResetDiffCounter(
+				atomicLiveOps.numEntriesDone, oldAtomicLiveOps.numEntriesDone);
+			outLiveOpsDiff.numBytesDone = getAndResetDiffCounter(
+				atomicLiveOps.numBytesDone, oldAtomicLiveOps.numBytesDone);
+			outLiveOpsDiff.numIOPSDone = getAndResetDiffCounter(
+				atomicLiveOps.numIOPSDone, oldAtomicLiveOps.numIOPSDone);
 
-			outLiveOpsReadMixDiff.numEntriesDone = atomicLiveOpsReadMix.numEntriesDone -
-				oldAtomicLiveOpsReadMix.numEntriesDone.exchange(
-					atomicLiveOpsReadMix.numEntriesDone);
-			outLiveOpsReadMixDiff.numBytesDone = atomicLiveOpsReadMix.numBytesDone -
-				oldAtomicLiveOpsReadMix.numBytesDone.exchange(
-					atomicLiveOpsReadMix.numBytesDone);
-			outLiveOpsReadMixDiff.numIOPSDone = atomicLiveOpsReadMix.numIOPSDone -
-				oldAtomicLiveOpsReadMix.numIOPSDone.exchange(
-						atomicLiveOpsReadMix.numIOPSDone);
+			outLiveOpsReadMixDiff.numEntriesDone = getAndResetDiffCounter(
+				atomicLiveOpsReadMix.numEntriesDone, oldAtomicLiveOpsReadMix.numEntriesDone);
+			outLiveOpsReadMixDiff.numBytesDone = getAndResetDiffCounter(
+				atomicLiveOpsReadMix.numBytesDone, oldAtomicLiveOpsReadMix.numBytesDone);
+			outLiveOpsReadMixDiff.numIOPSDone = getAndResetDiffCounter(
+				atomicLiveOpsReadMix.numIOPSDone, oldAtomicLiveOpsReadMix.numIOPSDone);
 		}
 
 		/**

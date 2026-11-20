@@ -123,6 +123,7 @@ _elbencho_opts()
         --port
         --preallocfile
         --quit
+        --ramp
         --rand
         --randalgo
         --randamount
@@ -291,6 +292,8 @@ _elbencho()
         --plugins)
         ;&
         --port)
+        ;&
+        --ramp)
         ;&
         --randalgo)
         ;&

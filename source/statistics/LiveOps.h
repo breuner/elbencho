@@ -49,13 +49,20 @@ struct LiveOps
 		outLiveOps.numIOPSDone = UnitTk::getPerSecFromUSec(numIOPSDone, elapsedUsec);
 	}
 
+	/**
+	 * Note: Saturates at 0 instead of wrapping around, because the counters can go backwards when
+	 * the "--ramp" warm-up stats reset kicks in between two live stats intervals.
+	 */
 	LiveOps operator-(const LiveOps& other) const
     {
 		LiveOps result;
 
-		result.numEntriesDone = numEntriesDone - other.numEntriesDone;
-		result.numBytesDone = numBytesDone - other.numBytesDone;
-		result.numIOPSDone = numIOPSDone - other.numIOPSDone;
+		result.numEntriesDone = (numEntriesDone > other.numEntriesDone) ?
+			(numEntriesDone - other.numEntriesDone) : 0;
+		result.numBytesDone = (numBytesDone > other.numBytesDone) ?
+			(numBytesDone - other.numBytesDone) : 0;
+		result.numIOPSDone = (numIOPSDone > other.numIOPSDone) ?
+			(numIOPSDone - other.numIOPSDone) : 0;
 
         return result;
     }

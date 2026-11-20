@@ -8,6 +8,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -45,6 +46,13 @@ class WorkersSharedData
         std::chrono::system_clock::time_point phaseStartLocalT; /* local time. not steady! only
             for phase start time in results. for time measurements use monotonic phaseStartT. */
 
+		std::atomic_bool isRampActive{false}; /* true if the current phase has a progArgs::rampSecs
+			warm-up period (see WorkerManager::startRampTimer() ) */
+		std::atomic_bool isRampDone{false}; /* set by the ramp timer of WorkerManager when the
+			progArgs::rampSecs warm-up period of the current phase has elapsed */
+		std::chrono::steady_clock::time_point rampDoneT; /* only valid if isRampDone; the instant
+			at which the ramp timer fired, i.e. the start of the measured window */
+
 		std::mutex mutex; // also protects console err logs to not mix lines
 		std::condition_variable condition;
 		BenchPhase currentBenchPhase{BenchPhase_IDLE}; // changed together with new bench ID
@@ -61,6 +69,27 @@ class WorkersSharedData
 
 	// inliners
 	public:
+		/**
+		 * Start of the time window that the results of the current phase refer to. This is the
+		 * phase start, or the end of the "--ramp" warm-up period if one has been applied.
+		 *
+		 * (Note: isRampDone is only set after rampDoneT has been written, so reading it first
+		 * makes rampDoneT safe to read without a lock.)
+		 */
+		std::chrono::steady_clock::time_point getMeasurementStartT() const
+		{
+			return isRampDone ? rampDoneT : phaseStartT;
+		}
+
+		/**
+		 * Whether the current phase is still in its "--ramp" warm-up period, i.e. whether the
+		 * numbers gathered so far will be dropped.
+		 */
+		bool isWarmingUp() const
+		{
+			return isRampActive && !isRampDone;
+		}
+
 		void resetNumWorkersDoneUnlocked()
 		{
 			numWorkersDone = 0;

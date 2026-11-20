@@ -138,6 +138,8 @@ namespace bpt = boost::property_tree;
 #define ARG_PLUGINS_LONG                 "plugins"
 #define ARG_PREALLOCFILE_LONG            "preallocfile"
 #define ARG_QUIT_LONG                    "quit"
+#define ARG_RAMPSECS_ALIAS_LONG          "warmup" // alias for ARG_RAMPSECS_LONG
+#define ARG_RAMPSECS_LONG                "ramp"
 #define ARG_RANDOMAMOUNT_LONG            "randamount"
 #define ARG_RANDOMOFFSETS_LONG           "rand"
 #define ARG_RANDSEEKALGO_LONG            "randalgo"
@@ -397,6 +399,9 @@ class ProgArgs
         std::string pluginsStr; // comma-separated names of plugins to activate
         StringVec pluginsVec; // pluginsStr broken down into individual names
         bool quitServices; // send quit (via interrupt msg) to given hosts to exit service
+        size_t rampSecs; /* warm-up seconds at the start of each read/write phase, after which all
+                            counters and latency histograms get reset (0 to disable; if timeLimitSecs
+                            is set then the ramp time is part of it and thus has to be smaller) */
         uint64_t randomAmount; // random bytes to read/write per file (when randomOffsets is used)
         std::string randomAmountOrigStr; // original randomAmount str from user with unit
         std::string randOffsetAlgo; // rand algo for random offsets
@@ -633,6 +638,7 @@ class ProgArgs
         std::string getOpsLogPath() const { return opsLogPath; }
         const StringVec& getPluginsVec() const { return pluginsVec; }
         bool getQuitServices() const { return quitServices; }
+        size_t getRampSecs() const { return rampSecs; }
         std::string getRandOffsetAlgo() const { return randOffsetAlgo; }
         uint64_t getRandomAmount() const { return randomAmount; }
         size_t getRankOffset() const { return rankOffset; }

@@ -2,6 +2,18 @@
 
 ## v3.3.4 (work in progress)
 
+### New Features & Enhancements
+* New option `--ramp` (alias: `--warmup`) for inline preconditioning of a storage system, e.g. to exclude the connection setup and cache warm-up of an S3 object store from the results.
+  * All counters and latency histograms get reset when the given number of seconds has elapsed, so that only the steady-state remainder of a phase is measured and reported.
+  * The worker threads apply the reset themselves at their next regular interruption check, so neither the I/O loops nor any established connection pools get disrupted.
+  * Only the read and write phases have a warm-up period, so the preparation and cleanup phases of a run (e.g. `-d -w -r -D`) are not affected.
+  * The workload has to outlast the warm-up time, otherwise there is no measured window left and the phase fails.
+  * The warm-up time is part of (not added to) `--timelimit`, so it has to be smaller than a given time limit. A time limit is not required, i.e. warm-up also works for fixed, count-based workloads.
+  * Works in distributed mode (`--hosts`/`--service`), where each instance warms up its own phase.
+
+### General Changes
+* HTTP service protocol version raised to 3.3.4, so master and service instances need to be updated together.
+
 ## v3.3.3 (Oct 27, 2026)
 
 ### New Features & Enhancements

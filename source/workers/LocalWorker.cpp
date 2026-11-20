@@ -328,9 +328,14 @@ void LocalWorker::finishPhase()
 	{
 		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
+		/* measure from the end of the "--ramp" warm-up period if one was applied, because the
+			counters of this worker only contain what happened after that instant */
+		std::chrono::steady_clock::time_point measurementStartT = isRampDone ?
+			rampEndT : workersSharedData->phaseStartT;
+
 		std::chrono::microseconds elapsedDurationUSec =
 			std::chrono::duration_cast<std::chrono::microseconds>
-			(now - workersSharedData->phaseStartT);
+			(now - measurementStartT);
 		uint64_t finishElapsedUSec = elapsedDurationUSec.count();
 
 		elapsedUSecVec.resize(1);
