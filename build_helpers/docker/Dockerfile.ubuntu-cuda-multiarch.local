@@ -47,7 +47,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     # Clean up the builder layer to reduce disk space usage on build hosts with small disks.
     find /root/elbencho -mindepth 1 -maxdepth 1 ! -name packaging -exec rm -rf {} + && \
     apt -y purge autoconf automake build-essential cmake cuda-toolkit debhelper devscripts fakeroot git libaio-dev libboost-filesystem-dev libboost-program-options-dev libboost-thread-dev libcurl4-openssl-dev libibverbs-dev libnuma-dev librdmacm-dev libssl-dev libtool lintian nvidia-open pkg-config uuid-dev zlib1g-dev && \
-    apt -y autoremove --purge && \
+    SUDO_FORCE_REMOVE=yes apt -y autoremove --purge && \
     apt clean all && \
     rm -rf /var/lib/apt/lists/*
 

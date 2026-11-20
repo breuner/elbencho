@@ -2,7 +2,7 @@
 
 Elbencho can be used with the Slurm Workload Manager in [interactive mode](#interactive-mode) or in [batch mode](#batch-mode). Interactive mode has the advantage that you can see live statistics during the benchmark. elbencho can also run as a regular MPI job, see [batch mode with MPI](#batch-mode-with-mpi).
 
-> **_NOTE:_** For the examples below, we assume that the elbencho rpm or deb package is installed on all nodes, so that we don't need to provide a path to elbencho. Alternatively, you could use the static build in tar format from the [releases section](https://github.com/breuner/elbencho/releases) and run it from a shared directory or use the `sbcast` command to transfer the executable from your job submission node to all allocated nodes of a job.
+> **_NOTE:_** For the examples below, we assume that the elbencho rpm or deb package is installed on all nodes, so that we don't need to provide a path to elbencho. Alternatively, you could use the static build in tar format from the [releases section](https://github.com/breuner/elbencho/releases) and run it from a shared directory.
 
 > **_NOTE:_** Thanks to Glenn Lockwood for providing the original example [here](https://www.glennklockwood.com/benchmarks/elbencho.html) on which this guide is based.
 
@@ -19,8 +19,10 @@ srun --nodes=3 --ntasks-per-node=1 --exclusive --cpu-bind=none --pty bash -i
 Inside the interactive session, use  `srun` to start elbencho in service mode on all allocated nodes:
 
 ```bash
-srun elbencho --service --foreground &
+srun --overlap --cpus-per-task=$SLURM_CPUS_ON_NODE elbencho --service --foreground &
 ```
+
+`--cpus-per-task=$SLURM_CPUS_ON_NODE` gives each service all CPU cores of its node (by default, Slurm confines a task to a single core, so all elbencho threads would share it) and `--overlap` lets the services share the nodes with the interactive shell step.
 
 Now get the node list in a format that is compatible with elbencho:
 
@@ -55,8 +57,8 @@ We'll call our new Slurm job script `elbencho-batch-job.sh`:
 # (Comma-separation instead newline not required, but looks nicer.)
 HOSTNAMES=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | tr "\n" ",")
 
-# Start service on all nodes
-srun elbencho --service --foreground &
+# Start service on all nodes, with all CPU cores of the node for each service
+srun --cpus-per-task=$SLURM_CPUS_ON_NODE elbencho --service --foreground &
 
 # Run benchmark
 
@@ -92,7 +94,9 @@ be set up for the MPI library (e.g. `srun --mpi=pmix`); alternatively, use the M
 > the MPI library of the cluster (see [docs/mpi.md](mpi.md)), so the packaged builds don't work
 > here. `elbencho --version` shows `mpiio` in the included features if the build has it.
 
-**Variant 1: one MPI job.** With `--mpiio` (which implies `--mpilaunch`) on the command line, rank 0 becomes the coordinator and
+### Variant 1: One MPI Job
+
+With `--mpiio` (which implies `--mpilaunch`) on the command line, rank 0 becomes the coordinator and
 all other ranks become the I/O ranks, so no separate service instances are needed. The job script
 `elbencho-mpiio-job.sh` is a single line (a POSIX run instead of MPI-IO just uses `--mpilaunch` without `--mpiio` and `--mpicoll`):
 
@@ -112,7 +116,9 @@ NUM_NODES=4
 sbatch --job-name=elbencho --cpu-bind=none --nodes=1 --ntasks=$((NUM_TASKS_PER_NODE + 1)) --exclusive $( [[ $NUM_NODES -gt 1 ]] && echo ": --nodes=$((NUM_NODES - 1)) --ntasks-per-node=$NUM_TASKS_PER_NODE --exclusive" ) elbencho-mpiio-job.sh
 ```
 
-**Variant 2: service ranks.** Like the batch mode example above, the MPI job can also start
+### Variant 2: Service Ranks
+
+Like the batch mode example above, the MPI job can also start
 persistent service instances, against which the job script then runs any number of benchmarks. All
 MPI ranks do I/O in this variant. The services pick their ports and register themselves in a hosts
 file on the shared file system, which the benchmark runs then use. The job script
@@ -134,6 +140,8 @@ elbencho --mpiio --mpicoll --strided --hostsfile "$HOSTSFILE" --resfile elbencho
 # Quit services
 elbencho --quit --hostsfile "$HOSTSFILE"
 ```
+
+And we're ready to submit:
 
 ```bash
 sbatch --nodes=4 --ntasks-per-node=8 --exclusive --cpu-bind=none --job-name=elbencho elbencho-mpiio-services-job.sh
