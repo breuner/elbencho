@@ -52,6 +52,29 @@ bool Statistics::isAggregated(size_t workerIdx) const
         !progArgs.getNetBenchArgs().isServerService(workerIdx);
 }
 
+/**
+ * Whether all workers that count towards the totals have already dropped the statistics of the
+ * "--ramp" warm-up period, i.e. whether the live counters refer to the measured window only.
+ * (Workers that completed the phase before the end of the warm-up period can't drop anything
+ * anymore, so they don't hold this back.)
+ */
+bool Statistics::isRampSettled() const
+{
+    if(!workersSharedData.isRampActive)
+        return true; // no warm-up period in this phase
+
+    for(size_t i=0; i < workerVec.size(); i++)
+    {
+        if(!isAggregated(i) )
+            continue;
+
+        if(!workerVec[i]->getIsRampDone() && !workerVec[i]->getPhaseFinished() )
+            return false;
+    }
+
+    return true;
+}
+
 size_t Statistics::countAggregatedWorkers() const
 {
     size_t numWorkers = 0;

@@ -54,6 +54,9 @@
 #define FULLSCREEN_WORKERS_TITLE_CPU                "CPU"
 #define FULLSCREEN_WORKERS_TITLE_SERVICE            "Service"
 
+// shown next to the elapsed time while the "--ramp" warm-up period is still running
+#define LIVESTATS_WARMUP_MARKER                     "(warm-up)"
+
 /**
  * return "std::to_string(VAL_B ? (VAL_A / VAL_B) : 0)" to prevent div by zero.
  */
@@ -274,6 +277,9 @@ void LiveStats::printSingleLineLiveStatsLine(LiveResults& liveResults)
 
 	stream <<
 		UnitTk::elapsedSecToHumanStr(elapsedSec.count() );
+
+	if(workersSharedData.isWarmingUp() )
+		stream << " " LIVESTATS_WARMUP_MARKER;
 
 	std::string lineStr(stream.str() );
 
@@ -902,6 +908,9 @@ void LiveStats::printFullScreenLiveStatsGlobalInfo(const LiveResults& liveResult
     if(timeLimitSecs)
         elapsedTimeStr += " / " + UnitTk::elapsedSecToHumanStr(timeLimitSecs);
 
+    if(workersSharedData.isWarmingUp() )
+        elapsedTimeStr += " " LIVESTATS_WARMUP_MARKER;
+
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_PHASE);
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, liveResults.phaseName);
     VEC2D_SET_AUTOGROW(outHeaderStatsTxtTable, rowIdx, colIdx++, FULLSCREEN_HEADER_TITLE_CPU);
@@ -1263,6 +1272,15 @@ void LiveStats::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedM
             "Backtrace: \n" + backtraceStr);
     }
 
+    /* "--ramp": an interval only belongs to the measured window if all workers had already
+        dropped their warm-up statistics when the interval started, because the counters that the
+        diff below is based on would otherwise still contain warm-up data. (Sampled before those
+        counters are read: a worker that drops its stats in between then only makes the *next*
+        interval the first measured one, instead of marking an interval as measured whose diff
+        baseline still refers to the warm-up period.) */
+    liveResults.isMeasuredInterval = isRampSettledAtLastRefresh;
+    isRampSettledAtLastRefresh = statistics.isRampSettled();
+
 	statistics.getLiveOps(liveResults.newLiveOps, liveResults.newLiveOpsReadMix, liveResults.liveLatency);
 
 	liveResults.liveOpsPerSec = liveResults.newLiveOps - liveResults.lastLiveOps;
@@ -1307,11 +1325,11 @@ void LiveStats::updateLiveStatsLiveOps(LiveResults& liveResults, size_t elapsedM
 	// calc latency average values
 	liveResults.liveLatency.divAllByNumValues();
 
-    if(progArgs.getShowGraph() )
+    if(progArgs.getShowGraph() && liveResults.isMeasuredInterval)
     {
         std::chrono::milliseconds phaseElapsedMS =
             std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
+                std::chrono::steady_clock::now() - workersSharedData.getMeasurementStartT() );
 
         samples.push_back( { (uint64_t)phaseElapsedMS.count(),
             liveResults.liveOpsPerSec, liveResults.liveOpsPerSecReadMix } );
@@ -1330,6 +1348,7 @@ void LiveStats::printLiveStats()
         (TerminalTk::isStdoutTTY() || progArgs.getUseBriefLiveStatsNewLine() );
 
     samples.clear(); // new phase
+    isRampSettledAtLastRefresh = !workersSharedData.isRampActive;
 
     prepLiveCSVFile();
 
@@ -1457,6 +1476,9 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
 	if(liveCSVFileFD == -1)
 		return; // output file not open => nothing to do
 
+	if(!liveResults.isMeasuredInterval)
+		return; // "--ramp": this interval still contains warm-up numbers, which get dropped
+
     auto now = std::chrono::system_clock::now();
     time_t time = std::chrono::system_clock::to_time_t(now);
     auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1470,9 +1492,10 @@ void LiveStats::printLiveStatsCSV(const LiveResults& liveResults)
         << std::setfill('0') << std::setw(3) << milliseconds
         << std::put_time(&localTimeInfo, "%z");
 
+	// (relative to the end of the "--ramp" warm-up period, if there was one)
 	std::chrono::milliseconds elapsedMS =
 				std::chrono::duration_cast<std::chrono::milliseconds>
-				(std::chrono::steady_clock::now() - workersSharedData.phaseStartT);
+				(std::chrono::steady_clock::now() - workersSharedData.getMeasurementStartT() );
 
     // (the column values "Write"/"Read" are part of the file format, so they stay for all modes)
     const ResultTerms terms = ResultTerms::forPhase(progArgs,
