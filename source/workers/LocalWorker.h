@@ -283,7 +283,7 @@ class LocalWorker : public Worker
 		void initPhaseFileHandleVecs();
 		void initPhaseRWOffsetGen();
 		void nullifyPhaseFunctionPointers();
-		void initPhaseFunctionPointers();
+		void initPhaseFunctionPointers(bool isFirstPassOfPhase);
 
 		void allocIOBuffer();
 		void allocGPUIOBuffer();

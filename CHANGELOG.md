@@ -23,6 +23,7 @@
 
 ### Fixes
 * Fixed read accounting in S3 custom tree mode with `--rwmixthrpct`. (No read IOPS were shown because all ops were counted as writes.)
+* Fixed `--limitread`/`--limitwrite` (and `--rwmixthrpct`) not being enforced across the passes of `--infloop`, because the rate limiters were restarted on every pass.
 
 ### Contributors
 Thanks to Jonathan Coles, Lee Sanders, Darrell Bishop for helpful comments and suggestions.

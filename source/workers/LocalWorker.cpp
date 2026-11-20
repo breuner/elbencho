@@ -77,6 +77,7 @@ void LocalWorker::run()
 
 			currentBenchID = workersSharedData->currentBenchID;
 			bool doInfiniteIOLoop = progArgs->getDoInfiniteIOLoop();
+			bool isFirstPassOfPhase = true; // rate limiters must not restart on each infloop pass
 
 			do // for infinite I/O loop
 			{
@@ -86,7 +87,7 @@ void LocalWorker::run()
                 if(progArgs->getBenchMode() != BenchMode_NETBENCH) // (netbench has no offsets)
                     initPhaseRWOffsetGen();
 
-				initPhaseFunctionPointers();
+				initPhaseFunctionPointers(isFirstPassOfPhase);
 
                 // (note: order of bench phases is defined in Coordinator::runBenchmarks() )
 				switch(workersSharedData->currentBenchPhase)
@@ -252,6 +253,8 @@ void LocalWorker::run()
 				} // end of switch
 
 				checkInterruptionRequest(); // for infinite loop workers with no work
+
+				isFirstPassOfPhase = false;
 
                 /* collective MPI-IO: the group decides together (no-op otherwise). after the
                     interruption check, so that a thread which throws there still casts its vote
@@ -872,8 +875,12 @@ void LocalWorker::nullifyPhaseFunctionPointers()
 
 /**
  * Prepare read/write function pointers for dirModeIterateFiles and fileModeIterateFiles.
+ *
+ * @isFirstPassOfPhase false for the 2nd and later passes of an infinite I/O loop (--infloop) within
+ *    the same phase, in which case the rate limiters keep running instead of restarting with a
+ *    fresh budget, so that the limit is enforced across passes.
  */
-void LocalWorker::initPhaseFunctionPointers()
+void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
 {
     const size_t ioDepth = progArgs->getIODepth();
     const bool useHDFS = (progArgs->getBenchMode() == BenchMode_HDFS);
@@ -1017,8 +1024,9 @@ void LocalWorker::initPhaseFunctionPointers()
 
         if(numRWMixReadThreads && rwMixThreadsReadPercent)
         { // rate balancer between reader and writer threads
-            rateLimiterRWMixThreads.initStart(
-                rwMixThreadsReadPercent, numRWMixReadThreads, numRWMixWriteThreads, blockSize);
+            if(isFirstPassOfPhase)
+                rateLimiterRWMixThreads.initStart(
+                    rwMixThreadsReadPercent, numRWMixReadThreads, numRWMixWriteThreads, blockSize);
 
             funcRWRateLimiter = &LocalWorker::preRWRateBalanceLimiterForWriters;
         }
@@ -1026,7 +1034,8 @@ void LocalWorker::initPhaseFunctionPointers()
         if(perThreadWriteRateLimitBps)
         { // plain per-thread rate limiter
             funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
-            rateLimiter.initStart(perThreadWriteRateLimitBps);
+            if(isFirstPassOfPhase)
+                rateLimiter.initStart(perThreadWriteRateLimitBps);
         }
         else // no rate limit
             funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
@@ -1068,8 +1077,9 @@ void LocalWorker::initPhaseFunctionPointers()
         if(numRWMixReadThreads && rwMixThreadsReadPercent &&
             (globalBenchPhase == BenchPhase_CREATEFILES) )
         { // rate balancer between reader and writer threads
-            rateLimiterRWMixThreads.initStart(
-                rwMixThreadsReadPercent, numRWMixReadThreads, numRWMixWriteThreads, blockSize);
+            if(isFirstPassOfPhase)
+                rateLimiterRWMixThreads.initStart(
+                    rwMixThreadsReadPercent, numRWMixReadThreads, numRWMixWriteThreads, blockSize);
 
             funcRWRateLimiter = &LocalWorker::preRWRateBalanceLimiterForReaders;
         }
@@ -1077,7 +1087,8 @@ void LocalWorker::initPhaseFunctionPointers()
         if(perThreadReadRateLimitBps)
         { // plain per-thread rate limiter
             funcRWRateLimiter = &LocalWorker::preRWRateLimiter;
-            rateLimiter.initStart(perThreadReadRateLimitBps);
+            if(isFirstPassOfPhase)
+                rateLimiter.initStart(perThreadReadRateLimitBps);
         }
         else // no rate limit
             funcRWRateLimiter = &LocalWorker::noOpRateLimiter;
