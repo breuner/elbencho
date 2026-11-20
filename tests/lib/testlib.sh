@@ -946,6 +946,14 @@ livecsv_header()
     head -1 "$1" 2>/dev/null
 }
 
+# livecsv_max_runtime_ms LIVECSVFILE
+# Highest value of the "RuntimeMS" column, i.e. the end of the last live stats
+# interval that was written. Empty if the file holds no data rows.
+livecsv_max_runtime_ms()
+{
+    awk -F, 'NR > 1 && $4 > max { max = $4 } END { if(NR > 1) print max+0 }' "$1" 2>/dev/null
+}
+
 # livecsv_bad_rows LIVECSVFILE
 # Number of data rows whose field count differs from the header's. Live rows are
 # only written on "--liveint" ticks, so a short run may legitimately have none;
