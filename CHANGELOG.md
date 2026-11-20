@@ -27,7 +27,7 @@
 * Fixed `--limitread`/`--limitwrite` (and `--rwmixthrpct`) not being enforced across the passes of `--infloop`, because the rate limiters were restarted on every pass.
 
 ### Contributors
-Thanks to Jonathan Coles, Lee Sanders, Darrell Bishop for helpful comments and suggestions.
+Thanks to Joshua Hoblitt for code contributions. Thanks to Jonathan Coles, Lee Sanders, Darrell Bishop for helpful comments and suggestions.
 
 ## v3.3.3 (Oct 27, 2026)
 
