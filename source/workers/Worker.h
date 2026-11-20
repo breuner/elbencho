@@ -46,12 +46,10 @@ class Worker
 		UInt64Vec elapsedUSecVec; /* Microsecs. Only valid when phase completed successfully. For
 			LocalWorker: finish of only thread; for RemoteWorker: finish of each worker on host */
 		std::atomic_bool isInterruptionRequested{false}; // set true to request self-termination
-		std::atomic_bool rampResetPending{false}; /* set by the ramp timer of WorkerManager; the
-			worker clears it by applying the reset at its next safe point (see
-			checkInterruptionRequest() ), so the stats of the "--ramp" warm-up period are dropped */
+		std::atomic_bool rampResetPending{false}; /* set by ramp timer; worker drops its "--ramp"
+			warm-up stats at its next safe point (see checkInterruptionRequest() ) */
 		std::atomic_bool isRampDone{false}; // true after this worker applied the ramp stats reset
-		std::chrono::steady_clock::time_point rampEndT; /* only valid if isRampDone; the instant at
-			which this worker dropped its warm-up stats, i.e. the start of its measured window */
+		std::chrono::steady_clock::time_point rampEndT; // only valid if isRampDone
 		AtomicLiveOps atomicLiveOps; // done in current phase
 		AtomicLiveOps atomicLiveOpsReadMix; // done in current phase
 		AtomicLiveOps oldAtomicLiveOps; // copy of old atomicLiveOps for diff stats
@@ -77,11 +75,7 @@ class Worker
 		void applyRampStatsReset();
 		void applyNumaAndCoreBinding();
 
-		/**
-		 * Drop the statistics of the "--ramp" warm-up period if the ramp timer asked for it. This
-		 * is inlined into the worker safe points, so the common "nothing to do" case is a single
-		 * predictable branch.
-		 */
+		// drop the stats of the "--ramp" warm-up period if the ramp timer asked for it
 		void checkRampStatsReset()
 		{
 			IF_UNLIKELY(rampResetPending)
@@ -90,8 +84,8 @@ class Worker
 
 		/**
 		 * Difference between a counter and its value at the previous call, also updating the
-		 * latter. Saturates at 0, because a ramp stats reset ("--ramp") can make the current
-		 * value smaller than the previous one.
+		 * latter. Saturates at 0, because a "--ramp" stats reset can make the current value
+		 * smaller than the previous one.
 		 */
 		static uint64_t getAndResetDiffCounter(const std::atomic_uint_fast64_t& current,
 			std::atomic_uint_fast64_t& old)
@@ -119,11 +113,7 @@ class Worker
 		const LatencyHistogram& getEntriesLatencyHistogramReadMix() const
 			{ return entriesLatHistoReadMix; }
 
-		/**
-		 * Ask this worker to drop the statistics that it gathered during the "--ramp" warm-up
-		 * period. Called by the ramp timer of WorkerManager; the worker applies this itself at
-		 * its next safe point, so no worker thread needs to be paused or locked out here.
-		 */
+		// ask this worker to drop its "--ramp" warm-up stats at its next safe point
 		void requestRampStatsReset()
 		{
 			rampResetPending = true;

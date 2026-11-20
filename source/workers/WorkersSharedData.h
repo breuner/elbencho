@@ -46,12 +46,10 @@ class WorkersSharedData
         std::chrono::system_clock::time_point phaseStartLocalT; /* local time. not steady! only
             for phase start time in results. for time measurements use monotonic phaseStartT. */
 
-		std::atomic_bool isRampActive{false}; /* true if the current phase has a progArgs::rampSecs
-			warm-up period (see WorkerManager::startRampTimer() ) */
-		std::atomic_bool isRampDone{false}; /* set by the ramp timer of WorkerManager when the
-			progArgs::rampSecs warm-up period of the current phase has elapsed */
-		std::chrono::steady_clock::time_point rampDoneT; /* only valid if isRampDone; the instant
-			at which the ramp timer fired, i.e. the start of the measured window */
+		std::atomic_bool isRampActive{false}; // true if current phase has a "--ramp" warm-up period
+		std::atomic_bool isRampDone{false}; // set by ramp timer when the warm-up period elapsed
+		std::chrono::steady_clock::time_point rampDoneT; /* only valid if isRampDone; written
+			before isRampDone, so readers can rely on that ordering without a lock */
 
 		std::mutex mutex; // also protects console err logs to not mix lines
 		std::condition_variable condition;
@@ -69,22 +67,13 @@ class WorkersSharedData
 
 	// inliners
 	public:
-		/**
-		 * Start of the time window that the results of the current phase refer to. This is the
-		 * phase start, or the end of the "--ramp" warm-up period if one has been applied.
-		 *
-		 * (Note: isRampDone is only set after rampDoneT has been written, so reading it first
-		 * makes rampDoneT safe to read without a lock.)
-		 */
+		// phase start, or end of the "--ramp" warm-up period if one has been applied
 		std::chrono::steady_clock::time_point getMeasurementStartT() const
 		{
 			return isRampDone ? rampDoneT : phaseStartT;
 		}
 
-		/**
-		 * Whether the current phase is still in its "--ramp" warm-up period, i.e. whether the
-		 * numbers gathered so far will be dropped.
-		 */
+		// whether the numbers gathered so far will still be dropped by the "--ramp" reset
 		bool isWarmingUp() const
 		{
 			return isRampActive && !isRampDone;

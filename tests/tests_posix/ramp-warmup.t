@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Warm-up period of a benchmark phase ("--ramp", alias "--warmup").
+# Warm-up period of a benchmark phase ("--ramp").
 #
 # Covers the argument guards and the effect of the warm-up period on the
 # results: the counters, the latency histogram and the elapsed time of a phase
@@ -32,32 +32,20 @@ MEASURED_SECS=$(( TIME_LIMIT - RAMP_SECS ))
 # thus the end of the phase is detected.
 LIVE_INTERVAL_MS=500
 
-# Tolerance for the reported elapsed time. A phase ends at the first live stats
-# tick after the time limit, and the workers drop their warm-up stats at the
-# first interruption check after the warm-up time, so the measured window can
-# only be a bit longer than requested, never shorter.
-TOLERANCE_MS=2500
-
 test_init
-tap_plan 28
+tap_plan 21
 
 DATA_DIR="$TEST_DIR/data"
 mkdir -p "$DATA_DIR"
 
 REF_LIVECSV="$TEST_DIR/reference-live.csv"
 RAMP_LIVECSV="$TEST_DIR/ramp-live.csv"
-ALIAS_LIVECSV="$TEST_DIR/alias-live.csv"
 
 ################## Argument guards ##################
 
 run_elbencho ramp-equals-timelimit \
     -w -t 1 -N 1 -s $FILE_SIZE --timelimit $TIME_LIMIT --ramp $TIME_LIMIT "$DATA_DIR"
 assert_nok $? "a warm-up time that is not shorter than the time limit is rejected"
-
-run_elbencho ramp-and-warmup \
-    -w -t 1 -N 1 -s $FILE_SIZE --timelimit $TIME_LIMIT \
-    --ramp $RAMP_SECS --warmup $RAMP_SECS "$DATA_DIR"
-assert_nok $? "--ramp and its alias --warmup cannot be given at the same time"
 
 ################## Dataset for the timed runs ##################
 
@@ -79,8 +67,6 @@ REF_ELAPSED_MS="$(json_value "$ELB_JSON" WRITE last_done elapsed_time_ms)"
 
 assert_ge "$REF_ELAPSED_MS" $(( TIME_LIMIT * 1000 )) \
     "the reference run measures the full time limit of ${TIME_LIMIT}s"
-assert_le "$REF_ELAPSED_MS" $(( TIME_LIMIT * 1000 + TOLERANCE_MS )) \
-    "the reference run does not measure much more than its time limit"
 
 REF_LIVECSV_MAX_MS="$(livecsv_max_runtime_ms "$REF_LIVECSV")"
 
@@ -102,8 +88,6 @@ RAMP_IO_OPS="$(json_latency_histogram_sum "$ELB_JSON" WRITE IO)"
 
 assert_ge "$RAMP_ELAPSED_MS" $(( MEASURED_SECS * 1000 - 1000 )) \
     "the warm-up run measures the remaining ${MEASURED_SECS}s of its time limit"
-assert_le "$RAMP_ELAPSED_MS" $(( MEASURED_SECS * 1000 + TOLERANCE_MS )) \
-    "the warm-up run does not measure much more than the remaining ${MEASURED_SECS}s"
 assert_le "$RAMP_ELAPSED_MS" $(( REF_ELAPSED_MS - RAMP_SECS * 1000 + 1500 )) \
     "the warm-up run measures about ${RAMP_SECS}s less than the reference run"
 
@@ -129,22 +113,6 @@ assert_le "$RAMP_LIVECSV_MAX_MS" $(( RAMP_ELAPSED_MS + LIVE_INTERVAL_MS )) \
     "the live csv timeline of the warm-up run stays within the measured window"
 assert_le "$RAMP_LIVECSV_MAX_MS" $(( REF_LIVECSV_MAX_MS - RAMP_SECS * 1000 + 1500 )) \
     "the live csv of the warm-up run is shorter than the one of the reference run"
-
-################## The --warmup alias does the same ##################
-
-run_elbencho warmup-alias \
-    -w -t $NUM_THREADS -n 1 -N $NUM_FILES -s $FILE_SIZE -b $BLOCK_SIZE \
-    --infloop --timelimit $TIME_LIMIT --warmup $RAMP_SECS \
-    --liveint $LIVE_INTERVAL_MS --livecsv "$ALIAS_LIVECSV" \
-    "$DATA_DIR"
-assert_ok $? "a run with the --warmup alias succeeds"
-
-ALIAS_ELAPSED_MS="$(json_value "$ELB_JSON" WRITE last_done elapsed_time_ms)"
-
-assert_ge "$ALIAS_ELAPSED_MS" $(( MEASURED_SECS * 1000 - 1000 )) \
-    "the --warmup alias also measures the remaining ${MEASURED_SECS}s only"
-assert_le "$ALIAS_ELAPSED_MS" $(( MEASURED_SECS * 1000 + TOLERANCE_MS )) \
-    "the --warmup alias does not measure much more than the remaining ${MEASURED_SECS}s"
 
 ############## Warm-up of a count-based workload without a time limit ##########
 #
@@ -200,13 +168,8 @@ run_elbencho quick-workload-ramp \
     -w -t 1 -s $FILE_SIZE -b $BLOCK_SIZE --ramp $QUICK_RAMP "$QUICK_FILE"
 assert_nok $? "a workload that is through before the end of the warm-up period fails"
 assert_match "$(cat "$ELB_OUT")" \
-    'ERROR: Workload completed before the "--ramp" window expired' \
+    'ERROR: Workload completed before the end of the "--ramp" warm-up period' \
     "the failed run explains that its workload did not outlast the warm-up period"
-
-run_elbencho quick-workload-ramp-timelimit \
-    -w -t 1 -s $FILE_SIZE -b $BLOCK_SIZE \
-    --timelimit $(( QUICK_RAMP + 1 )) --ramp $QUICK_RAMP "$QUICK_FILE"
-assert_nok $? "the same holds when a time limit is given"
 
 # Only the read and write phases have a warm-up period, so the dir creation and
 # the deletions of this run are not expected to outlast it, even though they

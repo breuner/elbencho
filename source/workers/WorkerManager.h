@@ -41,8 +41,7 @@ class WorkerManager
 		WorkerVec workerVec;
 		WorkersSharedData workersSharedData;
 
-		std::thread rampTimerThread; /* async timer for the "--ramp" warm-up period of the current
-			phase; lives at most progArgs::rampSecs (see rampTimerLoop() ) */
+		std::thread rampTimerThread; // async timer for the "--ramp" warm-up period (rampTimerLoop)
 		bool rampTimerStopRequested{false}; // protected by workersSharedData.mutex
 
 		void interruptAndNotifyWorkersUnlocked();

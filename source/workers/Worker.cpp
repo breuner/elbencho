@@ -101,15 +101,11 @@ void Worker::checkInterruptionRequest(std::function<void()> func)
 
 /**
  * Drop everything that this worker measured during the "--ramp" warm-up period, so that only the
- * steady-state remainder of the phase gets reported. Called by the worker thread itself at one of
- * its safe points, so no lock is needed: all touched values belong to this worker and are either
- * atomic or only ever read by others after the phase has ended.
- *
- * The instant of the reset is kept as the start of this worker's measured window, so that its
- * elapsed time in the phase results matches exactly the counters that survive here.
+ * steady-state remainder of the phase gets reported. No lock needed, because this is applied by
+ * the worker thread itself at one of its safe points.
  *
  * Note: the live latency accumulators are deliberately not reset, because they are concurrently
- * drained by the live stats thread and only affect the display of the current live interval.
+ * drained by the live stats thread and only affect the current live interval.
  */
 void Worker::applyRampStatsReset()
 {

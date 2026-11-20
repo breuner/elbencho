@@ -145,10 +145,6 @@ ProgArgs::ProgArgs(int argc, char** argv) :
     bpo::options_description configFileOptions;
     configFileOptions.add(argsGenericDescription); // allow all command line options in conf file
 
-    // aliases, which are hidden in the help output but shall work in a conf file all the same
-    configFileOptions.add_options()
-        (ARG_RAMPSECS_ALIAS_LONG, bpo::value<size_t>(), "");
-
     // read config file
     if(!configFilePath.empty() )
     {
@@ -227,8 +223,6 @@ void ProgArgs::defineAllowedArgs()
         (ARG_HELPS3_LONG, "Print S3 object storage help message.")
         (ARG_HELPDISTRIBUTED_LONG, "Print distributed benchmark help message.")
         (ARG_HELPALLOPTIONS_LONG, "Print all available options help message.")
-        // aliases, which are hidden in the help output but work like the option they alias
-        (ARG_RAMPSECS_ALIAS_LONG, bpo::value<size_t>(), "")
     ;
 
     // ordered by user option strings to print user help in alphabetical order
@@ -552,14 +546,12 @@ void ProgArgs::defineAllowedArgs()
 /*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read files.")
 /*ra*/	(ARG_RAMPSECS_LONG, bpo::value(&this->rampSecs),
-			"Warm-up (ramp-up) time in seconds at the start of each benchmark phase. All counters "
-			"and latency histograms get reset when the warm-up time has elapsed, so that only the "
-			"steady-state remainder of the phase is measured and reported. This applies to the "
-			"read and write phases only. The workload has to outlast the warm-up time, otherwise "
-			"the phase fails. If \"--" ARG_TIMELIMITSECS_LONG
-			"\" is given then the warm-up time is part of (not added to) the time limit and thus "
-			"has to be smaller than it. Live statistics are not written to \"--"
-			ARG_CSVLIVEFILE_LONG "\" during warm-up. (Alias: \"--" ARG_RAMPSECS_ALIAS_LONG "\") "
+			"Warm-up (ramp-up) time in seconds at the start of each read and write phase. All "
+			"counters and latency histograms get reset when the warm-up time has elapsed, so that "
+			"only the steady-state remainder of the phase is measured and reported. The workload "
+			"has to outlast the warm-up time, otherwise the phase fails. The warm-up time is part "
+			"of (not added to) \"--" ARG_TIMELIMITSECS_LONG "\" and thus has to be smaller than "
+			"it. Warm-up intervals are not written to \"--" ARG_CSVLIVEFILE_LONG "\". "
 			"(Default: 0 for disabled)")
 /*ra*/	(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
@@ -1035,16 +1027,6 @@ void ProgArgs::initImplicitValues()
         if(showGraph && liveCSVFilePath.empty() )
             liveCSVFilePath = userResDir + "/" + RESFILE_LIVECSV_NAME_DEFAULT;
     }
-
-	// "--warmup" is just another spelling of "--ramp", so fold it into rampSecs
-	if(argsVariablesMap.count(ARG_RAMPSECS_ALIAS_LONG) )
-	{
-		if(argsVariablesMap.count(ARG_RAMPSECS_LONG) )
-			throw ProgException("\"--" ARG_RAMPSECS_LONG "\" and \"--" ARG_RAMPSECS_ALIAS_LONG
-				"\" are aliases of each other, so only one of them can be given.");
-
-		rampSecs = argsVariablesMap[ARG_RAMPSECS_ALIAS_LONG].as<size_t>();
-	}
 
 	if(argsVariablesMap.count(ARG_RWMIXPERCENT_LONG) )
 		useRWMixPercent = true;
