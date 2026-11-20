@@ -1,6 +1,6 @@
 # Changelog of elbencho
 
-## v3.3.4 (work in progress)
+## v3.4.1 (Nov 20, 2026)
 
 ### New Features & Enhancements
 * Added support for launching coordinated runs via MPI and for MPI-IO as file access API, including collective IO. See [`docs/mpi.md`](docs/mpi.md).
