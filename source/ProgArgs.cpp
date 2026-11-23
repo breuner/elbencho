@@ -3646,6 +3646,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	numRWMixReadThreads = tree.get<size_t>(ARG_RWMIXTHREADS_LONG);
 	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
 	opsLogPath = tree.get<std::string>(ARG_OPSLOGPATH_LONG);
+	rampSecs = tree.get<size_t>(ARG_RAMPSECS_LONG);
 	randOffsetAlgo = tree.get<std::string>(ARG_RANDSEEKALGO_LONG);
 	randomAmount = tree.get<uint64_t>(ARG_RANDOMAMOUNT_LONG);
 	runCreateDirsPhase = tree.get<bool>(ARG_CREATEDIRS_LONG);
@@ -3788,6 +3789,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_OPSLOGLOCKING_LONG, useOpsLogLocking);
 	outTree.put(ARG_OPSLOGPATH_LONG, opsLogPath);
 	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
+	outTree.put(ARG_RAMPSECS_LONG, rampSecs);
 	outTree.put(ARG_NORANDOMALIGN_LONG, useRandomUnaligned);
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
 	outTree.put(ARG_RANDOMOFFSETS_LONG, useRandomOffsets);
