@@ -1291,6 +1291,11 @@ void ProgArgs::checkArgs()
 	if(!iterations)
 		throw ProgException("Number of iterations may not be zero.");
 
+	if(rampSecs && timeLimitSecs && (rampSecs >= timeLimitSecs) )
+		throw ProgException("\"--" ARG_RAMPSECS_LONG "\" has to be smaller than \"--"
+			ARG_TIMELIMITSECS_LONG "\", because the warm-up time is part of the phase time "
+			"limit.");
+
 	numDataSetThreads = (!hostsVec.empty() && getIsServicePathShared() ) ?
 		(numThreads * hostsVec.size() ) : numThreads;
 

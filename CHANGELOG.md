@@ -14,6 +14,7 @@
 * New contributed plugin for S3-over-RDMA support by DDN. See [`contrib/plugins/s3rdma_ddn/README.md`](contrib/plugins/s3rdma_ddn/README.md).
 * New option `--ramp` for a warm-up period at the start of each read and write phase, e.g. to exclude the connection setup and cache warm-up of an S3 object store from the results.
   * All counters and latency histograms get reset when the given number of seconds has elapsed, so that only the steady-state remainder of a phase is measured and reported.
+  * The warm-up time is part of (not added to) `--timelimit`, but a time limit is not required, i.e. this also works for fixed, count-based workloads.
   * Works in distributed mode (`--hosts`/`--service`), where each instance warms up its own phase.
 
 ### General Changes

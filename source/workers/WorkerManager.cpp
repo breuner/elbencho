@@ -249,8 +249,9 @@ void WorkerManager::joinAllThreads()
 /**
  * Wait for all workers to finish this phase.
  *
- * @thow WorkerException if any of the workers encountered an error in this phase or
- * 		ProgInterruptedException if user interrupt signal was detected.
+ * @throw WorkerException if any of the workers encountered an error in this phase;
+ * 		ProgInterruptedException if user interrupt signal was detected; ProgException if the
+ * 		workload of this phase completed before the end of the "--ramp" warm-up period.
  */
 void WorkerManager::waitForWorkersDone()
 {
@@ -274,6 +275,13 @@ void WorkerManager::waitForWorkersDone()
 
 	} while(!workersDone);
 
+	/* the ramp timer won't fire anymore now that all workers are done, so there is no measured
+		window left to report. (Interrupt and time limit end a phase early for a reason of their
+		own, which the caller reports, so they are not blamed on the warm-up period.) */
+	IF_UNLIKELY(workersSharedData.isWarmingUp() &&
+		!WorkersSharedData::gotUserInterruptSignalT && !WorkersSharedData::isPhaseTimeExpired)
+		throw ProgException("Workload completed before the end of the \"--" ARG_RAMPSECS_LONG
+			"\" warm-up period, so there is nothing left to measure.");
 }
 
 /**
