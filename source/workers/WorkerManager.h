@@ -26,6 +26,7 @@ class WorkerManager
 		void checkPhaseTimeLimit();
 
 		void startNextPhase(BenchPhase newBenchPhase, std::string* benchID = NULL);
+		void stopRampTimer();
 
 		static void getPhaseNumEntriesAndBytes(const ProgArgs& progArgs, BenchPhase benchPhase,
 			BenchPathType benchPathType, size_t& outNumEntriesPerThread,
@@ -40,7 +41,14 @@ class WorkerManager
 		WorkerVec workerVec;
 		WorkersSharedData workersSharedData;
 
+		std::thread rampTimerThread;
+		bool rampTimerStopRequested{false}; // protected by workersSharedData.mutex
+
 		void interruptAndNotifyWorkersUnlocked();
+		static bool hasRampPhase(BenchPhase benchPhase);
+		void startRampTimer();
+		void rampTimerLoop(buuids::uuid benchID,
+			std::chrono::steady_clock::time_point rampDeadlineT);
 
 		// inliners
 	public:

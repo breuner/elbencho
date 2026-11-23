@@ -552,6 +552,14 @@ void ProgArgs::defineAllowedArgs()
 			"Quit services on given service mode hosts.")
 /*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read files.")
+/*ra*/	(ARG_RAMPSECS_LONG, bpo::value(&this->rampSecs),
+			"Warm-up (ramp-up) time in seconds at the start of each read and write phase. All "
+			"counters and latency histograms get reset when the warm-up time has elapsed, so that "
+			"only the steady-state remainder of the phase is measured and reported. The workload "
+			"has to outlast the warm-up time, otherwise the phase fails. The warm-up time is part "
+			"of (not added to) \"--" ARG_TIMELIMITSECS_LONG "\" and thus has to be smaller than "
+			"it. Warm-up intervals are not written to \"--" ARG_CSVLIVEFILE_LONG "\". "
+			"(Default: 0 for disabled)")
 /*ra*/	(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
 /*ra*/	(ARG_RANDSEEKALGO_LONG, bpo::value(&this->randOffsetAlgo),
@@ -805,6 +813,7 @@ void ProgArgs::defineDefaults()
     this->numRWMixReadThreads = 0;
     this->numThreads = 1;
     this->quitServices = false;
+    this->rampSecs = 0;
     this->randOffsetAlgo = ""; /* empty means full coverage for
         writes, balanced_single for reads, but we currently don't want to use full coverage algo */
     this->rotateHostsNum = 0;

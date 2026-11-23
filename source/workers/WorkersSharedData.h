@@ -8,6 +8,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -45,6 +46,11 @@ class WorkersSharedData
         std::chrono::system_clock::time_point phaseStartLocalT; /* local time. not steady! only
             for phase start time in results. for time measurements use monotonic phaseStartT. */
 
+		std::atomic_bool isRampActive{false}; // true if current phase has a "--ramp" warm-up period
+		std::atomic_bool isRampDone{false}; // set by ramp timer when the warm-up period elapsed
+		std::chrono::steady_clock::time_point rampDoneT; /* only valid if isRampDone; written
+			before isRampDone, so readers can rely on that ordering without a lock */
+
 		std::mutex mutex; // also protects console err logs to not mix lines
 		std::condition_variable condition;
 		BenchPhase currentBenchPhase{BenchPhase_IDLE}; // changed together with new bench ID
@@ -61,6 +67,16 @@ class WorkersSharedData
 
 	// inliners
 	public:
+		std::chrono::steady_clock::time_point getMeasurementStartT() const
+		{
+			return isRampDone ? rampDoneT : phaseStartT;
+		}
+
+		bool isWarmingUp() const
+		{
+			return isRampActive && !isRampDone;
+		}
+
 		void resetNumWorkersDoneUnlocked()
 		{
 			numWorkersDone = 0;
