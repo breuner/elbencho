@@ -2,6 +2,9 @@
 
 ## v3.4.2 (work in progress)
 
+### Fixes
+* Fixed detection of absolute paths in Windows native path format for distributed runs.
+
 ## v3.4.1 (Nov 20, 2026)
 
 ### New Features & Enhancements

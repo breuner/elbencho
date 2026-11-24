@@ -10,8 +10,10 @@ without a Cygwin installation.
 
 ## Paths
 
-Paths are given in Cygwin notation, e.g. `/cygdrive/c/Users/Administrator/bench` for
-`C:\Users\Administrator\bench`.
+Paths can be given in Cygwin notation, e.g. `/cygdrive/c/Users/Administrator/bench`, or in
+native Windows notation, e.g. `C:\Users\Administrator\bench`. This applies to the benchmark
+paths as well as to the config file, the result files and the other log files. Backslashes need
+quoting in a Cygwin bash (`'C:\Users\Administrator\bench'`), not in a Windows command prompt.
 
 Block devices can be given either as Cygwin device names or as native Windows device names:
 

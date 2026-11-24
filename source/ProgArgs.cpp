@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
+#include <cctype>
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
@@ -2962,6 +2963,16 @@ std::string ProgArgs::absolutePath(std::string pathStr)
 
 	if(pathStr[0] == '/')
 		return pathStr; // pathStr was already absolute, so nothing to do
+
+#ifdef CYGWIN_SUPPORT
+    // native windows notation: drive letter ("C:\dir", "C:/dir") or UNC path ("\\server\share")
+    bool isDrivePath = (pathStr.size() >= 3) && isalpha( (unsigned char)pathStr[0]) &&
+        (pathStr[1] == ':') && ( (pathStr[2] == '\\') || (pathStr[2] == '/') );
+    bool isUNCPath = (pathStr.size() >= 2) && (pathStr[0] == '\\') && (pathStr[1] == '\\');
+
+    if(isDrivePath || isUNCPath)
+        return pathStr;
+#endif // CYGWIN_SUPPORT
 
 	std::array<char, PATH_MAX> currentWorkDir;
 
