@@ -5,7 +5,7 @@
 <pre><code>
 elbencho - A distributed benchmark for files, objects and blocks
 
-Version: 3.3-4
+Version: 3.4-1
 
 Tests include throughput, IOPS and access latency. Live statistics show how the
 system behaves under load and whether it is worth waiting for the end result.
