@@ -2,6 +2,9 @@
 
 ## v3.4.2 (work in progress)
 
+### General Changes
+* Updated mimalloc lib for static builds to latest v3.7.1.
+
 ### Fixes
 * Fixed detection of absolute paths in Windows native path format for distributed runs.
 
