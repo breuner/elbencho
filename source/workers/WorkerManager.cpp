@@ -142,6 +142,10 @@ void WorkerManager::checkPhaseTimeLimit()
  */
 void WorkerManager::prepareThreads()
 {
+	/* a leftover timer of a previous phase refers to workerVec, which we are about to grow, so it
+		may not still be running here (same reason as in deleteThreads() ) */
+	stopRampTimer();
+
 	threadGroup.reserve(progArgs.getHostsVec().empty() ?
 			progArgs.getNumThreads() : progArgs.getHostsVec().size() );
 	workerVec.reserve(progArgs.getHostsVec().empty() ?
@@ -153,6 +157,9 @@ void WorkerManager::prepareThreads()
     workersSharedData.phaseStartT = std::chrono::steady_clock::now();
 	workersSharedData.phaseStartLocalT = std::chrono::system_clock::now();
 	workersSharedData.currentBenchID = buuids::nil_uuid(); // workers expect this as prep phase ID
+
+	workersSharedData.isRampActive = false;
+	workersSharedData.isRampDone = false;
 
 	workersSharedData.resetNumWorkersDoneUnlocked();
 
@@ -209,6 +216,8 @@ void WorkerManager::prepareThreads()
  */
 void WorkerManager::deleteThreads()
 {
+	stopRampTimer(); // (the timer refers to workerVec, so it may not outlive the workers)
+
 	// cleanup allocated thread objects
 	for(std::thread* thread : threadGroup)
 		delete(thread);
@@ -240,8 +249,9 @@ void WorkerManager::joinAllThreads()
 /**
  * Wait for all workers to finish this phase.
  *
- * @thow WorkerException if any of the workers encountered an error in this phase or
- * 		ProgInterruptedException if user interrupt signal was detected.
+ * @throw WorkerException if any of the workers encountered an error in this phase;
+ * 		ProgInterruptedException if user interrupt signal was detected; ProgException if the
+ * 		workload of this phase completed before the end of the "--ramp" warm-up period.
  */
 void WorkerManager::waitForWorkersDone()
 {
@@ -265,6 +275,13 @@ void WorkerManager::waitForWorkersDone()
 
 	} while(!workersDone);
 
+	/* the ramp timer won't fire anymore now that all workers are done, so there is no measured
+		window left to report. (Interrupt and time limit end a phase early for a reason of their
+		own, which the caller reports, so they are not blamed on the warm-up period.) */
+	IF_UNLIKELY(workersSharedData.isWarmingUp() &&
+		!WorkersSharedData::gotUserInterruptSignalT && !WorkersSharedData::isPhaseTimeExpired)
+		throw ProgException("Workload completed before the end of the \"--" ARG_RAMPSECS_LONG
+			"\" warm-up period, so there is nothing left to measure.");
 }
 
 /**
@@ -294,6 +311,9 @@ void WorkerManager::startNextPhase(BenchPhase newBenchPhase, std::string* benchI
 	Logger(Log_VERBOSE) << "Starting benchmark phase: " <<
 		TranslatorTk::benchPhaseToPhaseName(newBenchPhase, &progArgs) << std::endl;
 
+	// (before the stats reset below, as a leftover timer would request another ramp reset)
+	stopRampTimer();
+
 	std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
 
 	workersSharedData.resetNumWorkersDoneUnlocked();
@@ -316,12 +336,133 @@ void WorkerManager::startNextPhase(BenchPhase newBenchPhase, std::string* benchI
 
 	workersSharedData.currentBenchPhase = newBenchPhase;
 
+	workersSharedData.isRampActive = progArgs.getRampSecs() && hasRampPhase(newBenchPhase);
+	workersSharedData.isRampDone = false;
+	rampTimerStopRequested = false;
 	workersSharedData.cpuUtilFirstDone.update();
 	workersSharedData.cpuUtilLastDone.update();
 	workersSharedData.phaseStartT = std::chrono::steady_clock::now();
     workersSharedData.phaseStartLocalT = std::chrono::system_clock::now();
 
 	workersSharedData.condition.notify_all();
+
+	lock.unlock(); // U N L O C K
+
+	startRampTimer();
+}
+
+/**
+ * Whether a "--ramp" warm-up period makes sense for the given phase. Only the data phases have
+ * one, because the prep and cleanup phases of a typical run (e.g. "-d -w -r -D") are usually done
+ * in no time, so a warm-up period would fail the run right in its mkdirs phase.
+ *
+ * (A "--rwmixpct"/"--rwmixthreads" phase is a CREATEFILES or READFILES phase as well.)
+ */
+bool WorkerManager::hasRampPhase(BenchPhase benchPhase)
+{
+	switch(benchPhase)
+	{
+		case BenchPhase_CREATEFILES:
+		case BenchPhase_READFILES:
+			return true;
+
+		default:
+			return false;
+	}
+}
+
+/**
+ * Start the async timer for the "--ramp" warm-up period of a new phase.
+ * (In distributed mode, each instance times its own phase.)
+ *
+ * Caller must not hold workersSharedData.mutex.
+ */
+void WorkerManager::startRampTimer()
+{
+	if(!workersSharedData.isRampActive)
+		return;
+
+	const std::chrono::steady_clock::time_point rampDeadlineT =
+		workersSharedData.phaseStartT + std::chrono::seconds(progArgs.getRampSecs() );
+
+	rampTimerThread = std::thread(&WorkerManager::rampTimerLoop, this,
+		workersSharedData.currentBenchID, rampDeadlineT);
+}
+
+/**
+ * Wait for the end of the "--ramp" warm-up period of the current phase and then ask all workers
+ * to drop the statistics that they gathered so far. Returns early (without triggering) if the
+ * phase ends or gets interrupted before that, so this thread lives at most progArgs::rampSecs.
+ *
+ * @benchID the phase that this timer was started for; the trigger is skipped if a different phase
+ * 		is running by then.
+ */
+void WorkerManager::rampTimerLoop(buuids::uuid benchID,
+	std::chrono::steady_clock::time_point rampDeadlineT)
+{
+	std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
+
+	const bool phaseOver = workersSharedData.condition.wait_until(lock, rampDeadlineT,
+		[&, this]
+		{
+			return rampTimerStopRequested ||
+				WorkersSharedData::gotUserInterruptSignalT ||
+				( (workersSharedData.numWorkersDone +
+					workersSharedData.numWorkersDoneWithError) == workerVec.size() );
+		} );
+
+	/* (if all workers are already through, then isRampDone stays false, which is what makes
+		waitForWorkersDone() fail the run) */
+	if(phaseOver || (workersSharedData.currentBenchID != benchID) )
+		return;
+
+	size_t numWorkersAlreadyDone = workersSharedData.numWorkersDone +
+		workersSharedData.numWorkersDoneWithError;
+
+	for(Worker* worker : workerVec)
+		worker->requestRampStatsReset();
+
+	/* restart the cpu util intervals, so that the reported cpu util also refers to the measured
+		window only. (cpuUtilFirstDone's 2nd sample is taken by the stonewall trigger, so it may
+		only be restarted while no worker is through yet.) */
+	if(!numWorkersAlreadyDone)
+		workersSharedData.cpuUtilFirstDone.update();
+
+	workersSharedData.cpuUtilLastDone.update();
+
+	workersSharedData.rampDoneT = std::chrono::steady_clock::now();
+	workersSharedData.isRampDone = true; // (after rampDoneT, as readers rely on this ordering)
+
+	lock.unlock(); // U N L O C K
+
+	LOGGER(Log_VERBOSE, "Warm-up period is over, resetting statistics. "
+		"Warm-up time: " << progArgs.getRampSecs() << "s" << std::endl);
+
+	if(numWorkersAlreadyDone)
+		LOGGER(Log_NORMAL, "NOTE: " << numWorkersAlreadyDone << " of " << workerVec.size() <<
+			" workers completed this phase before the end of the \"--" ARG_RAMPSECS_LONG
+			"\" warm-up period, so the stonewall (FIRST DONE) results refer to the warm-up "
+			"period instead of the measured window." << std::endl);
+}
+
+/**
+ * Stop and join the ramp timer of the current phase.
+ *
+ * Caller must not hold workersSharedData.mutex.
+ */
+void WorkerManager::stopRampTimer()
+{
+	if(!rampTimerThread.joinable() )
+		return;
+
+	{
+		std::unique_lock<std::mutex> lock(workersSharedData.mutex); // L O C K (scoped)
+
+		rampTimerStopRequested = true;
+		workersSharedData.condition.notify_all();
+	}
+
+	rampTimerThread.join();
 }
 
 /**

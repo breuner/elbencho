@@ -63,6 +63,8 @@ class LiveResults
 		LiveOps newLiveOpsReadMix; // live ops from current round
 		LiveOps liveOpsPerSec; // live ops per sec in the current round
 		LiveOps liveOpsPerSecReadMix; // live ops per sec in the current round
+		bool isMeasuredInterval = true; /* false while the values still contain data of the
+			"--ramp" warm-up period, which does not belong to the results */
 		size_t percentDone; // total percent done based on bytes (if any) or num entries in phase
 		size_t percentDoneReadMix; // total percent done based on bytes (if any) or entries in phase
 
@@ -114,6 +116,7 @@ class LiveStats
 		bool consoleBufferingDisabled{false};
 		int liveCSVFileFD = -1; // fd for live stats csv file
         LiveOpsSampleVec samples; // the live stats intervals of the current phase ("--graph")
+        bool isRampSettledAtLastRefresh{true};
 
 		void disableConsoleBuffering();
 		void resetConsoleBuffering();

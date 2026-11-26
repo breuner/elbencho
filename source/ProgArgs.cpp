@@ -553,6 +553,14 @@ void ProgArgs::defineAllowedArgs()
 			"Quit services on given service mode hosts.")
 /*r*/	(ARG_READ_LONG "," ARG_READ_SHORT, bpo::bool_switch(&this->runReadPhase),
 			"Read files.")
+/*ra*/	(ARG_RAMPSECS_LONG, bpo::value(&this->rampSecs),
+			"Warm-up (ramp-up) time in seconds at the start of each read and write phase. All "
+			"counters and latency histograms get reset when the warm-up time has elapsed, so that "
+			"only the steady-state remainder of the phase is measured and reported. The workload "
+			"has to outlast the warm-up time, otherwise the phase fails. The warm-up time is part "
+			"of (not added to) \"--" ARG_TIMELIMITSECS_LONG "\" and thus has to be smaller than "
+			"it. Warm-up intervals are not written to \"--" ARG_CSVLIVEFILE_LONG "\". "
+			"(Default: 0 for disabled)")
 /*ra*/	(ARG_RANDOMOFFSETS_LONG, bpo::bool_switch(&this->useRandomOffsets),
 			"Read/write at random offsets.")
 /*ra*/	(ARG_RANDSEEKALGO_LONG, bpo::value(&this->randOffsetAlgo),
@@ -806,6 +814,7 @@ void ProgArgs::defineDefaults()
     this->numRWMixReadThreads = 0;
     this->numThreads = 1;
     this->quitServices = false;
+    this->rampSecs = 0;
     this->randOffsetAlgo = ""; /* empty means full coverage for
         writes, balanced_single for reads, but we currently don't want to use full coverage algo */
     this->rotateHostsNum = 0;
@@ -1282,6 +1291,11 @@ void ProgArgs::checkArgs()
 
 	if(!iterations)
 		throw ProgException("Number of iterations may not be zero.");
+
+	if(rampSecs && timeLimitSecs && (rampSecs >= timeLimitSecs) )
+		throw ProgException("\"--" ARG_RAMPSECS_LONG "\" has to be smaller than \"--"
+			ARG_TIMELIMITSECS_LONG "\", because the warm-up time is part of the phase time "
+			"limit.");
 
 	numDataSetThreads = (!hostsVec.empty() && getIsServicePathShared() ) ?
 		(numThreads * hostsVec.size() ) : numThreads;
@@ -3648,6 +3662,7 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
 	numRWMixReadThreads = tree.get<size_t>(ARG_RWMIXTHREADS_LONG);
 	numThreads = tree.get<size_t>(ARG_NUMTHREADS_LONG);
 	opsLogPath = tree.get<std::string>(ARG_OPSLOGPATH_LONG);
+	rampSecs = tree.get<size_t>(ARG_RAMPSECS_LONG);
 	randOffsetAlgo = tree.get<std::string>(ARG_RANDSEEKALGO_LONG);
 	randomAmount = tree.get<uint64_t>(ARG_RANDOMAMOUNT_LONG);
 	runCreateDirsPhase = tree.get<bool>(ARG_CREATEDIRS_LONG);
@@ -3790,6 +3805,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_OPSLOGLOCKING_LONG, useOpsLogLocking);
 	outTree.put(ARG_OPSLOGPATH_LONG, opsLogPath);
 	outTree.put(ARG_PREALLOCFILE_LONG, doPreallocFile);
+	outTree.put(ARG_RAMPSECS_LONG, rampSecs);
 	outTree.put(ARG_NORANDOMALIGN_LONG, useRandomUnaligned);
 	outTree.put(ARG_RANDOMAMOUNT_LONG, randomAmount);
 	outTree.put(ARG_RANDOMOFFSETS_LONG, useRandomOffsets);

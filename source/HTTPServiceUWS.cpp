@@ -682,6 +682,7 @@ void HTTPServiceUWS::defineServerResources(uWS::App& uWSApp)
 
 		workerManager.interruptAndNotifyWorkers();
 		workerManager.joinAllThreads();
+		workerManager.stopRampTimer(); // (may not outlive the workers that it refers to)
 		workerManager.cleanupWorkersAfterPhaseDone();
 
 		progArgs.resetBenchPath();

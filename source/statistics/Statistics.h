@@ -37,6 +37,7 @@ class Statistics
 			LiveLatency& outLiveLatency);
         void updateLiveStats(size_t elapsedMS, LiveWorkerStats& outTotal);
         bool isAggregated(size_t workerIdx) const;
+        bool isRampSettled() const;
         size_t countAggregatedWorkers() const;
 		void getLiveStatsAsPropertyTreeForService(bpt::ptree& outTree);
 		void getBenchResultAsPropertyTreeForService(bpt::ptree& outTree);
