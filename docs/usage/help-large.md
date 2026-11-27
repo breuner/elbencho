@@ -58,12 +58,12 @@ Examples:
   Test 4KiB block random read latency of device /dev/nvme0n1:
     $ elbencho -r -b 4K --lat --direct --rand /dev/nvme0n1
 
-  Stream data from large file into memory of first 2 GPUs via CUDA:
+  Stream data from large file into memory of first 2 GPUs:
     $ elbencho -r -b 1M -t 8 --gpuids 0,1 \
         /mnt/myfs/file1
 
-  Stream data from large file into memory of all GPUs via GPUDirect Storage:
-    $ elbencho -r -b 1M -t 8 --gpuids all --gds \
+  Stream data from large file into all GPUs via GPU-direct storage access:
+    $ elbencho -r -b 1M -t 8 --gpuids all --gpudirect \
         /mnt/myfs/file1
 
 </code></pre>

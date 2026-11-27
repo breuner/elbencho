@@ -1680,7 +1680,7 @@ void S3Mode::uploadObjectSinglePart(std::string bucketName, std::string objectNa
     if(blockSize)
     {
         worker.preWriteBlockModifier(ioBuf, gpuIOBuf, blockSize, currentOffset);
-        worker.preWriteCudaMemcpy(ioBuf, gpuIOBuf, blockSize);
+        worker.preWriteGpuMemcpy(ioBuf, gpuIOBuf, blockSize);
     }
 
     S3Transport::PutObjectRequest request;
@@ -1717,7 +1717,7 @@ void S3Mode::uploadObjectSinglePart(std::string bucketName, std::string objectNa
 
     if(blockSize)
     {
-        worker.postReadCudaMemcpy(ioBuf, gpuIOBuf, blockSize);
+        worker.postReadGpuMemcpy(ioBuf, gpuIOBuf, blockSize);
         worker.postReadBlockChecker(ioBuf, gpuIOBuf, blockSize, currentOffset);
     }
 
@@ -1818,7 +1818,7 @@ void S3Mode::uploadObjectMultiPart(std::string bucketName, std::string objectNam
 
         worker.preWriteBlockModifier(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize,
             currentOffset);
-        worker.preWriteCudaMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
+        worker.preWriteGpuMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
 
         // prepare part upload
 
@@ -1890,7 +1890,7 @@ void S3Mode::uploadObjectMultiPart(std::string bucketName, std::string objectNam
 
         completedMultipartUpload.AddParts(completedPart);
 
-        worker.postReadCudaMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
+        worker.postReadGpuMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
         worker.postReadBlockChecker(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize,
             currentOffset);
 
@@ -2058,7 +2058,7 @@ void S3Mode::uploadObjectMultiPartAsync(std::string bucketName, std::string obje
 
                 worker.preWriteBlockModifier(worker.ioBufVec[currentIODepth],
                     worker.gpuIOBufVec[currentIODepth], blockSize, currentOffset);
-                worker.preWriteCudaMemcpy(worker.ioBufVec[currentIODepth],
+                worker.preWriteGpuMemcpy(worker.ioBufVec[currentIODepth],
                     worker.gpuIOBufVec[currentIODepth], blockSize);
 
                 // prepare part upload
@@ -2150,7 +2150,7 @@ void S3Mode::uploadObjectMultiPartAsync(std::string bucketName, std::string obje
 
                 completedMultipartUpload.AddParts(asyncPartContext.completedPart);
 
-                worker.postReadCudaMemcpy(
+                worker.postReadGpuMemcpy(
                     worker.ioBufVec[currentIODepth], worker.gpuIOBufVec[currentIODepth],
                     asyncPartContext.blockSize);
                 worker.postReadBlockChecker(
@@ -2304,7 +2304,7 @@ void S3Mode::uploadObjectMultiPartShared(std::string bucketName, std::string obj
 
         worker.preWriteBlockModifier(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize,
             currentOffset);
-        worker.preWriteCudaMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
+        worker.preWriteGpuMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
 
         // prepare part upload
 
@@ -2370,7 +2370,7 @@ void S3Mode::uploadObjectMultiPartShared(std::string bucketName, std::string obj
         allCompletedParts = s3SharedUploadStore.addCompletedPart(
             bucketName, objectName, blockSize, objectTotalSize, completedPart);
 
-        worker.postReadCudaMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
+        worker.postReadGpuMemcpy(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize);
         worker.postReadBlockChecker(worker.ioBufVec[0], worker.gpuIOBufVec[0], blockSize,
             currentOffset);
 
@@ -2514,7 +2514,7 @@ void S3Mode::uploadObjectMultiPartSharedAsync(std::string bucketName,
 
                 worker.preWriteBlockModifier(worker.ioBufVec[currentIODepth],
                     worker.gpuIOBufVec[currentIODepth], blockSize, currentOffset);
-                worker.preWriteCudaMemcpy(worker.ioBufVec[currentIODepth],
+                worker.preWriteGpuMemcpy(worker.ioBufVec[currentIODepth],
                     worker.gpuIOBufVec[currentIODepth], blockSize);
 
                 // prepare part upload
@@ -2606,7 +2606,7 @@ void S3Mode::uploadObjectMultiPartSharedAsync(std::string bucketName,
                 allCompletedParts = s3SharedUploadStore.addCompletedPart(bucketName, objectName,
                     asyncPartContext.blockSize, objectTotalSize, asyncPartContext.completedPart);
 
-                worker.postReadCudaMemcpy(
+                worker.postReadGpuMemcpy(
                     worker.ioBufVec[currentIODepth], worker.gpuIOBufVec[currentIODepth],
                     asyncPartContext.blockSize);
                 worker.postReadBlockChecker(
@@ -2888,7 +2888,7 @@ void S3Mode::downloadObject(std::string bucketName, std::string objectName,
         std::chrono::steady_clock::time_point ioStartT = std::chrono::steady_clock::now();
 
         worker.preWriteBlockModifier(ioBuf, gpuIOBuf, blockSize, currentOffset);
-        worker.preWriteCudaMemcpy(ioBuf, gpuIOBuf, blockSize);
+        worker.preWriteGpuMemcpy(ioBuf, gpuIOBuf, blockSize);
 
         S3Transport::GetObjectRequest request;
         request.WithBucket(bucketName)
@@ -2931,7 +2931,7 @@ void S3Mode::downloadObject(std::string bucketName, std::string objectName,
                 "Received length: " + std::to_string(S3Transport::getBytesReceived(outcome) ) );
         }
 
-        worker.postReadCudaMemcpy(ioBuf, gpuIOBuf, blockSize);
+        worker.postReadGpuMemcpy(ioBuf, gpuIOBuf, blockSize);
         worker.postReadBlockChecker(ioBuf, gpuIOBuf, blockSize, currentOffset);
 
         // calc io operation latency
@@ -3013,7 +3013,7 @@ void S3Mode::downloadObjectAsync(std::string bucketName, std::string objectName,
                 asyncPartContext.ioStartT = std::chrono::steady_clock::now();
 
                 worker.preWriteBlockModifier(ioBuf, gpuIOBuf, blockSize, currentOffset);
-                worker.preWriteCudaMemcpy(ioBuf, gpuIOBuf, blockSize);
+                worker.preWriteGpuMemcpy(ioBuf, gpuIOBuf, blockSize);
 
                 S3Transport::GetObjectRequest& request = asyncPartContext.request;
                 request.WithBucket(bucketName)
@@ -3083,7 +3083,7 @@ void S3Mode::downloadObjectAsync(std::string bucketName, std::string objectName,
                 char* ioBuf = useS3FastRead ? NULL : worker.ioBufVec[currentIODepth];
                 char* gpuIOBuf = useS3FastRead ? NULL : worker.gpuIOBufVec[currentIODepth];
 
-                worker.postReadCudaMemcpy(ioBuf, gpuIOBuf, asyncPartContext.blockSize);
+                worker.postReadGpuMemcpy(ioBuf, gpuIOBuf, asyncPartContext.blockSize);
                 worker.postReadBlockChecker(ioBuf, gpuIOBuf, asyncPartContext.blockSize,
                     asyncPartContext.currentOffset);
 

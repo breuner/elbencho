@@ -34,7 +34,12 @@ always holds the transcripts of the most recent one.
 By default only the tests for backends that are always compiled in are run.
 Tests for optional backends are enabled explicitly (`-s` for S3, `-p` for SPDK,
 `-r` for the S3-over-RDMA plugins) and skip themselves if the given binary was
-built without the feature. The netbench tests are part of the default set.
+built without the feature. The netbench tests are part of the default set, and
+so is `tests_posix/gpu-filemode.t`, which writes and reads files through GPU
+memory (`--gpuids`, then `--gpudirect`) with data verification: it skips without
+a GPU build or a GPU (the first one that `nvidia-smi` or `amd-smi` lists, or
+`ELBENCHO_TEST_GPU_ID`), and its GPU-direct round skips without the file API in
+the build or without direct IO on the test file system.
 
 The S3 server used by the S3 tests is [libreFS](https://github.com/libreFS/libreFS),
 a community fork of the minio server, which was discontinued as open source. It

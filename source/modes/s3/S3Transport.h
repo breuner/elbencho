@@ -59,8 +59,8 @@ class S3DefaultTransport
          */
         static void checkArgs(const ProgArgs& progArgs)
         {
-            if(progArgs.getUseCuFile() && (progArgs.getBenchMode() == BenchMode_S3) )
-                throw ProgException("cuFile API cannot be used with S3");
+            if(progArgs.getUseGpuFileApi() && (progArgs.getBenchMode() == BenchMode_S3) )
+                throw ProgException("GPU-direct file API (cuFile/hipFile) cannot be used with S3");
         }
 
         PutObjectOutcome putObject(S3Client& client, PutObjectRequest& request, char* hostBuf,

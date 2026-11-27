@@ -31,9 +31,9 @@ All options in alphabetical order:
                           "fast" for high speed but weaker randomness; 
                           "balanced" for good balance of speed and randomness; 
                           "strong" for high CPU cost but strong randomness. 
-                          When GPUs are given then the CUDA default ("XORWOW") 
-                          random generator will be used and this value is 
-                          ignored. (Default: fast)
+                          When GPUs are given then the default random generator
+                          of the GPU vendor's library (curand/hipRAND) will be 
+                          used and this value is ignored. (Default: fast)
   --blockvarpct arg       Block variance percentage. Defines the percentage of 
                           each block that will be refilled with random data 
                           between writes. This can be used to defeat 
@@ -57,12 +57,10 @@ All options in alphabetical order:
                           "--livecsv" for progress results in csv format.) 
                           (Default: Store in "/var/tmp" under a subdir that 
                           contains the username.)
-  --cufile                Use cuFile API for reads/writes to/from GPU memory, 
-                          also known as GPUDirect Storage (GDS).
-  --cufiledriveropen      Explicitly initialize cuFile lib and open the 
-                          nvida-fs driver.
-  --cuhostbufreg          Pin host memory buffers and register with CUDA for 
-                          faster transfer to/from GPU.
+  --cufile                Alias for "--gpufile" (kept for compatibility).
+  --cufiledriveropen      Alias for "--gpufiledriveropen" (kept for 
+                          compatibility).
+  --cuhostbufreg          Alias for "--gpuhostbufreg" (kept for compatibility).
   -D [ --deldirs ]        Delete directories.
   -d [ --mkdirs ]         Create directories. (Already existing dirs are not 
                           treated as error.)
@@ -105,21 +103,33 @@ All options in alphabetical order:
   --foreground            When running as service, stay in foreground and 
                           connected to console instead of detaching from 
                           console and daemonizing into background.
-  --gds                   Use Nvidia GPUDirect Storage API. Enables "--direct",
-                          "--cufile", "--gdsbufreg".
-  --gdsbufreg             Register GPU buffers for GPUDirect Storage (GDS) when
-                          using cuFile API.
-  --gpuids arg            Comma-separated list of CUDA GPU IDs to use for 
-                          buffer allocation. If no other option for GPU buffers
-                          is given then read/write timings will include copy 
+  --gds                   Alias for "--gpudirect" (kept for compatibility).
+  --gdsbufreg             Alias for "--gpufilebufreg" (kept for compatibility).
+  --gpudirect             Use GPU-direct storage access, i.e. reads/writes 
+                          directly to/from GPU memory (GPUDirect Storage via 
+                          the cuFile API on Nvidia GPUs, the hipFile API on AMD
+                          GPUs). Enables "--direct", "--gpufile", 
+                          "--gpufilebufreg".
+  --gpufile               Use the GPU-direct file API (cuFile on Nvidia GPUs, 
+                          hipFile on AMD GPUs) for reads/writes directly 
+                          to/from GPU memory.
+  --gpufilebufreg         Register GPU buffers for DMA when using the 
+                          GPU-direct file API.
+  --gpufiledriveropen     Explicitly initialize the GPU-direct file API library
+                          and open its driver.
+  --gpuhostbufreg         Pin host memory buffers and register them with the 
+                          GPU runtime for faster transfers to/from GPU memory.
+  --gpuids arg            Comma-separated list of GPU IDs to use for buffer 
+                          allocation. If no other option for GPU buffers is 
+                          given then read/write timings will include copy 
                           to/from GPU buffers. GPU IDs will be assigned round 
                           robin to different threads. When this is given in 
                           service mode then the given list will override any 
                           list given by the master, which can be used to bind 
                           specific service instances to specific GPUs. The 
                           special value "all" is short for the list of all 
-                          available GPUs. (Hint: CUDA GPU IDs are 0-based; see 
-                          'nvidia-smi' for available GPU IDs.)
+                          available GPUs. (Hint: GPU IDs are 0-based; see 
+                          'nvidia-smi' or 'rocm-smi' for available GPU IDs.)
   --gpuperservice         Assign GPUs round robin to service instances (i.e. 
                           one GPU per service) instead of default round robin 
                           to threads (i.e. multiple GPUs per service, if 

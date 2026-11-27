@@ -11,6 +11,15 @@
 	#include <cufile.h>
 #endif
 
+#ifdef HIP_SUPPORT
+    #include <hip/hip_runtime_api.h>
+    #include <hiprand/hiprand.h>
+#endif
+
+#ifdef HIPFILE_SUPPORT
+    #include <hipfile.h>
+#endif
+
 /**
  * Minimal program to be built as part of auto detection of available system libs etc.
  */

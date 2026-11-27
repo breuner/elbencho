@@ -25,6 +25,8 @@
 #include "plugins/PluginRegistry.h"
 #include "ProgException.h"
 #include "toolkits/FileTk.h"
+#include "toolkits/gpu/GpuFileTk.h"
+#include "toolkits/gpu/GpuTk.h"
 #include "toolkits/HashTk.h"
 #include "toolkits/NumaTk.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
@@ -37,14 +39,6 @@
 #include "toolkits/UnitTk.h"
 #include "toolkits/winio/WinIOTk.h"
 #include "workers/LocalWorker.h"
-
-#ifdef CUDA_SUPPORT
-    #include <cuda_runtime.h>
-#endif
-
-#ifdef CUFILE_SUPPORT
-	#include <cufile.h>
-#endif
 
 #define DIRECTIO_MINSIZE            512 // min size in bytes for direct IO
 
@@ -187,17 +181,17 @@ ProgArgs::~ProgArgs()
 	for(int fd : benchPathFDsVec)
 		close(fd);
 
-	// note: dereg won't hurt if never reg'ed, because CuFileHandleData can handle that case.
-	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
-			cuFileHandleData.deregisterHandle();
+	// note: dereg won't hurt if never reg'ed, because GpuFileHandleData can handle that case.
+	for(GpuFileHandleData& gpuFileHandleData : gpuFileHandleDataVec)
+			gpuFileHandleData.deregisterHandle();
 
 	for(char* mmapPtr : mmapVec)
         munmap(mmapPtr, getFileEndOffset() );
 
-#ifdef CUFILE_SUPPORT
-	if(isCuFileDriverOpen)
-		cuFileDriverClose();
-#endif
+    if(isGpuFileDriverOpen)
+    {
+        GpuFileTk::driverClose();
+    }
 
 	if(stdoutDupFD != -1)
 	    close(stdoutDupFD);
@@ -258,8 +252,8 @@ void ProgArgs::defineAllowedArgs()
 			RANDALGO_FAST_STR "\" for high speed but weaker randomness; \""
 			RANDALGO_BALANCED_SIMD_STR "\" for good balance of speed and randomness; \""
 			RANDALGO_STRONG_STR "\" for high CPU cost but strong randomness. "
-			"When GPUs are given then the CUDA default (\"XORWOW\") random generator will be "
-			"used and this value is ignored. "
+			"When GPUs are given then the default random generator of the GPU vendor's library "
+			"(curand/hipRAND) will be used and this value is ignored. "
 			"(Default: " RANDALGO_FAST_STR ")")
 /*bl*/	(ARG_BLOCKVARIANCE_LONG, bpo::value(&this->blockVariancePercent),
 			"Block variance percentage. Defines the percentage of each block that will be refilled "
@@ -285,15 +279,14 @@ void ProgArgs::defineAllowedArgs()
             "(Default: Store in \"/var/tmp\" under a subdir that contains the "
             "username.)")
 #ifdef CUFILE_SUPPORT
-/*cu*/	(ARG_CUFILE_LONG, bpo::bool_switch(&this->useCuFile),
-			"Use cuFile API for reads/writes to/from GPU memory, also known as GPUDirect Storage "
-			"(GDS).")
-/*cu*/	(ARG_CUFILEDRIVEROPEN_LONG, bpo::bool_switch(&this->useCuFileDriverOpen),
-			"Explicitly initialize cuFile lib and open the nvida-fs driver.")
+/*cu*/  (ARG_CUFILE_LONG,
+            "Alias for \"--" ARG_GPUFILE_LONG "\" (kept for compatibility).")
+/*cu*/  (ARG_CUFILEDRIVEROPEN_LONG,
+            "Alias for \"--" ARG_GPUFILEDRIVEROPEN_LONG "\" (kept for compatibility).")
 #endif
 #ifdef CUDA_SUPPORT
-/*cu*/	(ARG_CUHOSTBUFREG_LONG, bpo::bool_switch(&this->useCuHostBufReg),
-			"Pin host memory buffers and register with CUDA for faster transfer to/from GPU.")
+/*cu*/  (ARG_CUHOSTBUFREG_LONG,
+            "Alias for \"--" ARG_GPUHOSTBUFREG_LONG "\" (kept for compatibility).")
 #endif
 /*D*/	(ARG_DELETEDIRS_LONG "," ARG_DELETEDIRS_SHORT, bpo::bool_switch(&this->runDeleteDirsPhase),
 			"Delete directories.")
@@ -337,21 +330,37 @@ void ProgArgs::defineAllowedArgs()
 			"When running as service, stay in foreground and connected to console instead of "
 			"detaching from console and daemonizing into background.")
 #ifdef CUFILE_SUPPORT
-/*gd*/	(ARG_GPUDIRECTSSTORAGE_LONG,
-			"Use Nvidia GPUDirect Storage API. Enables \"--" ARG_DIRECTIO_LONG "\", \"--"
-			ARG_CUFILE_LONG "\", \"--" ARG_GDSBUFREG_LONG "\".")
-/*gd*/	(ARG_GDSBUFREG_LONG, bpo::bool_switch(&this->useGDSBufReg),
-			"Register GPU buffers for GPUDirect Storage (GDS) when using cuFile API.")
+/*gd*/  (ARG_GPUDIRECTSSTORAGE_LONG,
+            "Alias for \"--" ARG_GPUDIRECT_LONG "\" (kept for compatibility).")
+/*gd*/  (ARG_GDSBUFREG_LONG,
+            "Alias for \"--" ARG_GPUFILEBUFREG_LONG "\" (kept for compatibility).")
 #endif
-#ifdef CUDA_SUPPORT
+#ifdef GPUFILE_SUPPORT
+/*gp*/  (ARG_GPUDIRECT_LONG,
+            "Use GPU-direct storage access, i.e. reads/writes directly to/from GPU memory "
+            "(GPUDirect Storage via the cuFile API on Nvidia GPUs, the hipFile API on AMD GPUs). "
+            "Enables \"--" ARG_DIRECTIO_LONG "\", \"--" ARG_GPUFILE_LONG "\", \"--"
+            ARG_GPUFILEBUFREG_LONG "\".")
+/*gp*/  (ARG_GPUFILE_LONG, bpo::bool_switch(&this->useGpuFileApi),
+            "Use the GPU-direct file API (cuFile on Nvidia GPUs, hipFile on AMD GPUs) for "
+            "reads/writes directly to/from GPU memory.")
+/*gp*/  (ARG_GPUFILEBUFREG_LONG, bpo::bool_switch(&this->useGpuFileBufReg),
+            "Register GPU buffers for DMA when using the GPU-direct file API.")
+/*gp*/  (ARG_GPUFILEDRIVEROPEN_LONG, bpo::bool_switch(&this->useGpuFileDriverOpen),
+            "Explicitly initialize the GPU-direct file API library and open its driver.")
+#endif
+#ifdef GPU_SUPPORT
+/*gp*/  (ARG_GPUHOSTBUFREG_LONG, bpo::bool_switch(&this->useGpuHostBufReg),
+            "Pin host memory buffers and register them with the GPU runtime for faster transfers "
+            "to/from GPU memory.")
 /*gp*/	(ARG_GPUIDS_LONG, bpo::value(&this->gpuIDsStr),
-			"Comma-separated list of CUDA GPU IDs to use for buffer allocation. If no other "
+			"Comma-separated list of GPU IDs to use for buffer allocation. If no other "
 			"option for GPU buffers is given then read/write timings will include copy "
 			"to/from GPU buffers. GPU IDs will be assigned round robin to different threads. "
 			"When this is given in service mode then the given list will override any list given "
 			"by the master, which can be used to bind specific service instances to specific GPUs. "
 			"The special value \"" GPUIDS_ALL_ARG "\" is short for the list of all available GPUs. "
-			"(Hint: CUDA GPU IDs are 0-based; see 'nvidia-smi' for available GPU IDs.)")
+			"(Hint: GPU IDs are 0-based; see 'nvidia-smi' or 'rocm-smi' for available GPU IDs.)")
 /*gp*/	(ARG_GPUPERSERVICE_LONG, bpo::bool_switch(&this->assignGPUPerService),
 			"Assign GPUs round robin to service instances (i.e. one GPU per service) instead of "
 			"default round robin to threads (i.e. multiple GPUs per service, if multiple given).")
@@ -851,13 +860,13 @@ void ProgArgs::defineDefaults()
     this->useBriefLiveStatsNewLine = false;
     this->useCustomTreeRandomize = false;
     this->useCustomTreeRoundRobin = false;
-    this->useCuFile = false;
-    this->useCuFileDriverOpen = false;
-    this->useCuHostBufReg = false;
+    this->useGpuFileApi = false;
+    this->useGpuFileDriverOpen = false;
+    this->useGpuHostBufReg = false;
     this->useDirectIO = false;
     this->useExtendedLiveCSV = false;
     this->useExtendedLiveJSON = false;
-    this->useGDSBufReg = false;
+    this->useGpuFileBufReg = false;
     this->useHDFS = false;
     this->useMmap = false;
     this->useNoFDSharing = false;
@@ -1052,12 +1061,23 @@ void ProgArgs::initImplicitValues()
 
 	numRWMixReadThreads = std::min(numRWMixReadThreads, numThreads);
 
-	if(argsVariablesMap.count(ARG_GPUDIRECTSSTORAGE_LONG) )
-	{
-		useDirectIO = true;
-		useCuFile = true;
-		useGDSBufReg = true;
-	}
+    // compatibility aliases of the GPU options (only defined in CUDA builds)
+    if(argsVariablesMap.count(ARG_CUFILE_LONG) )
+        useGpuFileApi = true;
+    if(argsVariablesMap.count(ARG_CUFILEDRIVEROPEN_LONG) )
+        useGpuFileDriverOpen = true;
+    if(argsVariablesMap.count(ARG_CUHOSTBUFREG_LONG) )
+        useGpuHostBufReg = true;
+    if(argsVariablesMap.count(ARG_GDSBUFREG_LONG) )
+        useGpuFileBufReg = true;
+
+    if(argsVariablesMap.count(ARG_GPUDIRECT_LONG) ||
+        argsVariablesMap.count(ARG_GPUDIRECTSSTORAGE_LONG) )
+    {
+        useDirectIO = true;
+        useGpuFileApi = true;
+        useGpuFileBufReg = true;
+    }
 
 	if(useBriefLiveStatsNewLine)
 		useBriefLiveStats = true;
@@ -1297,13 +1317,13 @@ void ProgArgs::checkArgs()
 
     s3Args.precreateMpuSharingUploadIDs(*this); // requires customTree to be initialized
 
-	if(useCuFile && (ioDepth > 1) && (benchMode != BenchMode_S3) )
-		throw ProgException("cuFile API does not support \"IO depth > 1\"");
+	if(useGpuFileApi && (ioDepth > 1) && (benchMode != BenchMode_S3) )
+		throw ProgException("GPU-direct file API (cuFile/hipFile) does not support \"IO depth > 1\"");
 
-	if(useCuFile && !useDirectIO)
+	if(useGpuFileApi && !useDirectIO)
 	{
 		LOGGER(Log_NORMAL,
-			"NOTE: cuFile API requires direct IO. "
+			"NOTE: GPU-direct file API requires direct IO. "
 			"Enabling \"--" ARG_DIRECTIO_LONG "\"." << std::endl);
 
 		useDirectIO = true;
@@ -1368,7 +1388,7 @@ void ProgArgs::checkArgs()
         throw ProgException("Option \"--" ARG_RWMIXTHREADSPCT_LONG "\" cannot be used together with "
             "\"--" ARG_LIMITREAD_LONG "\" or \"--" ARG_LIMITWRITE_LONG "\"");
 
-    if(rwMixReadPercent && !gpuIDsVec.empty() && !useCuFile)
+    if(rwMixReadPercent && !gpuIDsVec.empty() && !useGpuFileApi)
         throw ProgException("Option \"--" ARG_RWMIXPERCENT_LONG "\" cannot be used together with "
             "GPU memory copy");
 
@@ -1740,7 +1760,7 @@ void ProgArgs::prepareJournals()
  *
  * benchPathStr will contain absolute paths afterwards.
  *
- * This also includes initialization of benchPathsVec and cuFileHandleDataVec.
+ * This also includes initialization of benchPathsVec and gpuFileHandleDataVec.
  *
  * @throw ProgException if a problem is found, e.g. path not existing.
  */
@@ -1828,7 +1848,7 @@ void ProgArgs::parseAndCheckPaths()
     // if we get here then we have a posix file system as bench path (posix or mpiio mode)
 
     prepareBenchPathFDsVec();
-    prepareCuFileHandleDataVec();
+    prepareGpuFileHandleDataVec();
     prepareMmapVec();
 }
 
@@ -1963,24 +1983,24 @@ void ProgArgs::prepareBenchPathFDsVec()
 }
 
 /**
- * In file or blockdev mode, fill cuFileHandleDataVec with registered file descriptors from
- * benchPathFDsVec. This is required for use of cuFile API.
+ * In file or blockdev mode, fill gpuFileHandleDataVec with registered file descriptors from
+ * benchPathFDsVec. This is required for use of the GPU-direct file API.
  *
  * Deregistration usually happens in ProgArgs destructor or resetBenchPath(), but this method
- * also includes deregistration of any previously set FDs in cuFileHandleDataVec.
+ * also includes deregistration of any previously set FDs in gpuFileHandleDataVec.
  *
- * cuFileHandleDataVec will be initialized (with unregistered handles) even if cuFile API is not
+ * gpuFileHandleDataVec will be initialized (with unregistered handles) even if GPU-direct file API is not
  * selected to make things easier for localworkers.
  *
  * @throw ProgException on error, e.g. registration failed.
  */
-void ProgArgs::prepareCuFileHandleDataVec()
+void ProgArgs::prepareGpuFileHandleDataVec()
 {
 	// cleanup old registrations before vec reuse in service mode
-	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
-		cuFileHandleData.deregisterHandle();
+	for(GpuFileHandleData& gpuFileHandleData : gpuFileHandleDataVec)
+		gpuFileHandleData.deregisterHandle();
 
-	cuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
+	gpuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
 
 	if(benchPathType == BenchPathType_DIR)
 		return; // nothing to do in dir mode, because localworkers will do registration then
@@ -1988,15 +2008,15 @@ void ProgArgs::prepareCuFileHandleDataVec()
 	for(int fd : benchPathFDsVec)
 	{
 		// add new element to vec and reference it
-		cuFileHandleDataVec.resize(cuFileHandleDataVec.size() + 1);
-		CuFileHandleData& cuFileHandleData = cuFileHandleDataVec[cuFileHandleDataVec.size() - 1];
+		gpuFileHandleDataVec.resize(gpuFileHandleDataVec.size() + 1);
+		GpuFileHandleData& gpuFileHandleData = gpuFileHandleDataVec[gpuFileHandleDataVec.size() - 1];
 
-		if(!useCuFile)
-			continue; // no registration to be done if cuFile API is not used
+		if(!useGpuFileApi)
+			continue; // no registration to be done if GPU-direct file API is not used
 
-		// note: cleanup won't be a prob if reg not done, as CuFileHandleData can handle that case
+		// note: cleanup won't be a prob if reg not done, as GpuFileHandleData can handle that case
 
-		cuFileHandleData.registerHandle<ProgException>(fd);
+		gpuFileHandleData.registerHandle<ProgException>(fd);
 	}
 }
 
@@ -2188,8 +2208,8 @@ void ProgArgs::prepareSpdk()
        we specifically need to prevent anything that uses posix FDs in LocalWorker, because
        LocalWorker copyies namespace IDs to FD vector to use generic blockdev functions for SPDK. */
 
-    if(useCuFile)
-        throw ProgException("cufile/gds not supported in SPDK mode");
+    if(useGpuFileApi)
+        throw ProgException("GPU-direct file API (cuFile/hipFile) not supported in SPDK mode");
 
     if(useMmap)
         throw ProgException("mmap not supported in SPDK mode");
@@ -2662,30 +2682,24 @@ void ProgArgs::parseCPUCores()
  */
 void ProgArgs::parseGPUIDs()
 {
-	if(useCuFile && gpuIDsStr.empty() )
-		throw ProgException("cuFile API requested, but no GPU specified.");
+	if(useGpuFileApi && gpuIDsStr.empty() )
+		throw ProgException("GPU-direct file API requested, but no GPU specified.");
 
 	if(gpuIDsStr.empty() )
 		return; // nothing to do
 
-	#ifndef CUDA_SUPPORT
-		throw ProgException("GPU IDs defined, but built without CUDA support.");
-	#else
-		if(gpuIDsStr == GPUIDS_ALL_ARG)
-		{
-			gpuIDsStr = "";
-			int numCudaDevs;
+    #ifndef GPU_SUPPORT
+        throw ProgException("GPU IDs defined, but built without GPU support (CUDA/HIP).");
+    #else
+        if(gpuIDsStr == GPUIDS_ALL_ARG)
+        {
+            gpuIDsStr = "";
+            int numGPUs = GpuTk::getDeviceCount<ProgException>();
 
-			cudaError_t getDevsRes = cudaGetDeviceCount(&numCudaDevs);
-
-			if(getDevsRes != cudaSuccess)
-				throw ProgException(std::string("Getting CUDA device count failed. ") +
-					"CUDA Error: " + cudaGetErrorString(getDevsRes) );
-
-			for(int i=0; i < numCudaDevs; i++)
-				gpuIDsStr += ( (i > 0) ? "," + std::to_string(i) : std::to_string(i) );
-		}
-	#endif // CUDA_SUPPORT
+            for(int i=0; i < numGPUs; i++)
+                gpuIDsStr += ( (i > 0) ? "," + std::to_string(i) : std::to_string(i) );
+        }
+    #endif // GPU_SUPPORT
 
 	LOGGER(Log_DEBUG, __func__ << ": "
 		"raw gpuIDsStr: " + gpuIDsStr << std::endl);
@@ -2706,22 +2720,16 @@ void ProgArgs::parseGPUIDs()
 	for(std::string& gpuIDStr : gpuIDsStrVec)
 		gpuIDsVec.push_back(std::stoi(gpuIDStr) );
 
-	#ifndef CUFILE_SUPPORT
-		if(useCuFile)
-			throw ProgException("cuFile API requested, but this executable was not built with "
-				"cuFile support.");
-	#else
-		if(useCuFile && useCuFileDriverOpen)
-		{
-			CUfileError_t driverOpenRes = cuFileDriverOpen();
-
-			if(driverOpenRes.err != CU_FILE_SUCCESS)
-				throw ProgException(std::string("cuFileDriverOpen failed. cuFile Error: ") +
-					CUFILE_ERRSTR(driverOpenRes.err) );
-
-			isCuFileDriverOpen = true;
-		}
-	#endif // CUFILE_SUPPORT
+    #ifndef GPUFILE_SUPPORT
+        if(useGpuFileApi)
+            throw ProgException(GPUFILE_NOT_BUILT_MSG);
+    #else
+        if(useGpuFileApi && useGpuFileDriverOpen)
+        {
+            GpuFileTk::driverOpen<ProgException>();
+            isGpuFileDriverOpen = true;
+        }
+    #endif // GPUFILE_SUPPORT
 
 	LOGGER(Log_DEBUG, __func__ << ": "
 		"gpu vec: " << TranslatorTk::intVecToHumanStr(gpuIDsVec) << std::endl);
@@ -3239,16 +3247,16 @@ void ProgArgs::printHelpBlockDev()
 		std::endl <<
 		"  Test 4KiB block random read latency of device /dev/nvme0n1:" ENDL
 		"    $ " EXE_NAME " -r -b 4K --lat --direct --rand /dev/nvme0n1" ENDL
-#ifdef CUDA_SUPPORT
+#ifdef GPU_SUPPORT
 		std::endl <<
-		"  Stream data from large file into memory of first 2 GPUs via CUDA:" ENDL
+		"  Stream data from large file into memory of first 2 GPUs:" ENDL
 		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids 0,1 \\" ENDL
 		"        /mnt/myfs/file1" ENDL
 #endif
-#ifdef CUFILE_SUPPORT
+#ifdef GPUFILE_SUPPORT
 		std::endl <<
-		"  Stream data from large file into memory of all GPUs via GPUDirect Storage:" ENDL
-		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids all --gds \\" ENDL
+		"  Stream data from large file into all GPUs via GPU-direct storage access:" ENDL
+		"    $ " EXE_NAME " -r -b 1M -t 8 --gpuids all --gpudirect \\" ENDL
 		"        /mnt/myfs/file1" ENDL
 #endif
 		std::endl;
@@ -3348,17 +3356,17 @@ void ProgArgs::printHelpMultiFile()
 		std::endl <<
 		"  Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks:" ENDL
 		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k /data/testdir" ENDL
-#ifdef CUDA_SUPPORT
+#ifdef GPU_SUPPORT
 		std::endl <<
-		"  As above, but also copy data into memory of first 2 GPUs via CUDA:" ENDL
+		"  As above, but also copy data into memory of first 2 GPUs:" ENDL
 		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k \\" ENDL
 		"        --gpuids 0,1 /data/testdir" ENDL
 #endif
-#ifdef CUFILE_SUPPORT
+#ifdef GPUFILE_SUPPORT
 		std::endl <<
-		"  As above, but read data into memory of first 2 GPUs via GPUDirect Storage:" ENDL
+		"  As above, but read data into first 2 GPUs via GPU-direct storage access:" ENDL
 		"    $ " EXE_NAME " -r -t 2 -n 3 -N 4 -s 1m -b 128k \\" ENDL
-		"        --gpuids 0,1 --gds /data/testdir" ENDL
+		"        --gpuids 0,1 --gpudirect /data/testdir" ENDL
 #endif
 		std::endl <<
 		"  Delete files and directories created by example above:" ENDL
@@ -3542,6 +3550,18 @@ void ProgArgs::printVersionAndBuildInfo()
 	notIncludedStream << "hdfs ";
 #endif
 
+#ifdef HIP_SUPPORT
+    includedStream << "hip ";
+#else
+    notIncludedStream << "hip ";
+#endif
+
+#ifdef HIPFILE_SUPPORT
+    includedStream << "hipfile ";
+#else
+    notIncludedStream << "hipfile ";
+#endif
+
 #ifdef LIBAIO_SUPPORT
 	includedStream << "libaio ";
 #else
@@ -3663,13 +3683,13 @@ void ProgArgs::setFromPropertyTreeForService(bpt::ptree& tree)
     showThroughputBase10 = tree.get<bool>(ARG_THROUGHPUTBASE10_LONG);
     spdkConfJSON = tree.get<std::string>(ARG_SPDKCONFJSON_LONG);
 	treeRoundUpSize = tree.get<uint64_t>(ARG_TREEROUNDUP_LONG);
-	useCuFile = tree.get<bool>(ARG_CUFILE_LONG);
-	useCuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
-	useCuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
+	useGpuFileApi = tree.get<bool>(ARG_CUFILE_LONG);
+	useGpuFileDriverOpen = tree.get<bool>(ARG_CUFILEDRIVEROPEN_LONG);
+	useGpuHostBufReg = tree.get<bool>(ARG_CUHOSTBUFREG_LONG);
 	useCustomTreeRandomize = tree.get<bool>(ARG_TREERANDOMIZE_LONG);
     useCustomTreeRoundRobin = tree.get<bool>(ARG_TREEROUNDROBIN_LONG);
 	useDirectIO = tree.get<bool>(ARG_DIRECTIO_LONG);
-	useGDSBufReg = tree.get<bool>(ARG_GDSBUFREG_LONG);
+	useGpuFileBufReg = tree.get<bool>(ARG_GDSBUFREG_LONG);
 	useHDFS = tree.get<bool>(ARG_HDFS_LONG);
 	useMmap = tree.get<bool>(ARG_MMAP_LONG);
 	useNoFDSharing = tree.get<bool>(ARG_NOFDSHARING_LONG);
@@ -3757,9 +3777,9 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_BENCHPATHS_LONG, benchPathStr);
 	outTree.put(ARG_CREATEDIRS_LONG, runCreateDirsPhase);
 	outTree.put(ARG_CREATEFILES_LONG, runCreateFilesPhase);
-	outTree.put(ARG_CUFILE_LONG, useCuFile);
-	outTree.put(ARG_CUFILEDRIVEROPEN_LONG, useCuFileDriverOpen);
-	outTree.put(ARG_CUHOSTBUFREG_LONG, useCuHostBufReg);
+	outTree.put(ARG_CUFILE_LONG, useGpuFileApi);
+	outTree.put(ARG_CUFILEDRIVEROPEN_LONG, useGpuFileDriverOpen);
+	outTree.put(ARG_CUHOSTBUFREG_LONG, useGpuHostBufReg);
 	outTree.put(ARG_DELETEDIRS_LONG, runDeleteDirsPhase);
 	outTree.put(ARG_DELETEFILES_LONG, runDeleteFilesPhase);
 	outTree.put(ARG_DIRSHARING_LONG, doDirSharing);
@@ -3770,7 +3790,7 @@ void ProgArgs::getAsPropertyTreeForService(bpt::ptree& outTree, size_t serviceRa
 	outTree.put(ARG_FILESHARESIZE_LONG, fileShareSize);
 	outTree.put(ARG_FILESIZE_LONG, fileSize);
 	outTree.put(ARG_FLOCK_LONG, flockType);
-	outTree.put(ARG_GDSBUFREG_LONG, useGDSBufReg);
+	outTree.put(ARG_GDSBUFREG_LONG, useGpuFileBufReg);
 	outTree.put(ARG_HDFS_LONG, useHDFS);
 	outTree.put(ARG_IGNORE0USECERR_LONG, ignore0USecErrors);
 	outTree.put(ARG_IGNOREDELERR_LONG, ignoreDelErrors);
@@ -3905,7 +3925,7 @@ void ProgArgs::getAsStringVec(StringVec& outLabelsVec, StringVec& outValuesVec) 
 }
 
 /**
- * Reset benchmark path, close associated file descriptors (incl. cuFile driver) and free/reset
+ * Reset benchmark path, close associated file descriptors (incl. GPU-direct file API driver) and free/reset
  * any other resources that are associated with the previous benchmark phase. Intended to be used
  * in service mode to not waste/block resources while idle, but also for local standalone mode e.g.
  * to cleanup singleton S3 client before global S3 uninit.
@@ -3939,11 +3959,11 @@ void ProgArgs::resetBenchPath()
 
 	mmapVec.resize(0);
 
-	// dereg prev registered handles. (CuFileHandleData can handle the case of entries not reg'ed.)
-	for(CuFileHandleData& cuFileHandleData : cuFileHandleDataVec)
-			cuFileHandleData.deregisterHandle();
+	// dereg prev registered handles. (GpuFileHandleData can handle the case of entries not reg'ed.)
+	for(GpuFileHandleData& gpuFileHandleData : gpuFileHandleDataVec)
+			gpuFileHandleData.deregisterHandle();
 
-	cuFileHandleDataVec.resize(0); // reset before reuse in service mode
+	gpuFileHandleDataVec.resize(0); // reset before reuse in service mode
 	gpuIDsVec.resize(0); // reset before reuse in service mode
 	gpuIDsStr = ""; // reset before reuse in service mode
 
@@ -3966,12 +3986,10 @@ void ProgArgs::resetBenchPath()
 
     LocalWorker::resetSingletons();
 
-#ifdef CUFILE_SUPPORT
-	if(isCuFileDriverOpen)
-		cuFileDriverClose();
+    if(isGpuFileDriverOpen)
+        GpuFileTk::driverClose();
 
-	isCuFileDriverOpen = false;
-#endif // CUFILE_SUPPORT
+    isGpuFileDriverOpen = false;
 }
 
 /**

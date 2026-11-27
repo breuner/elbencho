@@ -15,6 +15,8 @@
 #include "PathStore.h"
 #include "toolkits/BlockRangeTk.h"
 #include "toolkits/FileTk.h"
+#include "toolkits/gpu/GpuFileTk.h"
+#include "toolkits/gpu/GpuTk.h"
 #include "toolkits/spdk/SpdkNvmeClient.h"
 #include "toolkits/random/RandAlgoSelectorTk.h"
 #include "toolkits/StringTk.h"
@@ -22,10 +24,6 @@
 #include "WorkerException.h"
 #include "WorkersSharedData.h"
 #include "workers/Worker.h"
-
-#ifdef CUDA_SUPPORT
-    #include <cuda_runtime.h>
-#endif
 
 #define MKDIR_MODE						0777
 #define AIO_MAX_WAIT_SEC				5
@@ -38,7 +36,7 @@ LocalWorker::LocalWorker(WorkersSharedData* workersSharedData, size_t workerRank
 	nullifyPhaseFunctionPointers();
 
 	fileHandles.fdVec.resize(1);
-	fileHandles.cuFileHandleDataVec.resize(1);
+	fileHandles.gpuFileHandleDataVec.resize(1);
 }
 
 LocalWorker::~LocalWorker()
@@ -308,7 +306,7 @@ void LocalWorker::preparePhase()
     opsLog.openLogFile();
 
     initThreadFDVec();
-    initThreadCuFileHandleDataVec();
+    initThreadGpuFileHandleDataVec();
     initThreadMmapVec();
 
     allocIOBuffer();
@@ -605,38 +603,38 @@ void LocalWorker::uninitThreadFDVec()
 }
 
 /**
- * Similar to threadFDVec, here we init thread-local cuFile handles for progArgs::useNoFDSharing.
+ * Similar to threadFDVec, here we init thread-local GPU-direct file handles for progArgs::useNoFDSharing.
  *
- * @throw WorkerException if cuFile handle registration fails.
+ * @throw WorkerException if GPU-direct file handle registration fails.
  */
-void LocalWorker::initThreadCuFileHandleDataVec()
+void LocalWorker::initThreadGpuFileHandleDataVec()
 {
 	for(int fd : fileHandles.threadFDVec)
 	{
 		// add new element to vec and reference it
-		fileHandles.threadCuFileHandleDataVec.resize(
-			fileHandles.threadCuFileHandleDataVec.size() + 1);
-		CuFileHandleData& cuFileHandleData =
-			fileHandles.threadCuFileHandleDataVec[fileHandles.threadCuFileHandleDataVec.size() - 1];
+		fileHandles.threadGpuFileHandleDataVec.resize(
+			fileHandles.threadGpuFileHandleDataVec.size() + 1);
+		GpuFileHandleData& gpuFileHandleData =
+			fileHandles.threadGpuFileHandleDataVec[fileHandles.threadGpuFileHandleDataVec.size() - 1];
 
-		if(!progArgs->getUseCuFile() )
-			continue; // no registration to be done if cuFile API is not used
+		if(!progArgs->getUseGpuFileApi() )
+			continue; // no registration to be done if GPU-direct file API is not used
 
-		// note: cleanup won't be a prob if reg not done, as CuFileHandleData can handle that case
+		// note: cleanup won't be a prob if reg not done, as GpuFileHandleData can handle that case
 
-		cuFileHandleData.registerHandle<WorkerException>(fd);
+		gpuFileHandleData.registerHandle<WorkerException>(fd);
 	}
 }
 
 /**
- * Deregsiter threadCuFileHandleVec entries.
+ * Deregsiter threadGpuFileHandleDataVec entries.
  */
-void LocalWorker::uninitThreadCuFileHandleDataVec()
+void LocalWorker::uninitThreadGpuFileHandleDataVec()
 {
-	for(CuFileHandleData& cuFileHandleData : fileHandles.threadCuFileHandleDataVec)
-		cuFileHandleData.deregisterHandle();
+	for(GpuFileHandleData& gpuFileHandleData : fileHandles.threadGpuFileHandleDataVec)
+		gpuFileHandleData.deregisterHandle();
 
-	fileHandles.threadCuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
+	fileHandles.threadGpuFileHandleDataVec.resize(0); // reset vec before reuse in service mode
 }
 
 /**
@@ -723,8 +721,8 @@ void LocalWorker::initPhaseFileHandleVecs()
     // reset/clear all vecs
     fileHandles.fdVec.resize(0);
     fileHandles.fdVecPtr = NULL;
-    fileHandles.cuFileHandleDataVec.resize(0);
-    fileHandles.cuFileHandleDataPtrVec.resize(0);
+    fileHandles.gpuFileHandleDataVec.resize(0);
+    fileHandles.gpuFileHandleDataPtrVec.resize(0);
     fileHandles.journalPtrVec.resize(0);
 
     winIO.initPhaseHandleVecs();
@@ -740,11 +738,11 @@ void LocalWorker::initPhaseFileHandleVecs()
 
         fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-        // fileHandles.cuFileHandleDataVec[0] will be used for current file
+        // fileHandles.gpuFileHandleDataVec[0] will be used for current file
 
-        fileHandles.cuFileHandleDataVec.resize(1);
+        fileHandles.gpuFileHandleDataVec.resize(1);
 
-        fileHandles.cuFileHandleDataPtrVec.push_back(&fileHandles.cuFileHandleDataVec[0] );
+        fileHandles.gpuFileHandleDataPtrVec.push_back(&fileHandles.gpuFileHandleDataVec[0] );
 
         fileHandles.mmapVec.resize(1, (char*)MAP_FAILED);
     }
@@ -760,7 +758,7 @@ void LocalWorker::initPhaseFileHandleVecs()
 
         fileHandles.fdVecPtr = &fileHandles.fdVec;
 
-        fileHandles.cuFileHandleDataPtrVec.resize(1); // set dynamically to current file
+        fileHandles.gpuFileHandleDataPtrVec.resize(1); // set dynamically to current file
 
         if(journalEnabled)
             fileHandles.journalPtrVec.resize(1, nullptr); // set dynamically to current file
@@ -781,11 +779,11 @@ void LocalWorker::initPhaseFileHandleVecs()
         else
             fileHandles.fdVecPtr = &fileHandles.threadFDVec;
 
-        CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
-            progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
+        GpuFileHandleDataVec& gpuFileHandleDataVec = fileHandles.threadGpuFileHandleDataVec.empty() ?
+            progArgs->getGpuFileHandleDataVec() : fileHandles.threadGpuFileHandleDataVec;
 
-        for(size_t i=0; i < cuFileHandleDataVec.size(); i++)
-            fileHandles.cuFileHandleDataPtrVec.push_back(&(cuFileHandleDataVec[i]) );
+        for(size_t i=0; i < gpuFileHandleDataVec.size(); i++)
+            fileHandles.gpuFileHandleDataPtrVec.push_back(&(gpuFileHandleDataVec[i]) );
 
         /* journals are indexed like progArgs' bench paths, which is also the order of all the
             possible fdVecPtr targets, so journalPtrVec can be indexed like fdVecPtr */
@@ -863,13 +861,13 @@ void LocalWorker::nullifyPhaseFunctionPointers()
 	funcPositionalWrite = NULL;
 	funcPositionalRead = NULL;
 	funcAioRwPrepper = NULL;
-	funcPreWriteCudaMemcpy = NULL;
-	funcPostReadCudaMemcpy = NULL;
-	funcPreWriteCudaMemcpy = NULL;
+	funcPreWriteGpuMemcpy = NULL;
+	funcPostReadGpuMemcpy = NULL;
+	funcPreWriteGpuMemcpy = NULL;
 	funcPreWriteBlockModifier = NULL;
 	funcPostReadBlockChecker = NULL;
-	funcCuFileHandleReg = NULL;
-	funcCuFileHandleDereg = NULL;
+	funcGpuFileHandleReg = NULL;
+	funcGpuFileHandleDereg = NULL;
 	funcRWRateLimiter = NULL;
 }
 
@@ -887,8 +885,8 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
     const bool useSPDK = (progArgs->getBenchMode() == BenchMode_SPDK);
     const bool useMpiIo = (progArgs->getBenchMode() == BenchMode_MPIIO);
     const bool useMmap = progArgs->getUseMmap();
-    const bool useCuFileAPI = progArgs->getUseCuFile();
-    const bool useGpuDirectIO = useCuFileAPI || s3Mode.isGpuDirect(); // data lands in gpu bufs
+    const bool useGpuFileApi = progArgs->getUseGpuFileApi();
+    const bool useGpuDirectIO = useGpuFileApi || s3Mode.isGpuDirect(); // data lands in gpu bufs
     const BenchPathType benchPathType = progArgs->getBenchPathType();
     const bool integrityCheckEnabled = (progArgs->getIntegrityCheckSalt() != 0);
     const bool areGPUsGiven = !progArgs->getGPUIDsVec().empty();
@@ -922,8 +920,8 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
     if(useMmap)
         funcPositionalWrite = &LocalWorker::mmapWriteWrapper;
     else
-    if(useCuFileAPI)
-        funcPositionalWrite = &LocalWorker::cuFileWriteWrapper;
+    if(useGpuFileApi)
+        funcPositionalWrite = &LocalWorker::gpuFileWriteWrapper;
     else
 #ifdef CYGWIN_SUPPORT
         funcPositionalWrite = &LocalWorker::winPwriteWrapper;
@@ -943,8 +941,8 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
     if(useMmap)
         funcPositionalRead = &LocalWorker::mmapReadWrapper;
     else
-    if(useCuFileAPI)
-        funcPositionalRead = &LocalWorker::cuFileReadWrapper;
+    if(useGpuFileApi)
+        funcPositionalRead = &LocalWorker::gpuFileReadWrapper;
     else
 #ifdef CYGWIN_SUPPORT
         funcPositionalRead = &LocalWorker::winPreadWrapper;
@@ -976,18 +974,19 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
         if(rwMixReadPercent && funcAioRwPrepper)
             funcAioRwPrepper = &LocalWorker::aioRWMixPrepper;
 
-        funcPreWriteCudaMemcpy = (areGPUsGiven && !useGpuDirectIO) ?
-            &LocalWorker::cudaMemcpyGPUToHost : &LocalWorker::noOpCudaMemcpy;
-        funcPostReadCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
+        funcPreWriteGpuMemcpy = (areGPUsGiven && !useGpuDirectIO) ?
+            &LocalWorker::gpuMemcpyGpuToHost : &LocalWorker::noOpGpuMemcpy;
+        funcPostReadGpuMemcpy = &LocalWorker::noOpGpuMemcpy;
 
         if(areGPUsGiven && integrityCheckEnabled)
-            funcPreWriteCudaMemcpy = &LocalWorker::cudaMemcpyHostToGPU;
+            funcPreWriteGpuMemcpy = &LocalWorker::gpuMemcpyHostToGpu;
 
         if(integrityCheckEnabled)
             funcPreWriteBlockModifier = &LocalWorker::preWriteIntegrityCheckFillBuf;
         else
         if(blockVariancePercent && areGPUsGiven)
-            funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefillCuda;
+            funcPreWriteBlockModifier = useGpuDirectIO ?
+                &LocalWorker::preWriteBufRandRefillGpuSync : &LocalWorker::preWriteBufRandRefillGpu;
         else
         if(blockVariancePercent)
             funcPreWriteBlockModifier = &LocalWorker::preWriteBufRandRefill;
@@ -1004,7 +1003,7 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
             if(useMpiIo)
                 funcPositionalWrite = &LocalWorker::mpiioWriteAndReadWrapper;
             else
-            if(!useCuFileAPI)
+            if(!useGpuFileApi)
 #ifdef CYGWIN_SUPPORT
                 funcPositionalWrite = &LocalWorker::winPwriteAndReadWrapper;
 #else
@@ -1012,8 +1011,8 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
 #endif // CYGWIN_SUPPORT
             else
             {
-                funcPositionalWrite = &LocalWorker::cuFileWriteAndReadWrapper;
-                funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
+                funcPositionalWrite = &LocalWorker::gpuFileWriteAndReadWrapper;
+                funcPostReadGpuMemcpy = &LocalWorker::gpuMemcpyGpuToHost;
             }
 
             if(doDirectVerify)
@@ -1061,12 +1060,12 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
 
         funcAioRwPrepper = (ioDepth == 1) ? NULL : &LocalWorker::aioReadPrepper;
 
-        funcPreWriteCudaMemcpy = &LocalWorker::noOpCudaMemcpy;
-        funcPostReadCudaMemcpy = (areGPUsGiven && !useGpuDirectIO) ?
-            &LocalWorker::cudaMemcpyHostToGPU : &LocalWorker::noOpCudaMemcpy;
+        funcPreWriteGpuMemcpy = &LocalWorker::noOpGpuMemcpy;
+        funcPostReadGpuMemcpy = (areGPUsGiven && !useGpuDirectIO) ?
+            &LocalWorker::gpuMemcpyHostToGpu : &LocalWorker::noOpGpuMemcpy;
 
         if(useGpuDirectIO && integrityCheckEnabled)
-            funcPostReadCudaMemcpy = &LocalWorker::cudaMemcpyGPUToHost;
+            funcPostReadGpuMemcpy = &LocalWorker::gpuMemcpyGpuToHost;
 
         funcPreWriteBlockModifier = &LocalWorker::noOpIntegrityCheck;
         funcPostReadBlockChecker = integrityCheckEnabled ?
@@ -1096,17 +1095,17 @@ void LocalWorker::initPhaseFunctionPointers(bool isFirstPassOfPhase)
 
     // independent of whether current phase is read or write...
 
-    if(useCuFileAPI)
+    if(useGpuFileApi)
     {
-        funcCuFileHandleReg = (benchPathType == BenchPathType_DIR) ?
-            &LocalWorker::dirModeCuFileHandleReg : &LocalWorker::noOpCuFileHandleReg;
-        funcCuFileHandleDereg = (benchPathType == BenchPathType_DIR) ?
-            &LocalWorker::dirModeCuFileHandleDereg : &LocalWorker::noOpCuFileHandleDereg;
+        funcGpuFileHandleReg = (benchPathType == BenchPathType_DIR) ?
+            &LocalWorker::dirModeGpuFileHandleReg : &LocalWorker::noOpGpuFileHandleReg;
+        funcGpuFileHandleDereg = (benchPathType == BenchPathType_DIR) ?
+            &LocalWorker::dirModeGpuFileHandleDereg : &LocalWorker::noOpGpuFileHandleDereg;
     }
     else
     {
-        funcCuFileHandleReg = &LocalWorker::noOpCuFileHandleReg;
-        funcCuFileHandleDereg = &LocalWorker::noOpCuFileHandleDereg;
+        funcGpuFileHandleReg = &LocalWorker::noOpGpuFileHandleReg;
+        funcGpuFileHandleDereg = &LocalWorker::noOpGpuFileHandleDereg;
     }
 
     if(progArgs->isJournalingEnabled() )
@@ -1211,111 +1210,50 @@ void LocalWorker::allocGPUIOBuffer()
 		return; // nothing to do here
 
 	if(progArgs->getGPUIDsVec().empty() )
-	{ // gpu bufs won't be accessed, but gpuIOBufVec elems might be passed e.g. to noOpCudaMemcpy
+	{ // gpu bufs won't be accessed, but gpuIOBufVec elems might be passed e.g. to noOpGpuMemcpy
 		gpuIOBufVec.resize(progArgs->getIODepth(), NULL);
 		return;
 	}
 
-#ifndef CUDA_SUPPORT
+    size_t gpuIndex = workerRank % progArgs->getGPUIDsVec().size();
 
-	throw WorkerException("GPU given, but this executable was built without CUDA support.");
+    gpuID = progArgs->getGPUIDsVec()[gpuIndex];
 
-#else // CUDA_SUPPORT
+    LOGGER(Log_DEBUG, "Initializing GPU buffer. "
+        "Rank: " << workerRank << "; "
+        "GPU ID: " << gpuID << std::endl);
 
-	size_t gpuIndex = workerRank % progArgs->getGPUIDsVec().size();
+    // set the GPU that this worker thread will use
+    GpuTk::setDevice<WorkerException>(gpuID);
 
-	gpuID = progArgs->getGPUIDsVec()[gpuIndex];
+    gpuRandGen.init<WorkerException>(
+        ( (uint64_t)std::random_device()() << 32) | (uint32_t)std::random_device()() );
 
-	LOGGER(Log_DEBUG, "Initializing GPU buffer. "
-		"Rank: " << workerRank << "; "
-		"GPU ID: " << gpuID << std::endl);
+    // alloc number of GPU IO buffers matching iodepth
+    for(size_t i=0; i < progArgs->getIODepth(); i++)
+    {
+        char* gpuIOBuf = (char*)GpuTk::malloc<WorkerException>(progArgs->getBlockSize(), gpuID);
 
-	// set the GPU that this worker thread will use
-	cudaError_t setDevRes = cudaSetDevice(gpuID);
+        gpuIOBufVec.push_back(gpuIOBuf);
 
-	if(setDevRes != cudaSuccess)
-		throw WorkerException("Setting CUDA device failed. "
-			"GPU ID: " + std::to_string(gpuID) + "; "
-			"CUDA Error: " + cudaGetErrorString(setDevRes) );
+        if(progArgs->getUseGpuHostBufReg() )
+            GpuTk::hostRegister<WorkerException>(ioBufVec[i], progArgs->getBlockSize() );
 
-	curandStatus_t createGenRes = curandCreateGenerator(&gpuRandGen, CURAND_RNG_PSEUDO_DEFAULT);
-	if(createGenRes != CURAND_STATUS_SUCCESS)
-		throw WorkerException("Initialization of GPU/CUDA random number generator failed. "
-			"curand error code: " + std::to_string(createGenRes) );
-
-	curandStatus_t seedRes = curandSetPseudoRandomGeneratorSeed(gpuRandGen,
-		( (uint64_t)std::random_device()() << 32) | (uint32_t)std::random_device()() );
-	if(seedRes != CURAND_STATUS_SUCCESS)
-		throw WorkerException("Seeding GPU/CUDA random number generator failed. "
-			"curand error code: " + std::to_string(seedRes) );
-
-	// alloc number of GPU IO buffers matching iodepth
-	for(size_t i=0; i < progArgs->getIODepth(); i++)
-	{
-		void* gpuIOBuf;
-
-		cudaError_t allocRes = cudaMalloc(&gpuIOBuf, progArgs->getBlockSize() );
-
-		if(allocRes != cudaSuccess)
-			throw WorkerException("GPU memory allocation failed. "
-				"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-				"GPU ID: " + std::to_string(gpuID) + "; "
-				"CUDA Error: " + cudaGetErrorString(allocRes) );
-
-		gpuIOBufVec.push_back( (char*)gpuIOBuf);
-
-		if(progArgs->getUseCuHostBufReg() )
-		{
-			cudaError_t regRes = cudaHostRegister(ioBufVec[i], progArgs->getBlockSize(),
-				cudaHostRegisterDefault);
-
-			if(regRes != cudaSuccess)
-				throw WorkerException("Registration of host buffer via cudaHostRegister failed. "
-					"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-					"CUDA Error: " + cudaGetErrorString(regRes) );
-		}
-
-		cudaError_t copyRes = cudaMemcpy(gpuIOBuf, ioBufVec[i], progArgs->getBlockSize(),
-			cudaMemcpyHostToDevice);
-
-		if(copyRes != cudaSuccess)
-			throw WorkerException("Initialization of GPU buffer via cudaMemcpy failed. "
-				"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-				"GPU ID: " + std::to_string(gpuID) + "; "
-				"CUDA Error: " + cudaGetErrorString(copyRes) );
-	}
+        GpuTk::memcpyHostToGpu<WorkerException>(gpuIOBuf, ioBufVec[i], progArgs->getBlockSize(),
+            gpuID);
+    }
 
     LOGGER(Log_DEBUG, "Allocated GPU buffers for gpuIOBufVec. "
         "Rank: " << workerRank << "; "
         "Number of buffers: " << gpuIOBufVec.size() << std::endl);
 
-#endif // CUDA_SUPPORT
-
-#ifndef CUFILE_SUPPORT
-
-	if(progArgs->getUseCuFile() )
-		throw WorkerException("cuFile API requested, but this executable was built without cuFile "
-			"support.");
-
-#else // CUFILE_SUPPORT
-
-	// register GPU buffer for DMA (in s3 mode this is up to the transport)
-	for(char* gpuIOBuf : gpuIOBufVec)
-	{
-		if(!progArgs->getUseCuFile() || !gpuIOBuf || !progArgs->getUseGPUBufReg() ||
-            (progArgs->getBenchMode() == BenchMode_S3) )
-			continue;
-
-		CUfileError_t registerRes = cuFileBufRegister(gpuIOBuf, progArgs->getBlockSize(), 0);
-
-		if(registerRes.err != CU_FILE_SUCCESS)
-			throw WorkerException(std::string(
-				"GPU DMA buffer registration via cuFileBufRegister failed. ") +
-				"GPU ID: " + std::to_string(gpuID) + "; "
-				"cuFile Error: " + CUFILE_ERRSTR(registerRes.err) );
-	}
-
-#endif // CUFILE_SUPPORT
+    // register GPU buffers for DMA (in s3 mode this is up to the transport)
+    if(progArgs->getUseGpuFileApi() && progArgs->getUseGpuFileBufReg() &&
+        (progArgs->getBenchMode() != BenchMode_S3) )
+    {
+        for(char* gpuIOBuf : gpuIOBufVec)
+            GpuFileTk::bufRegister<WorkerException>(gpuIOBuf, progArgs->getBlockSize(), gpuID);
+    }
 }
 
 /**
@@ -1424,55 +1362,43 @@ void LocalWorker::cleanup()
 	// reset custom tree mode path store
 	customTreeFiles.clear();
 
-#ifdef CUFILE_SUPPORT
-	// deregister GPU buffers for DMA (in s3 mode this is up to the transport)
-	for(char* gpuIOBuf : gpuIOBufVec)
-	{
-		if(!progArgs->getUseCuFile() || !gpuIOBuf || !progArgs->getUseGPUBufReg() ||
-            (progArgs->getBenchMode() == BenchMode_S3) )
-			continue;
+    // deregister GPU buffers for DMA (in s3 mode this is up to the transport)
+    if(progArgs->getUseGpuFileApi() && progArgs->getUseGpuFileBufReg() &&
+        (progArgs->getBenchMode() != BenchMode_S3) )
+    {
+        for(char* gpuIOBuf : gpuIOBufVec)
+        {
+            const char* errStr = gpuIOBuf ? GpuFileTk::bufDeregister(gpuIOBuf) : NULL;
 
-		CUfileError_t deregRes = cuFileBufDeregister(gpuIOBuf);
+            if(errStr)
+                ERRLOGGER(Log_VERBOSE, "GPU DMA buffer deregistration failed. "
+                    "GPU ID: " << gpuID << "; "
+                    "Error: " << errStr << std::endl);
+        }
+    }
 
-		if(deregRes.err != CU_FILE_SUCCESS)
-			ERRLOGGER(Log_VERBOSE, "GPU DMA buffer deregistration via cuFileBufDeregister failed. "
-				"GPU ID: " << gpuID << "; "
-				"cuFile Error: " << CUFILE_ERRSTR(deregRes.err) << std::endl);
-	}
-#endif
+    // free gpu memory buffers
+    for(char* gpuIOBuf : gpuIOBufVec)
+    {
+        if(gpuIOBuf)
+            GpuTk::free(gpuIOBuf);
+    }
 
-#ifdef CUDA_SUPPORT
-	// cuda-free gpu memory buffers
-	for(char* gpuIOBuf : gpuIOBufVec)
-	{
-		if(gpuIOBuf)
-			cudaFree(gpuIOBuf);
-	}
+    // unregister host buffers from GPU runtime
+    if(progArgs->getUseGpuHostBufReg() && !progArgs->getGPUIDsVec().empty() )
+    {
+        for(char* ioBuf : ioBufVec)
+        {
+            const char* errStr = ioBuf ? GpuTk::hostUnregister(ioBuf) : NULL;
 
-	// cuda-unregister host buffers
-	if(progArgs->getUseCuHostBufReg() && !progArgs->getGPUIDsVec().empty() )
-	{
-		for(char* ioBuf : ioBufVec)
-		{
-			if(!ioBuf)
-				continue;
+            if(errStr)
+                ERRLOGGER(Log_VERBOSE, "Host buffer deregistration from GPU runtime failed. "
+                    "GPU ID: " << gpuID << "; "
+                    "Error: " << errStr << std::endl);
+        }
+    }
 
-			cudaError_t unregRes = cudaHostUnregister(ioBuf);
-
-			if(unregRes != cudaSuccess)
-				ERRLOGGER(Log_VERBOSE,
-					"CPU DMA buffer deregistration via cudaHostUnregister failed. "
-					"GPU ID: " << gpuID << "; "
-					"CUDA Error: " << cudaGetErrorString(unregRes) << std::endl);
-		}
-	}
-
-	if(gpuRandGen)
-	{
-		curandDestroyGenerator(gpuRandGen);
-		gpuRandGen = NULL;
-	}
-#endif
+    gpuRandGen.uninit();
 
 	// free host memory buffers
 	for(char* ioBuf : ioBufVec)
@@ -1488,7 +1414,7 @@ void LocalWorker::cleanup()
     }
 
 	uninitThreadMmapVec();
-	uninitThreadCuFileHandleDataVec();
+	uninitThreadGpuFileHandleDataVec();
 	uninitThreadFDVec();
 
     SAFE_FREE(journalVerifyBuf);
@@ -1607,7 +1533,7 @@ int64_t LocalWorker::rwBlockSized()
 
         ((*this).*funcPreWriteBlockModifier)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
             currentOffset);
-        ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
+        ((*this).*funcPreWriteGpuMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
 
         FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
             currentOffset, currentBlockSize, !isRead /*isWrite*/, false /*isUnlock*/, NULL);
@@ -1643,7 +1569,7 @@ int64_t LocalWorker::rwBlockSized()
         FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandleIdx], fileLockType,
             currentOffset, currentBlockSize, true /*ignored*/, true /*isUnlock*/, NULL);
 
-		((*this).*funcPostReadCudaMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
+		((*this).*funcPostReadGpuMemcpy)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize);
 		((*this).*funcPostReadBlockChecker)(ioBufVec[0], gpuIOBufVec[0], currentBlockSize,
 		    currentOffset);
 
@@ -1798,7 +1724,7 @@ int64_t LocalWorker::aioBlockSized()
 
         ((*this).*funcPreWriteBlockModifier)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize,
             currentOffset);
-        ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
+        ((*this).*funcPreWriteGpuMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx], blockSize);
 
         FileTk::flock<WorkerException>( (*fileHandles.fdVecPtr)[fileHandlesIdx], fileLockType,
             currentOffset, blockSize, libaioContext.iocbVec[ioVecIdx].aio_lio_opcode==IO_CMD_PWRITE,
@@ -1941,7 +1867,7 @@ int64_t LocalWorker::aioBlockSized()
             if(journalEnabled) // make this slot's journal context the active one for the checker
                 activeJournalIO = &journalIOSlots[ioVecIdx];
 
-			((*this).*funcPostReadCudaMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
+			((*this).*funcPostReadGpuMemcpy)(ioBufVec[ioVecIdx], gpuIOBufVec[ioVecIdx],
 				ioEvents[eventIdx].obj->u.c.nbytes);
 			((*this).*funcPostReadBlockChecker)( (char*)ioEvents[eventIdx].obj->u.c.buf,
 				gpuIOBufVec[ioVecIdx], ioEvents[eventIdx].obj->u.c.nbytes,
@@ -2147,7 +2073,7 @@ int64_t LocalWorker::spdkAioBlockSized()
         {
             ((*this).*funcPreWriteBlockModifier)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx],
                 blockSize, currentOffset);
-            ((*this).*funcPreWriteCudaMemcpy)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx], blockSize);
+            ((*this).*funcPreWriteGpuMemcpy)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx], blockSize);
 
             OPLOG_PRE_OP("spdkWrite", spdkContext.spdkClient.getNamespaceName(nsID),
                 currentOffset, blockSize);
@@ -2229,7 +2155,7 @@ int64_t LocalWorker::spdkAioBlockSized()
 
             if(isRead)
             {
-                ((*this).*funcPostReadCudaMemcpy)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx],
+                ((*this).*funcPostReadGpuMemcpy)(ioBufVec[slotIdx], gpuIOBufVec[slotIdx],
                     blockSize);
                 ((*this).*funcPostReadBlockChecker)( (char*)ioBufVec[slotIdx],
                     gpuIOBufVec[slotIdx], blockSize, currentOffset);
@@ -2687,17 +2613,14 @@ void LocalWorker::preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t 
 /**
  * Refill some percentage of the GPU buffer with random data. The percentage to refill is defined
  * via progArgs::blockVariancePercent.
+ *
+ * The refill is queued on the generator's stream and not awaited here: the GPU-to-host copy of
+ * the GPU memcpy write path is ordered behind it, while GPU-direct writes read the GPU buffer
+ * outside of stream order and thus use preWriteBufRandRefillGpuSync().
  */
-void LocalWorker::preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+void LocalWorker::preWriteBufRandRefillGpu(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
 	off_t fileOffset)
 {
-#ifndef CUDA_SUPPORT
-
-	throw WorkerException("preWriteBufRandRefillCuda called, but this executable was built without "
-		"CUDA support.");
-
-#else // CUDA_SUPPORT
-
 	// note: this same logic is used in aioRWMixPrepper/pwriteRWMixWrapper
 	if( ( (workerRank + numIOPSSubmitted) % 100) < progArgs->getRWMixReadPercent() )
 		return; // this is a read in rwmix mode, so no need for refill in this round
@@ -2707,17 +2630,12 @@ void LocalWorker::preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, siz
 	const unsigned blockVariancePercent = progArgs->getBlockVariancePercent();
 	uint64_t varFillLen = (bufLen * blockVariancePercent) / 100;
 
-	if(varFillLen % sizeof(int) ) // curandGenerate can only fill full 32bit values
+    if(varFillLen % sizeof(int) ) // GPU generator can only fill full 32bit values
 		varFillLen -= (varFillLen % sizeof(int) );
 
 	const size_t constFillRemainderLen = bufLen - varFillLen;
 
-	curandStatus_t randGenRes = curandGenerate(gpuRandGen, (unsigned int*)gpuIOBuf,
-		varFillLen / sizeof(int) );
-
-	IF_UNLIKELY(randGenRes != CURAND_STATUS_SUCCESS)
-		throw WorkerException("Random number generation via GPU/CUDA failed. "
-			"curand error code: " + std::to_string(randGenRes) );
+    gpuRandGen.generate<WorkerException>(gpuIOBuf, varFillLen / sizeof(int) );
 
 	if(!constFillRemainderLen)
 		return;
@@ -2726,9 +2644,19 @@ void LocalWorker::preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, siz
 		way of filling a buffer with a 64bit value directly on the gpu) */
 	// note: rand algo is used to defeat simple dedupe across remainders of different blocks
 	bufFill(&hostIOBuf[varFillLen], randBlockVarAlgo->next(), constFillRemainderLen);
-	cudaMemcpyHostToGPU(&hostIOBuf[varFillLen], &gpuIOBuf[varFillLen], constFillRemainderLen);
+    GpuTk::memcpyHostToGpuAsync<WorkerException>(&gpuIOBuf[varFillLen], &hostIOBuf[varFillLen],
+        constFillRemainderLen, gpuRandGen.getStream(), gpuID);
+}
 
-#endif // CUDA_SUPPORT
+/**
+ * Same as preWriteBufRandRefillGpu(), but waits for the refill to complete. This is needed when
+ * the GPU buffer is read outside of GPU stream order afterwards, e.g. by a GPU-direct file write.
+ */
+void LocalWorker::preWriteBufRandRefillGpuSync(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+    off_t fileOffset)
+{
+    preWriteBufRandRefillGpu(hostIOBuf, gpuIOBuf, bufLen, fileOffset);
+    gpuRandGen.sync<WorkerException>();
 }
 
 
@@ -2888,34 +2816,23 @@ bool LocalWorker::preRWRateBalanceLimiterForWriters(size_t rwSize,
 }
 
 /**
- * Noop for cases where preWriteCudaMemcpy & postReadCudaMemcpy are not appropriate.
+ * Noop for cases where preWriteGpuMemcpy & postReadGpuMemcpy are not appropriate.
  */
-void LocalWorker::noOpCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
+void LocalWorker::noOpGpuMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
 {
 	return; // noop
 }
 
 /**
- * Copy hostIOBuf to gpuIOBuf. This is e.g. to simulate transfer of file contents to GPU buffer
- * after file read.
+ * Copy gpuIOBuf to hostIOBuf. This is e.g. to simulate transfer of file contents from GPU buffer
+ * before a file write.
  *
  * @count number of bytes to copy.
  * @throw WorkerException if buffer copy fails.
  */
-void LocalWorker::cudaMemcpyGPUToHost(void* hostIOBuf, void* gpuIOBuf, size_t count)
+void LocalWorker::gpuMemcpyGpuToHost(void* hostIOBuf, void* gpuIOBuf, size_t count)
 {
-#ifdef CUDA_SUPPORT
-
-	cudaError_t copyRes = cudaMemcpy(hostIOBuf, gpuIOBuf, count, cudaMemcpyDeviceToHost);
-
-	IF_UNLIKELY(copyRes != cudaSuccess)
-		throw WorkerException("Initialization of GPU buffer via memcpy failed. "
-			"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-			"Byte count: " + std::to_string(count) + "; "
-			"GPU ID: " + std::to_string(gpuID) + "; "
-			"CUDA Error: " + cudaGetErrorString(copyRes) );
-
-#endif // CUDA_SUPPORT
+    GpuTk::memcpyGpuToHost<WorkerException>(hostIOBuf, gpuIOBuf, count, gpuID);
 }
 
 /**
@@ -2925,61 +2842,50 @@ void LocalWorker::cudaMemcpyGPUToHost(void* hostIOBuf, void* gpuIOBuf, size_t co
  * @count number of bytes to copy.
  * @throw WorkerException if buffer copy fails.
  */
-void LocalWorker::cudaMemcpyHostToGPU(void* hostIOBuf, void* gpuIOBuf, size_t count)
+void LocalWorker::gpuMemcpyHostToGpu(void* hostIOBuf, void* gpuIOBuf, size_t count)
 {
-#ifdef CUDA_SUPPORT
-
-	cudaError_t copyRes = cudaMemcpy(gpuIOBuf, hostIOBuf, count, cudaMemcpyHostToDevice);
-
-	IF_UNLIKELY(copyRes != cudaSuccess)
-		throw WorkerException("Initialization of GPU buffer via memcpy failed. "
-			"Buffer size: " + std::to_string(progArgs->getBlockSize() ) + "; "
-			"Byte count: " + std::to_string(count) + "; "
-			"GPU ID: " + std::to_string(gpuID) + "; "
-			"CUDA Error: " + cudaGetErrorString(copyRes) );
-
-#endif // CUDA_SUPPORT
+    GpuTk::memcpyHostToGpu<WorkerException>(gpuIOBuf, hostIOBuf, count, gpuID);
 }
 
 /**
- * Noop cuFile handle register for cases where executable is built without CUFILE_SUPPORT or where
- * cuFile API was not selected by user.
+ * Noop GPU-direct file handle register for cases where the GPU-direct file API was not selected
+ * by user.
  */
-void LocalWorker::noOpCuFileHandleReg(int fd, CuFileHandleData& handleData)
+void LocalWorker::noOpGpuFileHandleReg(int fd, GpuFileHandleData& handleData)
 {
 	return; // noop
 }
 
 /**
- * Noop cuFile handle /deregister for cases where executable is built without CUFILE_SUPPORT or
- * where cuFile API was not selected by user.
+ * Noop GPU-direct file handle deregister for cases where the GPU-direct file API was not
+ * selected by user.
  */
-void LocalWorker::noOpCuFileHandleDereg(CuFileHandleData& handleData)
+void LocalWorker::noOpGpuFileHandleDereg(GpuFileHandleData& handleData)
 {
 	return; // noop
 }
 
 /**
- * cuFile handle register as preparation for cuFileRead/Write in dir mode. Call cuFileHandleDereg
- * when done with file access.
+ * GPU-direct file handle register as preparation for GpuFileTk::read/write in dir mode. Call
+ * funcGpuFileHandleDereg when done with file access.
  *
- * @fd posix file handle to register for cuFile access
- * @outHandleData the registered handle on success, in which case outHandleData.isCuFileRegistered
+ * @fd posix file handle to register for GPU-direct file access
+ * @outHandleData the registered handle on success, in which case outHandleData.fd != -1
  * 		will be set to true.
  * @throw WorkerException if registration fails.
  */
-void LocalWorker::dirModeCuFileHandleReg(int fd, CuFileHandleData& outHandleData)
+void LocalWorker::dirModeGpuFileHandleReg(int fd, GpuFileHandleData& outHandleData)
 {
 	outHandleData.registerHandle<WorkerException>(fd);
 }
 
 /**
- * Counterpart to cuFileHandleReg to deregister a file handle in dir mode. This is safe to call even
- * if registration was not called or if it failed, based on handleData.isCuFileRegistered.
+ * Counterpart to dirModeGpuFileHandleReg to deregister a file handle in dir mode. This is safe to call even
+ * if registration was not called or if it failed, based on handleData.fd.
  *
- * @handleData the same that was passed to cuFileHandleReg before.
+ * @handleData the same that was passed to dirModeGpuFileHandleReg before.
  */
-void LocalWorker::dirModeCuFileHandleDereg(CuFileHandleData& handleData)
+void LocalWorker::dirModeGpuFileHandleDereg(GpuFileHandleData& handleData)
 {
 	handleData.deregisterHandle();
 }
@@ -3096,124 +3002,70 @@ ssize_t LocalWorker::pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t 
 }
 
 /**
- * Wrapper for positional sync cuFile read.
+ * Wrapper for positional sync read via the GPU-direct file API (cuFile/hipFile).
  *
- * @fd ignored, using cuFileHandleData.cfr_handle instead.
+ * @fileHandleIdx index into fileHandles.gpuFileHandleDataPtrVec.
  * @buf ignored, using gpuIOBufVec[0] instead.
  */
-ssize_t LocalWorker::cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::gpuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
-#ifndef CUFILE_SUPPORT
-	throw WorkerException("cuFileReadWrapper called, but this executable was built without cuFile "
-		"API support");
-#else
-	OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+    OPLOG_PRE_OP(GpuFileTk::READ_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes);
 
-	ssize_t ioRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
-		gpuIOBufVec[0], nbytes, offset, 0);
+    ssize_t ioRes = GpuFileTk::read(*fileHandles.gpuFileHandleDataPtrVec[fileHandleIdx],
+        gpuIOBufVec[0], nbytes, offset);
 
-	OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, ioRes == -1);
+    OPLOG_POST_OP(GpuFileTk::READ_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes,
+        ioRes == -1);
 
-	return ioRes;
-#endif
+    return ioRes;
 }
 
 /**
- * Wrapper for positional sync cuFile write.
+ * Wrapper for positional sync write via the GPU-direct file API (cuFile/hipFile).
  *
- * @fd ignored, using cuFileHandleData.cfr_handle instead.
+ * @fileHandleIdx index into fileHandles.gpuFileHandleDataPtrVec.
  * @buf ignored, using gpuIOBufVec[0] instead.
  */
-ssize_t LocalWorker::cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
+ssize_t LocalWorker::gpuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
 {
-#ifndef CUFILE_SUPPORT
-	throw WorkerException("cuFileWriteWrapper called, but this executable was built without cuFile "
-		"API support");
-#else
-	OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+    OPLOG_PRE_OP(GpuFileTk::WRITE_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes);
 
-	ssize_t ioRes = cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
-		gpuIOBufVec[0], nbytes, offset, 0);
+    ssize_t ioRes = GpuFileTk::write(*fileHandles.gpuFileHandleDataPtrVec[fileHandleIdx],
+        gpuIOBufVec[0], nbytes, offset);
 
-	OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
+    OPLOG_POST_OP(GpuFileTk::WRITE_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes,
+        ioRes <= 0);
 
-	return ioRes;
-#endif
+    return ioRes;
 }
 
 /**
- * Wrapper for positional sync cuFile write followed by an immediate cuFile read of the same block.
+ * Wrapper for positional sync GPU-direct write followed by an immediate GPU-direct read of the
+ * same block.
  */
-ssize_t LocalWorker::cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
-	off_t offset)
+ssize_t LocalWorker::gpuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+    off_t offset)
 {
-#ifndef CUFILE_SUPPORT
-	throw WorkerException("cuFileWriteAndReadWrapper called, but this executable was built without "
-		"cuFile API support");
-#else
-	OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
+    const GpuFileHandleData& handleData = *fileHandles.gpuFileHandleDataPtrVec[fileHandleIdx];
 
-	ssize_t writeRes =
-		cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
-			gpuIOBufVec[0], nbytes, offset, 0);
+    OPLOG_PRE_OP(GpuFileTk::WRITE_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes);
 
-	OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, writeRes <= 0);
+    ssize_t writeRes = GpuFileTk::write(handleData, gpuIOBufVec[0], nbytes, offset);
 
-	IF_UNLIKELY(writeRes <= 0)
-		return writeRes;
+    OPLOG_POST_OP(GpuFileTk::WRITE_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes,
+        writeRes <= 0);
 
-	OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
+    IF_UNLIKELY(writeRes <= 0)
+        return writeRes;
 
-	ssize_t readRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
-		gpuIOBufVec[0], writeRes, offset, 0);
+    OPLOG_PRE_OP(GpuFileTk::READ_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes);
 
-	OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, readRes == -1);
+    ssize_t readRes = GpuFileTk::read(handleData, gpuIOBufVec[0], writeRes, offset);
 
-	return readRes;
-#endif
-}
+    OPLOG_POST_OP(GpuFileTk::READ_OP_NAME, std::to_string(fileHandleIdx), offset, nbytes,
+        readRes == -1);
 
-/**
- * Within a write phase, send user-defined pecentage of block reads for mixed r/w.
- *
- * Parameters and return value are similar to p{write,read}.
- */
-ssize_t LocalWorker::cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset)
-{
-#ifndef CUFILE_SUPPORT
-	throw WorkerException("cuFileRWMixWrapper called, but this executable was built without cuFile "
-		"API support");
-#else
-	// example: 40% means 40 out of 100 submitted blocks will be reads, the remaining 60 are writes
-
-	/* note: keep in mind that this also needs to work with lots of small files, so percentage needs
-		to work between different files. (numIOPSSubmitted ensures that below; numIOPSDone would not
-		work for this because aio would not inc counter directly on submission.) */
-
-	ssize_t ioRes;
-
-	// note: workerRank is used to have skew between different worker threads
-	if( ( (workerRank + numIOPSSubmitted) % 100) >= progArgs->getRWMixReadPercent() )
-	{
-		OPLOG_PRE_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes);
-
-		ioRes = cuFileWrite(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
-			gpuIOBufVec[0], nbytes, offset, 0);
-
-		OPLOG_POST_OP("cuFileWrite", std::to_string(fileHandleIdx), offset, nbytes, ioRes <= 0);
-	}
-	else
-	{
-		OPLOG_PRE_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes);
-
-		ioRes = cuFileRead(fileHandles.cuFileHandleDataPtrVec[fileHandleIdx]->cfr_handle,
-			gpuIOBufVec[0], nbytes, offset, 0);
-
-		OPLOG_POST_OP("cuFileRead", std::to_string(fileHandleIdx), offset, nbytes, ioRes == -1);
-}
-
-	return ioRes;
-#endif
+    return readRes;
 }
 
 /**
@@ -3649,7 +3501,7 @@ void LocalWorker::dirModeIterateFiles()
 	const bool doStatInline = progArgs->getDoStatInline();
 
 	int& fd = fileHandles.fdVec[0];
-	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
+	GpuFileHandleData& gpuFileHandleData = fileHandles.gpuFileHandleDataVec[0];
 
 	// walk over each unique dir per worker
 
@@ -3698,7 +3550,7 @@ void LocalWorker::dirModeIterateFiles()
 				// try-block to ensure that fd is closed in case of exception
 				try
 				{
-					((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
+					((*this).*funcGpuFileHandleReg)(fd, gpuFileHandleData); // reg GPU-direct file handle
 
                     if(doStatInline) // inline stat (i.e. stat immediately after file open)
                         dirModeStatInline(pathVec[pathFDsIndex] + "/" + currentPath.data() );
@@ -3753,7 +3605,7 @@ void LocalWorker::dirModeIterateFiles()
 						fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 					}
 
-					((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
+					((*this).*funcGpuFileHandleDereg)(gpuFileHandleData); // dereg GPU-direct file handle
 
                     dirModeCloseFile(pathVec[pathFDsIndex] + "/" + currentPath.data(), false);
 
@@ -3773,7 +3625,7 @@ void LocalWorker::dirModeIterateFiles()
 					fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 				}
 
-				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
+				((*this).*funcGpuFileHandleDereg)(gpuFileHandleData); // dereg GPU-direct file handle
 
                 dirModeCloseFile(pathVec[pathFDsIndex] + "/" + currentPath.data(), true);
 			}
@@ -3858,7 +3710,7 @@ void LocalWorker::dirModeIterateCustomFiles()
     const uint64_t fileOffsetBase = progArgs->getFileOffset(); // user-defined min offset per file
 
 	int& fd = fileHandles.fdVec[0];
-	CuFileHandleData& cuFileHandleData = fileHandles.cuFileHandleDataVec[0];
+	GpuFileHandleData& gpuFileHandleData = fileHandles.gpuFileHandleDataVec[0];
 
 
 	// check if this worker has anything to do in this round
@@ -3898,7 +3750,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 			// try-block to ensure that fd is closed in case of exception
 			try
 			{
-				((*this).*funcCuFileHandleReg)(fd, cuFileHandleData); // reg cuFile handle
+				((*this).*funcGpuFileHandleReg)(fd, gpuFileHandleData); // reg GPU-direct file handle
 
                 if(doStatInline) // inline stat (i.e. stat immediately after file open)
                     dirModeStatInline(benchPathStr + "/" + currentPath);
@@ -3953,7 +3805,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 					fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 				}
 
-				((*this).*funcCuFileHandleDereg)(cuFileHandleData); // dereg cuFile handle
+				((*this).*funcGpuFileHandleDereg)(gpuFileHandleData); // dereg GPU-direct file handle
 
                 dirModeCloseFile(benchPathStr + "/" + currentPath, false);
 
@@ -3974,7 +3826,7 @@ void LocalWorker::dirModeIterateCustomFiles()
 				fileHandles.mmapVec[0] = (char*)MAP_FAILED;
 			}
 
-			((*this).*funcCuFileHandleDereg)(cuFileHandleData); // deReg cuFile handle
+			((*this).*funcGpuFileHandleDereg)(gpuFileHandleData); // dereg GPU-direct file handle
 
             dirModeCloseFile(benchPathStr + "/" + currentPath, true);
 		}
@@ -4141,14 +3993,14 @@ void LocalWorker::fileModeIterateFilesRand()
 void LocalWorker::fileModeIterateFilesSeq()
 {
     const BenchMode benchMode = progArgs->getBenchMode();
-    CuFileHandleDataVec& cuFileHandleDataVec = fileHandles.threadCuFileHandleDataVec.empty() ?
-        progArgs->getCuFileHandleDataVec() : fileHandles.threadCuFileHandleDataVec;
+    GpuFileHandleDataVec& gpuFileHandleDataVec = fileHandles.threadGpuFileHandleDataVec.empty() ?
+        progArgs->getGpuFileHandleDataVec() : fileHandles.threadGpuFileHandleDataVec;
     const uint64_t fileSize = progArgs->getFileSize();
     const uint64_t fileOffset = progArgs->getFileOffset(); // user-defined min offset within file
     const size_t blockSize = progArgs->getBlockSize();
     const size_t numThreads = progArgs->getNumDataSetThreads();
     const bool useMmap = progArgs->getUseMmap();
-    const bool useCuFile = progArgs->getUseCuFile();
+    const bool useGpuFileApi = progArgs->getUseGpuFileApi();
 
     const IntVec& pathFDs = [&]() -> const IntVec&
     {
@@ -4204,8 +4056,8 @@ void LocalWorker::fileModeIterateFilesSeq()
         fileHandles.fdVec[0] = pathFDs[currentFileIndex];
         mpiIo.setCurrentFileIdx(currentFileIndex);
         winIO.setCurrentFile(currentFileIndex);
-        fileHandles.cuFileHandleDataPtrVec[0] = !useCuFile ? nullptr :
-            &(cuFileHandleDataVec[currentFileIndex]);
+        fileHandles.gpuFileHandleDataPtrVec[0] = !useGpuFileApi ? nullptr :
+            &(gpuFileHandleDataVec[currentFileIndex]);
         if(!fileHandles.journalPtrVec.empty() ) // alias the journal of the current file, like above
             fileHandles.journalPtrVec[0] = progArgs->getJournalForTarget(currentFileIndex);
 

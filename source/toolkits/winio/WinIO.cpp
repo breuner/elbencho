@@ -531,7 +531,7 @@ int64_t WinIO::aioBlockSized()
         {
             worker.preWriteBlockModifier(worker.ioBufVec[slotIdx], worker.gpuIOBufVec[slotIdx],
                 blockSize, currentOffset);
-            worker.preWriteCudaMemcpy(worker.ioBufVec[slotIdx], worker.gpuIOBufVec[slotIdx],
+            worker.preWriteGpuMemcpy(worker.ioBufVec[slotIdx], worker.gpuIOBufVec[slotIdx],
                 blockSize);
 
             OPLOG_PRE_OP("aiowrite", entryName(fileHandlesIdx), currentOffset, blockSize);
@@ -652,7 +652,7 @@ int64_t WinIO::aioBlockSized()
 
             if(isRead)
             {
-                worker.postReadCudaMemcpy(worker.ioBufVec[slotIdx], worker.gpuIOBufVec[slotIdx],
+                worker.postReadGpuMemcpy(worker.ioBufVec[slotIdx], worker.gpuIOBufVec[slotIdx],
                     slot->len);
                 worker.postReadBlockChecker(worker.ioBufVec[slotIdx], worker.gpuIOBufVec[slotIdx],
                     slot->len, slot->offset);

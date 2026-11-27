@@ -61,13 +61,13 @@ Examples:
   Test 2 threads, each reading 4 1MB files from 3 directories in 128KiB blocks:
     $ elbencho -r -t 2 -n 3 -N 4 -s 1m -b 128k /data/testdir
 
-  As above, but also copy data into memory of first 2 GPUs via CUDA:
+  As above, but also copy data into memory of first 2 GPUs:
     $ elbencho -r -t 2 -n 3 -N 4 -s 1m -b 128k \
         --gpuids 0,1 /data/testdir
 
-  As above, but read data into memory of first 2 GPUs via GPUDirect Storage:
+  As above, but read data into first 2 GPUs via GPU-direct storage access:
     $ elbencho -r -t 2 -n 3 -N 4 -s 1m -b 128k \
-        --gpuids 0,1 --gds /data/testdir
+        --gpuids 0,1 --gpudirect /data/testdir
 
   Delete files and directories created by example above:
     $ elbencho -F -D -t 2 -n 3 -N 4 /data/testdir

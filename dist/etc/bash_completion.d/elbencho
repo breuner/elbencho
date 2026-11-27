@@ -53,7 +53,13 @@ _elbencho_opts()
         --files
         --flock
         --foreground
+        --gds
         --gdsbufreg
+        --gpudirect
+        --gpufile
+        --gpufilebufreg
+        --gpufiledriveropen
+        --gpuhostbufreg
         --gpuids
         --gpuperservice
         --graph

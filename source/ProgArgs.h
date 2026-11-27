@@ -10,7 +10,7 @@
 #include <time.h>
 
 #include "Common.h"
-#include "CuFileHandleData.h"
+#include "toolkits/gpu/GpuFileHandleData.h"
 #include "Logger.h"
 #include "modes/mpiio/MpiIoProgArgs.h"
 #include "modes/netbench/NetBenchProgArgs.h"
@@ -53,9 +53,9 @@ namespace bpt = boost::property_tree;
 #define ARG_CSVFILE_LONG                 "csvfile"
 #define ARG_CSVLIVEFILE_LONG             "livecsv"
 #define ARG_CSVLIVEEXTENDED_LONG         "livecsvex"
-#define ARG_CUFILE_LONG                  "cufile"
-#define ARG_CUFILEDRIVEROPEN_LONG        "cufiledriveropen"
-#define ARG_CUHOSTBUFREG_LONG            "cuhostbufreg"
+#define ARG_CUFILE_LONG                  "cufile" // alias in CUDA builds & service transfer key
+#define ARG_CUFILEDRIVEROPEN_LONG        "cufiledriveropen" // (see ARG_CUFILE_LONG)
+#define ARG_CUHOSTBUFREG_LONG            "cuhostbufreg" // (see ARG_CUFILE_LONG)
 #define ARG_DELETEDIRS_LONG              "deldirs"
 #define ARG_DELETEDIRS_SHORT             "D"
 #define ARG_DELETEFILES_LONG             "delfiles"
@@ -72,8 +72,13 @@ namespace bpt = boost::property_tree;
 #define ARG_FILESIZE_SHORT               "s"
 #define ARG_FLOCK_LONG                   "flock"
 #define ARG_FOREGROUNDSERVICE_LONG       "foreground"
-#define ARG_GDSBUFREG_LONG               "gdsbufreg"
-#define ARG_GPUDIRECTSSTORAGE_LONG       "gds"
+#define ARG_GDSBUFREG_LONG               "gdsbufreg" // (see ARG_CUFILE_LONG)
+#define ARG_GPUDIRECT_LONG               "gpudirect"
+#define ARG_GPUDIRECTSSTORAGE_LONG       "gds" // alias in CUDA builds
+#define ARG_GPUFILE_LONG                 "gpufile"
+#define ARG_GPUFILEBUFREG_LONG           "gpufilebufreg"
+#define ARG_GPUFILEDRIVEROPEN_LONG       "gpufiledriveropen"
+#define ARG_GPUHOSTBUFREG_LONG           "gpuhostbufreg"
 #define ARG_GPUIDS_LONG                  "gpuids"
 #define ARG_GPUPERSERVICE_LONG           "gpuperservice"
 #define ARG_GRAPH_LONG                   "graph"
@@ -259,9 +264,6 @@ namespace bpt = boost::property_tree;
 #define BENCHPATH_PREFIX_S3                 "s3://" // prefix for bench paths on s3
 
 
-typedef std::vector<CuFileHandleData> CuFileHandleDataVec;
-typedef std::vector<CuFileHandleData*> CuFileHandleDataPtrVec;
-
 /**
  * Program arguments parser and central config store.
  */
@@ -309,9 +311,9 @@ class ProgArgs
         BenchPathType benchPathType; /* for local runs auto-detected based on benchPathStr;
                                         in master mode received from service hosts */
 
-        bool isCuFileDriverOpen{false}; // to ensure cuFileDriverOpen/-Close is only called once
-        CuFileHandleDataVec cuFileHandleDataVec; /* registered cuFile handles in file/bdev mode;
-                            vec will also be filled (with unreg'ed handles) if cuFile API is not
+        bool isGpuFileDriverOpen{false}; // to ensure GpuFileTk::driverOpen/-Close is only called once
+        GpuFileHandleDataVec gpuFileHandleDataVec; /* registered GPU-direct file handles in file/bdev mode;
+                            vec will also be filled (with unreg'ed handles) if GPU-direct file API is not
                             selected to make things easier for localworkers */
 
 #ifdef SPDK_SUPPORT
@@ -468,15 +470,15 @@ class ProgArgs
         bool useBriefLiveStats; // single-line live stats
         bool useBriefLiveStatsNewLine; /* newline instead of line erase on update. implicitly sets
                                             useBriefLiveStats=true */
-        bool useCuFile; // use cuFile API for reads/writes to/from GPU memory
-        bool useCuFileDriverOpen; // true to call cuFileDriverOpen when using cuFile API
-        bool useCuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
+        bool useGpuFileApi; // use GPU-direct file API (cuFile/hipFile) for reads/writes to/from GPU memory
+        bool useGpuFileDriverOpen; // true to explicitly open the GPU-direct file API driver
+        bool useGpuHostBufReg; // register/pin host buffer to speed up copy into GPU memory
         bool useCustomTreeRandomize; // randomize order of custom tree files
         bool useCustomTreeRoundRobin; // assign blocks round-robin to workers
         bool useDirectIO; // open files with O_DIRECT
         bool useExtendedLiveCSV; // false for total/aggregate results only, true for per-worker
         bool useExtendedLiveJSON; // false for total/aggregate results only, true for per-worker
-        bool useGDSBufReg; // register GPU buffers for GPUDirect Storage (GDS) when using cuFile API
+        bool useGpuFileBufReg; // register GPU buffers for DMA when using the GPU-direct file API
         bool useHDFS; // use Hadoop HDFS
         bool useMmap; // use memory mapped IO
         bool useNoFDSharing; // when true, each worker does its own file open in file/bdev mode
@@ -501,7 +503,7 @@ class ProgArgs
         void parseAndCheckPaths();
         void initBenchPathType();
         void prepareBenchPathFDsVec();
-        void prepareCuFileHandleDataVec();
+        void prepareGpuFileHandleDataVec();
         void prepareMmapVec();
         void prepareSpdk();
         void prepareFileSize(int fd, std::string& path);
@@ -588,7 +590,7 @@ class ProgArgs
         bool isBlockSizeMixDefined() const { return blockSizeMix.isMix(); }
         std::string getBenchLabel() const { return benchLabel; }
         const std::string& getBenchLabelNoCommas() const { return benchLabelNoCommas; }
-        CuFileHandleDataVec& getCuFileHandleDataVec() { return cuFileHandleDataVec; }
+        GpuFileHandleDataVec& getGpuFileHandleDataVec() { return gpuFileHandleDataVec; }
         std::string getConfigFilePath() const { return configFilePath; }
         const IntVec& getCPUCoresVec() const { return cpuCoresVec; }
         std::string getCPUCoresStr() const { return cpuCoresStr; }
@@ -703,15 +705,15 @@ class ProgArgs
         bool getUseAlternativeHTTPService() const { return useAlternativeHTTPService; }
         bool getUseBriefLiveStats() const { return useBriefLiveStats; }
         bool getUseBriefLiveStatsNewLine() const { return useBriefLiveStatsNewLine; }
-        bool getUseCuFile() const { return useCuFile; }
-        bool getUseCuFileDriverOpen() const { return useCuFileDriverOpen; }
-        bool getUseCuHostBufReg() const { return useCuHostBufReg; }
+        bool getUseGpuFileApi() const { return useGpuFileApi; }
+        bool getUseGpuFileDriverOpen() const { return useGpuFileDriverOpen; }
+        bool getUseGpuHostBufReg() const { return useGpuHostBufReg; }
         bool getUseCustomTreeRandomize() const { return useCustomTreeRandomize; }
         bool getUseCustomTreeRoundRobin() const { return useCustomTreeRoundRobin; }
         bool getUseDirectIO() const { return useDirectIO; }
         bool getUseExtendedLiveCSV() const { return useExtendedLiveCSV; }
         bool getUseExtendedLiveJSON() const { return useExtendedLiveJSON; }
-        bool getUseGPUBufReg() const { return useGDSBufReg; }
+        bool getUseGpuFileBufReg() const { return useGpuFileBufReg; }
         bool getUseMmap() const { return useMmap; }
         bool getUseNoFDSharing() const { return useNoFDSharing; }
         bool getUseOpsLogLocking() const { return useOpsLogLocking; }

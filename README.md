@@ -22,6 +22,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 - [Optional Build Features](#optional-build-features)
   - [Nvidia CUDA Support](#nvidia-cuda-support)
   - [Nvidia GPUDirect Storage \(GDS\) Support](#nvidia-gpudirect-storage-gds-support)
+  - [AMD HIP & hipFile Support](#amd-hip--hipfile-support)
   - [S3 Object Storage Support](#s3-object-storage-support)
   - [macOS Support](#macos-support)
   - [Windows Support](#windows-support)
@@ -37,7 +38,7 @@ elbencho was inspired by traditional storage benchmark tools like [fio](https://
 * Unified latency, throughput, IOPS benchmark for file, object & block storage
 * Supports local and shared storage through distributed service mode
 * For modern NVMe storage or classic spinning disk storage
-* GPU storage access performance testing through Nvidia CUDA or GPUDirect Storage (GDS)
+* GPU storage access performance testing through Nvidia CUDA / GPUDirect Storage (GDS) or AMD HIP / hipFile
 * Live statistics show how the system behaves under load
 * Results by first and by last finished thread
 * CSV file output to easily create graphs in spreadsheet apps or via elbencho-chart tool
@@ -146,6 +147,10 @@ CUDA support for GPU data transfers will automatically be enabled when CUDA deve
 #### Nvidia GPUDirect Storage (GDS) Support
 
 GPUDirect Storage (GDS) support through the cuFile API will automatically be enabled when GDS development files (`cufile.h` and `libcufile.so`) are installed on the build system. Alternatively, elbencho GDS support can be manually enabled or disabled. See `make help` for details.
+
+#### AMD HIP & hipFile Support
+
+HIP support for AMD GPU data transfers will automatically be enabled when ROCm development files (`hip/hip_runtime_api.h`, `libamdhip64.so` and `libhiprand.so` under `/opt/rocm*`) are installed on the build system and CUDA is not found. GPU-direct storage access through the hipFile API gets enabled when its development files (`hipfile.h` and `libhipfile.so`) are found as well. An executable supports either Nvidia or AMD GPUs, so on a system with both toolkits `make HIP_SUPPORT=1` selects AMD. The GPU options (`--gpuids`, `--gpudirect`, ...) are the same for both vendors; the `--gds`/`--cufile`/`--cuhostbufreg` options of older versions remain available as aliases in CUDA builds. See `make help` for details.
 
 #### S3 Object Storage Support
 

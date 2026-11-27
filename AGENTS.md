@@ -7,7 +7,7 @@ follow, and what a pull request on GitHub must contain. Read it before changing 
 ## What this is
 
 elbencho is a distributed storage benchmark tool (C++17) for files, objects (S3) & block devices,
-with optional GPU (CUDA/GDS) support. It replaces tools like fio/mdtest/ior with a single unified
+with optional GPU (Nvidia CUDA/GDS or AMD HIP/hipFile) support. It replaces tools like fio/mdtest/ior with a single unified
 benchmark that can run locally or across many hosts in a coordinator/service topology.
 
 ## Build
@@ -25,6 +25,10 @@ Optional build-time features are enabled via `make <FEATURE>=1 ...`, e.g.:
 - `SPDK_SUPPORT=1` — NVMe-oF initiator support via SPDK (downloads a large external repo); see [docs/spdk.md](docs/spdk.md).
 - Netbench mode is always built, with four engines: tcp (plain sockets, no dependency, always built), ibverbs (`IBVERBS_SUPPORT`, auto-detected libibverbs with `ibv_query_gid_ex`, Linux only), rdmacm (`RDMACM_SUPPORT`, auto-detected librdmacm, needs ibverbs) and libfabric (`LIBFABRIC_SUPPORT=1`, off by default; uses a system libfabric (pkg-config, min 1.11) or builds v2.7.0 into `external/` when none is found or `BUILD_LIBFABRIC=1` is given; of the build helpers only the Ubuntu 26.04 and CUDA Dockerfiles enable it, together with the ibverbs and rdmacm engines explicitly; static executables have the tcp engine only); see [docs/netbench.md](docs/netbench.md).
 - `CUDA_SUPPORT` / `CUFILE_SUPPORT` — auto-detected from `/usr/local/cuda*`, can be forced 0/1.
+- `HIP_SUPPORT` / `HIPFILE_SUPPORT` — AMD HIP runtime (with hipRAND) and the hipFile API, auto-detected
+  from `/opt/rocm*`, can be forced 0/1. One GPU vendor per executable: CUDA wins when both toolkits are
+  found unless `HIP_SUPPORT=1` is given. The core only tests the derived `GPU_SUPPORT` /
+  `GPUFILE_SUPPORT` defines; the vendor APIs are wrapped in `source/toolkits/gpu/`.
 - `HDFS_SUPPORT=1` — Hadoop HDFS support (requires `HADOOP_HOME`/`JAVA_HOME`).
 - `MPI_SUPPORT=1` — the MPI launch (`--mpilaunch`: rank 0 coordinator, other ranks services, any mode) and
   the MPI-IO benchmark mode (`--mpiio`, `--mpicoll`); compiles and links through the MPI compiler wrapper
@@ -200,8 +204,10 @@ ranks to the coordinator and service roles for `--mpilaunch`. The design notes a
 **Storage backends**: I/O paths dispatch by benchmark target type — local/POSIX files & block devices,
 S3 objects (`modes/s3/`, see above), Hadoop HDFS, and NVMe-oF
 block devices via SPDK (`toolkits/spdk/`: `SpdkBdevManager`, `SpdkNvmeClient`, `SpdkTk` — see
-[docs/spdk.md](docs/spdk.md) for the underlying design). GPU-memory I/O (CUDA / GPUDirect Storage) is
-integrated at the `LocalWorker` level via `CuFileHandleData.h`.
+[docs/spdk.md](docs/spdk.md) for the underlying design). GPU-memory I/O is
+integrated at the `LocalWorker` level through the vendor-neutral GPU toolkit in `toolkits/gpu/`
+(`GpuTk` for the runtime, `GpuFileTk` + `GpuFileHandleData` for the GPU-direct file API, `GpuRandGen`
+for on-GPU random data), which maps to CUDA/cuFile/curand or HIP/hipFile/hipRAND at compile time.
 
 **Supporting toolkits** (`source/toolkits/`): `net/` (raw socket helpers used before/alongside the HTTP
 service), `offsetgen/` (I/O offset/access-pattern generators for sequential vs. random coverage),

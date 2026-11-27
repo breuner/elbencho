@@ -2,11 +2,19 @@
 
 ## v3.4.2 (work in progress)
 
+### New Features & Enhancements
+* Added support for direct AMD GPU memory access via hipFile API.
+  * Build option `HIPFILE_SUPPORT` gets automatically enabled when development headers are found.
+  * See options `--gpuids` and `--gpudirect`.
+
 ### General Changes
 * Updated mimalloc lib for static builds to latest v3.7.1.
 
 ### Fixes
 * Fixed detection of absolute paths in Windows native path format for distributed runs.
+
+### Contributors
+Thanks to Gary Oikawa, Stephen Bates for helpful comments and suggestions.
 
 ## v3.4.1 (Nov 20, 2026)
 

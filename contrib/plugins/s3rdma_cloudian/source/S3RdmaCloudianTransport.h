@@ -51,8 +51,8 @@ class S3RdmaCloudianTransport
 
             S3Client::EnableRDMA(plugin.isActive() );
 
-            useGpuBufs = progArgs.getUseCuFile() && !progArgs.getGPUIDsVec().empty() &&
-                progArgs.getUseGPUBufReg();
+            useGpuBufs = progArgs.getUseGpuFileApi() && !progArgs.getGPUIDsVec().empty() &&
+                progArgs.getUseGpuFileBufReg();
             bufsRegistered = useGpuBufs || plugin.getUseCuObjHostBufReg();
 
             if(!bufsRegistered)
@@ -88,7 +88,7 @@ class S3RdmaCloudianTransport
          */
         static void checkArgs(const ProgArgs& progArgs)
         {
-            if(progArgs.getUseCuFile() && (progArgs.getBenchMode() == BenchMode_S3) &&
+            if(progArgs.getUseGpuFileApi() && (progArgs.getBenchMode() == BenchMode_S3) &&
                 !S3RdmaCloudianPlugin::getInstance().isActive() )
                 throw ProgException("cuFile API cannot be used with S3 unless plugin "
                     "s3rdma_cloudian is active.");

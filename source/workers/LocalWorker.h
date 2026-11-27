@@ -12,10 +12,11 @@
 #include <unistd.h>
 
 #include "Common.h"
-#include "CuFileHandleData.h"
 #include "modes/mpiio/MpiIoMode.h"
 #include "modes/netbench/NetBenchMode.h"
 #include "modes/s3/S3Mode.h"
+#include "toolkits/gpu/GpuFileHandleData.h"
+#include "toolkits/gpu/GpuRandGen.h"
 #include "toolkits/Journal.h"
 #include "toolkits/offsetgen/OffsetGenerator.h"
 #include "toolkits/offsetgen/OffsetGenRandomAlignedFullCoverageV2.h"
@@ -25,11 +26,6 @@
 #include "toolkits/RateLimiterRWMixThreads.h"
 #include "toolkits/winio/WinIO.h"
 #include "Worker.h"
-
-#ifdef CUDA_SUPPORT
-	#include <cuda_runtime.h>
-	#include <curand.h>
-#endif
 
 #ifdef LIBAIO_SUPPORT
 	#include <libaio.h>
@@ -54,7 +50,7 @@ typedef void (LocalWorker::*AIO_RW_PREPPER)(struct iocb* iocb, int fd, void* buf
 	long long offset);
 
 /**
- * {pread,pwrite}Wrapper (as in "man 2 pread") or cuFile{Read,Write}Wrapper.
+ * {pread,pwrite}Wrapper (as in "man 2 pread") or gpuFile{Read,Write}Wrapper.
  *
  * @fileHandleIdx is index of LocalWorker::fileHandles.*VecPtr.
  */
@@ -67,11 +63,11 @@ typedef void (LocalWorker::*GPU_MEMCPY_RW)(void* hostIOBuf, void* gpuIOBuf, size
 // function pointer for sync or async IO
 typedef int64_t (LocalWorker::*RW_BLOCKSIZED)();
 
-// function pointer for cuFile handle register
-typedef void (LocalWorker::*CUFILE_HANDLE_REGISTER)(int fd, CuFileHandleData& handleData);
+// function pointer for GPU-direct file handle register
+typedef void (LocalWorker::*GPUFILE_HANDLE_REGISTER)(int fd, GpuFileHandleData& handleData);
 
-// function pointer for cuFile handle deregister
-typedef void (LocalWorker::*CUFILE_HANDLE_DEREGISTER)(CuFileHandleData& handleData);
+// function pointer for GPU-direct file handle deregister
+typedef void (LocalWorker::*GPUFILE_HANDLE_DEREGISTER)(GpuFileHandleData& handleData);
 
 // preWriteIntegrityCheckFillBuf/postReadIntegrityCheckVerifyBuf
 typedef void (LocalWorker::*BLOCK_MODIFIER)(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
@@ -105,12 +101,12 @@ class LocalWorker : public Worker
 	private:
 		BufferVec ioBufVec; // host buffers used for block-sized read/write (count matches iodepth)
 
-		BufferVec gpuIOBufVec; // gpu memory buffers for read/write via cuda (count matches iodepth)
+		BufferVec gpuIOBufVec; // gpu memory buffers for read/write (count matches iodepth)
 
 		struct
 		{
 			IntVec threadFDVec; // separate open files in file/bdev mode (progArgs::useNoFDSharing)
-			CuFileHandleDataVec threadCuFileHandleDataVec; /* separate cuFile handles
+			GpuFileHandleDataVec threadGpuFileHandleDataVec; /* separate GPU-direct file handles
 															(progArgs::useNoFDSharing) */
 
             IntVec fdVec; /* don't use directly, use fdVecPtr instead; fd of current file in dir
@@ -120,8 +116,8 @@ class LocalWorker : public Worker
 				progArgs fdVec in file/bdev mode */
 			ssize_t errorFDVecIdx{-1}; // set by low-level funcs to "!=-1" where no path available
 
-			CuFileHandleDataVec cuFileHandleDataVec; // cuFile handle for current file in dir mode
-			CuFileHandleDataPtrVec cuFileHandleDataPtrVec; /* for funcPositionalRW; number of
+			GpuFileHandleDataVec gpuFileHandleDataVec; // GPU-direct file handle for current file in dir mode
+			GpuFileHandleDataPtrVec gpuFileHandleDataPtrVec; /* for funcPositionalRW; number of
 				elements corresponds to num elems in fdVecPtr target */
 
 			BufferVec mmapVec; /* pointers to mmap regions if user selected mmap IO; number of
@@ -142,15 +138,15 @@ class LocalWorker : public Worker
 
 		// phase-dependent function & offsetGen pointers
 		RW_BLOCKSIZED funcRWBlockSized; // pointer to sync or async read/write
-		POSITIONAL_RW funcPositionalWrite; // pwrite, cuFileWrite for sync write
-		POSITIONAL_RW funcPositionalRead; // pread, cuFileRead for sync read
+		POSITIONAL_RW funcPositionalWrite; // pwrite, GpuFileTk::write for sync write
+		POSITIONAL_RW funcPositionalRead; // pread, GpuFileTk::read for sync read
 		AIO_RW_PREPPER funcAioRwPrepper; // io_prep_pwrite/io_prep_read for async read/write
 		BLOCK_MODIFIER funcPreWriteBlockModifier; // mod block buf before write (e.g. integrity chk)
 		BLOCK_MODIFIER funcPostReadBlockChecker; // check block buf post read (e.g. integrity check)
-		GPU_MEMCPY_RW funcPreWriteCudaMemcpy; // copy from GPU memory
-		GPU_MEMCPY_RW funcPostReadCudaMemcpy; // copy to GPU memory
-		CUFILE_HANDLE_REGISTER funcCuFileHandleReg; // cuFile handle register
-		CUFILE_HANDLE_DEREGISTER funcCuFileHandleDereg; // cuFile handle deregister
+		GPU_MEMCPY_RW funcPreWriteGpuMemcpy; // copy from GPU memory
+		GPU_MEMCPY_RW funcPostReadGpuMemcpy; // copy to GPU memory
+		GPUFILE_HANDLE_REGISTER funcGpuFileHandleReg; // GPU-direct file handle register
+		GPUFILE_HANDLE_DEREGISTER funcGpuFileHandleDereg; // GPU-direct file handle deregister
 		RW_RATE_LIMITER funcRWRateLimiter; // limit per-thread read or write throughput
 		std::unique_ptr<OffsetGenerator> rwOffsetGen; // r/w offset gen for phase-dependent funcs
 		std::unique_ptr<RandAlgoInterface> randOffsetAlgo; // for random offsets
@@ -218,10 +214,8 @@ class LocalWorker : public Worker
             journal and generations, without widening the AIO_RW_PREPPER/BLOCK_MODIFIER
             signatures. */
 
-#ifdef CUDA_SUPPORT
-		int gpuID{-1}; // GPU ID for this worker, initialized in allocGPUIOBuffer
-		curandGenerator_t gpuRandGen{NULL};
-#endif
+        int gpuID{-1}; // GPU ID for this worker, initialized in allocGPUIOBuffer
+        GpuRandGen gpuRandGen; // for preWriteBufRandRefillGpu, initialized in allocGPUIOBuffer
 
 #ifdef HDFS_SUPPORT
 		hdfsFS hdfsFSHandle{NULL}; // currently referenced hdfs instance
@@ -275,8 +269,8 @@ class LocalWorker : public Worker
         void uninitSpdk();
 		void initThreadFDVec();
 		void uninitThreadFDVec();
-		void initThreadCuFileHandleDataVec();
-		void uninitThreadCuFileHandleDataVec();
+		void initThreadGpuFileHandleDataVec();
+		void uninitThreadGpuFileHandleDataVec();
 		void initThreadMmapVec();
 		void uninitThreadMmapVec();
 		void initThreadPhaseVars();
@@ -325,24 +319,23 @@ class LocalWorker : public Worker
 
 		// for phase function pointers...
 
-		void noOpCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count);
-		void cudaMemcpyGPUToHost(void* hostIOBuf, void* gpuIOBuf, size_t count);
-		void cudaMemcpyHostToGPU(void* hostIOBuf, void* gpuIOBuf, size_t count);
+		void noOpGpuMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count);
+		void gpuMemcpyGpuToHost(void* hostIOBuf, void* gpuIOBuf, size_t count);
+		void gpuMemcpyHostToGpu(void* hostIOBuf, void* gpuIOBuf, size_t count);
 
-		void noOpCuFileHandleReg(int fd, CuFileHandleData& handleData);
-		void noOpCuFileHandleDereg(CuFileHandleData& handleData);
-		void dirModeCuFileHandleReg(int fd, CuFileHandleData& handleData);
-		void dirModeCuFileHandleDereg(CuFileHandleData& handleData);
+		void noOpGpuFileHandleReg(int fd, GpuFileHandleData& handleData);
+		void noOpGpuFileHandleDereg(GpuFileHandleData& handleData);
+		void dirModeGpuFileHandleReg(int fd, GpuFileHandleData& handleData);
+		void dirModeGpuFileHandleDereg(GpuFileHandleData& handleData);
 
         ssize_t preadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t pwriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t pwriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t pwriteRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-        ssize_t cuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-        ssize_t cuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
-        ssize_t cuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
+        ssize_t gpuFileReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t gpuFileWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
+        ssize_t gpuFileWriteAndReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes,
             off_t offset);
-        ssize_t cuFileRWMixWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t hdfsReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t hdfsWriteWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
         ssize_t mmapReadWrapper(size_t fileHandleIdx, void* buf, size_t nbytes, off_t offset);
@@ -380,8 +373,10 @@ class LocalWorker : public Worker
 			off_t fileOffset);
 		void preWriteBufRandRefill(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
 			off_t fileOffset);
-		void preWriteBufRandRefillCuda(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+		void preWriteBufRandRefillGpu(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
 			off_t fileOffset);
+        void preWriteBufRandRefillGpuSync(char* hostIOBuf, char* gpuIOBuf, size_t bufLen,
+            off_t fileOffset);
 
         static void journalFillTileBlock(char* buf, size_t len, off_t blockAlignedOffset,
             uint64_t journalSeed, uint8_t generation);
@@ -449,10 +444,10 @@ class LocalWorker : public Worker
             { ((*this).*funcPreWriteBlockModifier)(hostIOBuf, gpuIOBuf, bufLen, fileOffset); }
         void postReadBlockChecker(char* hostIOBuf, char* gpuIOBuf, size_t bufLen, off_t fileOffset)
             { ((*this).*funcPostReadBlockChecker)(hostIOBuf, gpuIOBuf, bufLen, fileOffset); }
-        void preWriteCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
-            { ((*this).*funcPreWriteCudaMemcpy)(hostIOBuf, gpuIOBuf, count); }
-        void postReadCudaMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
-            { ((*this).*funcPostReadCudaMemcpy)(hostIOBuf, gpuIOBuf, count); }
+        void preWriteGpuMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
+            { ((*this).*funcPreWriteGpuMemcpy)(hostIOBuf, gpuIOBuf, count); }
+        void postReadGpuMemcpy(void* hostIOBuf, void* gpuIOBuf, size_t count)
+            { ((*this).*funcPostReadGpuMemcpy)(hostIOBuf, gpuIOBuf, count); }
         bool rwRateLimiter(size_t rwSize)
             { return ((*this).*funcRWRateLimiter)(rwSize, isInterruptionRequested); }
 

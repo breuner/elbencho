@@ -38,16 +38,16 @@ void S3RdmaCloudianPlugin::checkArgs(const ProgArgs& progArgs)
     if(progArgs.getBenchMode() != BenchMode_S3)
         throw ProgException("Plugin \"" + pluginArg + "\" can only be used with S3.");
 
-    if(progArgs.getUseCuFile() && !progArgs.getUseGPUBufReg() )
+    if(progArgs.getUseGpuFileApi() && !progArgs.getUseGpuFileBufReg() )
         throw ProgException("Plugin \"" + pluginArg + "\" with \"--" ARG_CUFILE_LONG "\" requires "
             "\"--" ARG_GDSBUFREG_LONG "\" (e.g. via \"--" ARG_GPUDIRECTSSTORAGE_LONG "\"), because "
             "the GPU buffers are transferred directly.");
 
-    if(useCuObjHostBufReg && progArgs.getUseGPUBufReg() )
+    if(useCuObjHostBufReg && progArgs.getUseGpuFileBufReg() )
         throw ProgException("Option \"--" ARG_CUOBJHOSTBUFREG_LONG "\" cannot be used together "
             "with \"--" ARG_GDSBUFREG_LONG "\".");
 
-    if(useCuObjHostBufReg && progArgs.getUseCuHostBufReg() )
+    if(useCuObjHostBufReg && progArgs.getUseGpuHostBufReg() )
         throw ProgException("Option \"--" ARG_CUOBJHOSTBUFREG_LONG "\" cannot be used together "
             "with \"--" ARG_CUHOSTBUFREG_LONG "\".");
 }

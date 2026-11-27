@@ -187,6 +187,8 @@ ifeq ($(CYGWIN_SUPPORT), 1)
 
   BACKTRACE_SUPPORT  := 0
   COREBIND_SUPPORT   := 0
+  HIP_SUPPORT        := 0
+  HIPFILE_SUPPORT    := 0
   LIBAIO_SUPPORT     := 0
   LIBNUMA_SUPPORT    := 0
   SYNCFS_SUPPORT     := 0
@@ -208,6 +210,8 @@ ifeq ($(shell uname -s),Darwin)
   CXXFLAGS_BOOST := $(filter-out -DBOOST_STACKTRACE_USE_BACKTRACE, $(CXXFLAGS_BOOST))
 
   COREBIND_SUPPORT   := 0
+  HIP_SUPPORT        := 0
+  HIPFILE_SUPPORT    := 0
   IBVERBS_SUPPORT    := 0
   RDMACM_SUPPORT     := 0
   LIBAIO_SUPPORT     := 0
@@ -372,6 +376,7 @@ FEATURES_STR     := ALTHTTPSVC_SUPPORT=$(ALTHTTPSVC_SUPPORT) BACKTRACE_SUPPORT=$
 	BUILD_DEBUG=$(BUILD_DEBUG) BUILD_LIBFABRIC=$(BUILD_LIBFABRIC) BUILD_STATIC=$(BUILD_STATIC) \
 	COREBIND_SUPPORT=$(COREBIND_SUPPORT) CUDA_SUPPORT=$(CUDA_SUPPORT) \
 	CUFILE_SUPPORT=$(CUFILE_SUPPORT) CYGWIN_SUPPORT=$(CYGWIN_SUPPORT) HDFS_SUPPORT=$(HDFS_SUPPORT) \
+	HIP_SUPPORT=$(HIP_SUPPORT) HIPFILE_SUPPORT=$(HIPFILE_SUPPORT) \
 	IBVERBS_SUPPORT=$(IBVERBS_SUPPORT) LIBAIO_SUPPORT=$(LIBAIO_SUPPORT) \
 	LIBFABRIC_SUPPORT=$(LIBFABRIC_SUPPORT) LIBNUMA_SUPPORT=$(LIBNUMA_SUPPORT) \
 	MPI_SUPPORT=$(MPI_SUPPORT) \
@@ -508,6 +513,18 @@ ifeq ($(CUDA_SUPPORT),1)
 	$(info [OPT] CUDA support enabled$(if $(BUILD_VERBOSE), (CUDA_INCLUDE_PATH: $(CUDA_INCLUDE_PATH))))
 else
 	$(info [OPT] CUDA support disabled)
+endif
+
+ifeq ($(HIPFILE_SUPPORT),1)
+	$(info [OPT] HIPFILE support enabled$(if $(BUILD_VERBOSE), (HIPFILE_INCLUDE_PATH: $(HIPFILE_INCLUDE_PATH))))
+else
+	$(info [OPT] HIPFILE support disabled)
+endif
+
+ifeq ($(HIP_SUPPORT),1)
+	$(info [OPT] HIP support enabled$(if $(BUILD_VERBOSE), (HIP_INCLUDE_PATH: $(HIP_INCLUDE_PATH))))
+else
+	$(info [OPT] HIP support disabled)
 endif
 
 ifeq ($(S3_SUPPORT),1)
@@ -700,9 +717,11 @@ help:
 	@echo '                             libfabric. Happens automatically if no system'
 	@echo '                             libfabric is found or for BUILD_STATIC=1. (Default: 0)'
 	@echo '   CUDA_SUPPORT=0|1        - Manually enable (=1) or disable (=0) support for'
-	@echo '                             CUDA to work with GPU memory. By default, CUDA'
+	@echo '                             CUDA to work with Nvidia GPU memory. By default, CUDA'
 	@echo '                             support will be enabled when CUDA development files'
 	@echo '                             are found. (cuda_runtime.h and libcudart.so)'
+	@echo '                             CUDA and HIP are mutually exclusive. If both are'
+	@echo '                             found, CUDA is used unless HIP_SUPPORT=1 is given.'
 	@echo '   CUFILE_SUPPORT=0|1      - Manually enable (=1) or disable (=0) support for'
 	@echo '                             GPUDirect Storage (GDS) through the cuFile API.'
 	@echo '                             By default, GDS support will be enabled when GDS'
@@ -710,6 +729,16 @@ help:
 	@echo '                             libcufile.so)'
 	@echo '   CYGWIN_SUPPORT=0|1      - Build for Windows via Cygwin (auto-detected there)'
 	@echo '                             environment. (Default: 0)'
+	@echo '   HIP_SUPPORT=0|1         - Manually enable (=1) or disable (=0) support for'
+	@echo '                             HIP to work with AMD GPU memory. By default, HIP'
+	@echo '                             support will be enabled when ROCm development files'
+	@echo '                             are found and CUDA is not found. (hip/hip_runtime_api.h,'
+	@echo '                             libamdhip64.so and libhiprand.so under /opt/rocm*)'
+	@echo '   HIPFILE_SUPPORT=0|1     - Manually enable (=1) or disable (=0) support for'
+	@echo '                             GPU-direct storage access on AMD GPUs through the'
+	@echo '                             hipFile API. By default, hipFile support will be'
+	@echo '                             enabled when hipFile development files are found.'
+	@echo '                             (hipfile.h and libhipfile.so)'
 	@echo '   HDFS_SUPPORT=0|1        - Build with support for Hadoop HDFS. HADOOP_HOME'
 	@echo '                             and JAVA_HOME need to be set correctly so that'
 	@echo '                             $$HADDOP_HOME/include/hdfs.h and'
@@ -768,6 +797,14 @@ help:
 	@echo '                                (Default: search under /usr/local/cuda*")'
 	@echo '   CUFILE_LIB_PATH=<path>     - Path to directory containing libcufile.so.'
 	@echo '                                (Default: search under /usr/local/cuda*")'
+	@echo '   HIP_INCLUDE_PATH=<path>    - Path to directory containing hip/hip_runtime_api.h.'
+	@echo '                                (Default: search under /opt/rocm*")'
+	@echo '   HIP_LIB_PATH=<path>        - Path to directory containing libamdhip64.so.'
+	@echo '                                (Default: search under /opt/rocm*")'
+	@echo '   HIPFILE_INCLUDE_PATH=<path> - Path to directory containing hipfile.h.'
+	@echo '                                (Default: search under /opt/rocm*")'
+	@echo '   HIPFILE_LIB_PATH=<path>    - Path to directory containing libhipfile.so.'
+	@echo '                                (Default: search under /opt/rocm*")'
 	@echo
 	@echo 'Targets:'
 	@echo '   all (default)     - Build executable'
